@@ -236,7 +236,7 @@ it('the grinder table covers both configured slots, $1a and $1f', () => {
 
 describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', () => {
   for (const [slot, want] of Object.entries(GRINDERS)) {
-    it(`slot $${Number(slot).toString(16)}: ${want.length} placements drawn at their list position, no line walk (D91)`, () => {
+    it(`slot $${Number(slot).toString(16)}: ${want.length} placements drawn where INIT leaves them (R16), no line walk (D91)`, () => {
       const path = romPath(VANILLA)
       const bytes = new Uint8Array(readFileSync(path))
       const r = mapSprites(new L1ModelCache(), bytes, path, Number(slot))
@@ -249,10 +249,13 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', (
       const got = r.sprites.filter(d => d.id === 0x67)
       expect(got).toHaveLength(want.length)
       got.forEach((d, i) => {
-        // INIT runs for the picture (D139 D); its -$140 X move (bank_01.asm:11793-11799) is re-run with the
-        // camera moved, so a grinder the INIT-on table has no anchor for (null) still draws, at its list spot.
+        // INIT runs for the picture (D139 D); its X move (bank_01.asm:11788-11809: bit 4 of X clear subtracts $140, set
+        // adds $0F) is re-run with the camera moved, so a grinder the INIT-on table has no anchor for (null) still
+        // draws, where INIT leaves it (R16); the list spot is the DTO's stored tile.
         expect(d.status, `#${i}`).toBe('drawn')
-        expect([d.x, d.y], `#${i}`).toEqual([list[i]!.x * 16, list[i]!.y * 16])
+        const [lx, ly] = [list[i]!.x * 16, list[i]!.y * 16]
+        expect([d.x, d.y], `#${i}`).toEqual([lx + (lx & 0x10 ? 15 : -320), ly])
+        expect(d.stored, `#${i}`).toEqual({ x: lx, y: ly })
       })
     }, 120_000)
 
@@ -447,7 +450,7 @@ const TRACE_SLOT_7 = join(TOOLS_ROOT, 'fixtures', 'sprite-trace', SPRITE_TRACE_S
 describe.skipIf(!hasRom(VANILLA) || !existsSync(TRACE_SLOT_7))(
   'Mesen capture, slot $1F grinder in sprite slot 7',
   () => {
-    it('the INIT-on run is drawn where the capture left it after the line pull, (431,336); the picture at rest is not', () => {
+    it('the INIT-on run is drawn where the capture left it after the line pull, (431,336); the picture at rest is where INIT left it, (415,336)', () => {
       // The capture's WRAM snapshots are 8 KiB per call, taken as the next call starts. Sprite slot 7 reads
       // (400,336) after the load, (415,336) after INIT, (419,340) after the first MAIN and (431,336) after the second.
       const calls = JSON.parse(readFileSync(join(TRACE_SLOT_7, 'calls.json'), 'utf8')) as { slot: number; kind: string; wram: number }[] // prettier-ignore
@@ -463,7 +466,7 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(TRACE_SLOT_7))(
       const lastWram = next!.wram
       expect(lastWram).toBe(mains[1]!.wram + 1)
       expect(at(lastWram)).toEqual([431, 336])
-      // The INIT-on run (the default; play/simulate) reaches the capture's spot; the map's picture does not (D91).
+      // The INIT-on run (the default; play/simulate) reaches the capture's spot; the map's picture is the capture's spot after INIT (R16).
       const path = romPath(VANILLA)
       const bytes = new Uint8Array(readFileSync(path))
       const rom = new SmwRom(RomFile.fromBytes(path, Buffer.from(bytes)))
@@ -475,7 +478,7 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(TRACE_SLOT_7))(
       const rest = draws()
       if (!played.ok || !rest.ok) throw new Error('grinder not drawn')
       expect([played.anchor!.x, played.anchor!.y]).toEqual(at(lastWram))
-      expect([rest.anchor!.x, rest.anchor!.y]).toEqual([first.x * 16, first.y * 16])
+      expect([rest.anchor!.x, rest.anchor!.y]).toEqual(at(mains[0]!.wram))
     }, 120_000)
   },
 )

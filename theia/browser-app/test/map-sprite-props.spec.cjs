@@ -170,7 +170,7 @@ test('clicking a sprite opens the Properties panel with its id, name, position, 
     await expect(p.locator('[data-field="id"]')).toHaveText(hex(s.id))
     await expect(p.locator('[data-field="name"]')).toHaveText(s.name)
     await expect(p.locator('[data-field="position"]')).toHaveText(
-      `Column ${Math.floor(s.x / 16)}, row ${Math.floor(s.y / 16)}`,
+      `Column ${Math.floor((s.stored ?? s).x / 16)}, row ${Math.floor((s.stored ?? s).y / 16)}`,
     )
     // The map view's own list: same part count, same palette rows.
     await expect(p.locator('[data-field="parts"] li')).toHaveCount(s.parts.length)
@@ -341,4 +341,46 @@ test('a sprite reload (an edit or refresh) clears the panel', async ({ page }) =
     getSvc('WidgetManager').tryGetWidget('hackbench.map-view', { index }).refresh()
   }, SLOT)
   await expect(panel(page).locator('[data-subject="none"]')).toHaveText('No sprite selected')
+})
+
+// R16 / D85 B: a chainsaw is drawn where its own setup code leaves it (InitLineGuidedSpr, bank_01.asm:11788-11809); the
+// tile the level stores it on is outlined while it is selected, and the panel says how far it moved.
+// Plant: delete the `stored-tile` element from the map view and the count assertion goes red; make the note constant
+// and the distance assertion goes red for the odd/even column that does not match.
+test('a chainsaw drawn away from its stored tile outlines that tile while selected, and the panel says how far it moved', async ({
+  page,
+}) => {
+  const SAW_MAP = 0x00f
+  const map = await openMap(page, SAW_MAP)
+  const saws = map.stack.filter(s => s.id === 0x65 && s.status === 'drawn' && s.stored && map.own(s)) // prettier-ignore
+  expect(saws.length, 'drawn chainsaws with a stored tile on map $00F').toBeGreaterThan(0)
+  // One of each column kind when the map has both: the distance is the run's, 320 px left or 15 px right.
+  const picks = [saws.find(s => s.stored.x & 0x10), saws.find(s => !(s.stored.x & 0x10))].filter(Boolean) // prettier-ignore
+  const [mapW] = [map.reply.orientation === 'vertical' ? map.reply.width : map.reply.width * map.reply.screenCount] // prettier-ignore
+  for (const saw of picks) {
+    const dx = saw.x - saw.stored.x
+    expect(dx).toBe(saw.stored.x & 0x10 ? 15 : -320)
+    expect(saw.y).toBe(saw.stored.y)
+    const at = map.own(saw)
+    await map.click(at.x, at.y)
+    const tile = page.locator(`${rootOf(SAW_MAP)} [data-control="stored-tile"]`)
+    await expect(tile).toHaveCount(1)
+    const g = await page.evaluate(
+      ({ edge, tile }) => {
+        const [e, t] = [document.querySelector(edge), document.querySelector(tile)]
+        const [er, tr] = [e.getBoundingClientRect(), t.getBoundingClientRect()]
+        return { left: tr.left - er.left, top: tr.top - er.top, w: tr.width, edgeW: er.width }
+      },
+      { edge: stripOf(SAW_MAP), tile: `${rootOf(SAW_MAP)} [data-control="stored-tile"]` },
+    )
+    const zoom = g.edgeW / mapW
+    expect(Math.abs(g.left - saw.stored.x * zoom)).toBeLessThan(2)
+    expect(Math.abs(g.top - saw.stored.y * zoom)).toBeLessThan(2)
+    expect(Math.abs(g.w - 16 * zoom)).toBeLessThan(2)
+    const words = `${Math.abs(dx)} px to the ${dx < 0 ? 'left' : 'right'}`
+    await expect(panel(page).locator('[data-field="note"]').filter({ hasText: words })).toHaveCount(1) // prettier-ignore
+  }
+  const e = map.emptyPixel()
+  await map.click(e.x, e.y)
+  await expect(page.locator(`${rootOf(SAW_MAP)} [data-control="stored-tile"]`)).toHaveCount(0)
 })

@@ -1,7 +1,8 @@
 /**
  * The map view draws each sprite at rest (#980): its start-up code (INIT) runs for the picture only (D139 D,
  * D138 A), and the drawing stays at the placed (list) position (D134, D91), so INIT's moves wait for
- * play/simulate. Vanilla ROM; skipped, never faked, without it.
+ * play/simulate. Except the chainsaws and grinders ($65-$68), which are drawn where their own INIT leaves them
+ * (R16 / D85 B); their list position is the DTO's `stored`. Vanilla ROM; skipped, never faked, without it.
  *
  * The sprite list is not served over the RPC, so the placed position is read as the list's own grid: a list
  * entry is a map tile (x and y multiples of 16), while the INIT-on anchor is off it (a chainsaw or grinder
@@ -65,7 +66,10 @@ async function spritesOf(page, index, id) {
   return found
 }
 
-const offGrid = s => `#${s.index} at ${s.x},${s.y}`
+// The stored (list) position: a chainsaw or grinder is drawn where its setup code leaves it (R16), so its DTO carries the
+// list position as `stored`; every other sprite is drawn on it.
+const listPos = s => s.stored ?? s
+const offGrid = s => `#${s.index} at ${listPos(s).x},${listPos(s).y}`
 const at = list => list.map(([i, x, y]) => `#${i} at ${x},${y}`)
 const placedOf = found => found.map(offGrid).sort()
 
@@ -121,22 +125,25 @@ const GRINDERS_01A = [
   [18, 2224, 288],
 ]
 
-test('map $00F: every chainsaw sits at its placed tile, not moved by its setup code', async ({
+test('map $00F: every chainsaw is stored on its placed tile and drawn where its setup code leaves it', async ({
   page,
 }) => {
   const saws = await spritesOf(page, 0x00f, 0x65)
   expect(saws.filter(s => s.status !== 'drawn').map(offGrid)).toEqual([])
-  expect(saws.filter(s => s.x % 16 !== 0 || s.y % 16 !== 0).map(offGrid)).toEqual([])
+  expect(saws.filter(s => listPos(s).x % 16 !== 0 || listPos(s).y % 16 !== 0).map(offGrid)).toEqual([]) // prettier-ignore
   expect(placedOf(saws)).toEqual(at(CHAINSAWS_00F).sort())
+  // ... and drawn where INIT leaves them: 320 px left of an even column, 15 px right of an odd one (R16).
+  expect(saws.filter(s => s.x - s.stored.x !== (s.stored.x & 0x10 ? 15 : -320)).map(offGrid)).toEqual([]) // prettier-ignore
 })
 
-test('map $01A: every grinder sits at its placed tile, not moved by its setup code', async ({
+test('map $01A: every grinder is stored on its placed tile and drawn where its setup code leaves it', async ({
   page,
 }) => {
   const grinders = await spritesOf(page, 0x01a, 0x67)
   expect(grinders.filter(s => s.status !== 'drawn').map(offGrid)).toEqual([])
-  expect(grinders.filter(s => s.x % 16 !== 0 || s.y % 16 !== 0).map(offGrid)).toEqual([])
+  expect(grinders.filter(s => listPos(s).x % 16 !== 0 || listPos(s).y % 16 !== 0).map(offGrid)).toEqual([]) // prettier-ignore
   expect(placedOf(grinders)).toEqual(at(GRINDERS_01A).sort())
+  expect(grinders.filter(s => s.x - s.stored.x !== (s.stored.x & 0x10 ? 15 : -320)).map(offGrid)).toEqual([]) // prettier-ignore
 })
 
 test('map $106: the P-switch draws its picture at its placed spot', async ({ page }) => {

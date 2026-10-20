@@ -9,7 +9,12 @@ import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/Sprite
 import { parseLevelSprites, type LevelSprite } from '../../../../src/rom/LevelParser'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
-import { frameRun, interpRunner } from '../../../../theia/extension/src/node/map-sprites'
+import { shiftNote } from '../../../../theia/extension/src/browser/sprite-props'
+import {
+  frameRun,
+  interpRunner,
+  modelResult,
+} from '../../../../theia/extension/src/node/map-sprites'
 import { L1ModelCache } from '../../../../theia/extension/src/node/map-screen'
 import { VANILLA, hasRom, romPath } from '../../support/corpus'
 import { grinderShape } from '../../support/syntheticGrinder'
@@ -61,21 +66,77 @@ describe.skipIf(!hasRom(VANILLA))('at rest on vanilla', () => {
     [0x0f, 0x65, 30],
     [0x1a, 0x67, 13],
   ] as const)
-    it(`every $${id.toString(16)} on map $${map.toString(16)} draws at its list position`, () => {
+    it(`every $${id.toString(16)} on map $${map.toString(16)} draws where its INIT leaves it: 320 px left (even column) or 15 px right (odd), R16`, () => {
       const got = placed(map, id)
       expect(got.length).toBeGreaterThan(0)
       let n = 0
       for (const { s, r } of got) {
         if (!('m' in r)) throw new Error('direct answer')
         expect(r.m.refusal).toBeUndefined()
-        expect([r.m.anchor?.x, r.m.anchor?.y]).toEqual([s.x * 16, s.y * 16])
+        // The oracle is InitLineGuidedSpr (bank_01.asm:11788-11809): bit 4 of X clear subtracts $140, set adds $0F.
+        // The run supplies the number; this only checks that it agrees.
+        const dx = (s.x * 16) & 0x10 ? 15 : -320
+        expect([r.m.anchor?.x, r.m.anchor?.y]).toEqual([s.x * 16 + dx, s.y * 16])
         expect(r.m.anchor).toMatchObject({ rawX: s.x * 16, rawY: s.y * 16 })
+        expect(r.m.shifted).toBe(true)
         if (r.m.chosen !== undefined) n++
         else expect(r.m.emptyReason).toMatch(/drew no OAM tile/)
       }
       expect(n).toBe(drawn)
     })
 })
+
+describe('a line-guided sprite whose INIT shifts it is drawn where INIT left it (R16, synthetic cart)', () => {
+  const shifting = buildSyntheticRom({ grinderInitShifts: true })
+  const opts = { atRest: true, grinderDispatch: grinderShape(shifting) }
+  it("id 103 ($67): the picture stands on INIT's spot, the list spot is kept as raw, and the model says so", () => {
+    const m = runOnce(shifting, 103, SPRITE_SEED, opts)
+    expect(m.anchor).toMatchObject({ x: 0x88, y: 0x80, rawX: 0x80, rawY: 0x80 })
+    expect(m.shifted).toBe(true)
+    expect(m.chosen).toBe(0)
+  })
+  it('the same INIT on an id the rule is not for (31) leaves the picture on the list spot', () => {
+    const m = runOnce(shifting, 31, SPRITE_SEED, opts)
+    expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80 })
+    expect(m.shifted).toBeUndefined()
+  })
+  it('a handler the gate refuses (not the stock calls) keeps the list spot: no shift without a verified first frame', () => {
+    const altered = buildSyntheticRom({ grinderInitShifts: true, alteredGrinder: true })
+    const m = runOnce(altered, 103, SPRITE_SEED, { atRest: true, grinderDispatch: grinderShape(altered) }) // prettier-ignore
+    expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80 })
+    expect(m.shifted).toBeUndefined()
+  })
+  it('the DTO carries the stored tile, and the properties note says how far, from the same run', () => {
+    const res = modelResult(runOnce(shifting, 103, SPRITE_SEED, opts))
+    expect(res).toMatchObject({
+      ok: true,
+      anchor: { x: 0x88, y: 0x80 },
+      stored: { x: 0x80, y: 0x80 },
+    })
+    expect(shiftNote({ x: 0x88, y: 0x80, stored: { x: 0x80, y: 0x80 } })).toMatch(
+      /8 px to the right/,
+    )
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))(
+  'which sprites are drawn away from their list position (R16)',
+  () => {
+    const seed3 = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
+    it('only $65-$68 whose INIT shifts them; the other line-guided ids and the rest stay on the list position', () => {
+      const r = RomFile.load(romPath(VANILLA))
+      const got = [0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x33, 0x0d].map(id => {
+        const m = runOnce(r, id, seed3, { atRest: true })
+        return [id, m.shifted === true, m.anchor?.x === 0x80 - 320]
+      })
+      // The placed column here is even (x $80 has bit 4 clear): -320 for the four, nothing for the rest.
+      expect(got.filter(([, shifted]) => shifted).map(([id]) => id)).toEqual([
+        0x65, 0x66, 0x67, 0x68,
+      ])
+      expect(got.filter(([, , atShift]) => atShift).map(([id]) => id)).toEqual([0x65, 0x66, 0x67, 0x68]) // prettier-ignore
+    })
+  },
+)
 
 describe('a sprite INIT moves off the screen it was run on (camera re-run)', () => {
   // INIT adds 256 px to X and MAIN draws only on screen, as GetDrawInfo does: the first run culls it.

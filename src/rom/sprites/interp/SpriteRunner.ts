@@ -170,6 +170,8 @@ export interface SpriteModel {
   lineStepReason?: string
   /** Why a $65-$68 sprite's INIT is not the stock InitLineGuidedSpr: its shift is unverified, though the interpreter ran it. */
   lineInitReason?: string
+  /** True when the at-rest picture is drawn where INIT left the sprite, not at its list position (`anchor` vs `rawX`, `rawY`). */
+  shifted?: boolean
   /** True for $67 on a vanilla-shaped handler: each pass draws where the pass before left the sprite (`PassResult.origin`). */
   snaps?: boolean
   dependsOn: DependsOn[]
@@ -687,8 +689,18 @@ export function runOnce(
       else if (num === 0x67) model.chosen = 1
       else model.lineStepReason = 'the third pass drew nothing or the second did not move the sprite: kept the first drawn pass' // prettier-ignore
     }
+    // At rest the picture is the placed spot (D91), except for the sprites whose own INIT shifts them before their first
+    // frame (InitLineGuidedSpr, bank_01.asm:11788-11809): the game draws those where INIT left them, so the run's
+    // post-INIT spot is shown (owner ruling R16 / D85 B). Interpreted, not a constant: the shift is whatever INIT did.
+    const firstFrame = atRest && snaps && INIT_SHIFT_IDS.has(num)
     if (snaps && !atRest && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
+    else if (firstFrame && (anchor.x !== placed.x || anchor.y !== placed.y)) {
+      // A sprite left of the map's edge after the shift is a negative X in the game's 16 bits.
+      const signed = (v: number) => (v & 0x8000 ? v - 0x10000 : v)
+      model.anchor = { ...model.anchor!, x: signed(anchor.x), y: signed(anchor.y) }
+      model.shifted = true
+    }
     if (model.passes.every(p => p.parts.length === 0))
       model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (${atRest ? "it drew no tile at rest; whether it shows in play was not checked" : 'invisible by design, or the seed lacks state'})` // prettier-ignore
   } catch (e) {

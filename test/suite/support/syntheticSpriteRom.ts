@@ -27,6 +27,8 @@ import { EERIE_HANDLER, putEeries } from './syntheticEeries'
 import { putGrinderRoutines } from './syntheticGrinder'
 
 export interface SyntheticOptions {
+  /** Ids 31 and 103 get id 0's INIT (adds `initShift` to X), so the line-guided id moves before its first frame. */
+  grinderInitShifts?: boolean
   /** ADC operand of id 0's INIT shift. */
   initShift?: number
   /** Id 0's INIT also adds 256 to X, and its MAIN draws nothing unless it is within 0-255 px right of the camera (GetDrawInfo's cull). */
@@ -270,6 +272,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[27] = 0x8e40
   mainTable[31] = 0x9300
   mainTable[32] = 0x92a0
+  if (o.grinderInitShifts) initTable[31] = initTable[103] = 0x8610
   mainTable[103] = 0x9200
   for (const id of [98, 104]) mainTable[id] = 0x9600
   for (const id of [100, 101, 102]) mainTable[id] = 0x9610
