@@ -703,9 +703,11 @@ export function runOnce(
         model.anchor = { ...model.anchor!, ...at }
         model.initAt = { x: signed(anchor.x), y: signed(anchor.y) }
         model.shifted = true
-        // A sprite that moves before its first frame is trusted only when its INIT is a stock line-guided one.
+        // A sprite whose INIT moved it is trusted only when its INIT is a stock line-guided one; one moved only by its
+        // first step has no INIT move to check.
         if (
           inits?.ok &&
+          (model.initAt.x !== signed(placed.x) || model.initAt.y !== signed(placed.y)) &&
           !isStockRoutine(rom, inits.handler.address, opts.stockInits ?? STOCK_INITS)
         )
           model.lineInitReason = `its INIT (at $${inits.handler.address.toString(16)}) is not a stock line-guided INIT, so the move it makes before the first frame is unverified`

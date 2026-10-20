@@ -163,6 +163,24 @@ describe('first frame at rest on synthetic carts: the run decides (R16, findings
     expect(shiftNote({ ...dto.anchor, stored: dto.stored, afterInit: dto.afterInit })).toMatch(/start-up code moves it 8 px to the right, and its first step 4 px to the right more/) // prettier-ignore
   })
 
+  it('a sprite moved only by its first step is not flagged: its INIT did not move it, so the INIT is not checked', () => {
+    // {grinderDrawsFromPass1}: INIT is a bare return, which no stock list names; before the fix this was flagged.
+    const alone = rest({ grinderDrawsFromPass1: true })
+    expect(alone.shifted).toBe(true)
+    expect(alone.lineInitReason).toBeUndefined()
+    expect((modelResult(alone) as { unverified?: string }).unverified ?? '').not.toMatch(/INIT/)
+    // A $62 (list id 98) whose INIT does not move it but whose first draw is on pass 1: also not flagged, and with a
+    // stock list that does not name its INIT.
+    const rom = buildSyntheticRom({ grinderAliases: true, grinderDrawsFromPass1: true })
+    const sixtytwo = runOnce(rom, 98, SPRITE_SEED, { atRest: true, grinderDispatch: grinderShape(rom), stockInits: [] }) // prettier-ignore
+    expect(sixtytwo.shifted).toBe(true)
+    expect(sixtytwo.lineInitReason).toBeUndefined()
+    // The same $62 with an INIT that does move it, and a stock list that does not name it, is flagged.
+    const moved = buildSyntheticRom({ grinderAliases: true, grinderInitDelta: [8, 0] })
+    const flagged = runOnce(moved, 98, SPRITE_SEED, { atRest: true, grinderDispatch: grinderShape(moved), stockInits: [] }) // prettier-ignore
+    expect(flagged.lineInitReason).toMatch(/not a stock line-guided INIT/)
+  })
+
   it('when the first drawing pass is above 0 the anchor is the origin its parts are measured from (finding 3)', () => {
     const m = rest({ grinderInitShifts: true, grinderDrawsFromPass1: true })
     expect(m.chosen).toBe(1)

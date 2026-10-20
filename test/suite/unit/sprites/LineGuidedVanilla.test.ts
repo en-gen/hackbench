@@ -110,6 +110,11 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla line-guided placement (#792)', 
     })
   }, 600_000)
 
+  it('at rest, every vanilla placement draws on its first pass, so a later first draw (and its first step) shows for none', () => {
+    expect(table()).toHaveLength(108)
+    expect(table().filter(r => r.rest.chosen !== 0)).toEqual([])
+  })
+
   it('INIT-on: each one the pick moved sits on a line tile (Map16 $76-$99), and on a straight one at its edge', () => {
     for (const r of table()) {
       const [a, b] = [r.play.anchor!, r.playOff.anchor!]

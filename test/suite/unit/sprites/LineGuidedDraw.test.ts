@@ -596,6 +596,21 @@ describe('the gate and the INIT check, branch by branch (synthetic carts, findin
       return runOnce(rom, id, SEED, { atRest: true, grinderDispatch: grinderShape(rom), stockInits: stocks }) // prettier-ignore
     }
 
+    it('two stock INITs where only the second matches: not flagged (a dropped second digest, or `every` for `some`, fails here)', () => {
+      const bogus = { len: 31, sha: '0'.repeat(64) }
+      expect(
+        rest(103, { grinderInitDelta: [8, 0] }, [bogus, STOCK[0]!]).lineInitReason,
+      ).toBeUndefined()
+      // And with the matching one dropped it is flagged, so the list is what decides.
+      expect(rest(103, { grinderInitDelta: [8, 0] }, [bogus]).lineInitReason).toMatch(
+        /not a stock line-guided INIT/,
+      )
+    })
+
+    it('the production list names both stock INITs, 42 and 41 bytes', () => {
+      expect(STOCK_INITS.map(r => r.len)).toEqual([42, 41])
+    })
+
     it('a stock INIT that moves the sprite is not flagged; a patched one is flagged and still runs', () => {
       expect(rest(103, { grinderInitDelta: [8, 0] }).lineInitReason).toBeUndefined()
       const patched = rest(103, { grinderInitDelta: [12, 0] })

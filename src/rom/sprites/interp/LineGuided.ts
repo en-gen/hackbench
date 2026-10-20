@@ -138,6 +138,14 @@ function roleAt(bus: Bus, routines: DispatchShape['routines'], at: number): stri
   return null
 }
 
+/** Takes a JSR/JSL return by hand: the callee's body is not part of this check. */
+function skipReturn(cpu: ReturnType<typeof smwMachine>['cpu'], bus: Bus, op: number): void {
+  const ret = bus.read(cpu.s + 1) | (bus.read(cpu.s + 2) << 8)
+  if (op === JSL) cpu.pb = bus.read(cpu.s + 3)
+  cpu.s = (cpu.s + (op === JSL ? 3 : 2)) & 0xffff
+  cpu.pc = (ret + 1) & 0xffff
+}
+
 /** Runs from `handler` in `slot` until the line step; null when the calls before it were `expect`'s, else why not. A call is stepped over. */
 function drive(
   m: ReturnType<typeof smwMachine>,
@@ -176,10 +184,7 @@ function drive(
       if (want[seen.length] !== 'interact' || shape.routines.interact)
         return `it calls $${hex(at)}, which is not a stock routine here (out of order, or unverified)`
       seen.push('interact')
-      const back = bus.read(cpu.s + 1) | (bus.read(cpu.s + 2) << 8)
-      if (op === JSL) cpu.pb = bus.read(cpu.s + 3)
-      cpu.s = (cpu.s + (op === JSL ? 3 : 2)) & 0xffff
-      cpu.pc = (back + 1) & 0xffff
+      skipReturn(cpu, bus, op)
       continue
     }
     if (role === 'step')
@@ -187,10 +192,7 @@ function drive(
     if (!call) return `it jumps to the ${role} routine instead of calling it`
     // A call: take its return by hand, since the routine's own body is not part of this check.
     if (role !== 'prelude') seen.push(role)
-    const ret = bus.read(cpu.s + 1) | (bus.read(cpu.s + 2) << 8)
-    if (op === JSL) cpu.pb = bus.read(cpu.s + 3)
-    cpu.s = (cpu.s + (op === JSL ? 3 : 2)) & 0xffff
-    cpu.pc = (ret + 1) & 0xffff
+    skipReturn(cpu, bus, op)
   }
   return 'it did not reach the line step within the step budget'
 }
