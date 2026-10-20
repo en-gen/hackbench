@@ -342,17 +342,22 @@ describe('rom-provenance (#812): a "taken from the game" comment over an inline 
     const files = execFileSync('git', ['ls-files'], { cwd: repoRoot, encoding: 'utf8' })
       .split('\n')
       .filter(f => /\.(ts|tsx|js|mjs|cjs|md|json|css|lua|sh|yml|yaml)$/.test(f))
-    const read = await Promise.all(
-      files.map(f =>
-        fs.promises.readFile(path.join(repoRoot, f)).then(
-          buf => ({ f, buf }),
-          (err: NodeJS.ErrnoException) => {
-            if (err.code === 'ENOENT') return null // listed but absent from the working tree
-            throw err
-          },
-        ),
-      ),
-    )
+    // A bounded pool: one readFile per file at once could hit EMFILE on a
+    // runner with a low descriptor limit.
+    const read: ({ f: string; buf: Buffer } | null)[] = new Array(files.length).fill(null)
+    let next = 0
+    const worker = async () => {
+      while (next < files.length) {
+        const i = next++
+        try {
+          read[i] = { f: files[i], buf: await fs.promises.readFile(path.join(repoRoot, files[i])) }
+        } catch (err) {
+          // listed but absent from the working tree; anything else is real
+          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: 16 }, worker))
     const hits: string[] = []
     let scanned = 0
     for (const r of read) {
@@ -426,6 +431,21 @@ describe('rom-provenance (#812): a "taken from the game" comment over an inline 
     for (const t of texts) {
       const full = checkTextContent('x.ts', t).some(h => h.rule === 'rom-provenance')
       expect(checkRomProvenance('x.ts', t), JSON.stringify(t)).toBe(full)
+    }
+    // Independent of checkTextContent: if both checkers lose a phrase they still
+    // agree, so pin the verdict per phrase. Only the negated phrase stays clean.
+    for (const a of alternatives) {
+      const want = !a.startsWith('not ')
+      for (const v of [a, a.toUpperCase()]) {
+        expect(
+          checkRomProvenance(
+            'x.ts',
+            `// ${v}
+${lit}`,
+          ),
+          v,
+        ).toBe(want)
+      }
     }
     // The sweep must hold both verdicts or it proves nothing.
     expect(new Set(texts.map(t => checkRomProvenance('x.ts', t)))).toEqual(new Set([true, false]))
