@@ -401,16 +401,18 @@ export function modelResult(m: RunModel): SpriteDrawResult {
   if (!m.anchor || !pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
   // The at-rest picture of a sprite whose INIT shifts it is drawn where INIT left it; its list position is the stored tile.
   const stored = m.shifted ? { stored: { x: m.anchor.rawX, y: m.anchor.rawY } } : {}
-  const initNote = m.shifted && m.lineInitReason ? { unverified: m.lineInitReason } : {}
   return {
     ok: true,
     parts: interpParts(pass.parts),
     anchor: { x: m.anchor.x, y: m.anchor.y },
     ...stored,
-    ...initNote,
     runtimePalette: pass.palette,
     ...(uploads?.length ? { uploads } : {}),
     ...u,
+    // A patched INIT matters to the picture only when it moved the sprite; the generic-seed note and this one both stand.
+    ...(m.shifted && m.lineInitReason
+      ? { unverified: [u.unverified, m.lineInitReason].filter(Boolean).join('; ') }
+      : {}),
     identity: { spriteId: m.id, mainHandler: 0, initHandler: 0, status: 'vanilla' },
   }
 }

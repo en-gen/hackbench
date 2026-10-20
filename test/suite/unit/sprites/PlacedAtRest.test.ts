@@ -119,21 +119,78 @@ describe('a line-guided sprite whose INIT shifts it is drawn where INIT left it 
   })
 })
 
+describe('first frame at rest on synthetic carts: the run decides (R16, findings 2-4)', () => {
+  const at = (x: number, y: number) => withSeed({ slot: 3, sprite: { x, y } }, SPRITE_SEED)
+  const rest = (o: Parameters<typeof buildSyntheticRom>[0], seed = SPRITE_SEED) => {
+    const rom = buildSyntheticRom(o)
+    return runOnce(rom, 103, seed, { atRest: true, grinderDispatch: grinderShape(rom) })
+  }
+
+  it('a gated line-guided sprite whose INIT does not move it is not shifted, and carries no stored tile', () => {
+    const m = rest({})
+    expect(m.shifted).toBeUndefined()
+    expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80 })
+    expect(modelResult(m)).not.toHaveProperty('stored')
+  })
+
+  it('one whose INIT moves it is, by exactly what INIT did (+8, then -$140 reaching a negative X)', () => {
+    expect(rest({ grinderInitShifts: true }).anchor).toMatchObject({ x: 0x88, y: 0x80 })
+    // Signed X (mutant: the 16-bit value left unsigned would read 65280): near the left edge, -$140 gives -$100.
+    const left = rest({ grinderInitDelta: [-0x140, 0] }, at(0x40, 0x80))
+    expect(left.anchor).toMatchObject({ x: -0x100, y: 0x80, rawX: 0x40 })
+    expect(left.shifted).toBe(true)
+    expect(left.chosen).toBe(0)
+  })
+
+  it('an INIT that sets Y negative stands on the negative Y (signed Y)', () => {
+    const up = rest({ grinderInitDelta: [0, -0x80] }, at(0x80, 0x40))
+    expect(up.anchor).toMatchObject({ x: 0x80, y: -0x40, rawY: 0x40 })
+    expect(up.shifted).toBe(true)
+    expect(shiftNote({ x: 0x80, y: -0x40, stored: { x: 0x80, y: 0x40 } })).toMatch(/128 px up/)
+  })
+
+  it('when the first drawing pass is above 0 the anchor is the origin its parts are measured from (finding 3)', () => {
+    const m = rest({ grinderInitShifts: true, grinderDrawsFromPass1: true })
+    expect(m.chosen).toBe(1)
+    expect(m.shifted).toBe(true)
+    expect(m.anchor!.x).toBe(m.passes[1]!.origin.x)
+    expect(m.anchor!.y).toBe(m.passes[1]!.origin.y)
+    expect(m.passes[1]!.parts[0]!.dx).toBe(0)
+  })
+})
+
 describe.skipIf(!hasRom(VANILLA))(
   'which sprites are drawn away from their list position (R16)',
   () => {
     const seed3 = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
-    it('only $65-$68 whose INIT shifts them; the other line-guided ids and the rest stay on the list position', () => {
+    it('what moves a picture off its list position is the run: no id decides it (R16)', () => {
       const r = RomFile.load(romPath(VANILLA))
-      const got = [0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x33, 0x0d].map(id => {
+      const drawn: number[] = []
+      for (let id = 0; id <= 0xc8; id++) {
         const m = runOnce(r, id, seed3, { atRest: true })
-        return [id, m.shifted === true, m.anchor?.x === 0x80 - 320]
-      })
-      // The placed column here is even (x $80 has bit 4 clear): -320 for the four, nothing for the rest.
-      expect(got.filter(([, shifted]) => shifted).map(([id]) => id)).toEqual([
-        0x65, 0x66, 0x67, 0x68,
-      ])
-      expect(got.filter(([, , atShift]) => atShift).map(([id]) => id)).toEqual([0x65, 0x66, 0x67, 0x68]) // prettier-ignore
+        const off = m.anchor !== undefined && (m.anchor.x !== m.anchor.rawX || m.anchor.y !== m.anchor.rawY) // prettier-ignore
+        expect(m.shifted === true, `id ${id}`).toBe(off)
+        // Only a sprite the line-guided gate admitted can be drawn off its list position at rest.
+        if (off) {
+          expect(m.snaps, `id ${id}`).toBe(true)
+          drawn.push(id)
+        }
+      }
+      expect(drawn).toEqual([0x64, 0x65, 0x66, 0x67, 0x68])
+    })
+
+    it('by how much: 320 px left (even column) or 15 px right (odd) for $65-$68, 2 px right for the $64 rope, none for $62 and $63', () => {
+      const r = RomFile.load(romPath(VANILLA))
+      for (const x of [0x80, 0x90]) {
+        const dx = (id: number) => {
+          const m = runOnce(r, id, withSeed({ slot: 3, sprite: { x, y: 0x80 } }, SPRITE_SEED), { atRest: true }) // prettier-ignore
+          return [m.anchor!.x - x, m.anchor!.y - 0x80]
+        }
+        for (const id of [0x65, 0x66, 0x67, 0x68]) expect(dx(id), `id ${id} at ${x}`).toEqual([x & 0x10 ? 15 : -320, 0]) // prettier-ignore
+        expect(dx(0x64)).toEqual([2, 0])
+        expect(dx(0x62)).toEqual([0, 0])
+        expect(dx(0x63)).toEqual([0, 0])
+      }
     })
   },
 )

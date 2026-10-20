@@ -19,13 +19,27 @@ import { RunCache, smwMachine, watchSram } from './Machine'
 export interface Routine {
   len: number
   sha: string
+  /**
+   * Offsets of the bank byte of each long operand (JSL, JML, long loads) in the span. Before hashing, bit 7 of those bytes is
+   * folded away, as `mirror` does for an address, so a ROM moved to FastROM banks ($81 for $01) is the same routine.
+   */
+  norm?: readonly number[]
+}
+
+/** SHA-256 of `bytes` with the FastROM bit of each long operand's bank byte folded, or null for a failed read. */
+export function routineSha(bytes: Uint8Array | null, norm: readonly number[] = []): string | null {
+  if (!bytes) return null
+  const folded = Uint8Array.from(bytes)
+  for (const o of norm) folded[o]! &= 0x7f
+  return fingerprint(folded)
 }
 
 /**
  * The stock routines the dispatch CODE_01D9A7 reaches, by role, each hashed whole in one digest: the prelude
- * CODE_018063, platform draw CODE_01B2DF, rope draw CODE_01DC54, $67 draw CODE_01DC0B, $68 draw CODE_01DBD4,
- * MarioSprInteractRt, the chainsaw draw (CODE_03C263 and the routine after it) and the line step CODE_01D74D.
- * Code only: a table a routine reads is not in its span. One cart (vanilla US), one machine.
+ * CODE_018063, platform draw CODE_01B2DF, rope draw CODE_01DC54, $67 draw CODE_01DC0B, $68 draw CODE_01DBD4, the
+ * chainsaw draw (CODE_03C263 and the routine after it) and the line step CODE_01D74D. Code and the tables inside the
+ * span are hashed; a table outside it is not. MarioSprInteractRt is not hashed: its slot takes any callee that is not
+ * one of these. One cart (vanilla US), one machine.
  */
 const STOCK: Readonly<Record<string, Routine>> = {
   prelude: { len: 41, sha: 'ee69fb268a54310db915010517a1018892562de721524bebb396d4fdc09a6fa9' },
@@ -33,12 +47,16 @@ const STOCK: Readonly<Record<string, Routine>> = {
   rope: { len: 125, sha: '7440e348ecf1b1bb0d1307252e3b649cb710f444fb90990e7907e39961232090' },
   draw67: { len: 48, sha: '5bf4e097322aa8b524cfb6671299ba6f1096aa6dbdf852a8c2ce6b09bdaa1827' },
   draw68: { len: 53, sha: 'e8accbeabae8d1be0c8dce077c50eb66b565088e0508438ce7e3f56eef7bb8aa' },
-  interact: { len: 591, sha: '6ab333bcbfb8ed0ce7abe9276e41ce8e3256c470d8cd402a83f113447e37b581' },
   chainsawDraw: {
     len: 118,
     sha: '7de4f593b0cbad322e3273a6c5663485b704cb849ae48334b4e24ec9a6f4a75d',
+    norm: [116],
   },
-  step: { len: 99, sha: 'a9ef48ec9b830805fd5532ab361e1fd0e59e1319c6b12426523a0fa6e77493f4' },
+  step: {
+    len: 99,
+    sha: 'a9ef48ec9b830805fd5532ab361e1fd0e59e1319c6b12426523a0fa6e77493f4',
+    norm: [20],
+  },
 }
 
 /**
@@ -77,12 +95,12 @@ export const STOCK_INIT_LINE_GUIDED: Routine = {
   len: 42,
   sha: '7ccee5c902300dbb8daee9323528d7c8c3db9bc76c4c881ed2ffaa80f0077f42',
 }
-/** The ids whose INIT is InitLineGuidedSpr in the stock table (bank_01.asm:332-335). */
-export const INIT_SHIFT_IDS: ReadonlySet<number> = new Set([0x65, 0x66, 0x67, 0x68])
+/** The ids whose INIT the stock table points at InitLineGuidedSpr (bank_01.asm:332-335): the ones held to its fingerprint. Not a rule about who moves. */
+export const STOCK_INIT_IDS: ReadonlySet<number> = new Set([0x65, 0x66, 0x67, 0x68])
 
 /** Whether the routine at `at` is `stock`, by SHA-256 of its bytes. */
 export const isStockRoutine = (rom: RomFile, at: number, stock: Routine): boolean =>
-  fingerprint(rom.readAt(at, stock.len)) === stock.sha
+  routineSha(rom.readAt(at, stock.len), stock.norm) === stock.sha
 
 export type GrinderGate = { ok: true } | { ok: false; reason: string }
 
@@ -106,7 +124,7 @@ type Bus = ReturnType<typeof smwMachine>['bus']
 function roleAt(bus: Bus, routines: DispatchShape['routines'], at: number): string | null {
   for (const [role, r] of Object.entries(routines)) {
     const bytes = Uint8Array.from({ length: r.len }, (_, i) => bus.read((at + i) & 0xffffff))
-    if (fingerprint(bytes) === r.sha) return role
+    if (routineSha(bytes, r.norm) === r.sha) return role
   }
   return null
 }
@@ -143,7 +161,16 @@ function drive(
     const role = names.get(at)
     const call = op === JSR || op === JSL
     if (!role) {
-      if (call) return `it calls $${hex(at)}, which is not a stock routine (unverified)`
+      if (!call) continue
+      // MarioSprInteractRt is not hashed (D126): whatever the interact slot calls, if it is not a routine named here,
+      // fills the slot. A draw or the step placed there is a known role and fails the order check below.
+      if (want[seen.length] !== 'interact' || shape.routines.interact)
+        return `it calls $${hex(at)}, which is not a stock routine here (out of order, or unverified)`
+      seen.push('interact')
+      const back = bus.read(cpu.s + 1) | (bus.read(cpu.s + 2) << 8)
+      if (op === JSL) cpu.pb = bus.read(cpu.s + 3)
+      cpu.s = (cpu.s + (op === JSL ? 3 : 2)) & 0xffff
+      cpu.pc = (back + 1) & 0xffff
       continue
     }
     if (role === 'step')

@@ -13,8 +13,9 @@ import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
 import {
   type DispatchShape,
+  type Routine,
   grinderDrawsBeforeSnap,
-  INIT_SHIFT_IDS,
+  STOCK_INIT_IDS,
   isStockRoutine,
   LINE_GUIDED_IDS,
   STOCK_INIT_LINE_GUIDED,
@@ -222,6 +223,8 @@ export interface RunOptions {
   trackInputs?: boolean
   /** The dispatch shape the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   grinderDispatch?: DispatchShape
+  /** The InitLineGuidedSpr fingerprint to hold the INIT of $65-$68 to; a test hook, so a synthetic cart brings its own (default: vanilla's). */
+  stockInit?: Routine
   /**
    * `true` is the map view's at-rest picture. D139 D, D138 A: INIT runs for the look only (tiles, flips,
    * variants, status). D134, D91: the drawing is re-based onto the placed spot, so INIT's moves and the
@@ -631,8 +634,8 @@ export function runOnce(
     if (gate && !gate.ok) model.lineGateReason = gate.reason
     if (
       inits?.ok &&
-      INIT_SHIFT_IDS.has(num) &&
-      !isStockRoutine(rom, inits.handler.address, STOCK_INIT_LINE_GUIDED)
+      STOCK_INIT_IDS.has(num) &&
+      !isStockRoutine(rom, inits.handler.address, opts.stockInit ?? STOCK_INIT_LINE_GUIDED)
     )
       model.lineInitReason = `its INIT (at $${inits.handler.address.toString(16)}) is not the stock InitLineGuidedSpr, so the shift it makes before the first frame is unverified`
     const placed = { x: m.seed.sprite.x, y: m.seed.sprite.y }
@@ -689,16 +692,18 @@ export function runOnce(
       else if (num === 0x67) model.chosen = 1
       else model.lineStepReason = 'the third pass drew nothing or the second did not move the sprite: kept the first drawn pass' // prettier-ignore
     }
-    // At rest the picture is the placed spot (D91), except for the sprites whose own INIT shifts them before their first
-    // frame (InitLineGuidedSpr, bank_01.asm:11788-11809): the game draws those where INIT left them, so the run's
-    // post-INIT spot is shown (owner ruling R16 / D85 B). Interpreted, not a constant: the shift is whatever INIT did.
-    const firstFrame = atRest && snaps && INIT_SHIFT_IDS.has(num)
+    // At rest the picture is the placed spot (D91), except for an admitted line-guided sprite whose own INIT moved it
+    // before its first frame (InitLineGuidedSpr, bank_01.asm:11788-11811; InitLineRope's two steps): the game draws it
+    // where INIT left it, so the picture stands on the chosen pass's own origin, which the parts are measured from
+    // (owner ruling R16 / D85 B). Interpreted, not a constant: the move is whatever INIT did.
+    const moved = anchor.x !== placed.x || anchor.y !== placed.y
     if (snaps && !atRest && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
-    else if (firstFrame && (anchor.x !== placed.x || anchor.y !== placed.y)) {
-      // A sprite left of the map's edge after the shift is a negative X in the game's 16 bits.
+    else if (atRest && snaps && moved && model.chosen !== undefined) {
+      // A sprite left of the map's edge is a negative X in the game's 16 bits.
       const signed = (v: number) => (v & 0x8000 ? v - 0x10000 : v)
-      model.anchor = { ...model.anchor!, x: signed(anchor.x), y: signed(anchor.y) }
+      const o = model.passes[model.chosen]!.origin
+      model.anchor = { ...model.anchor!, x: signed(o.x), y: signed(o.y) }
       model.shifted = true
     }
     if (model.passes.every(p => p.parts.length === 0))

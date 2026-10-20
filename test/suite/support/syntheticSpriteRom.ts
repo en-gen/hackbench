@@ -29,6 +29,14 @@ import { putGrinderRoutines } from './syntheticGrinder'
 export interface SyntheticOptions {
   /** Ids 31 and 103 get id 0's INIT (adds `initShift` to X), so the line-guided id moves before its first frame. */
   grinderInitShifts?: boolean
+  /** Ids 31 and 103 get an INIT of our own that adds this signed 16-bit [dx, dy] to the sprite, with carry into the high bytes. */
+  grinderInitDelta?: readonly [number, number]
+  /** Ids 98, 100, 101, 102 and 104 (list ids $62, $64-$66, $68) run the grinder handler, so the pass pick can be tried per id. */
+  grinderAliases?: boolean
+  /** The grinder handler starts with a JSR to a prelude routine, as the chainsaw ids' LineRope_Chainsaw does. */
+  grinderPrelude?: boolean
+  /** The grinder handler reads a WRAM cell ($0DF0) only when X is 3 (`At3`) or only when X is not 3 (`Not3`) and, when it is non-zero, calls the interact routine first. */
+  grinderCell?: 'At3' | 'Not3'
   /** ADC operand of id 0's INIT shift. */
   initShift?: number
   /** Id 0's INIT also adds 256 to X, and its MAIN draws nothing unless it is within 0-255 px right of the camera (GetDrawInfo's cull). */
@@ -273,9 +281,10 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[31] = 0x9300
   mainTable[32] = 0x92a0
   if (o.grinderInitShifts) initTable[31] = initTable[103] = 0x8610
+  if (o.grinderInitDelta) initTable[31] = initTable[103] = 0x9700
   mainTable[103] = 0x9200
-  for (const id of [98, 104]) mainTable[id] = 0x9600
-  for (const id of [100, 101, 102]) mainTable[id] = 0x9610
+  for (const id of [98, 104]) mainTable[id] = o.grinderAliases ? 0x9200 : 0x9600
+  for (const id of [100, 101, 102]) mainTable[id] = o.grinderAliases ? 0x9200 : 0x9610
   mainTable[33] = 0x8a80
   if (o.eeries) mainTable[57] = EERIE_HANDLER
   if (o.id31IsGrinder) mainTable[31] = 0x9500

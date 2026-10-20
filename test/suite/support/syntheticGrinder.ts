@@ -21,7 +21,8 @@ export const GRINDER_DISPATCH_AT = 0x019220
 export const grinderShape = (rom: RomFile): DispatchShape => {
   const at = (a: number, len: number) => ({ len, sha: fingerprint(rom.readAt(a, len))! })
   return {
-    routines: { draw67: at(0x019400, 8), interact: at(0x019282, 4), step: at(0x019290, 8) },
+    // The interact slot is not fingerprinted (it takes any callee that is not a routine named here).
+    routines: { draw67: at(0x019400, 8), step: at(0x019290, 8), prelude: at(0x019680, 4) },
     arm: ['draw67', 'interact', 'step'],
   }
 }
@@ -60,7 +61,15 @@ export function putGrinderRoutines(
   // id 103 handler: an entry of our own (SpriteLock/TrueFrame test, JMP), then a dispatch block of our own;
   // the step here is the +4 move.
   // Our own entry: LDA SpriteLock / ORA flag,X / STA $0C / LDA TrueFrame / AND #7 / ORA $0C / STA $000C / JMP.
+  const cell = o.grinderCell === 'At3' ? 0xd0 : 0xf0 // BNE skips the read when X is not 3; BEQ when it is
+  const prefix = [
+    ...(o.grinderPrelude ? [0x20, 0x80, 0x96] : []),
+    ...(o.grinderCell
+      ? [0xe0, 0x03, cell, 0x08, 0xad, 0xf0, 0x0d, 0xf0, 0x03, 0x20, 0x82, 0x92]
+      : []),
+  ]
   const handler = (dispatchAt: number) => [
+    ...prefix,
     ...[0xa5, 0x9d, 0x1d, 0x26, 0x16, 0x85, 0x0c, 0xa5, 0x13, 0x29, 0x07, 0x05, 0x0c, 0x8d, 0x0c, 0x00],
     ...[0x4c, dispatchAt & 0xff, (dispatchAt >> 8) & 0xff],
   ] // prettier-ignore
@@ -73,6 +82,13 @@ export function putGrinderRoutines(
     0x90,
     0x92,
   ]
+  // The prelude routine (NOPs, RTS), and an INIT of our own that moves the sprite by a signed 16-bit [dx, dy].
+  put(0x019680, [0xea, 0xea, 0xea, 0x60])
+  if (o.grinderInitDelta) {
+    const axis = (lo: number, hi: number, d: number) => [0xb5, lo, 0x18, 0x69, d & 0xff, 0x95, lo, 0xbd, hi & 0xff, hi >> 8, 0x69, (d >> 8) & 0xff, 0x9d, hi & 0xff, hi >> 8] // prettier-ignore
+    const [dx, dy] = o.grinderInitDelta
+    put(0x019700, [...axis(0xe4, 0x14e0, dx), ...axis(0xd8, 0x14d4, dy), 0x60])
+  }
   put(GRINDER_HANDLER, handler(GRINDER_DISPATCH_AT))
   put(GRINDER_DISPATCH_AT, dispatch)
   // A second copy for id 31, whose MAIN can point at the grinder handler (id31IsGrinder).

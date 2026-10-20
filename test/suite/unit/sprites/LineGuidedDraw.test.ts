@@ -11,6 +11,7 @@ import { fingerprint } from '../../../../src/rom/Fingerprint'
 import { L1ModelCache } from '../../../../theia/extension/src/node/map-screen'
 import {
   interpDrawer,
+  modelResult,
   mapSprites,
   readStream,
 } from '../../../../theia/extension/src/node/map-sprites'
@@ -20,8 +21,9 @@ import { SmwRom } from '../../../../src/rom/SmwRom'
 import {
   grinderDrawsBeforeSnap,
   isStockRoutine,
+  routineSha,
   STOCK_INIT_LINE_GUIDED,
-  INIT_SHIFT_IDS,
+  STOCK_INIT_IDS,
   LINE_GUIDED_IDS,
   VANILLA_DISPATCH,
 } from '../../../../src/rom/sprites/interp/LineGuided'
@@ -171,14 +173,15 @@ describe('line-guided draw pass', () => {
       rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ 0x10])
       return gate(rom, GRINDER_HANDLER)
     }
-    // Every byte of the cart's dispatch but the JSL bank (+6): opcodes and operands alike change what the run calls,
-    // and bank $11 of this 8-bank cart is a mirror of bank $01, the same routine.
+    // Every byte of the cart's dispatch but the JSL operand (+4..+6): opcodes and the draw and step targets change what
+    // the run calls. The interact slot takes any callee that is not a named routine, so its target is free (D126).
     for (let i = 0; i < 10; i++)
-      if (i !== 6) expect(flip(GRINDER_DISPATCH_AT + i), `dispatch +${i}`).toBe(false)
+      if (![4, 5, 6].includes(i))
+        expect(flip(GRINDER_DISPATCH_AT + i), `dispatch +${i}`).toBe(false)
   })
 
-  it('refuses a changed call or jump target: every target operand byte, low and high, several values', () => {
-    const TARGET_OPERANDS = [1, 2, 4, 5, 8, 9]
+  it('refuses a changed draw call or step jump target: every operand byte, low and high, several values', () => {
+    const TARGET_OPERANDS = [1, 2, 8, 9]
     const flip = (at: number, x: number) => {
       const rom = buildSyntheticRom()
       rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ x])
@@ -318,20 +321,78 @@ describe('the line-guided routines are named by fingerprint, read from the ROM (
   it('refuses a draw call repointed at a routine that is not stock, naming the call', () => {
     const rom = buildSyntheticRom()
     rom.writeAt(DRAW_JSR, [0x40, 0x94])
-    expect(why(rom)).toMatch(
-      /slot 0: it calls \$019440, which is not a stock routine \(unverified\)/,
-    )
+    expect(why(rom)).toMatch(/slot 0: it calls \$019440, which is not a stock routine here/)
   })
 
   it('refuses a call repointed at another stock routine: the order is wrong', () => {
     const rom = buildSyntheticRom()
     rom.writeAt(DRAW_JSR, [0x82, 0x92])
-    expect(why(rom)).toMatch(/out of order or missing/)
+    expect(why(rom)).toMatch(/out of order/)
+  })
+
+  it('the interact slot takes a callee with different bytes, and refuses a draw or the step placed in it (D126)', () => {
+    const other = buildSyntheticRom()
+    other.writeAt(0x019282, [0xea, 0xa9, 0x00, 0x6b]) // different bytes, same slot
+    expect(why(other)).toBeNull()
+    // The draw routine as the interact callee: a known role where the slot expects the interact.
+    const draw = buildSyntheticRom()
+    draw.writeAt(GRINDER_DISPATCH_AT + 4, [0x00, 0x94])
+    expect(why(draw)).toMatch(/out of order/)
+    // The step as the interact callee.
+    const step = buildSyntheticRom()
+    step.writeAt(GRINDER_DISPATCH_AT + 4, [0x90, 0x92])
+    expect(why(step)).not.toBeNull()
+    // An unknown callee in the DRAW slot is still refused: only the interact slot is a wildcard.
+    const wrongSlot = buildSyntheticRom()
+    wrongSlot.writeAt(DRAW_JSR, [0x82, 0x92])
+    expect(why(wrongSlot)).not.toBeNull()
+  })
+
+  it('reads FastROM: the $80 bit on a long operand inside a routine is folded; any other edit there is refused', () => {
+    // A step routine of our own at $019800 holding a JSL; its bank byte is the one folded (norm offset 10).
+    const body = (bank: number) => [
+      0xb5,
+      0xe4,
+      0x18,
+      0x69,
+      0x04,
+      0x95,
+      0xe4,
+      0x22,
+      0x82,
+      0x92,
+      bank,
+      0x60,
+    ]
+    const build = (bank: number) => {
+      const rom = buildSyntheticRom()
+      rom.writeAt(0x019800, body(bank))
+      rom.writeAt(GRINDER_DISPATCH_AT + 8, [0x00, 0x98])
+      return rom
+    }
+    const norm = [10]
+    const shape = {
+      ...pristine,
+      routines: {
+        ...pristine.routines,
+        step: { len: 12, sha: routineSha(Uint8Array.from(body(1)), norm)!, norm },
+      },
+    }
+    expect(why(build(0x01), shape)).toBeNull()
+    expect(why(build(0x81), shape)).toBeNull() // the $80 bit set: the same routine
+    expect(why(build(0x02), shape)).not.toBeNull() // a different bank: not
+    const noNorm = {
+      ...shape,
+      routines: {
+        ...shape.routines,
+        step: { len: 12, sha: routineSha(Uint8Array.from(body(1)))! },
+      },
+    }
+    expect(why(build(0x81), noNorm)).not.toBeNull() // without the fold, the $81 copy would not match
   })
 
   it.each([
     ['draw', 0x019400],
-    ['interact', 0x019282],
     ['step', 0x019290],
   ])('refuses an edited %s routine, though its callers are untouched', (_name, at) => {
     const rom = buildSyntheticRom()
@@ -358,12 +419,12 @@ describe('the line-guided routines are named by fingerprint, read from the ROM (
   it('names exactly $62, $64, $65, $66, $67, $68 over every id 0..255 ($63 is a plant that must go red)', () => {
     const named = Array.from({ length: 256 }, (_, id) => id).filter(id => LINE_GUIDED_IDS.has(id))
     expect(named).toEqual([0x62, 0x64, 0x65, 0x66, 0x67, 0x68])
-    // Every named id has an arm of known roles that ends in the line step.
+    // Every named id has an arm of known roles (the interact slot is a wildcard) that ends in the line step.
     for (const id of named) {
       const roles = VANILLA_DISPATCH.byId?.[id] ?? VANILLA_DISPATCH.arm
       expect(roles.at(-1), `id ${id}`).toBe('step')
       expect(
-        roles.every(r => r in VANILLA_DISPATCH.routines),
+        roles.every(r => r === 'interact' || r in VANILLA_DISPATCH.routines),
         `id ${id}`,
       ).toBe(true)
     }
@@ -391,9 +452,9 @@ describe.skipIf(!hasRom(VANILLA))('per-id arms on the vanilla cart (#792, #1121)
     expect(runOnce(rom, 0x67, seed3).lineGateReason).toMatch(/out of order/)
   }, 120_000)
 
-  it('flags an edited stock routine as unverified, whichever of the eight is edited', () => {
-    // Entry byte of each routine the arms call: prelude, $62 draw, rope draw, $67 draw, $68 draw, interact, chainsaw draw wrapper, line step.
-    const entries: [number, number][] = [[0x65, 0x018063], [0x62, 0x01b2df], [0x64, 0x01dc54], [0x67, 0x01dc0b], [0x68, 0x01dbd4], [0x65, 0x01a7e4], [0x65, 0x03c263], [0x67, 0x01d74d]] // prettier-ignore
+  it('flags an edited stock routine as unverified, whichever of the seven is edited', () => {
+    // Entry byte of each routine the arms call: prelude, $62 draw, rope draw, $67 draw, $68 draw, chainsaw draw wrapper, line step (the interact is not hashed).
+    const entries: [number, number][] = [[0x65, 0x018063], [0x62, 0x01b2df], [0x64, 0x01dc54], [0x67, 0x01dc0b], [0x68, 0x01dbd4], [0x65, 0x03c263], [0x67, 0x01d74d]] // prettier-ignore
     // At the entry, and 30 bytes in: past the 24-byte prefix an earlier version hashed.
     for (const [id, at0] of entries)
       for (const off of [0, 30]) {
@@ -408,6 +469,72 @@ describe.skipIf(!hasRom(VANILLA))('per-id arms on the vanilla cart (#792, #1121)
   }, 240_000)
 })
 
+describe('the gate and the INIT check, branch by branch (synthetic carts, findings 4 and 5)', () => {
+  const gateOf = (rom: RomFile) =>
+    grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, 0x67, RAM.spriteNumber, grinderShape(rom))
+  const reasonOf = (rom: RomFile) => {
+    const g = gateOf(rom)
+    return g.ok ? null : g.reason
+  }
+
+  it('a prelude call comes anywhere and is not part of the order; an edited prelude is refused', () => {
+    // Mutant: the prelude counted in `seen` would make this order [prelude, draw, interact] and refuse.
+    expect(reasonOf(buildSyntheticRom({ grinderPrelude: true }))).toBeNull()
+    const edited = buildSyntheticRom({ grinderPrelude: true })
+    const shape = grinderShape(edited)
+    edited.writeAt(0x019680, [0xea, 0xea, 0xa9, 0x60])
+    const g = grinderDrawsBeforeSnap(edited, GRINDER_HANDLER, 0x67, RAM.spriteNumber, shape)
+    expect(g).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/not a stock routine here/),
+    })
+  })
+
+  it('pokes the cells slot 3 reads and not the ones only another slot reads (the slot-3 call, decision doc)', () => {
+    // A cell read at X = 3 that, when set, calls where the draw is expected: poked, so the gate refuses it.
+    const at3 = reasonOf(buildSyntheticRom({ grinderCell: 'At3' }))
+    expect(at3).toMatch(/WRAM \$df0 = \$1: /)
+    // The same read at every slot but 3 is not found in slot 3: not poked, so accepted (the documented weakening).
+    expect(reasonOf(buildSyntheticRom({ grinderCell: 'Not3' }))).toBeNull()
+  })
+
+  it('a bare JMP entry changed to a JML is refused (the JML takes the next byte as a bank)', () => {
+    const rom = buildSyntheticRom()
+    rom.writeAt(GRINDER_HANDLER + 16, [0x5c])
+    expect(gateOf(rom).ok).toBe(false)
+  })
+
+  describe('InitLineGuidedSpr on a synthetic INIT (ids 103 = $67)', () => {
+    const SEED = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
+    const stockOf = (rom: RomFile) => ({ len: 31, sha: fingerprint(rom.readAt(0x019700, 31))! })
+    const rest = (rom: RomFile, stock = stockOf(buildSyntheticRom({ grinderInitDelta: [8, 0] }))) =>
+      runOnce(rom, 103, SEED, {
+        atRest: true,
+        grinderDispatch: grinderShape(rom),
+        stockInit: stock,
+      })
+
+    it('the stock INIT is not flagged, a patched one is flagged and still runs', () => {
+      expect(rest(buildSyntheticRom({ grinderInitDelta: [8, 0] })).lineInitReason).toBeUndefined()
+      const patched = rest(buildSyntheticRom({ grinderInitDelta: [12, 0] }))
+      expect(patched.lineInitReason).toMatch(/not the stock InitLineGuidedSpr/)
+      expect(patched.refusal).toBeUndefined()
+      expect(patched.anchor!.x).toBe(0x8c) // the patched INIT's own +12, interpreted
+    })
+
+    it('the flag reaches the picture only when the patched INIT moved the sprite: no stored tile, no note otherwise', () => {
+      const moved = modelResult(rest(buildSyntheticRom({ grinderInitDelta: [12, 0] })))
+      expect(moved).toMatchObject({ ok: true, stored: { x: 0x80, y: 0x80 }, unverified: expect.stringMatching(/not the stock/) }) // prettier-ignore
+      // A patched INIT that moves nothing: flagged on the model, but nothing is drawn away, so no outline and no note.
+      const still = rest(buildSyntheticRom({ grinderInitDelta: [0, 0] }))
+      expect(still.lineInitReason).toBeDefined()
+      const res = modelResult(still)
+      expect(res).not.toHaveProperty('stored')
+      expect((res as { unverified?: string }).unverified ?? '').not.toMatch(/stock/)
+    })
+  })
+})
+
 describe('InitLineGuidedSpr is checked by fingerprint (#792, D110 call 4)', () => {
   it('every fingerprint covers at least 24 bytes in one digest (D126)', () => {
     const lens = [...Object.values(VANILLA_DISPATCH.routines), STOCK_INIT_LINE_GUIDED].map(
@@ -417,7 +544,7 @@ describe('InitLineGuidedSpr is checked by fingerprint (#792, D110 call 4)', () =
   })
 
   it('names the four ids whose INIT is it, and no other over 0..255', () => {
-    expect(Array.from({ length: 256 }, (_, id) => id).filter(id => INIT_SHIFT_IDS.has(id))).toEqual([0x65, 0x66, 0x67, 0x68]) // prettier-ignore
+    expect(Array.from({ length: 256 }, (_, id) => id).filter(id => STOCK_INIT_IDS.has(id))).toEqual([0x65, 0x66, 0x67, 0x68]) // prettier-ignore
   })
 
   it('accepts a routine whose bytes hash to the stock one and refuses each single-byte edit (synthetic bytes)', () => {
@@ -440,7 +567,7 @@ describe.skipIf(!hasRom(VANILLA))(
 
     it('is stock for $65-$68 and not flagged', () => {
       const rom = freshRom()
-      for (const id of INIT_SHIFT_IDS) expect(runOnce(rom, id, seed3).lineInitReason, `id ${id}`).toBeUndefined() // prettier-ignore
+      for (const id of STOCK_INIT_IDS) expect(runOnce(rom, id, seed3).lineInitReason, `id ${id}`).toBeUndefined() // prettier-ignore
     }, 120_000)
 
     it('flags an edited subtract constant as unverified, while the interpreter still runs the edited INIT', () => {
