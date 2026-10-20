@@ -15,6 +15,9 @@ import {
   charsFromUploads,
   MARIO_GFX_BASE,
   readMarioGraphics,
+  STOCK_CALLS,
+  STOCK_DMA,
+  STOCK_NMI,
   type MarioBuffer,
 } from '../../../src/rom/MarioGraphics'
 import { parseLevelSprites } from '../../../src/rom/LevelParser'
@@ -215,5 +218,25 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
         expect(tally.pods).toBe(72)
       },
     )
+  },
+)
+
+describe.skipIf(!hasRom(VANILLA))(
+  'the pinned MarioGFXDMA and NMI records, vanilla ROM (#980)',
+  () => {
+    const read = (at: number, n: number) => freshRom().readAtFileOffset(at, n)!
+    it('STOCK_DMA starts at the entry every stock caller targets, REP #$20, and ends on SEP #$20 RTS', () => {
+      expect([...read(STOCK_DMA.at, 2)]).toEqual([0xc2, 0x20])
+      expect([...read(STOCK_DMA.at + STOCK_DMA.length - 3, 3)]).toEqual([0xe2, 0x20, 0x60])
+      for (const c of STOCK_CALLS.filter(s => s.to === 'dma')) {
+        const jsr = freshRom().readAt(c.from, 3)!
+        expect((jsr[1]! | (jsr[2]! << 8)) - 0x8000).toBe(STOCK_DMA.at)
+      }
+    })
+    it('the NMI vector reaches the pinned handler, which holds the three MarioGFXDMA calls', () => {
+      const v = freshRom().readAt(STOCK_NMI.vector, 2)!
+      expect((v[0]! | (v[1]! << 8)) - 0x8000).toBe(STOCK_NMI.routine.at)
+      expect(readMarioGraphics(freshRom()).ok).toBe(true)
+    })
   },
 )

@@ -58,36 +58,56 @@ export const STOCK_BOOT: BootRoutine = {
   sha256: '41bd1df9519507a44f4eb96ded5761a2aafa0bfc36151c60290fbb3d8a54b05b',
 }
 
-// MarioGFXDMA's two upload loops (bank_00.asm:4580-4605), 64 bytes, hashed whole. A hack that patches them can send the
-// slots anywhere, so the buffer is not read for it. One site in the vanilla ROM (one machine, one cart).
-/** The vanilla upload loops that DMA the buffer to VRAM, matched by hash so a patched copy is refused. */
+// MarioGFXDMA whole, from its entry through the palette and $67F0 DMAs and the two upload loops to SEP #$20, RTS
+// (bank_00.asm:4551-4607), 144 bytes at file offset $2300 ($00:A300, SMW_U.sym A300), hashed whole. A hack that patches
+// any byte (an early RTS, a BRA or JML hook in the prologue, a loop edit) sends the slots elsewhere, so the buffer is
+// not read for it. One site in the vanilla ROM (one machine, one cart).
+/** The vanilla MarioGFXDMA, entry to RTS, matched by hash so a patched copy is refused. */
 export const STOCK_DMA: BootRoutine = {
-  at: 0x234d, // $00:A34D, the LDA #$6000 of bank_00.asm:4580
-  length: 64,
-  sha256: 'ea61acf43341bd988f651b7339bc1c11300be7ef98639680c74d3883e7519355',
+  at: 0x2300,
+  length: 144,
+  sha256: '6b54f74d9d20394b58dbddfb69f2904ba92c01927495c8009d6f07079e66f097',
 }
 
 /**
  * A JSR (opcode $20, a bank-$00 target) at SNES `from` that must reach the routine found by hash: the boot routine, or
- * MarioGFXDMA, whose hashed loops sit `back` bytes after its entry. Operands are read and compared with the found
- * address, so no byte run is stored. The bytes before the loops (the palette and $67F0 DMAs) are not hashed.
+ * MarioGFXDMA. Operands are read and compared with the found address, so no byte run is stored.
  */
 export interface CallSite {
   from: number
   to: 'boot' | 'dma'
-  back?: number
 }
 
 // The caller of CODE_00B888 (GM01Presents, bank_00.asm:2300, $00:9414) and the three calls of MarioGFXDMA in the NMI
-// handler (bank_00.asm:274, 289, 365), one per game-mode branch. MarioGFXDMA starts $4D before the loops
-// (bank_00.asm:4551, 4580; SMW_U.sym A300). One machine, one cart: the addresses are the vanilla ROM's.
+// handler (bank_00.asm:274, 289, 365), one per game-mode branch. One machine, one cart: the addresses are the vanilla ROM's.
 /** The vanilla call sites that must still reach the stock routines, or the buffer is not what runs. */
 export const STOCK_CALLS: readonly CallSite[] = [
   { from: 0x009414, to: 'boot' },
-  { from: 0x00821d, to: 'dma', back: 0x4d },
-  { from: 0x00823a, to: 'dma', back: 0x4d },
-  { from: 0x0082d7, to: 'dma', back: 0x4d },
+  { from: 0x00821d, to: 'dma' },
+  { from: 0x00823a, to: 'dma' },
+  { from: 0x0082d7, to: 'dma' },
 ]
+
+/**
+ * The NMI link: the bank-$00 vector at SNES `vector` must point at the handler found by hash, and that hashed span
+ * holds the three MarioGFXDMA calls above. A cart whose vector points elsewhere never runs those calls.
+ */
+export interface NmiGate {
+  vector: number
+  routine: BootRoutine
+}
+
+// I_NMI from its SEI (bank_00.asm:193) through the third MarioGFXDMA call (bank_00.asm:365), 368 bytes at
+// file offset $016A ($00:816A), hashed whole; the vector is the one at $00:FFEA. Callees outside the span are not hashed.
+/** The vanilla NMI handler up to its last MarioGFXDMA call, and the vector that must reach it. */
+export const STOCK_NMI: NmiGate = {
+  vector: 0xffea,
+  routine: {
+    at: 0x016a,
+    length: 0x170,
+    sha256: 'c338aa0b0ecf71a99ee2f0f487ab8ab9a9d273e798b3d6141253f8caac4d25cc',
+  },
+}
 
 const SLACK = 0x100
 
@@ -131,6 +151,7 @@ export function buildMarioGraphics(
   boot: BootRoutine = STOCK_BOOT,
   dma: BootRoutine | undefined = boot === STOCK_BOOT ? STOCK_DMA : undefined, // tests that inject a boot bring their own
   calls: readonly CallSite[] | undefined = boot === STOCK_BOOT ? STOCK_CALLS : undefined,
+  nmi: NmiGate | undefined = boot === STOCK_BOOT ? STOCK_NMI : undefined,
 ): MarioBuffer {
   /** A refusal with its plain reason; the buffer is never guessed. */
   const fail = (reason: string): MarioBuffer => ({ ok: false, reason })
@@ -143,10 +164,16 @@ export function buildMarioGraphics(
   if (uploads !== undefined && uploads > 1) return fail('the routine that uploads the Mario graphics buffer to VRAM occurs more than once, so which copy runs is not known') // prettier-ignore
   for (const c of calls ?? []) {
     if (c.to === 'dma' && !dmaSites) return fail(`the call at $${c.from.toString(16)} names an upload routine that was not given`) // prettier-ignore
-    const found = c.to === 'boot' ? sites[0]! : dmaSites![0]! - (c.back ?? 0)
+    const found = c.to === 'boot' ? sites[0]! : dmaSites![0]!
     const jsr = rom.readAt(c.from, 3)
     if (!jsr || jsr[0] !== 0x20 || (jsr[1]! | (jsr[2]! << 8)) !== 0x8000 + found)
       return fail(`the call at $${c.from.toString(16)} no longer reaches the stock ${c.to === 'boot' ? 'boot' : 'upload'} routine`) // prettier-ignore
+  }
+  if (nmi) {
+    const nmiSites = stockSites(rom, nmi.routine, fingerprint)
+    const v = rom.readAt(nmi.vector, 2)
+    if (nmiSites.length !== 1 || !v || (v[0]! | (v[1]! << 8)) !== 0x8000 + nmiSites[0]!)
+      return fail('the NMI vector no longer reaches the stock handler that uploads the Mario graphics') // prettier-ignore
   }
   if (!src.ok) return fail(src.reason)
   const site = rom.readAtFileOffset(sites[0]!, boot.length)!

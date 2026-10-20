@@ -34,15 +34,18 @@ The expansion per 24-byte tile: the 8 plane-2 bytes as words with a zero high by
 - GFX33's expansion: 263 distinct nonzero expanded tiles occur verbatim in 6829 VRAM samples, 253 of them with
   plane 2 set.
 
-The two upload loops (bank_00.asm:4580-4605) are pinned by a SHA-256 over 64 bytes at `$00:A34D` (`STOCK_DMA`), so a
-hack that edits the VRAM destination or the row spacing there is refused. The four callers are checked as well, each an
-opcode `$20` whose operand must equal the address of the routine found by hash: the boot call at `$00:9414`
-(bank_00.asm:2300) and the three MarioGFXDMA calls in the NMI handler at `$00:821D`, `$00:823A` and `$00:82D7`
-(bank_00.asm:274, 289, 365), MarioGFXDMA being `$4D` before the loops (SMW_U.sym `A300`). Evidence scope: the vanilla ROM
-passes, one machine, and synthetic redirected callers are refused (`MarioGraphics.synthetic.test.ts`). Not proven: the
-bytes of MarioGFXDMA before the loops (its palette DMA and the `$67F0` row) are not hashed, nor is that the NMI reaches
-those three call sites in a hack that rearranges the handler. The boot routine is pinned for its 84 bytes only (`STOCK_BOOT`); the GFX32 load and decompress beyond them are not checked, so a hack that
-changes what follows would be drawn as vanilla.
+MarioGFXDMA is pinned whole, from its entry through the palette and `$67F0` DMAs and the two upload loops to
+`SEP #$20, RTS` (bank_00.asm:4551-4607): a SHA-256 over 144 bytes at `$00:A300` (`STOCK_DMA`), so an early RTS, a BRA or
+JML hook in the prologue, or an edit of the VRAM destination or row spacing is refused. The four callers are checked as
+well, each an opcode `$20` whose operand must equal the address of the routine found by hash: the boot call at
+`$00:9414` (bank_00.asm:2300) and the three MarioGFXDMA calls in the NMI handler at `$00:821D`, `$00:823A` and
+`$00:82D7` (bank_00.asm:274, 289, 365). The NMI link is checked too (`STOCK_NMI`): the vector at `$00:FFEA` must point
+at the handler found by a SHA-256 over its first 368 bytes (`$00:816A`, I_NMI to the last MarioGFXDMA call), so a cart
+that redirects the vector is refused. Evidence scope: the vanilla ROM passes, one machine, and synthetic redirected
+callers, a patched prologue and RTS, and a redirected or edited NMI handler are refused (`MarioGraphics.synthetic.test.ts`).
+Not proven: the code the hashed handler calls outside its span, and that the boot routine's own caller chain
+(GM01Presents) is reached. The boot routine is pinned for its 84 bytes only (`STOCK_BOOT`); the GFX32 load and
+decompress beyond them are not checked, so a hack that changes what follows would be drawn as vanilla.
 
 ## Hacks (D51, D57)
 

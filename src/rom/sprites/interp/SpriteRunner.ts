@@ -93,7 +93,7 @@ export interface SpritePart {
   priority: number
   flipX: boolean
   flipY: boolean
-  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position (the placed spot at rest), except for $67 on a vanilla-shaped handler. */
+  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position when INIT's moves are kept, and the position at the end of the pass at rest (`PassResult.pos`; the picture is then drawn on the placed spot, `SpriteModel.anchor`), except for $67 on a vanilla-shaped handler. */
   dx: number
   dy: number
   /** Raw attribute byte, for graders that compare it whole. */
@@ -113,7 +113,7 @@ export interface PassResult {
   pass: number
   /** Level position of the sprite at the end of this pass. */
   pos: { x: number; y: number }
-  /** Where this pass's parts are measured from: `SpriteModel.anchor`, except for $67 on a vanilla-shaped handler (where the pass before left it). */
+  /** Where this pass's parts are measured from: `SpriteModel.anchor` when INIT's moves are kept; the end-of-pass `pos` at rest; the pass before's `pos` for $67 on a vanilla-shaped handler (where the pass before left it). */
   origin: { x: number; y: number }
   parts: SpritePart[]
   /** Palette or graphics uploads the pass wrote registers for. */
@@ -670,7 +670,7 @@ export function runOnce(
     if (snaps && !atRest && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
     if (model.passes.every(p => p.parts.length === 0))
-      model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (${atRest ? "its look is set up when the map runs and shown on play" : 'invisible by design, or the seed lacks state'})` // prettier-ignore
+      model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (${atRest ? "it drew no tile at rest; whether it shows in play was not checked" : 'invisible by design, or the seed lacks state'})` // prettier-ignore
   } catch (e) {
     if (e instanceof Refusal) return { ...model, refusal: e.message }
     throw e

@@ -13,6 +13,8 @@ import {
   CART_SHAPES,
   dma,
   withDmaCart,
+  nmi,
+  nmiCart,
   highBankCart,
   GATE,
   routine,
@@ -131,6 +133,22 @@ describe('buildMarioGraphics', () => {
     refused(build(b => { b[0x7f00] = 0x22 }), /call at \$ff00.*boot/) // prettier-ignore
     refused(build(b => { b[0x7f11] ^= 1 }), /call at \$ff10.*upload/) // prettier-ignore
     refused(build(b => { b[0x7f22] = 0x7f }), /call at \$ff20.*upload/) // prettier-ignore
+  })
+
+  it('refuses a cart whose upload routine is patched in its prologue or its final RTS, not only in the loops', () => {
+    const withDma = (patch: (c: number[]) => void) =>
+      buildMarioGraphics(withDmaCart(patch), GATE, boot(), dma())
+    refused(withDma(c => { c[0] = 0x60 }), /upload.*not the stock one/) // prettier-ignore
+    refused(withDma(c => { c[30] ^= 1 }), /upload.*not the stock one/) // prettier-ignore
+    refused(withDma(c => { c[143] = 0x6b }), /upload.*not the stock one/) // prettier-ignore
+  })
+
+  it('refuses a cart whose NMI vector no longer reaches the stock handler, or whose handler is edited', () => {
+    const build = (r: ReturnType<typeof nmiCart>) =>
+      buildMarioGraphics(r, GATE, boot(), dma(), undefined, nmi())
+    expect(build(nmiCart()).ok).toBe(true)
+    refused(build(nmiCart(0xb001)), /NMI vector/)
+    refused(build(nmiCart(0xb000, b => { b[0x3004] ^= 1 })), /NMI vector/) // prettier-ignore
   })
 
   it('refuses a call that names an upload routine nobody gave, rather than throwing', () => {

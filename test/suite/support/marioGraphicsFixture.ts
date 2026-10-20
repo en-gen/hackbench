@@ -6,7 +6,12 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { encode } from '../../../src/rom/LcLz2'
 import type { CompressionCheck } from '../../../src/rom/GfxArena'
 import { fingerprint } from '../../../src/rom/Fingerprint'
-import { bootFingerprint, type BootRoutine, type CallSite } from '../../../src/rom/MarioGraphics'
+import {
+  bootFingerprint,
+  type BootRoutine,
+  type CallSite,
+  type NmiGate,
+} from '../../../src/rom/MarioGraphics'
 
 /** Distinct, scattered byte values for consecutive indexes (an ascending run of small values occurs in the vanilla ROM). */
 export const seq = (from: number, n: number) =>
@@ -34,10 +39,10 @@ export const boot = (): BootRoutine => ({
     Uint8Array.from(routine({ at33: 0, bank: 0, top: 0, srcTop: 0, at32: 0 })),
   )!,
 })
-/** A made-up upload routine (64 bytes, invented head and filler) and its record, as `boot` is for the boot routine. */
+/** A made-up upload routine (144 bytes: entry, prologue and loops stand-in; invented head and filler) and its record, as `boot` is for the boot routine. */
 export const DMA_HEAD = [0xa5, 0x5c, 0xa6]
-export const dmaCode = (): number[] => [...DMA_HEAD, ...new Array<number>(61).fill(0xea)]
-export const dma = (): BootRoutine => ({ at: 0x2000, length: 64, sha256: fingerprint(Uint8Array.from(dmaCode()))! }) // prettier-ignore
+export const dmaCode = (): number[] => [...DMA_HEAD, ...new Array<number>(141).fill(0xea)]
+export const dma = (): BootRoutine => ({ at: 0x2000, length: 144, sha256: fingerprint(Uint8Array.from(dmaCode()))! }) // prettier-ignore
 export const GATE: CompressionCheck = {
   ok: true,
   sites: {} as never,
@@ -93,19 +98,34 @@ export const withDmaCart = (patch: (c: number[]) => void = () => {}) => {
 
 /**
  * Callers in bank $00 (file offset = address - $8000): one JSR to the boot routine at $8100, two to the upload
- * routine's entry, $4D before its loops at $A000 (offset $2000). `edit` damages the assembled bytes.
+ * routine's entry at $A000 (offset $2000). `edit` damages the assembled bytes.
  */
 export const CALLS: CallSite[] = [
   { from: 0xff00, to: 'boot' },
-  { from: 0xff10, to: 'dma', back: 0x4d },
-  { from: 0xff20, to: 'dma', back: 0x4d },
+  { from: 0xff10, to: 'dma' },
+  { from: 0xff20, to: 'dma' },
 ]
 export const callsCart = (edit: (b: Uint8Array) => void = () => {}) => {
   const r = withDmaCart()
-  const targets = [0x8100, 0x9fb3, 0x9fb3]
+  const targets = [0x8100, 0xa000, 0xa000]
   CALLS.forEach((c, i) =>
     r.buffer.set([0x20, targets[i]! & 0xff, targets[i]! >> 8], c.from - 0x8000),
   )
+  edit(r.buffer)
+  return r
+}
+
+/** A made-up NMI handler (invented bytes) at offset $3000 ($00:B000) and its record; the vector sits at $00:FFEA. */
+export const NMI_CODE = [0x78, 0x08, ...Array.from({ length: 30 }, (_, i) => ((i * 7) % 13) + 0x80)]
+export const nmi = (): NmiGate => ({
+  vector: 0xffea,
+  routine: { at: 0x3000, length: NMI_CODE.length, sha256: fingerprint(Uint8Array.from(NMI_CODE))! },
+})
+/** The upload cart plus the handler and a vector (default: to the handler); `edit` damages the assembled bytes. */
+export const nmiCart = (vectorTo = 0xb000, edit: (b: Uint8Array) => void = () => {}) => {
+  const r = withDmaCart()
+  r.buffer.set(NMI_CODE, 0x3000)
+  r.buffer.set([vectorTo & 0xff, vectorTo >> 8], 0x7fea)
   edit(r.buffer)
   return r
 }
@@ -128,4 +148,5 @@ export const allCarts = (): RomFile[] => [
   highBankCart(),
   withDmaCart(),
   callsCart(),
+  nmiCart(),
 ]

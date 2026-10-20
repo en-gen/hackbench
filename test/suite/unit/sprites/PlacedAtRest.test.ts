@@ -118,9 +118,11 @@ describe('what at rest starts from', () => {
     expect(rest.anchor).toMatchObject({ x: 0x80, y: 0x80 })
     expect(played.anchor!.x).not.toBe(0x80)
   })
-  it('a sprite that draws nothing at rest says its look is set up when the map runs', () => {
+  it('a sprite that draws nothing at rest says only that it drew no tile and was not checked in play', () => {
     const m = runOnce(buildSyntheticRom({ noTileWrite: true }), 0, SPRITE_SEED, { atRest: true })
-    expect(m.emptyReason).toMatch(/set up when the map runs and shown on play/)
+    expect(m.emptyReason).toMatch(
+      /drew no OAM tile in \d+ passes \(it drew no tile at rest; whether it shows in play was not checked\)/,
+    )
   })
 })
 
