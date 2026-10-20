@@ -28,6 +28,7 @@
  * caller is not derived to be the Mode 7 one, so two or more leave every
  * file to ordinary planar inference rather than blanking unrelated loaders.
  */
+import { le16 } from './bytes'
 import { findPattern } from './BytePattern'
 import { LOROM_BANK_SIZE } from './addressing'
 import { Refusal, callSubroutine } from './cpu/call'
@@ -160,7 +161,7 @@ function branchOverJsrs(rom: RomFile): { at: number; to: number }[] {
   for (const at of findPattern(rom, [BEQ])) {
     const b = rom.readAtFileOffset(at + 1, 1 + JSR_LENGTH)
     if (!b || b[0] !== JSR_LENGTH || b[1] !== JSR) continue
-    const to = jsrTarget(at, b[2]! | (b[3]! << 8))
+    const to = jsrTarget(at, le16(b, 2))
     if (to !== null) out.push({ at, to })
   }
   return out
@@ -309,10 +310,9 @@ function readByteLength(rom: RomFile, at: number): Length {
   // Bank arithmetic below is LoROM's.
   if (rom.mapMode === 'hirom') return unreadable('The ROM is HiROM')
   const site = rom.readAtFileOffset(at, UNPACK_LENGTH)!
-  const read16 = (off: number): number => site[off]! | (site[off + 1]! << 8)
 
-  const helperOperand = read16(JSR_OPERAND_OFFS[0]!)
-  if (JSR_OPERAND_OFFS.some(off => read16(off) !== helperOperand)) {
+  const helperOperand = le16(site, JSR_OPERAND_OFFS[0]!)
+  if (JSR_OPERAND_OFFS.some(off => le16(site, off) !== helperOperand)) {
     return unreadable('The unpack routine calls more than one helper')
   }
   const helperAt = jsrTarget(at, helperOperand)
@@ -338,7 +338,7 @@ function readByteLength(rom: RomFile, at: number): Length {
   }
 
   // 16-bit LDX / DEX / BPL: an operand with bit 15 set runs the body once.
-  const count = read16(LOOP_COUNT_OFF)
+  const count = le16(site, LOOP_COUNT_OFF)
   return { byteLength: (count & 0x8000 ? 1 : count + 1) * BYTES_PER_GROUP }
 }
 

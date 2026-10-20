@@ -252,6 +252,8 @@ export type MapPlaneKey = (typeof MAP_PLANE_KEYS)[number]
 export interface MapLayer3Dto {
   priority: boolean
   reason: string | null
+  /** Layer 3 drifts slowly to the left in the game, which the drawing does not show (#563). Kept for the map properties panel, Decisions pending; no tooltip reads it. */
+  drifts?: boolean
   /** Layer 3 follows the camera in the game and is drawn once (#997). Kept for the map properties panel, Decisions pending; no view reads it yet. */
   followsCamera?: boolean
 }
@@ -362,6 +364,8 @@ export interface MapSpriteDto {
    * level loader refused this ROM: drawn, but not run from the level's state.
    */
   unverified?: string
+  /** A plain-words line about what the map shows of this sprite, not a flaw (for example fewer Eeries than the placement asks for); the map's note line carries it too. */
+  note?: string
 }
 
 /**

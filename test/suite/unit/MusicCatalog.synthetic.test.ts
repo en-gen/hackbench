@@ -11,6 +11,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
+import { uploadRoutine, jsr, u16 } from '../support/syntheticSpcUpload'
 import { SmwRom, ADDR, LEVEL_COUNT } from '../../../src/rom/SmwRom'
 import { loromToOffset } from '../../../src/rom/addressing'
 import { readMusicCatalog, MusicBankName } from '../../../src/rom/MusicCatalog'
@@ -29,27 +30,6 @@ const SITES: Record<MusicBankName, { callSite: number; routine: number; guard?: 
 
 const BANK_ROM_ADDR = 0x038000
 const ARAM_DEST = 0x1360
-
-const uploadRoutine = (romAddr: number): number[] => [
-  0xa9,
-  romAddr & 0xff,
-  0x8d,
-  0x00,
-  0x00,
-  0xa9,
-  (romAddr >> 8) & 0xff,
-  0x8d,
-  0x01,
-  0x00,
-  0xa9,
-  (romAddr >> 16) & 0xff,
-  0x8d,
-  0x02,
-  0x00,
-]
-
-const jsr = (target: number): number[] => [0x20, target & 0xff, (target >> 8) & 0xff]
-const u16 = (n: number): number[] => [n & 0xff, (n >> 8) & 0xff]
 
 /**
  * UploadLevelMusic's conditional header up to the early-return BNE

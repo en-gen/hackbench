@@ -59,7 +59,8 @@ import { RomFile } from './RomFile'
 import { tryDecompress, type BackRefOrder } from './LcLz2'
 import { formatAddr, loromToOffset, mirror } from './addressing'
 import { matchesAt, WILD, type BytePattern } from './BytePattern'
-import { PIXELS_PER_TILE } from './GraphicsDecoder'
+import { PIXELS_PER_TILE, decode4bpp } from './GraphicsDecoder'
+import { hex4s } from './hex'
 import { framesToMs } from './timing'
 import {
   FAST_LCLZ2,
@@ -395,7 +396,7 @@ function tableFault(name: string, addr: number, span: number): string | null {
   return null
 }
 
-const ramAddr = (a: number): string => '$' + a.toString(16).toUpperCase().padStart(4, '0')
+const ramAddr = hex4s
 
 /**
  * Build the full MarioGraphics RAM region as the game does in CODE_00B888.
@@ -516,7 +517,7 @@ function readVramDest(rom: RomFile, tableAddr: number, byteOffset: number): numb
  * animation frames that source from the GFX32 3bpp region get treated as raw
  * bytes and interpreted as 4bpp by the SNES PPU.
  */
-function decodeTilesAt(buffer: Uint8Array, offset: number): Uint8Array[] {
+export function decodeTilesAt(buffer: Uint8Array, offset: number): Uint8Array[] {
   const tiles: Uint8Array[] = []
   for (let t = 0; t < TILES_PER_TRANSFER; t++) {
     const tileOffset = offset + t * 32
@@ -524,22 +525,7 @@ function decodeTilesAt(buffer: Uint8Array, offset: number): Uint8Array[] {
       tiles.push(new Uint8Array(PIXELS_PER_TILE))
       continue
     }
-    const px = new Uint8Array(PIXELS_PER_TILE)
-    for (let row = 0; row < 8; row++) {
-      const p0lo = buffer[tileOffset + row * 2]
-      const p0hi = buffer[tileOffset + row * 2 + 1]
-      const p1lo = buffer[tileOffset + 16 + row * 2]
-      const p1hi = buffer[tileOffset + 16 + row * 2 + 1]
-      for (let col = 0; col < 8; col++) {
-        const bit = 7 - col
-        px[row * 8 + col] =
-          ((p0lo >> bit) & 1) |
-          (((p0hi >> bit) & 1) << 1) |
-          (((p1lo >> bit) & 1) << 2) |
-          (((p1hi >> bit) & 1) << 3)
-      }
-    }
-    tiles.push(px)
+    tiles.push(decode4bpp(buffer, tileOffset))
   }
   return tiles
 }
