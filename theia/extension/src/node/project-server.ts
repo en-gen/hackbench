@@ -25,7 +25,7 @@ import {
   WorkingRomResult,
 } from '../../../../src/project/WorkingRomRegistry'
 import { buildMapDetails } from './map-details'
-import { L1ModelCache, mapScreen, toolbarArtOf } from './map-screen'
+import { L1ModelCache, mapScreen, startResult, toolbarArtOf } from './map-screen'
 import { mapCollision, mapCollisionCheck, probeStateOf } from './map-collision'
 import { mapSpriteFrames, mapSprites } from './map-sprites'
 import { mapBlockContents } from './map-block-contents'
@@ -147,13 +147,12 @@ export class ProjectServiceImpl implements ProjectService {
     return mapSpriteFrames(this.screens, r.working.bytes(), r.romPath, index, spriteIndex)
   }
 
+  /** Reads a level's start; a failure uses the shared plain-words start-unavailable wording (#967). */
   async mapStart(manifestPath: string, index: number): Promise<MapStartResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     const s = readLevelStart(romOf(r), index)
-    return s.ok
-      ? { status: 'ok', screen: s.screen, x: s.x, y: s.y, vertical: s.vertical }
-      : { status: 'unavailable', reason: s.reason }
+    return startResult(s)
   }
 
   async mapCollisionCheck(manifestPath: string, index: number): Promise<MapCollisionCheckResult> {

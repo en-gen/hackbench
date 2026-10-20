@@ -37,7 +37,7 @@ import type { EnginePart } from '../../../../src/rom/model/sprites/generic/Sprit
 import { BLOCK as TILE, bakePlus, fitArt, splitDiagonal } from '../common/block-indicator'
 import type { BlockIndicatorDto, MapBlockContentsResult } from '../common/project-protocol'
 import { drawSprites, interpDrawer, type SpriteDrawer } from './map-sprites'
-import { base64, screenTiles, type L1ModelCache, type MapInputs } from './map-screen'
+import { base64, screenTiles, unreadable, type L1ModelCache, type MapInputs } from './map-screen'
 
 const NO_FLAGS = { yellow: false, green: false, red: false, blue: false }
 /** Replies kept per working-copy bytes: each holds every item's art, so a whole ROM's maps are not. */
@@ -99,27 +99,33 @@ export interface ItemArt {
 /** The model parts the indicators need, so tests can build one without a ROM. */
 export type IndicatorModel = Pick<MapInputs, 'grid' | 'map16' | 'l2' | 'isVertical' | 'screenCount'>
 
-/** A refusal in the interpreter's or the placeholder's words, as plain words for the note. */
+/** A refusal in the interpreter's or the placeholder's words, as plain words for the note (the raw text goes to `noteDetail`). */
 export function plainWhy(reason: string): string {
   if (reason === 'charsNotLoaded') return 'whose graphics are not loaded in this map'
   if (reason === 'noParts' || reason.startsWith('drew no') || reason.startsWith('INIT erased'))
     return 'whose item draws nothing in its first frames'
-  if (reason.startsWith('refused')) return `whose sprite code was refused (${reason.slice(9)})`
-  return `whose item could not be drawn (${reason})`
+  if (reason.startsWith('refused')) return 'whose sprite code was refused on this ROM'
+  return 'whose item could not be drawn'
 }
 
 const inRange = (id: number | null | undefined): id is number =>
   id != null && id >= FIRST_ITEM_BLOCK && id <= LAST_ITEM_BLOCK
 
+/** Builds the block indicators; each miss is reported in plain words with the gate text kept as detail (#967). */
 export function blockIndicators(
   model: IndicatorModel,
   t: BlockContentTables | TablesUnavailable,
   art: ItemArt,
 ): Extract<MapBlockContentsResult, { status: 'ok' | 'unavailable' }> {
-  if (isUnavailable(t)) return { status: 'unavailable', reason: t.unavailable }
+  if (isUnavailable(t))
+    return unreadable(t.unavailable, "this ROM's block contents could not be read.")
   const cache = new Map<string, Drawn>()
   const missed = new Map<string, number>()
-  const miss = (why: string) => missed.set(why, (missed.get(why) ?? 0) + 1)
+  const raw = new Set<string>()
+  const miss = (why: string, detail?: string) => {
+    missed.set(why, (missed.get(why) ?? 0) + 1)
+    if (detail) raw.add(detail)
+  }
   const drawItem = (c: Item, col: number, row: number): Drawn =>
     c.kind === 'sprite' ? art.sprite(c, col, row) : art.coin(c.kind === 'multiCoin')
   const artFor = (
@@ -139,7 +145,7 @@ export function blockIndicators(
       cache.set(key, d)
     }
     if ('why' in d) {
-      miss(plainWhy(d.why))
+      miss(plainWhy(d.why), d.why)
       return null
     }
     return key
@@ -156,7 +162,8 @@ export function blockIndicators(
     // prettier-ignore
     const c = resolveBlockContents(id, col, t)
     if (!c) return
-    if (isUnavailable(c)) return miss(c.unavailable)
+    if (isUnavailable(c))
+      return miss('whose contents could not be read from this ROM', c.unavailable)
     const spec = pickIndicator(c)
     if (!spec) return
     if (spec.kind === 'undrawn') return miss(spec.why)
@@ -205,6 +212,7 @@ export function blockIndicators(
     arts,
     indicators,
     ...(notes.length ? { note: `Block contents not shown: ${notes.join('; ')}.` } : {}),
+    ...(raw.size ? { noteDetail: [...raw].join('; ') } : {}),
   }
 }
 
@@ -279,6 +287,7 @@ export function romArt(rom: RomFile, index: number, model: MapInputs): ItemArt {
 /** Replies per working-copy bytes, as `mapSprites` keeps them. */
 const replies = new WeakMap<Uint8Array, Map<number, MapBlockContentsResult>>()
 
+/** Block contents for one map; passes the shared cache's plain-words refusal through unchanged (#967). */
 export function mapBlockContents(
   cache: L1ModelCache,
   bytes: Uint8Array,
@@ -290,7 +299,7 @@ export function mapBlockContents(
   const hit = byMap.get(index)
   if (hit) return hit
   const built = cache.get(bytes, romPath, index, NO_FLAGS)
-  if (!built.ok) return { status: 'unavailable', reason: built.reason }
+  if (!built.ok) return unreadable(built.detail ?? built.reason, built.reason)
   let r: MapBlockContentsResult
   try {
     const rom = RomFile.fromBytes(romPath, Buffer.from(bytes))
@@ -302,7 +311,7 @@ export function mapBlockContents(
       isUnavailable(tables) ? stub : romArt(rom, index, built.inputs),
     )
   } catch (err) {
-    return { status: 'unavailable', reason: (err as Error).message }
+    return unreadable((err as Error).message)
   }
   if (byMap.size >= REPLIES_PER_BYTES) byMap.delete(byMap.keys().next().value!)
   byMap.set(index, r)

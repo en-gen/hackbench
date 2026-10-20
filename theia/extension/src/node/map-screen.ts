@@ -43,7 +43,8 @@ import { PALACES, type Palace } from '../../../../src/rom/SwitchBlockTiles'
 import { palaceArt, type PalaceArt } from '../../../../src/rom/SwitchArt'
 import { renderMap16Tile } from '../../../../src/rom/TileRenderer'
 import { ghostOf, overlayHidden } from '../../../../src/rom/render/HiddenTiles'
-import { MAP_PLANE_KEYS } from '../common/project-protocol'
+import { MAP_PLANE_KEYS, type MapStartResult } from '../common/project-protocol'
+import type { LevelStart } from '../../../../src/rom/LevelStart'
 import { FALLBACK_SCREENS } from '../../../../src/rom/model/ScreenPlanes'
 import type {
   MapPlaneKey,
@@ -294,7 +295,9 @@ export interface MapInputs extends L1Inputs {
   /** Why the planes' order is unverified (not BG mode 1, or the mode could not be read). */
   orderNote?: string
 }
-export type MapInputsResult = { ok: true; inputs: MapInputs } | { ok: false; reason: string }
+/** A refusal from the shared cache words itself once: plain `reason`, the gate or exception text in `detail` (#967). */
+export type MapInputsResult =
+  { ok: true; inputs: MapInputs } | { ok: false; reason: string; detail?: string }
 
 export const base64 = (b: Uint8ClampedArray) =>
   Buffer.from(b.buffer, b.byteOffset, b.byteLength).toString('base64')
@@ -403,7 +406,7 @@ export function palaceIconsOf(art: Record<Palace, PalaceArt>): PalaceIconDto[] {
   return PALACES.map(palace => {
     const a = art[palace]
     return 'reason' in a
-      ? { palace, unavailable: a.reason }
+      ? { palace, unavailable: PALACE_UNDRAWN, detail: a.reason }
       : { palace, uncleared: base64(a.uncleared), cleared: base64(a.cleared) }
   })
 }
@@ -491,6 +494,8 @@ export class L1ModelCache {
       } catch (err) {
         built = { ok: false, reason: (err as Error).message }
       }
+      // The one place the gate's ROM-internal text is swapped for plain words (#967); every caller shows `reason` and keeps `detail` for the tooltip or log. // prettier-ignore
+      if (!built.ok) built = { ok: false, reason: MAP_UNREADABLE, detail: built.reason }
       if (models.size >= 8) models.delete(models.keys().next().value!)
       models.set(key, built)
     }
@@ -506,6 +511,32 @@ export class L1ModelCache {
   }
 }
 
+const MAP_UNREADABLE = 'this part of the map could not be read from the ROM.'
+const SWITCH_UNDRAWN = "this switch's picture could not be drawn on this ROM."
+const PALACE_UNDRAWN = 'this block could not be drawn on this ROM.'
+
+/**
+ * Sprites, collision and block contents share one wording when their read fails (#967): plain
+ * words in `reason`, the exception or gate text apart in `detail` for the tooltip.
+ */
+export const unreadable = (detail: string, reason = MAP_UNREADABLE) =>
+  ({ status: 'unavailable', reason, detail }) as const
+
+/** A level-start read as the RPC reply: on failure the loader's `detail` (the diagnostic, e.g. on a changed-code ROM) is kept, `reason` only when there is none (#967). */
+export const startResult = (s: LevelStart): MapStartResult =>
+  s.ok
+    ? { status: 'ok', screen: s.screen, x: s.x, y: s.y, vertical: s.vertical }
+    : startUnavailable(s.detail ?? s.reason)
+
+/** A start position the entrance loader could not work out (#967): plain words, the loader's text apart. */
+export const startUnavailable = (detail: string) =>
+  ({
+    status: 'unavailable',
+    reason: 'the start position could not be worked out for this map.',
+    detail,
+  }) as const
+
+/** Builds one screen; a refusal keeps the cache's plain-words reason and carries the gate text as detail (#967). */
 export function mapScreen(
   cache: L1ModelCache,
   bytes: Uint8Array,
@@ -517,8 +548,8 @@ export function mapScreen(
 ): ScreenReply {
   const built = cache.get(bytes, romPath, index, flags)
   if (built.ok) return screenResult(built.inputs, screen, switches)
-  // A thrown build's exception text and a gate's ROM-internal reason both stay in `detail` (#786).
-  return { status: 'unavailable', reason: 'This part of the map could not be read from the ROM.', detail: built.reason } // prettier-ignore
+  // The cache already swapped the exception or gate text for plain words (#967); a screen note is a sentence, so only the casing is the caller's.
+  return { status: 'unavailable', reason: built.reason.replace(/^./, c => c.toUpperCase()), detail: built.detail } // prettier-ignore
 }
 
 /**
@@ -528,18 +559,19 @@ export function mapScreen(
  */
 export function toolbarArtOf(
   rom: RomFile,
-  built: L1InputsResult,
+  built: L1InputsResult | MapInputsResult,
   art: Record<Palace, PalaceArt>,
 ): Exclude<PalaceIconsResult, { status: 'rom-not-located' }> {
   if (!built.ok) {
-    const unavailable = Object.fromEntries(
-      (['blue', 'silver', 'onOff'] as const).map(k => [k, built.reason]),
-    )
+    const every = (text: string) =>
+      Object.fromEntries((['blue', 'silver', 'onOff'] as const).map(k => [k, text]))
     return {
       status: 'ok',
       icons: palaceIconsOf(art),
       switchArt: {},
-      switchUnavailable: unavailable,
+      // A refusal from the shared cache already carries the plain words; a bare one is worded here.
+      switchUnavailable: every('detail' in built && built.detail ? built.reason : MAP_UNREADABLE),
+      switchDetail: every('detail' in built && built.detail ? built.detail : built.reason),
     }
   }
   const m = built.inputs
@@ -550,6 +582,8 @@ export function toolbarArtOf(
     status: 'ok',
     icons: palaceIconsOf(art),
     switchArt: buttons.art,
-    switchUnavailable: buttons.unavailable,
+    // The reasons name ROM routines and tile ids: they ride in `switchDetail`, for the tooltip's second line (#967).
+    switchUnavailable: Object.fromEntries(Object.keys(buttons.unavailable).map(k => [k, SWITCH_UNDRAWN])), // prettier-ignore
+    switchDetail: buttons.unavailable,
   }
 }
