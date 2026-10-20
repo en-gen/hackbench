@@ -25,6 +25,7 @@ export interface RefusedCell {
   reasons: string[]
 }
 
+/** Opcode byte to the word a person reads; any other opcode falls back to a generic phrase in gateReason. */
 const OPCODE_WORD: Record<string, string> = { '20': 'a call', '4C': 'a jump' }
 
 /**
