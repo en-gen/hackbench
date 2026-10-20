@@ -107,7 +107,7 @@ import type {
   SpriteFramesResult,
   SwitchFlagsDto,
 } from '../common/project-protocol'
-import { screenTiles, type L1ModelCache } from './map-screen'
+import { screenTiles, unreadable, type L1ModelCache } from './map-screen'
 
 const TILE = 16
 const EXTRA_BITS = 0x08
@@ -718,12 +718,12 @@ export function castleFlameSprites(
   dy: number | undefined,
   dynamic?: (note: PaletteNote) => RgbaColor[],
   routines: FlameRoutines = VANILLA_FLAME_ROUTINES,
-): { sprites: MapSpriteDto[]; note?: string } {
+): { sprites: MapSpriteDto[]; note?: string; noteDetail?: string } {
   if (!sprites.some(s => s.spriteId === CASTLE_FLAMES_ID && !(s.raw[0]! & EXTRA_BITS))) return { sprites: [] } // prettier-ignore
-  const none = (why: string) => ({ sprites: [], note: `The castle flames are not drawn: ${why}.` })
+  const none = (why: string, noteDetail?: string) => ({ sprites: [], note: `The castle flames are not drawn: ${why}.`, ...(noteDetail ? { noteDetail } : {}) }) // prettier-ignore
   if (dy === undefined) return none('the background position is unknown')
   const run = castleFlames(rom, seed, routines)
-  if (!run.ok) return none(run.reason)
+  if (!run.ok) return none('the routines that draw them could not be run on this ROM', run.reason)
   if (run.parts.length === 0) return none('the routines drew nothing')
   const { w, h } = screenTiles(model.isVertical)
   const [mapW, mapH] = model.isVertical ? [w * TILE, model.screenCount * h * TILE] : [model.screenCount * w * TILE, h * TILE] // prettier-ignore
@@ -775,7 +775,9 @@ export function castleFlameSprites(
   const notes = [
     ...(missing ? ['Some castle flames are only marked: their chars are not loaded.'] : []),
     ...(why
-      ? [`The castle flames are unverified: ${why}; drawn from the code at the vanilla address.`]
+      ? [
+          "The castle flames are drawn from this ROM's own code, which differs from the original game.",
+        ]
       : []),
   ]
   return {
@@ -785,6 +787,7 @@ export function castleFlameSprites(
       ...(why ? { unverified } : {}),
     })),
     ...(notes.length ? { note: notes.join(' ') } : {}),
+    ...(why ? { noteDetail: why } : {}),
   }
 }
 
@@ -889,7 +892,7 @@ const dynamicOf = (rom: RomFile) => (n: PaletteNote) => {
   return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore
 }
 
-/** Runs the sprite interpreter at rest for every placed sprite on one map and folds the results into the served model. */
+/** Runs the sprite interpreter at rest for every placed sprite on one map and folds the results into the served model; a Layer 1 refusal passes through as plain words with detail (#967). */
 function compute(
   cache: L1ModelCache,
   bytes: Uint8Array,
@@ -898,7 +901,7 @@ function compute(
 ): Exclude<MapSpritesResult, { status: 'rom-not-located' }> {
   // Sprites do not depend on the palaces; any flags give the same model.
   const built = cache.get(bytes, romPath, index, NO_FLAGS)
-  if (!built.ok) return { status: 'unavailable', reason: built.reason }
+  if (!built.ok) return unreadable(built.detail ?? built.reason, built.reason)
   const model = built.inputs
   try {
     // A copy, as the model cache makes: the working copy's array is shared.
@@ -906,7 +909,7 @@ function compute(
     const ptr = rom.getLevelSpritePointer(index)
     // A stream in the ROM's last bytes is still a stream (as SmwRom.getLevelRawData reads).
     const data = ptr === null ? null : readStream(rom.rom, ptr)
-    if (!data) return { status: 'unavailable', reason: `No sprite data at the pointer for slot ${index.toString(16)}` } // prettier-ignore
+    if (!data) return unreadable(`No sprite data at the pointer for slot ${index.toString(16)}`, "this map's sprites could not be found in the ROM.") // prettier-ignore
     // The level loader runs once; the sprites and the castle flames both start from its image.
     const base = levelSeed(rom.rom, index)
     const draw = interpDrawer(rom.rom, index, model, runWithUploads, () => base)
@@ -921,9 +924,10 @@ function compute(
       ...layer,
       sprites: [...layer.sprites, ...flames.sprites],
       note: [layer.note, flames.note].filter(Boolean).join(' ') || undefined,
+      ...(flames.noteDetail ? { noteDetail: flames.noteDetail } : {}),
     }
   } catch (err) {
-    return { status: 'unavailable', reason: (err as Error).message }
+    return unreadable((err as Error).message)
   }
 }
 

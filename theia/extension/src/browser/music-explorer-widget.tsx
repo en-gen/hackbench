@@ -47,6 +47,7 @@ import {
   SelectableTreeNode,
 } from '@theia/core/lib/browser'
 import { MusicBankName, MusicService, MusicTrackDto } from '../common/music-protocol'
+import { hex2 } from '../../../../src/rom/hex'
 import { ProjectContext } from './project-context'
 import { ExplorerTreeWidget, createExplorerTreeContainer } from './explorer-search'
 import type { SearchRow } from './explorer-match'
@@ -80,7 +81,8 @@ export interface MusicTrackNode extends CompositeTreeNode, SelectableTreeNode {
 }
 
 const hexIndex = (i: number): string => `$${i.toString(16).toUpperCase()}`
-const hexByte = (i: number): string => `$${i.toString(16).toUpperCase().padStart(2, '0')}`
+/** A byte as a $-prefixed two-digit id, the form the track list and the ROM docs use. */
+const hexByte = (i: number): string => `$${hex2(i)}`
 
 const BANKS: Array<{ bank: MusicBankName; label: string }> = [
   { bank: 'level', label: 'level' },

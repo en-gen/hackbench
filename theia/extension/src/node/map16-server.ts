@@ -20,9 +20,7 @@
  * palette-server.ts's setColor uses.
  */
 import { inject, injectable } from '@theia/core/shared/inversify'
-import { RomFile } from '../../../../src/rom/RomFile'
-import { SmwRom } from '../../../../src/rom/SmwRom'
-import { WorkingRomEntry, WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
+import { romFileOf, smwRomOf, WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
 import {
   LoadMap16Result,
   Map16Field,
@@ -61,7 +59,7 @@ export class Map16ServiceImpl implements Map16Service {
     if (r.status === 'unreadable') throw new Error(r.reason)
 
     // Every refusal is the gate's, and none of them reaches setWord.
-    const gate = gateQuadrantWrite(this.romFileFrom(r), tileset, layer, tileId, which, field, value)
+    const gate = gateQuadrantWrite(romFileOf(r), tileset, layer, tileId, which, field, value)
     if (gate.status !== 'ok') return gate
 
     const result = this.workingRoms.setWord(manifestPath, gate.write)
@@ -92,14 +90,6 @@ export class Map16ServiceImpl implements Map16Service {
     // expanded Map16) is a LOAD result, not a throw: the view says why it
     // cannot show the table rather than rendering two pages of one that is
     // bigger. See DecodeMap16Result.
-    return decodeMap16Sheet(this.smwRomFrom(r), tileset, layer, paletteVariant)
-  }
-
-  private romFileFrom(entry: WorkingRomEntry): RomFile {
-    return RomFile.fromBytes(entry.romPath, Buffer.from(entry.working.bytes()))
-  }
-
-  private smwRomFrom(entry: WorkingRomEntry): SmwRom {
-    return new SmwRom(this.romFileFrom(entry))
+    return decodeMap16Sheet(smwRomOf(r), tileset, layer, paletteVariant)
   }
 }
