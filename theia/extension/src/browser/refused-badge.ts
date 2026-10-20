@@ -23,7 +23,7 @@ export function refusedTooltip(
 export const badgeLabel = (n: number): string => (n > 9 ? '9+' : String(n))
 
 /**
- * Circle centre, radius and font size in MAP pixels, with no outline. The circle sits wholly inside the
+ * Circle center, radius and font size in MAP pixels, with no outline. The circle sits wholly inside the
  * tile's top-right quadrant, BADGE_INSET from its edges, so it scales with zoom and never reaches the "!".
  * Digit sizes are what fit r 3.5: "9+" is wider than one digit, so it gets the smaller font.
  */

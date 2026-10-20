@@ -51,7 +51,7 @@ describe('badgeGeometry (#1005)', () => {
       }
   })
 
-  it('the digit is centred on the circle: the overlay places its text at cx, cy', () => {
+  it('the digit is centered on the circle: the overlay places its text at cx, cy', () => {
     const src = readFileSync('theia/extension/src/browser/refused-overlay.tsx', 'utf8')
     const m =
       /<text\s+x=\{b\.cx\}\s+y=\{b\.cy\}\s+textAnchor="middle"\s+dominantBaseline="central"/.exec(
@@ -86,7 +86,7 @@ describe('badgeGeometry (#1005)', () => {
     }
   })
 
-  it('an unbadged cell keeps the centred 12 px "!"', () => {
+  it('an unbadged cell keeps the centered 12 px "!"', () => {
     expect(bangGeometry(2, 3, false)).toEqual({ x: 2 * CELL + 8, y: 3 * CELL + 8, fontSize: 12 })
   })
 })

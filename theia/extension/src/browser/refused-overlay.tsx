@@ -17,7 +17,7 @@ import { NO_PAD, TILE, type Pad } from './off-map-extent'
 
 /** Red, dashed and marked with "!": the collision overlay's unknown cells are orange and hatched, so the two never read alike. */
 const WARN = 'var(--theia-editorError-foreground, #f44336)'
-/** Theia's on-colour for filled controls, white by default; used for the "!" and the badge on the red. */
+/** Theia's on-color for filled controls, white by default; used for the "!" and the badge on the red. */
 const ON_WARN = 'var(--theia-button-foreground, #fff)'
 
 /**

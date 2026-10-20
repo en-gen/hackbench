@@ -30,7 +30,7 @@ const OPCODE_WORD: Record<string, string> = { '20': 'a call', '4C': 'a jump' }
 
 /**
  * A gate refusal in words first, hex last, so the tooltip reads for a person; the address stays because
- * it is what tells two gate refusals on one object apart. Unrecognised lines keep their own text.
+ * it is what tells two gate refusals on one object apart. Unrecognized lines keep their own text.
  */
 export function gateReason(line: string): string {
   const op = /the byte at \$(\w+) is (\$\w\w|nothing), not the \$(\w\w) opcode/.exec(line)

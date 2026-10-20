@@ -179,7 +179,7 @@ const geometryAt = (page, index) =>
         cell,
         quad: { l: (cell.l + cell.r) / 2, r: cell.r, t: cell.t, b: (cell.t + cell.b) / 2 },
         stroke: c ? c.getAttribute('stroke') + '|' + c.getAttribute('stroke-width') : null,
-        centred: bt ? { x: Number(bt.getAttribute('x')), y: Number(bt.getAttribute('y')), anchor: bt.getAttribute('text-anchor'), baseline: bt.getAttribute('dominant-baseline') } : null, // prettier-ignore
+        centered: bt ? { x: Number(bt.getAttribute('x')), y: Number(bt.getAttribute('y')), anchor: bt.getAttribute('text-anchor'), baseline: bt.getAttribute('dominant-baseline') } : null, // prettier-ignore
         badge: c ? screenBox(c, a('cx') - out, a('cy') - out, 2 * out, 2 * out) : null,
         badgeText: g.querySelector('[data-control="refused-badge"] text')?.textContent ?? null,
         circle: c ? { cx: a('cx'), cy: a('cy'), out } : null,
@@ -196,7 +196,7 @@ test('a count badge shows only for 2+ issues, lists every reason, and stays insi
   const mk = (x, y, i, reasons) => ({ x, y, objectIndex: i, objectType: 'type 5', handler: 2, reasons }) // prettier-ignore
   const one = mk(3, 5, 7, [WHY])
   const three = mk(9, 4, 8, [GATE_A, GATE_B, WHY])
-  // Neighbours of `three` on the right and above: a badge must not spill onto either.
+  // Neighbors of `three` on the right and above: a badge must not spill onto either.
   const right = mk(10, 4, 9, [GATE_A, WHY])
   const above = mk(9, 3, 10, [GATE_B, WHY])
   const many = mk(
@@ -219,9 +219,12 @@ test('a count badge shows only for 2+ issues, lists every reason, and stays insi
   await expect(g.nth(4).locator('[data-control="refused-badge"] text')).toHaveText('9+')
 
   const zooms = []
-  for (const step of ['zoom-actual', 'zoom-in', 'zoom-in', 'zoom-in']) {
+  for (const [i, step] of ['zoom-actual', 'zoom-in', 'zoom-in', 'zoom-in'].entries()) {
     await page.locator(`${root(0x105)} [data-control="${step}"]`).click()
-    await page.waitForTimeout(400)
+    // Wait on the measured scale itself, not a fixed delay: the click's zoom is applied asynchronously.
+    await expect
+      .poll(async () => (await geometryAt(page, 0x105))[0].cell.k, { timeout: 10000 })
+      .toBeCloseTo(i + 1, 1)
     const boxes = await geometryAt(page, 0x105)
     const zoom = boxes[0].cell.k
     zooms.push(zoom)
@@ -234,9 +237,9 @@ test('a count badge shows only for 2+ issues, lists every reason, and stays insi
       expect(b.badge.r).toBeLessThanOrEqual(b.quad.r + tol)
       expect(b.badge.t).toBeGreaterThanOrEqual(b.quad.t - tol)
       expect(b.badge.b).toBeLessThanOrEqual(b.quad.b + tol)
-      // No outline, and the number is centred on the circle by attributes (not by glyph box).
+      // No outline, and the number is centered on the circle by attributes (not by glyph box).
       expect(b.stroke).toBe('null|null')
-      expect(b.centred).toEqual({ x: b.circle.cx, y: b.circle.cy, anchor: 'middle', baseline: 'central' }) // prettier-ignore
+      expect(b.centered).toEqual({ x: b.circle.cx, y: b.circle.cy, anchor: 'middle', baseline: 'central' }) // prettier-ignore
       for (const o of boxes) if (o !== b) expect(overlap(b.badge, o.cell)).toBe(false) // prettier-ignore
       // The "!" box (generous 0.6 x 0.9 of its font size, map units) must clear the circle.
       const hw = 0.3 * b.bang.fs
