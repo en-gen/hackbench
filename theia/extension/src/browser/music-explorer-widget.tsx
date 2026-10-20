@@ -43,14 +43,14 @@ import {
   TreeModel,
   TreeNode,
   TreeProps,
-  TreeWidget,
   CompositeTreeNode,
   SelectableTreeNode,
-  createTreeContainer,
 } from '@theia/core/lib/browser'
 import { MusicBankName, MusicService, MusicTrackDto } from '../common/music-protocol'
 import { hex2 } from '../../../../src/rom/hex'
 import { ProjectContext } from './project-context'
+import { ExplorerTreeWidget, createExplorerTreeContainer } from './explorer-search'
+import type { SearchRow } from './explorer-match'
 import { spcPlayback } from './spc-playback'
 
 export const MUSIC_EXPLORER_ID = 'hackbench.music-explorer'
@@ -91,7 +91,29 @@ const BANKS: Array<{ bank: MusicBankName; label: string }> = [
 ]
 
 @injectable()
-export class MusicExplorerWidget extends TreeWidget {
+export class MusicExplorerWidget extends ExplorerTreeWidget {
+  protected readonly searchNoun = 'tracks or sound effects'
+
+  /** The shown hex is the id, so only the alias and folder names are text. */
+  protected searchRow(node: TreeNode): SearchRow | undefined {
+    const n = node as MusicTrackNode
+    if (n.kind === 'track') return { id: n.bgmCommand, texts: [n.alias] }
+    if (n.kind === 'sfx') return { id: n.bgmCommand, texts: [] }
+    if (n.kind === 'message') return undefined
+    // A port folder's name carries its mirror address ("port 0 ($1DF9)"); match "port 0".
+    const name = n.kind === 'sfxport' ? (n.name ?? '').replace(/ \(.*\)$/, '') : (n.name ?? '')
+    return { folder: true, texts: [name] }
+  }
+
+  /** Enter plays the row, as the transport's Play does for the selection. */
+  protected openMatch(node: TreeNode): boolean {
+    const n = node as MusicTrackNode
+    if (n.kind === 'sfx') void this.playSfx(n)
+    else if (n.kind === 'track') void this.playTrack(n)
+    else return false
+    return true
+  }
+
   /**
    * Rows belong to a project, and nothing is open on a fresh load, so none
    * of them are persisted. Theia's TreeWidget serialises its whole model by
@@ -839,15 +861,12 @@ export class MusicExplorerWidget extends TreeWidget {
 }
 
 export function createMusicExplorerWidget(parent: interfaces.Container): MusicExplorerWidget {
-  const child: Container = createTreeContainer(parent, {
-    widget: MusicExplorerWidget,
-    props: {
-      // A row click selects; only the chevron expands. Same as the map
-      // explorer, which established the rule after a folder could not be
-      // opened without collapsing it.
-      expandOnlyOnExpansionToggleClick: true,
-      globalSelection: true,
-    },
+  const child: Container = createExplorerTreeContainer(parent, MusicExplorerWidget, {
+    // A row click selects; only the chevron expands. Same as the map
+    // explorer, which established the rule after a folder could not be
+    // opened without collapsing it.
+    expandOnlyOnExpansionToggleClick: true,
+    globalSelection: true,
   })
   return child.get(MusicExplorerWidget)
 }

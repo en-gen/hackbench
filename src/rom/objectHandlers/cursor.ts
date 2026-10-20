@@ -30,7 +30,7 @@
 
 import type { InterpretedDraw } from './interpretedDraw'
 import { RomFile } from '../RomFile'
-import { hex6 } from './interpretedGate'
+import { formatAddr } from '../addressing'
 
 /** Map16 RAM bytes per horizontal-level screen: 27 rows x 16 cols. */
 export const MAP16_BYTES_PER_SCREEN_H = 0x1b0
@@ -545,14 +545,18 @@ export function restoreBookmark(cur: Cursor): void {
   cur.col = cur.bookmarkCol
 }
 
-/** Report that dispatch found no port for `handler` (0: an empty entry); the object draws nothing. */
-export function refuseUnported(cur: Cursor, handler: number): void {
+/**
+ * Report that dispatch found no port for `handler` (0: an empty entry); the object draws nothing.
+ * `reason` replaces the stock wording where a caller can say more (the pipe variants, #1033).
+ */
+export function refuseUnported(cur: Cursor, handler: number, reason?: string): void {
   cur.refusals?.push({
     objectIndex: cur.owner,
     handler,
     reason:
-      handler === 0
+      reason ??
+      (handler === 0
         ? 'The dispatch entry is empty, so the object is not drawn.'
-        : `No port for the handler at ${hex6(handler)}, so the object is not drawn.`,
+        : `No port for the handler at ${formatAddr(handler)}, so the object is not drawn.`),
   })
 }

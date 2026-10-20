@@ -164,10 +164,74 @@ describe('screen-fixed parts (#286)', () => {
     expect(r.ok && [128 + r.parts[1]!.dx, 112 + r.parts[1]!.dy]).toEqual([184, 368])
   })
 
-  it('calls a part fixed only when OAM index, X and Y all match the probe; following either axis alone is not', () => {
-    // OAM 1 follows Y only, 2 follows X only, 4/5 swap index with the camera (same X, Y); OAM 0 is the fixed one.
+  it('judges each axis on its own: OAM index must match the probe, then X and Y are fixed or camera-following separately', () => {
+    // OAM 1 is fixed in X only, 2 in Y only (#1016); 4/5 swap index with the camera, so neither axis is fixed; OAM 0 is fixed in both.
     const parts = (c: Cam) => [[0, 184, 176], [1, 200, 100 - c.y], [2, 90 - c.x, 100], [4 + (c.x & 1), 40, 40]] // prettier-ignore
-    expect(dxy(draw(at(128, 112), runOf(parts)))).toEqual([[-88, -72], [-38, -12], [72, -12], [56, 256]]) // prettier-ignore
+    expect(dxy(draw(at(128, 112), runOf(parts)))).toEqual([[-88, -72], [-38, 100 + 192 - 112], [200 - 128, -12], [56, 256]]) // prettier-ignore
+  })
+
+  // Sprite $8D (CODE_02F5D0, bank_02.asm:15670-15708; the gate is the LOW byte of Layer1XPos < $46, 15670-15673; X 15678-15687, Y 15688-15689): X = table - Layer1XPos, Y = a bare table byte.
+  const exit = (c: Cam) => (c.x >= 0 && c.x < 0x46 ? [[0, 0x18 - c.x, 0x8f], [1, 0x18 - c.x, 0x5f]] : []) // prettier-ignore
+
+  it('a Y-fixed part at OAM Y >= $80 lands at OAM Y + the loader camera Y, unwrapped; its camera-following X stays (#1016)', () => {
+    // Red before: the Y was s8-wrapped to -113 and the loader camera (0, 192) left out.
+    expect(dxy(draw(at(0, 0), runOf(exit)))).toEqual([
+      [0x18, 0x5f + 192],
+      [0x18, 0x8f + 192],
+    ])
+  })
+
+  // The retry (#1016) must flip BOTH axes and work at both ends of the level; each gate below is the game's own kind (Layer1XPos < $46, bank_02.asm:15670-15673).
+  const fixedY = (ox: (c: Cam) => number) => (c: Cam) => [[0, ox(c), 0x8f]]
+  const gated = (ok: (c: Cam) => boolean, ox: (c: Cam) => number): Run =>
+    runOf(c => (ok(c) ? fixedY(ox)(c) : []))
+  it('retries the other way when the first shift breaks a gate at the left end of the level', () => {
+    expect(
+      dxy(
+        draw(
+          at(0, 0),
+          gated(
+            c => c.x >= 0 && c.x < 0x46,
+            c => 0x18 - c.x,
+          ),
+        ),
+      ),
+    ).toEqual([[0x18, 0x8f + 192]])
+  })
+
+  it('retries the other way at the right end, where the shift towards the centre would run past the last screen', () => {
+    // Sprite at x 496 of 2 screens: camera 256 (the clamp), shift +13 leaves the level and the gate (camera <= 256) draws nothing.
+    expect(
+      dxy(
+        draw(
+          at(496, 0),
+          gated(
+            c => c.x <= 256,
+            c => 356 - c.x,
+          ),
+        ),
+      ),
+    ).toEqual([[100 - (496 - 256), 0x8f + 192]])
+  })
+
+  it('retries the other way on a gate on Layer1YPos: the Y shift flips too, not only the X shift', () => {
+    expect(
+      dxy(
+        draw(
+          at(0, 0),
+          gated(
+            c => c.y >= 0,
+            c => 0x18 - c.x,
+          ),
+        ),
+      ),
+    ).toEqual([[0x18, 0x8f + 192]])
+  })
+
+  it('regression pin: a gate that holds only at the seed camera leaves the runner model as it was (nothing invented)', () => {
+    // Equivalent to the code before #1016 (no probe draws, so no part is moved); it pins that the retry never invents a position.
+    const only = (c: Cam) => (c.x === 0 ? [[0, 0x18, 0x8f]] : [])
+    expect(dxy(draw(at(0, 0), runOf(only)))).toEqual([[0x18, s8(0x8f)]])
   })
 
   it('unwraps the 9-bit X sign and puts OAM Y >= $E0 above the screen; the loader camera keeps its high bytes', () => {
@@ -752,9 +816,37 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
       expect(r.sprites.some(s => s.unverified)).toBe(false)
       return [r.sprites.filter(s => s.status === 'drawn').length, r.sprites.length]
     })
+    // +1 on $105 and +3 on $106: the stationary shells ($DA-$DD, $DF) draw since #837.
     expect(got).toEqual([
-      [31, 34],
-      [21, 25],
+      [32, 34],
+      [24, 25],
     ])
+  })
+})
+
+// #1016: the ghost house EXIT sign ($8D) draws screen-fixed (CODE_02F5D0, SMWDisX bank_02.asm:15670-15708, low byte of Layer1XPos < $46 gate at 15670-15673): X = table -
+// Layer1XPos, Y = table byte. Vanilla US ROM, one machine; the eight maps that place it, each its own case.
+describe.skipIf(!hasRom(VANILLA))('ghost house exit sign ($8D) sits at its door (#1016)', () => {
+  const bytes = () => new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
+  it.each([0xc4, 0xeb, 0xf0, 0xfb, 0x1da, 0x1e6, 0x1e7, 0x1f9])('map %i (decimal)', map => {
+    const b = bytes()
+    const rom = new SmwRom(RomFile.fromBytes('x.sfc', Buffer.from(b)))
+    const built = new L1ModelCache().get(b, romPath(VANILLA), map, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
+    if (!built.ok) throw new Error(built.reason)
+    const s = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(map)!, 0x200)!, false).filter(x => x.spriteId === 0x8d) // prettier-ignore
+    expect(s).toHaveLength(1)
+    const r = interpDrawer(rom.rom, map, built.inputs)(s[0]!)
+    if (!r.ok) throw new Error(r.reason)
+    const [ax, ay] = [r.anchor!.x, r.anchor!.y]
+    const ys = r.parts.map(p => ay + p.dy)
+    // Loader camera (0, 192): the sign's two 16 x 16 at table Y $5F, the frame at $8F..$AF, the 8 px chars one row apart.
+    expect(Math.min(...ys)).toBe(0x5f + 192)
+    expect(ys.filter(y => y < 0x8f + 192).sort((a, c) => a - c)).toEqual([287, 287, 287, 287, 295, 295, 295, 295]) // prettier-ignore
+    expect(Math.max(...ys)).toBe(0xaf + 192 + 8)
+    expect(Math.min(...r.parts.map(p => ax + p.dx))).toBe(-8) // X as before: table - Layer1XPos 0
+    // Mario's start, read from the ROM, is inside the frame band.
+    const mario = readMarioStartPos(rom.rom, map)!.y
+    expect(mario).toBeGreaterThanOrEqual(Math.min(...ys.filter(y => y >= 0x8f + 192)))
+    expect(mario).toBeLessThanOrEqual(Math.max(...ys) + 7)
   })
 })

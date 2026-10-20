@@ -265,6 +265,18 @@ Hover (#879): the widget finds the sprite under the pointer with `doorIdAt`
 and `IndicatorDisplay`; that sprite's covered pixels draw opaque. The lift is
 part of the composite's cache key for the screens whose door map holds the id, so a lifted frame is never kept as the normal one and other screens do not repaint. The id is global to the map, so a sprite crossing a screen edge lifts on each screen it reaches; a sprite with no covered pixel on any composed screen never lifts.
 
+Sprite label (#981): `MapSpriteDto.name` is filled node-side from
+`getSpriteMetadata(id)?.displayName` (the sprite name table in
+`src/rom/model/sprites/SpriteMetadata.ts`); an id the table lacks has none and
+gets no hover. `spriteAt` (`map-view-model.ts`) returns the sprite that
+owns an opaque map pixel, using the same `stackOrder` as `spriteLayer`, so the
+named sprite is the one drawn on top. The widget asks Theia's `HoverService`
+for a hover whose text is `spriteName` (the name only), placed against an
+invisible fixed box over the sprite, so it takes the editor hover theme
+colours; there is no native `title` and nothing in the status bar. Leaving
+the sprite, a sprite reload, the sprite toggle going off or closing the tab
+cancels it.
+
 ### The map tab's collision overlay (#435)
 
 `ProjectService.mapCollision(manifestPath, index)` returns a map's collision as
@@ -351,13 +363,124 @@ unknown cells. Z-order is 150: above the screens, below the collision lines (200
 while the tab shows a screen error, so no marks sit on a blank strip.
 
 Only the anchor cell (the parser's x,y) is marked: a refused object's footprint is unknown, and a
-guessed rectangle would be [PROP]. An anchor past the strip (a horizontal y beyond row 26, an x beyond
-`screenCount` x 16, a vertical y beyond `screenCount` x 16 rows) is clamped onto the last row or
-column, never dropped: an undrawn object must not be hidden (D52).
+guessed rectangle would be [PROP]. The cell keeps the object's own x,y at any distance, inside the map
+or off it: it is never clamped (D76 call 2, D145) and never dropped (D52), and the canvas grows to hold it,
+see "The map strip's pad" below.
 
 Test hooks: `data-control="refused-overlay"` (absent when there are no cells), per cell
 `data-control="refused-cell"` with `data-x`, `data-y` (tiles) and `data-object`, and the reason
 `Object <n> (<type>): <why>` as both the `<title>` tooltip and the `aria-label`.
+
+### The map strip's pad (#1004)
+
+Owner rulings: D76 call 2 ("draw it off the map where the game indicates it is drawn. the canvas can and
+should extend beyond the map bounds"), D48 part 2 ("half a screen width of gutter on each end with ui to
+add a screen. The background should fade in a gradient to the edges"), D145 ("no matter what. the user
+needs ways to extend the size of the map") and R24 (the back color fades to transparent in the gutter).
+
+`offMapPad` (`browser/off-map-extent.ts`, pure) is the one place the canvas grows. Per side, the pad is
+the content the data places off the map there (a refused-object mark's 16 px cell, a sprite's `box`),
+rounded up to whole 16 px tiles, so the grid runs on across it on the same lattice. At each LONG end (left
+and right of a horizontal map, top and bottom of a vertical one) a fixed 128 px gutter (`GUTTER_PX`, half a
+256 px screen) is added BEYOND that content, always, even when nothing is off the map; the short sides get
+the content alone, no gutter and no extra margin. The "add screen" control (#950, D69) will sit in a gutter.
+
+The pad is derived from the layout (marks) and the sprites reply together and memoized by both, so it can
+change when the sprites arrive (`keepViewOnPadChange`, below). It is read from one getter, `pad`, by every
+consumer, and `mapOrigin()` (protected, map pixels: `{x: pad.left, y: pad.top}`; same name, signature and
+units as #977's neighbor-card hook) is the same value as a point.
+
+With the pad the widget:
+
+- pads `.hb-map-view-strip` by the pad times the zoom, so the screens keep their place relative to the map;
+- paints the back area over the whole strip as a gradient along the scroll axis (`backGradient`, "to right"
+  on a horizontal map, "to bottom" on a vertical one): the map's back color, solid across the map and
+  across any content band, and fading linearly to transparent over the 128 px gutter only, which starts
+  beyond the content. A band the content grew on a SHORT side is not a gutter and stays solid [PROP];
+- draws the refused SVG in a user space whose origin is the MAP origin (`viewBox` starts at the negative
+  left/top pad), so marks off the map land where the data names them;
+- draws the sprite pixels that fall outside the map on one canvas (`data-layer="off-map-sprites"`, z 120).
+  The pixels inside the map stay with the screens, under the tiles' priority. The canvas spans the whole
+  padded strip rather than the pad bands (simpler) and is mounted only when `offMapSpritePixels` returns
+  pixels, so a map whose sprites all lie inside it has no such element. Like the refused overlay it is not
+  drawn while the tab shows a screen error;
+- confines the checkerboard (`.hb-checkerboard`, "nothing here") to the strip without the 128 px gutters, so
+  where the back color fades out the panel shows behind it, not the checkerboard [PROP];
+- marks the map's edge with a 1 px outline (`data-control="map-edge"`) [PROP], and runs the grid
+  (`MapGridOverlay`, `map-grid.ts` `pad`) on across the pad.
+
+Everything that turns a pointer or scroll offset into a map position subtracts the leading pad: hover
+(`updateHover`), click selection and the hover anchor of a sprite (#981, #984; the anchor adds the pad back),
+`liftAt` (positions off the map never lift: no tile covers a sprite there), `visibleScreens`
+(`screensInView`) and `placeStart` (`centerScroll`), both unit-tested on the arithmetic. A scroll window wholly
+in a pad touches no screen, and no screen outside the map is ever requested (a request for one would set a
+screen error that sticks). Fit's cross axis
+includes the short-side pads (`measureFit`). A newly opened map still scrolls to the player's start
+(`placeStart` centers it, lead included), so the leading gutter shows only when the start is near the map's
+beginning.
+
+When a sprites reply grows the pad, `keepViewOnPadChange` refits and restores the view: the map pixel under
+the view center is recorded before the change and the scroll set absolutely after the refit commits (an
+axis at scroll 0 is left alone), skipped when the map was reopened or the user zoomed in between;
+`.hb-map-view-scroller` sets `overflow-anchor: none` so the browser does not shift it as well. Evidence:
+the Playwright case in `map-off-map-canvas.spec.cjs` (Fit, same map pixel under the center within 1 px, one
+machine, Chromium via the Theia browser app); not a proof for every zoom or reply order.
+
+What vanilla does (a sweep of the 488 maps that build, one machine, vanilla ROM, with `offMapPad` at this
+commit over every sprite `box` and refused cell; vanilla refuses no object): 14 maps have content off the
+map, the other 474 (including $105 and $109) are padded by the gutters alone. Content pad beyond the
+gutter, in px:
+
+| map                                                | content (sprite ids)                      | left | right | bottom |
+| -------------------------------------------------- | ----------------------------------------- | ---- | ----- | ------ |
+| $C4 $EB $F0 $FB $1DA $1E6 $1E7 $1F9 (ghost houses) | $8D door, box starts 8 px left of the map | 16   | 0     | 0      |
+| $DD                                                | $63, 8 px left                            | 16   | 0     | 0      |
+| $F8                                                | $E2                                       | 0    | 32    | 16     |
+| $0E, $110                                          | $9E                                       | 0    | 0     | 16     |
+| $1B                                                | $AD                                       | 0    | 0     | 16     |
+| $102                                               | $5D, $A4 (24 px below)                    | 0    | 0     | 32     |
+
+Add 128 on the left and right (the gutters) to read the pad itself; a bottom pad has no gutter.
+
+Sharing the space with #977: its neighbor cards sit in bands that are siblings of the scroller and are
+positioned from `mapOrigin()`, while the gutters are inside the strip, so the two never overlap. The "add
+screen" control (#950) goes in a gutter.
+
+The reference VS Code extension has no off-map canvas: its map editor pans with padding that is clamped
+to the map (`src/webview/mapEditor/main.ts:301`), so there is nothing to port.
+
+## Properties view (#984)
+
+One right-hand side panel, `hackbench.properties`, reopened from View > Properties. It shows a SUBJECT held by
+`PropertiesModel` (`properties-model.ts`): `none` or `sprite` today. A map tab publishes as its own owner and
+only the owner's clear takes effect, so closing a background map never wipes the front map's sprite. Clicking a sprite publishes it and reveals the panel without
+activating it; empty ground, hiding or closing the map clears it to "No sprite selected".
+
+It is a small `ReactWidget`, not `@theia/property-view`: that package is not a dependency and adding it churns
+the lockfile for a selection-service round trip that would lose the owner rule. Everything it shows comes from
+the `MapSpriteDto` the map view draws from (`parts` is filled by `drawSprites` from the same list that blits the
+bitmap), via the pure `sprite-props.ts`; nothing re-reads the ROM and nothing writes.
+
+Animation: `mapSprites` still ships one pose per sprite (the interpreter's `chosen` pass). The panel asks for the
+rest on demand through `mapSpriteFrames(manifestPath, mapIndex, spriteIndex)`: the node side runs that one sprite
+again with the map view's seed and camera, and blits every pass that draws through `drawSprites` (no second draw
+path). `Machine.passes` are consecutive game frames. The loop starts at the pass the map shows (`chosen`, so frame
+0 is the map's bitmap) and goes on to later passes, kept in pass order and capped at 16. The sprite's own movement
+is subtracted (from `pos`, or from `origin` for a $67 on a vanilla-shaped handler, whose parts are measured from the
+pass before), then poses are deduped by each part's char, flips and offset from the other parts, so parts that
+move against each other are a new pose and whole-sprite drift is not. One pose says "Not animated"; no frames at
+all says "Animation not shown" plus a plain reason (the node and player keep reason codes, `framesReasonText`
+puts them in words). Sprites with screen-fixed parts (`fixOffsets`) are not animated, because that fix is only
+derived for the chosen pass. `FramePlayer` (`sprite-frames.ts`) requests on selection, drops replies and errors
+for an older selection, steps every 133 ms (8 game frames) and stops its timer on clear, hide and dispose. The
+widget follows the model through `followSubject` (`properties-follow.ts`), which applies the current subject
+first: a click publishes BEFORE the reveal command creates the widget. Evidence scope: vanilla ROM, one machine; a Koopa ($04)
+yields at least 2 frames across maps $0C7 and $105, a $9F at most 1 (`SpriteFrames.test.ts`). Known follow-ups: no keyboard
+selection of a sprite yet, and `parts` now rides on every drawn sprite in the `mapSprites` reply.
+
+Adding the map description (#1023): add a `map` variant to `PropertiesSubject`, publish it from the map widget
+where it now publishes `none`, and call `registerSubjectRenderer('map', ...)` in `properties-widget.tsx` (the
+renderer registry; `render()` does not change); the sprite breadcrumb in `SpriteSubject` is where "Back" goes.
 
 ## The emulator view
 

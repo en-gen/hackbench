@@ -88,7 +88,7 @@ describe('the layer 3 camera is unverified when the entrance-position code is no
     const rom = l3Cart()
     const v = verdict(rom, stockOf(rom))
     expect(v.l3).not.toBeNull()
-    expect(v.l3?.camYUnverified).toBeUndefined()
+    expect(v.l3?.camYReasons).toBeUndefined()
   })
 
   // Every byte of every checked range, not a sample: a flip at any offset must name its own range.
@@ -102,7 +102,7 @@ describe('the layer 3 camera is unverified when the entrance-position code is no
         const v = verdict(rom, spans)
         expect(v.l3, `offset ${off}`).not.toBeNull() // best effort, never blanked
         expect(v.l3?.camYPx).toBeDefined()
-        expect(v.l3?.camYUnverified?.startsWith(`${hex6(s.addr)} `), `offset ${off}`).toBe(true)
+        expect(v.l3?.camYReasons?.[0]?.startsWith(`${hex6(s.addr)} `), `offset ${off}`).toBe(true)
         flipAt(rom, s.addr + off)
       }
     },
@@ -117,7 +117,7 @@ describe('the layer 3 camera is unverified when the entrance-position code is no
       c.bytes.forEach((b, off) => {
         if (b === WILD) return
         flipAt(rom, c.addr + off)
-        expect(verdict(rom, spans).l3?.camYUnverified?.startsWith(`${hex6(c.addr)} `), `offset ${off}`).toBe(true) // prettier-ignore
+        expect(verdict(rom, spans).l3?.camYReasons?.[0]?.startsWith(`${hex6(c.addr)} `), `offset ${off}`).toBe(true) // prettier-ignore
         flipAt(rom, c.addr + off)
         flipped++
       })
@@ -191,7 +191,7 @@ describe('the exit graph stays intact while the position routine changes', () =>
     withStockCode(rom)
     const l1Ptr = (map: number, at: number) => rom.writeAt(ADDR.LEVEL_L1_PTR + map * 3, [at & 0xff, (at >> 8) & 0xff, at >> 16]) // prettier-ignore
     l1Ptr(0x105, 0x068000) // a submap root: its exits index the $1xx half
-    rom.writeAt(0x068000, [0, 0, 0, 0, 0, 0x00, 0x02, 0x00, 0x10, 0x00, 0x02, 0x00, 0x11, 0xff])
+    rom.writeAt(0x068000, [0, 0, 0, 0, 0, 0x00, 0x02, 0x00, 0x10, 0x01, 0x02, 0x00, 0x11, 0xff])
     l1Ptr(0x177, 0x06b000)
     rom.writeAt(0x06b000, [0, 0, 0, 0, 0, 0x42, 0xff])
     rom.writeAt(ADDR.SEC_EXIT_DEST + 0x110, [0x77, 0x77])

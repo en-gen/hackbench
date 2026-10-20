@@ -52,6 +52,10 @@ const Lines = React.memo(function Lines(props: {
   )
 })
 
+/**
+ * The collision lines as one SVG in map pixels. `origin` is where the map starts inside a padded strip
+ * (#1004), so the lines sit on the map and not on the strip's corner.
+ */
 export function CollisionOverlay(props: {
   layer: CollisionLayerView
   zoom: number
@@ -59,12 +63,15 @@ export function CollisionOverlay(props: {
   owner: string
   /** Replies taken so far by this tab; only a test hook. */
   revision: number
+  /** The map's origin in strip px when the strip carries off-map padding (#1004); absent: the strip's corner. */
+  origin?: { x: number; y: number }
 }): React.ReactElement {
   const { width, height } = props.layer
   const hatch = `hb-collision-hatch-${props.owner.replace(/[^\w-]/g, '_')}`
   return (
     <svg
       className="hb-map-collision"
+      style={props.origin && { left: props.origin.x, top: props.origin.y }}
       data-control="collision-overlay"
       data-revision={props.revision}
       width={width * props.zoom}

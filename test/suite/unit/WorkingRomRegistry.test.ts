@@ -29,6 +29,7 @@ import { GfxTable } from '../../../src/rom/GfxTable'
 import type { GfxCharEdit } from '../../../src/rom/GfxLayer'
 import { RomFile } from '../../../src/rom/RomFile'
 import { buildCart } from '../support/syntheticGfxCart'
+import { fakeRom, MARIO_RED_ADDR } from '../support/syntheticRegistryRom'
 import { slow } from '../support/loadTimeout'
 
 /**
@@ -56,8 +57,6 @@ let tmp: string
 let romRegistry: RomRegistry
 let working: WorkingRomRegistry
 
-const MARIO_RED_ADDR = 0x00b2ce
-
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-wrreg-'))
   romRegistry = new RomRegistry(path.join(tmp, 'rom-registry.json'))
@@ -68,16 +67,6 @@ afterEach(() => {
   vi.useRealTimers()
   fs.rmSync(tmp, { recursive: true, force: true })
 })
-
-function fakeRom(): Uint8Array {
-  const rom = new Uint8Array(0x80000)
-  for (let i = 0; i < rom.length; i++) rom[i] = (i * 31) & 0xff
-  rom.set(Buffer.from('SUPER MARIO WORLD  ', 'ascii'), 0x7fc0)
-  const offset = loromToOffset(MARIO_RED_ADDR, rom.length, false) as number
-  rom[offset] = 0x1f
-  rom[offset + 1] = 0x39 // $391F
-  return rom
-}
 
 function makeProject(): { manifestPath: string } {
   const romPath = path.join(tmp, 'game.sfc')
@@ -1175,6 +1164,139 @@ describe('WorkingRomRegistry undo/redo', () => {
     expect(isolated.undo(p.manifestPath).status).toBe('rom-not-located')
     expect(isolated.redo(p.manifestPath).status).toBe('rom-not-located')
     expect(isolated.editStack(p.manifestPath).status).toBe('rom-not-located')
+  })
+
+  describe('base ROM gone while a copy is cached (#975)', () => {
+    function cachedWithEdit() {
+      const { manifestPath } = makeProject()
+      working.setWord(manifestPath, { romAddr: MARIO_RED_ADDR, oldHex: '$391F', newHex: '$1000' })
+      const first = working.get(manifestPath)
+      if (first.status !== 'ok') throw new Error('not ok')
+      return { manifestPath, bytes: Buffer.from(first.working.bytes()) }
+    }
+    const romFile = () => path.join(tmp, 'game.sfc')
+
+    it('open with the ROM renamed answers rom-not-located, releases the copy, and every later get agrees', () => {
+      const { manifestPath } = cachedWithEdit()
+      const released = vi.fn()
+      working.onWorkingCopy(() => {}, released)
+      fs.renameSync(romFile(), romFile() + '.moved')
+      working.revalidateOnOpen(manifestPath)
+      expect(working.get(manifestPath).status).toBe('rom-not-located')
+      expect(released).toHaveBeenCalledTimes(1)
+      expect(working.get(manifestPath).status).toBe('rom-not-located')
+      expect(working.editStack(manifestPath).status).toBe('rom-not-located')
+    })
+
+    it('open with the ROM gone announces onRomChanged once, so an open view redraws', () => {
+      const { manifestPath } = cachedWithEdit()
+      const changed = vi.fn()
+      working.onRomChanged(changed)
+      fs.renameSync(romFile(), romFile() + '.moved')
+      working.revalidateOnOpen(manifestPath)
+      expect(changed).toHaveBeenCalledTimes(1)
+      expect(changed).toHaveBeenCalledWith(manifestPath)
+    })
+
+    it('a get that finds the ROM gone while the layers moved drops the copy and announces once', () => {
+      const { manifestPath } = cachedWithEdit()
+      const first = working.get(manifestPath)
+      if (first.status !== 'ok') throw new Error('not ok')
+      // Layers moved on disk (a pull) force the rebuild path, which needs the ROM.
+      appendLayer(first.project.directory, {
+        id: 'pulled',
+        label: 'pulled',
+        ops: [{ address: '$00B2CE', old: '$1000', new: '$2000' }],
+      })
+      const changed = vi.fn()
+      const released = vi.fn()
+      working.onRomChanged(changed)
+      working.onWorkingCopy(() => {}, released)
+      fs.renameSync(romFile(), romFile() + '.moved')
+      expect(working.get(manifestPath).status).toBe('rom-not-located')
+      expect(changed).toHaveBeenCalledTimes(1)
+      expect(changed).toHaveBeenCalledWith(manifestPath)
+      expect(released).toHaveBeenCalledTimes(1)
+      // Open and get see the same missing ROM: nothing cached any more, no second event.
+      working.revalidateOnOpen(manifestPath)
+      expect(working.get(manifestPath).status).toBe('rom-not-located')
+      expect(changed).toHaveBeenCalledTimes(1)
+    })
+
+    it('a get for a never-cached project with the ROM gone fires no onRomChanged', () => {
+      const { manifestPath } = makeProject()
+      const changed = vi.fn()
+      working.onRomChanged(changed)
+      fs.renameSync(romFile(), romFile() + '.moved')
+      expect(working.get(manifestPath).status).toBe('rom-not-located')
+      expect(changed).not.toHaveBeenCalled()
+    })
+
+    it('open drops and announces once, and the get that follows announces nothing more', () => {
+      const { manifestPath } = cachedWithEdit()
+      const changed = vi.fn()
+      working.onRomChanged(changed)
+      fs.renameSync(romFile(), romFile() + '.moved')
+      working.revalidateOnOpen(manifestPath)
+      expect(changed).toHaveBeenCalledTimes(1)
+      expect(working.get(manifestPath).status).toBe('rom-not-located')
+      expect(changed).toHaveBeenCalledTimes(1)
+    })
+
+    it('with the ROM put back the next get announces once and rebuilds a byte-identical copy', () => {
+      const { manifestPath, bytes } = cachedWithEdit()
+      fs.renameSync(romFile(), romFile() + '.moved')
+      working.revalidateOnOpen(manifestPath)
+      const changed = vi.fn()
+      working.onRomChanged(changed)
+      fs.renameSync(romFile() + '.moved', romFile())
+      working.revalidateOnOpen(manifestPath) // nothing cached: does nothing
+      expect(changed).not.toHaveBeenCalled()
+      const r = working.get(manifestPath)
+      if (r.status !== 'ok') throw new Error('not ok')
+      expect(changed).toHaveBeenCalledTimes(1)
+      expect(Buffer.from(r.working.bytes()).equals(bytes)).toBe(true)
+    })
+
+    it('a directory at the path counts as gone, as Project Properties reads it', () => {
+      const { manifestPath } = cachedWithEdit()
+      fs.renameSync(romFile(), romFile() + '.moved')
+      fs.mkdirSync(romFile())
+      working.revalidateOnOpen(manifestPath)
+      expect(working.get(manifestPath).status).toBe('rom-not-located')
+    })
+
+    it('different bytes at the path count as gone', () => {
+      const { manifestPath } = cachedWithEdit()
+      const other = fakeRom()
+      other[0x100] ^= 0xff
+      fs.writeFileSync(romFile(), other)
+      working.revalidateOnOpen(manifestPath)
+      expect(working.get(manifestPath).status).toBe('rom-not-located')
+    })
+
+    it('with nothing cached an open builds nothing', () => {
+      const { manifestPath } = makeProject()
+      const built = vi.fn()
+      working.onWorkingCopy(built, () => {})
+      working.revalidateOnOpen(manifestPath)
+      expect(built).not.toHaveBeenCalled()
+    })
+
+    it('without an open, a copy keeps being served after the ROM goes (pinned: the check is open-only)', () => {
+      const { manifestPath } = cachedWithEdit()
+      fs.renameSync(romFile(), romFile() + '.moved')
+      expect(working.get(manifestPath).status).toBe('ok')
+    })
+
+    it('open with the ROM present keeps the very same instance', () => {
+      const { manifestPath } = cachedWithEdit()
+      const a = working.get(manifestPath)
+      working.revalidateOnOpen(manifestPath)
+      const b = working.get(manifestPath)
+      if (a.status !== 'ok' || b.status !== 'ok') throw new Error('not ok')
+      expect(b.working).toBe(a.working)
+    })
   })
 })
 

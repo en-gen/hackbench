@@ -13,6 +13,7 @@ import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
 import { type DispatchShape, grinderDrawsBeforeSnap } from './LineGuided'
 import { smwMachine } from './Machine'
+import { type ShellLoad, shellLoad } from '../ShellSprites'
 import {
   checkGetRand,
   checkInitTables,
@@ -144,6 +145,8 @@ export interface SpriteModel {
   initFrames?: number
   /** $15EA after INIT: the OAM base the cart assigned. */
   oamBase?: number
+  /** A spawn run: where the spawn code left the picked sprite, before any frame ran (D137: what a spawner's child is drawn at). */
+  spawnPos?: { x: number; y: number }
   passes: PassResult[]
   /**
    * The frame policy: index of the first pass at or after INIT that draws at
@@ -152,8 +155,12 @@ export interface SpriteModel {
    * frame a map should show.
    */
   chosen?: number
+  /** Why a $67 handler got the generic rule: the grinder gate ran it and it did not make the vanilla calls in order. */
+  lineGateReason?: string
   /** Why a $67 on a vanilla-shaped handler stayed on its first drawn pass although the next one draws. */
   lineStepReason?: string
+  /** True for $67 on a vanilla-shaped handler: each pass draws where the pass before left the sprite (`PassResult.origin`). */
+  snaps?: boolean
   dependsOn: DependsOn[]
   /** Instruction counts: INIT, then each MAIN pass. */
   steps: number[]
@@ -175,7 +182,25 @@ export interface SpawnRun {
   inputs: Record<number, number>
   /** Replaces the real dispatcher build; for a synthetic ROM only. */
   dispatcher?: DispatcherSpan
+  /**
+   * Run this subroutine (JSR, DB = its bank) in place of the block spawn: a level-loader spawner that makes
+   * several sprites (#1015). The caller has gated it; the block dispatcher is not read.
+   */
+  routine?: number
+  /**
+   * Which spawned sprite to draw, counting in the order the spawn filled its slots (default 0). When given, the others
+   * are emptied so only the chosen one runs and writes OAM; when absent the block path is as it always was.
+   */
+  nth?: number
+  /**
+   * The sprite number the caller draws these as (the handler `id` is chosen up front). A spawn that wrote any other number
+   * into the picked slot is refused: an edited spawner must not get another sprite's art (#1076).
+   */
+  expectNumber?: number
 }
+
+/** The refusal text when `SpawnRun.nth` names a sprite the spawn did not make; callers that ask for several count these. */
+export const SPAWN_SHORT = 'the spawn made only '
 
 export interface RunOptions {
   spawn?: SpawnRun
@@ -205,6 +230,7 @@ export class Machine {
     rom: RomFile,
     readonly seed: SpriteSeed,
     id: number,
+    shell?: ShellLoad,
   ) {
     const m = smwMachine(rom)
     this.bus = m.bus
@@ -226,7 +252,7 @@ export class Machine {
         }
       }
     }
-    this.load(id)
+    this.load(id, shell)
     this.dynStart = this.bus.wram[RAM.dynPaletteIndex]
   }
 
@@ -304,7 +330,7 @@ export class Machine {
     this.bus.wram[off + 1] = (v >> 8) & 0xff
   }
 
-  private load(id: number): void {
+  private load(id: number, shell?: ShellLoad): void {
     const w = this.bus.wram
     const s = this.seed
     if (s.loaded) {
@@ -338,12 +364,13 @@ export class Machine {
     for (const [k, v] of Object.entries(s.ram)) w[Number(k)] = v
     const n = s.slot
     w[RAM.curSprite] = n
-    w[RAM.spriteNumber + n] = id
+    // A shell list id loads as the loader's rebased number in its status (ShellSprites.ts); the rest as itself in status 1.
+    w[RAM.spriteNumber + n] = shell?.number ?? id
     w[RAM.spriteXLow + n] = s.sprite.x & 0xff
     w[RAM.xHigh + n] = (s.sprite.x >> 8) & 0xff
     w[RAM.spriteYLow + n] = s.sprite.y & 0xff
     w[RAM.yHigh + n] = (s.sprite.y >> 8) & 0xff
-    w[RAM.status + n] = 1
+    w[RAM.status + n] = shell?.status ?? 1
   }
 
   /** Runs a routine to its return, from the native reset state with X = the slot; throws Refusal on a bad op, escape, unbalanced return or budget. */
@@ -469,16 +496,24 @@ export function runOnce(
   if (!loop.ok) return { ...model, refusal: loop.reason }
   const tables = resolveTables(rom, loop.handle)
   if (!tables.ok) return { ...model, refusal: tables.reason }
-  const inits = resolvePointer(rom, tables.tables.initTable, id)
-  if (!inits.ok) return { ...model, refusal: `INIT: ${inits.reason}` }
-  const mains = resolvePointer(rom, tables.tables.mainTable, id)
+  // The tables are indexed by the sprite number the loader stores, not the list id.
+  const loaded = shellLoad(rom, id)
+  if (loaded.refusal) return { ...model, refusal: loaded.refusal }
+  const shell = loaded.shell
+  // INIT runs only for a sprite the loader leaves in status 1.
+  let runsInit = (shell?.status ?? 1) === 1
+  const num = shell?.number ?? id
+  // A sprite the loader does not leave in status 1 never runs INIT, so its INIT pointer is not read.
+  const inits = runsInit ? resolvePointer(rom, tables.tables.initTable, num) : undefined
+  if (inits && !inits.ok) return { ...model, refusal: `INIT: ${inits.reason}` }
+  const mains = resolvePointer(rom, tables.tables.mainTable, num)
   if (!mains.ok) return { ...model, refusal: `MAIN: ${mains.reason}` }
   const init = checkInitTables(rom)
   if (!init.ok) return { ...model, refusal: init.reason }
   const rand = checkGetRand(rom)
   if (!rand.ok) return { ...model, refusal: rand.reason }
   // A spawn finds its own slot, so the machine owns a copy of the seed whose slot it may update.
-  const m = new Machine(rom, opts.spawn ? { ...seed } : seed, id)
+  const m = new Machine(rom, opts.spawn ? { ...seed } : seed, id, shell)
   if (opts.trackInputs) m.bus.inputs = new Set()
   try {
     // RNGCalc ($148B/C) is zero until the game first calls GetRand, its only
@@ -488,42 +523,81 @@ export function runOnce(
     if (rngCells[0] === 0 && rngCells[1] === 0) m.call(ENTRY.getRand, 'jsl')
     const w = m.bus.wram
     if (opts.spawn) {
-      const spawn = resolveBlockSpawn(rom, opts.spawn.dispatcher)
+      const own = opts.spawn.routine
+      const spawn = own === undefined ? resolveBlockSpawn(rom, opts.spawn.dispatcher) : { ok: true as const, entry: own } // prettier-ignore
       if (!spawn.ok) return { ...model, refusal: spawn.reason }
       // Every slot empty, so the game's own search decides where the sprite goes.
       for (let i = 0; i < 12; i++) w[RAM.status + i] = 0
+      // Only what the spawn writes counts as its number, never a cell the shell left behind.
+      if (opts.spawn.expectNumber !== undefined)
+        for (let i = 0; i < 12; i++) w[RAM.spriteNumber + i] = 0
       for (const [k, v] of Object.entries(opts.spawn.inputs)) w[Number(k)] = v
       // The code reads its tables through DB: the game reaches it from its own bank (PHK PLB), so enter it with DB = its bank.
-      m.call(spawn.entry, 'jsl', spawn.entry >>> 16)
-      const picked = Array.from({ length: 12 }, (_, i) => i).find(i => w[RAM.status + i] !== 0)
-      if (picked === undefined) return { ...model, refusal: 'the item block spawn found no free slot and spawned nothing' } // prettier-ignore
+      // Slots in the order the spawn first filled them: that is its spawn order, whichever way its search runs.
+      const order: number[] = []
+      const before = m.bus.onWramWrite
+      m.bus.onWramWrite = (off, v) => {
+        before?.(off, v)
+        const i = off - RAM.status
+        if (i >= 0 && i < 12 && v !== 0 && !order.includes(i)) order.push(i)
+      }
+      try {
+        m.call(spawn.entry, own === undefined ? 'jsl' : 'jsr', spawn.entry >>> 16)
+      } finally {
+        m.bus.onWramWrite = before
+      }
+      const made = order.filter(i => w[RAM.status + i] !== 0)
+      const nth = opts.spawn.nth
+      const picked = made[nth ?? 0]
+      if (picked === undefined)
+        return { ...model, refusal: nth === undefined ? 'the item block spawn found no free slot and spawned nothing' : `${SPAWN_SHORT}${made.length} sprites, not ${nth + 1}` } // prettier-ignore
+      // One sprite runs and draws; the rest the spawn made would add their own OAM entries to its parts.
+      if (nth !== undefined) for (const i of made) if (i !== picked) w[RAM.status + i] = 0
       // From here the sprite is wherever the game put it.
       m.seed.slot = picked
       w[RAM.curSprite] = picked
+      model.spawnPos = m.pos()
+      // Checked after spawnPos is set, so a refused child still counts as one the spawner placed.
+      const madeNumber = w[RAM.spriteNumber + picked]!
+      if (opts.spawn.expectNumber !== undefined && madeNumber !== opts.spawn.expectNumber)
+        return { ...model, refusal: `the spawner made sprite $${madeNumber.toString(16).toUpperCase().padStart(2, '0')}, not $${opts.spawn.expectNumber.toString(16).toUpperCase().padStart(2, '0')}, so it is not drawn as one` } // prettier-ignore
+      // An own spawner leaves the status it chose: only status 1 runs INIT, so a status-8 sprite has no frame before pass 0
+      // (a frame there would move it before it is first drawn). The block path is as it always was.
+      if (own !== undefined) runsInit = w[RAM.status + picked] === 1
     } else m.call(ENTRY.initSpriteTables, 'jsl')
     let n = m.steps
     // Status 1 -> CallSpriteInit, which sets status 8 and runs INIT. An INIT
     // that leaves status 1 runs again next frame, as the game does (the floating
     // platforms sink a few pixels per frame until they reach water).
+    // A shell starts in status 9 with no INIT frame, so MAIN's first pass follows the loader directly.
     let frameNo = 0
-    m.frame()
-    while (w[RAM.status + m.seed.slot] === 1 && frameNo < MAX_INIT_FRAMES) {
+    if (runsInit) m.frame()
+    while (runsInit && w[RAM.status + m.seed.slot] === 1 && frameNo < MAX_INIT_FRAMES) {
       frameNo++
       w[RAM.trueFrame] = (m.seed.trueFrame + frameNo) & 0xff
       w[RAM.effFrame] = (m.seed.effFrame + frameNo) & 0xff
       m.frame()
     }
     model.steps.push(m.steps - n)
-    model.initFrames = frameNo + 1
+    model.initFrames = runsInit ? frameNo + 1 : 0
     const st = w[RAM.status + m.seed.slot]
     if (st === 0) return { ...model, emptyReason: 'INIT erased the sprite (status 0)' }
     if (st === 1)
       return { ...model, refusal: `INIT did not complete in ${MAX_INIT_FRAMES} frames: status stays 1, waiting on state the seed lacks` } // prettier-ignore
     const anchor = m.pos()
-    const snaps =
-      DRAWS_BEFORE_LINE_SNAP.has(id) &&
-      grinderDrawsBeforeSnap(rom, mains.handler.address, opts.grinderDispatch)
+    const gate = DRAWS_BEFORE_LINE_SNAP.has(num)
+      ? grinderDrawsBeforeSnap(
+          rom,
+          mains.handler.address,
+          num,
+          RAM.spriteNumber,
+          opts.grinderDispatch,
+        )
+      : null
+    const snaps = gate?.ok === true
+    if (gate && !gate.ok) model.lineGateReason = gate.reason
     model.anchor = { ...anchor, rawX: m.seed.sprite.x, rawY: m.seed.sprite.y }
+    if (snaps) model.snaps = true
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)
     for (let p = 0; p < m.seed.mainPasses; p++) {

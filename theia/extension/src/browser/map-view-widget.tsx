@@ -14,6 +14,8 @@
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget, Message, Widget } from '@theia/core/lib/browser'
+import { HoverService } from '@theia/core/lib/browser/hover-service'
+import { CommandService } from '@theia/core/lib/common'
 import {
   MAP_PLANE_KEYS,
   MapCollisionCheckResult,
@@ -22,6 +24,7 @@ import {
   MapPlaneKey,
   MapScreenResult,
   MapBlockContentsResult,
+  MapSpriteDto,
   MapSpritesResult,
   ProjectService,
   SwitchFlagsDto,
@@ -31,6 +34,9 @@ import { ProjectContext } from './project-context'
 import { decodeRgba, TILE_PX } from './map16-pixels'
 import {
   spriteDoors,
+  spriteAt,
+  spriteName,
+  hoverPlacementKey,
   doorIdAt,
   liftIfCovered,
   spritePlanes,
@@ -45,6 +51,8 @@ import {
   screenKey,
   type Indicator,
 } from './map-view-model'
+import { PropertiesModel } from './properties-model'
+import { RevealPropertiesCommand } from './properties-contribution'
 import { SWITCH_ORDER } from './map16-view-model'
 import { decodeSwitchButton, SwitchToggle, type SwitchButtonImages } from './switch-toggle'
 import { LayerToggle } from './layer-icon'
@@ -56,6 +64,19 @@ import { ZoomStepper } from './zoom-stepper'
 import { MapGridOverlay } from './grid-overlay'
 import { CollisionOverlay } from './collision-overlay'
 import { RefusedOverlay } from './refused-overlay'
+import {
+  fadeMask,
+  cellRect,
+  centerScroll,
+  insideMap,
+  NO_PAD,
+  offMapPad,
+  offMapSpritePixels,
+  samePad,
+  screensInView,
+  type Pad,
+} from './off-map-extent'
+import { GUTTER_PX } from '../../../../src/rom/model/MapGutter'
 import { collisionKey, collisionPlan } from './map-view-state'
 import { MapViewStateStore } from './map-view-state-store'
 import { layer2Label } from './map-layer-labels'
@@ -137,6 +158,9 @@ const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 export class MapViewWidget extends ReactWidget implements ProjectBound {
   @inject(ProjectService) protected readonly projects!: ProjectService
   @inject(ProjectContext) protected readonly projectContext!: ProjectContext
+  @inject(HoverService) protected readonly hoverService!: HoverService
+  @inject(PropertiesModel) protected readonly properties!: PropertiesModel
+  @inject(CommandService) protected readonly commands!: CommandService
 
   protected options: MapViewOptions | undefined
 
@@ -150,6 +174,16 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** The exception text behind `error`: a tooltip and the console, never the visible words (#786). */
   protected errorDetail: string | undefined
   protected mapLayout: Layout | undefined
+  /** The canvas for sprites the data places off the map, in its pad (#1004). */
+  protected offMapCanvas: HTMLCanvasElement | null = null
+  /** `pad` for one (layout, sprites) pair: it is read on every pointer move. */
+  protected padMemo: { l: Layout; s: Sprites | undefined; pad: Pad } | undefined
+  /** The sprite pixels outside the map for one (layout, sprites) pair, null when none reach outside. */
+  protected offMapMemo: { l: Layout; s: Sprites; px: Uint8ClampedArray | null } | undefined
+  /** Wheel, pointer and key events in the tab: the late-pad restore yields to any of them. */
+  protected userInputs = 0
+  /** A late-pad restore waiting for its frames: the pixel to hold and the pad to restore to. */
+  protected pendingRestore: { held: { x?: number; y?: number } | null | undefined; after: Pad; generation: number; inputs: number; dirty: boolean } | undefined // prettier-ignore
   protected screenError: string | undefined
   protected screenErrorDetail: string | undefined
   /** Each palace's block, decoded once per load, or why it cannot be drawn. */
@@ -170,6 +204,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** The map's sprites (#564), once read; `spritesWhy` is why there are none to show. */
   protected sprites: Sprites | undefined
   protected spritesWhy: string | undefined
+  /** The sprite under the pointer (#981); its name shows in Theia's themed hover, anchored on the sprite. */
+  protected hoverSprite: MapSpriteDto | undefined
+  /** The clicked sprite (#984): published to the Properties panel, never drawn on the map. */
+  protected selectedSprite: MapSpriteDto | undefined
+  /** The invisible box over the hovered sprite that the hover is placed against. */
+  protected spriteAnchor: HTMLElement | undefined
+  /** Where the anchor was placed (`hoverPlacementKey`): a different zoom or strip origin moves the sprite, so the hover is asked for again. */
+  protected hoverPlaced = ''
   /** Bumped when `sprites` is replaced, so a canvas painted from the old ones is repainted. */
   protected spritesVersion = 0
   /** The collision overlay (#435); off by default. */
@@ -230,12 +272,20 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** The view left offset 0 while the start was pending, even if it came back: the user has taken over. */
   protected movedBeforeStart = false
 
+  /** Sets the tab up once the container has built it: its class and focus, the listeners (including the key counter for the late-pad restore), and the disposables that undo them. */
   @postConstruct()
   protected init(): void {
     this.addClass('hb-map-view')
     this.title.closable = true
     this.node.tabIndex = 0
     this.toDispose.push({ dispose: () => this.resizes.disconnect() })
+    this.toDispose.push({ dispose: () => this.setHoverSprite(undefined) })
+    // Keys count as user input for the late-pad restore; the tab, not the scroller, has the focus.
+    this.node.addEventListener('keydown', this.countInput, true)
+    this.toDispose.push({
+      dispose: () => this.node.removeEventListener('keydown', this.countInput, true),
+    })
+    this.toDispose.push({ dispose: () => this.selectSprite(undefined) })
     this.toDispose.push(this.view)
     // Three consumers of one store, each deciding for itself.
     this.toDispose.push(
@@ -305,6 +355,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.error = undefined
     this.mapLayout = undefined
     this.sprites = undefined
+    this.setHoverSprite(undefined)
     this.spritesWhy = undefined
     this.collision = undefined
     this.collisionWhy = undefined
@@ -373,7 +424,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const vertical = l.orientation === 'vertical'
     const fit = this.zoomController.fitting ? this.measureFit() : undefined
     if (fit !== undefined && Math.abs(fit - this.zoom) > 1e-6) return
-    const extent = l.screenCount * (vertical ? l.height : l.width) * this.zoom
+    const [lead, trail] = this.scrollPad(l)
+    const extent = (l.screenCount * (vertical ? l.height : l.width) + lead + trail) * this.zoom
     if ((vertical ? strip.offsetHeight : strip.offsetWidth) < extent - 1) return
     this.pendingStart = undefined
     if (this.movedBeforeStart || (vertical ? el.scrollTop : el.scrollLeft) !== 0) {
@@ -382,7 +434,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     }
     const view = vertical ? el.clientHeight : el.clientWidth
     const max = (vertical ? el.scrollHeight : el.scrollWidth) - view
-    const at = Math.min(Math.max((vertical ? start.y : start.x) * this.zoom - view / 2, 0), max)
+    const at = centerScroll(vertical ? start.y : start.x, lead, this.zoom, view, max)
     el.scrollTo(vertical ? { top: at } : { left: at })
     this.startState = 'placed'
     this.update()
@@ -401,6 +453,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** Drops every cached screen and reads the map again from the working copy. */
   protected refresh(): void {
     this.generation++
+    this.pendingRestore = undefined
+    this.setHoverSprite(undefined)
     this.screens.clear()
     this.coveredIds.clear()
     this.lift = undefined
@@ -470,6 +524,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     if (why) this.showCollision = false
   }
 
+  /**
+   * Reads the map's sprites for the open slot and replaces the current ones. A reply for an older map or edit
+   * is dropped (generation). The pad can depend on the sprites, so the view is held across a pad change.
+   */
   protected async loadSprites(): Promise<void> {
     const o = this.options
     if (!o) return
@@ -479,13 +537,79 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       .catch(err => ({ status: 'unavailable' as const, reason: (err as Error).message }))
     // An older map's or edit's sprites must not land over a newer one.
     if (generation !== this.generation) return
+    const before = this.pad
     this.sprites = r.status === 'ok' ? r : undefined
+    this.keepViewOnPadChange(before)
+    this.setHoverSprite(undefined)
+    this.selectSprite(undefined)
     this.lift = undefined
     this.coveredIds.clear()
     this.spritesWhy = r.status === 'ok' ? undefined : r.status === 'unavailable' ? r.reason : `The base ROM ${r.baseRom.title} is not on this machine` // prettier-ignore
     this.spritesVersion++
     this.update()
     this.sync()
+  }
+
+  /**
+   * Sprites arrive after the map (and an edit can move a mark), and off-map content can grow the pad.
+   * Fit refits to the new cross axis, and a leading pad that appears under a scrolled view shifts the
+   * content. The map pixel under the view center is recorded before the change and the scroll set
+   * absolutely after the refit has committed (the way ZoomController.restoreAnchor does), so the view
+   * stays on it; a relative nudge would drift with the refit's zoom. An axis at scroll 0 is left alone,
+   * so the leading pad shows. A second change while a restore is pending reuses the recorded pixel and
+   * only replaces the pad it restores to. Skipped when the map was reopened (generation), or the user
+   * zoomed, scrolled, pressed a key or a pointer in the two frames. Nothing happens when the pad is unchanged.
+   */
+  protected keepViewOnPadChange(before: Pad): void {
+    const l = this.mapLayout
+    const after = this.pad
+    if (!l || samePad(before, after)) return
+    const pending = this.pendingRestore
+    if (pending) {
+      pending.after = after
+      pending.dirty = true
+      return
+    }
+    const el = this.scroller
+    const z = this.zoom
+    const held = el && {
+      x: el.scrollLeft > 0 ? (el.scrollLeft + el.clientWidth / 2 - before.left * z) / z : undefined,
+      y: el.scrollTop > 0 ? (el.scrollTop + el.clientHeight / 2 - before.top * z) / z : undefined,
+    }
+    const restore = {
+      held,
+      after,
+      generation: this.generation,
+      inputs: this.userInputs,
+      dirty: false,
+    }
+    this.pendingRestore = restore
+    // The refit's zoom is the one to restore at; a different one by the last frame is the user's.
+    let zoom = this.zoom
+    /** The last frame of the restore: runs once more after a refit if the pad changed again, then scrolls. */
+    const finish = (): void => {
+      if (this.pendingRestore !== restore) return // the map was reopened or refreshed
+      // The pad changed again while waiting: refit once more and give the layout a frame to commit.
+      if (restore.dirty) {
+        restore.dirty = false
+        this.fitStrip()
+        zoom = this.zoom
+        requestAnimationFrame(finish)
+        return
+      }
+      this.pendingRestore = undefined
+      const { held: h, after: a, generation, inputs } = restore
+      if (!el || !h || generation !== this.generation || zoom !== this.zoom || inputs !== this.userInputs) return // prettier-ignore
+      el.scrollTo({
+        left: h.x === undefined ? undefined : (h.x + a.left) * zoom - el.clientWidth / 2,
+        top: h.y === undefined ? undefined : (h.y + a.top) * zoom - el.clientHeight / 2,
+      })
+    }
+    requestAnimationFrame(() => {
+      this.fitStrip()
+      zoom = this.zoom
+      requestAnimationFrame(finish)
+    })
   }
 
   protected async loadBlocks(): Promise<void> {
@@ -561,6 +685,48 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return screenKey(this.view.state.flags, this.view.state.switches, screen)
   }
 
+  /** The whole map's size in map pixels: every screen, no padding. */
+  protected mapPx(
+    l: Pick<Layout, 'orientation' | 'width' | 'height' | 'screenCount'>,
+  ): [number, number] {
+    return l.orientation === 'vertical' ? [l.width, l.height * l.screenCount] : [l.width * l.screenCount, l.height] // prettier-ignore
+  }
+
+  /**
+   * The canvas beyond each side of the map (D48 part 2, D145, #1004): the content the data places off
+   * it, rounded to tiles, plus the gutter beyond that at each long end. The ONE origin every pointer
+   * and overlay consumer reads. It is derived from the layout and the sprites together, so it can change
+   * when the sprites reply lands (`keepViewOnPadChange`).
+   */
+  protected get pad(): Pad {
+    const l = this.mapLayout
+    if (!l) return NO_PAD
+    const m = this.padMemo
+    if (m && m.l === l && m.s === this.sprites) return m.pad
+    const [w, h] = this.mapPx(l)
+    const rects = [
+      ...(l.refusedCells ?? []).map(c => cellRect(c.x, c.y)),
+      ...(this.sprites?.sprites ?? []).map(sp => sp.box),
+    ]
+    const pad = offMapPad(w, h, rects, l.orientation === 'vertical')
+    this.padMemo = { l, s: this.sprites, pad }
+    return pad
+  }
+
+  /**
+   * The map's top-left corner in MAP pixels from the strip's: the leading pads. Same name, signature
+   * and units as #977's `mapOrigin()` (neighbor cards add it times the zoom).
+   */
+  protected mapOrigin(): { x: number; y: number } {
+    return { x: this.pad.left, y: this.pad.top }
+  }
+
+  /** The pad on the scroll axis before and after the map, map pixels. */
+  protected scrollPad(l: Layout): [number, number] {
+    const p = this.pad
+    return l.orientation === 'vertical' ? [p.top, p.bottom] : [p.left, p.right]
+  }
+
   /** The screens in view, plus MARGIN either side; screen 0 before the layout is known. */
   protected visibleScreens(): number[] {
     const l = this.mapLayout
@@ -568,10 +734,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const vertical = l.orientation === 'vertical'
     const size = (vertical ? l.height : l.width) * this.zoom
     const el = this.scroller
-    const pos = el ? (vertical ? el.scrollTop : el.scrollLeft) : 0
+    const scroll = el ? (vertical ? el.scrollTop : el.scrollLeft) : 0
     const view = (el && (vertical ? el.clientHeight : el.clientWidth)) || size
-    const first = Math.max(0, Math.floor(pos / size) - MARGIN)
-    const last = Math.min(l.screenCount - 1, Math.floor((pos + view - 1) / size) + MARGIN)
+    const [first, last] = screensInView(scroll, view, size, this.scrollPad(l)[0] * this.zoom, l.screenCount, MARGIN) // prettier-ignore
     return Array.from({ length: last - first + 1 }, (_, i) => first + i)
   }
 
@@ -580,6 +745,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     for (const s of this.visibleScreens()) void this.fetchScreen(s)
   }
 
+  /**
+   * Fetches one screen's planes (once per cache key) and, on the first reply, sizes the strip from it. A reply
+   * whose layout changed the pad (an edit moved a mark off the map) keeps the view on the same map pixel.
+   */
   protected async fetchScreen(screen: number): Promise<void> {
     const o = this.options
     const key = this.key(screen)
@@ -632,7 +801,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       l.backdrop.join() !== r.backdrop.join()
     ) {
       // The first reply sizes the strip; the screens in view follow once it is laid out.
+      const before = this.pad
       this.mapLayout = r
+      // An edit can move a mark off the map and change the pad under a scrolled view.
+      if (l) this.keepViewOnPadChange(before)
       this.update()
       requestAnimationFrame(() => this.fitStrip())
     }
@@ -697,6 +869,48 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     for (const [s, canvas] of this.composites) this.paintComposite(s, canvas)
     for (const [k, canvas] of this.canvases)
       if (k.startsWith(`${DISPLAY}:`)) this.syncDisplay(canvas, Number(k.split(':')[1]))
+    this.syncOffMap()
+  }
+
+  /**
+   * The sprite pixels outside the map on one bitmap of the padded strip (the screens draw the rest),
+   * or null when no sprite reaches outside. Memoized per (layout, sprites): the render asks on every
+   * pass and the bitmap is the expensive part.
+   */
+  protected offMapPixels(): Uint8ClampedArray | null {
+    const l = this.mapLayout
+    const sp = this.sprites
+    if (!l || !sp) return null
+    const m = this.offMapMemo
+    if (m && m.l === l && m.s === sp) return m.px
+    const [mw, mh] = this.mapPx(l)
+    const px = offMapSpritePixels(sp.sprites, mw, mh, this.pad, l.orientation === 'vertical')
+    this.offMapMemo = { l, s: sp, px }
+    return px
+  }
+
+  /** Paints the off-map sprite canvas, when it is mounted (it is only when `offMapPixels` has pixels). */
+  protected syncOffMap(): void {
+    const c = this.offMapCanvas
+    const l = this.mapLayout
+    const px = this.offMapPixels()
+    if (!c || !l || !px) return
+    const p = this.pad
+    const want = `${this.generation}:${this.spritesVersion}:${p.left},${p.top},${p.right},${p.bottom}`
+    if (c.dataset.drawn === want) return
+    const [mw, mh] = this.mapPx(l)
+    c.width = mw + p.left + p.right
+    c.height = mh + p.top + p.bottom
+    const ctx = c.getContext('2d')
+    ctx?.clearRect(0, 0, c.width, c.height)
+    ctx?.putImageData(new ImageData(px, c.width, c.height), 0, 0)
+    c.dataset.drawn = want
+  }
+
+  /** Remembers the off-map sprite canvas (mounted only when `offMapPixels` is non-null) and paints it at once. */
+  protected readonly offMapRef = (el: HTMLCanvasElement | null): void => {
+    this.offMapCanvas = el
+    this.syncOffMap()
   }
 
   /**
@@ -759,6 +973,20 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** Each screen's picture at screen resolution, while it holds indicators: built once, then only hover cells are redone. */
   protected readonly displays = new Map<number, { want: string; display: IndicatorDisplay }>()
 
+  /** Screens whose last build found no indicator, with the key it was for: no rebuild until the key moves (#973). */
+  protected readonly bare = new Map<number, string>()
+
+  /** The state `syncDisplay` leaves a screen with nothing to draw in: the composite itself shows. */
+  protected showBare(canvas: HTMLCanvasElement, comp?: HTMLCanvasElement): void {
+    if (canvas.width !== 0) canvas.width = 0
+    delete canvas.dataset.drawn
+    canvas.dataset.indicators = '[]'
+    if (comp) comp.style.visibility = ''
+  }
+
+  /** IndicatorDisplay builds so far; the scroll perf spec (#973) reads it to prove a warm scroll builds none. */
+  protected displayBuilds = 0
+
   /**
    * The display canvas of screen `s` covers the native composite, which stays untouched, with the same
    * picture at the zoom and the indicators drawn in their planes (`IndicatorDisplay`). `data-indicators`
@@ -768,15 +996,16 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const [comp, shot, b] = [this.composites.get(s), this.screens.get(this.key(s)), this.blocks]
     const hide = () => {
       this.displays.delete(s)
-      if (canvas.width !== 0) canvas.width = 0
-      delete canvas.dataset.drawn
-      canvas.dataset.indicators = '[]'
-      if (comp) comp.style.visibility = ''
+      this.showBare(canvas, comp)
     }
     if (!comp?.dataset.drawn || !shot || !b) return hide()
     const want = `${comp.dataset.drawn}:${this.blocksVersion}:${this.zoom}`
+    // A screen found to hold no indicator stays that way for this key: skip the rebuild (#973).
+    if (this.bare.get(s) === want) return this.showBare(canvas, comp)
+    this.bare.delete(s)
     let cur = this.displays.get(s)
     if (cur?.want !== want) {
+      this.displayBuilds++
       const display = new IndicatorDisplay({
         width: shot.width,
         height: shot.height,
@@ -792,7 +1021,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         indicators: b.indicators,
         arts: b.decoded,
       }, this.hoverOn(s) && indicatorId(this.hoverOn(s)!)) // prettier-ignore
-      if (!display.touches) return hide()
+      if (!display.touches) {
+        this.bare.set(s, want)
+        return hide()
+      }
       canvas.width = display.width
       canvas.height = display.height
       canvas
@@ -835,6 +1067,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const g = this.sprites
     if (!g || !this.showSprites) return undefined
     const vertical = g.orientation === 'vertical'
+    // Off the map (the pad, #1004): no tile covers a sprite there, and no screen is there to look up.
+    const [mw, mh] = this.mapPx(g)
+    if (!insideMap(x, y, mw, mh)) return undefined
     const s = Math.floor(vertical ? y / g.height : x / g.width)
     const id = doorIdAt(this.screenDoors(s).doors, g.width, x - (vertical ? 0 : s * g.width), y - (vertical ? s * g.height : 0)) // prettier-ignore
     return liftIfCovered(id, this.coveredIds.values())
@@ -858,6 +1093,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** The pointer's client position over the strip, kept so a scroll or zoom can re-find the block under it. */
   protected pointer: { x: number; y: number } | undefined
 
+  /** Counts a wheel or pointer event on the scroller (keys are counted on the tab node, see `init`), so the late-pad restore can tell the user moved. */
+  protected readonly countInput = (): void => {
+    this.userInputs++
+  }
+
   protected readonly onPointerMove = (e: React.MouseEvent): void => {
     this.pointer = { x: e.clientX, y: e.clientY }
     this.updateHover()
@@ -868,17 +1108,78 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const strip = this.scroller?.querySelector<HTMLElement>('.hb-map-view-strip')
     const l = this.mapLayout
     const p = this.pointer
-    if (!strip || !l || !p) {
+    if (!strip || !l || !p || !this.isVisible) {
       this.setLift(undefined)
+      this.setHoverSprite(undefined)
       return this.setHover(undefined)
     }
     const r = strip.getBoundingClientRect()
-    const [x, y] = [(p.x - r.left) / this.zoom, (p.y - r.top) / this.zoom]
+    const pad = this.pad
+    const [x, y] = [(p.x - r.left) / this.zoom - pad.left, (p.y - r.top) / this.zoom - pad.top]
     this.setLift(this.liftAt(x, y))
+    this.setHoverSprite(this.spriteUnder(x, y))
     if (!this.blocks) return this.setHover(undefined)
     const order = this.layerOrder(l)
     const shown = (q: Indicator['plane']) => order.includes(q) && this.layerShown(q)
     this.setHover(hoverTarget(this.blocks.indicators, x, y, shown, q => order.indexOf(q)) ?? undefined) // prettier-ignore
+  }
+
+  /** The topmost drawn sprite at the strip pixel (x, y), native units; none while sprites are toggled off. */
+  protected spriteUnder(x: number, y: number): MapSpriteDto | undefined {
+    const g = this.sprites
+    return g && this.showSprites ? spriteAt(g.sprites, g, x, y) : undefined
+  }
+
+  /**
+   * Sets the sprite under the pointer and places Theia's hover over it. The anchor box is the sprite's box
+   * plus the pad, because the strip's origin is not the map's origin (#1004).
+   */
+  protected setHoverSprite(next: MapSpriteDto | undefined): void {
+    const strip = this.node.querySelector('.hb-map-view-strip')
+    const placed = hoverPlacementKey(
+      this.zoom,
+      strip?.getBoundingClientRect() ?? { left: 0, top: 0 },
+    )
+    if (next === this.hoverSprite && this.hoverPlaced === placed) return
+    this.hoverSprite = next
+    this.hoverPlaced = placed
+    // The hover service is shared: only cancel a hover this widget asked for.
+    if (this.spriteAnchor) this.hoverService.cancelHover()
+    this.spriteAnchor?.remove()
+    this.spriteAnchor = undefined
+    const name = next && spriteName(next)
+    if (next && name && strip) {
+      // Theia's hover is placed against an element, so a fixed box over the sprite stands in for it.
+      const r = strip.getBoundingClientRect()
+      const { x0, y0, x1, y1 } = next.box
+      const a = document.createElement('div')
+      a.className = 'hb-map-sprite-anchor'
+      Object.assign(a.style, { position: 'fixed', pointerEvents: 'none', left: `${r.left + (x0 + this.pad.left) * this.zoom}px`, top: `${r.top + (y0 + this.pad.top) * this.zoom}px`, width: `${(x1 - x0) * this.zoom}px`, height: `${(y1 - y0) * this.zoom}px` }) // prettier-ignore
+      document.body.append(a)
+      this.spriteAnchor = a
+      // A click hides the hover until the pointer re-enters (Theia cancels on mousedown), as a native title does.
+      this.hoverService.requestHover({ content: name, target: a, position: 'top', cssClasses: ['hb-map-sprite-hover'] }) // prettier-ignore
+    }
+  }
+
+  /** Click selection (#984): the sprite goes to the Properties panel until another click, a map change, hide or close. */
+  protected selectSprite(next: MapSpriteDto | undefined): void {
+    this.selectedSprite = next
+    this.syncSelection()
+    // Revealed on a pick, not on every sync: closing the panel must stay closed until the next click.
+    if (next && this.isVisible) void this.commands.executeCommand(RevealPropertiesCommand.id)
+  }
+
+  /** Publishes this widget's selection, or releases it; only the owner's clear takes effect (see PropertiesModel). */
+  protected syncSelection(): void {
+    if (this.selectedSprite && this.isVisible) {
+      const o = this.options
+      this.properties.publish(this, {
+        kind: 'sprite',
+        sprite: this.selectedSprite,
+        source: o && { manifestPath: o.manifestPath, index: o.index },
+      })
+    } else this.properties.clear(this)
   }
 
   protected setHover(next: Indicator | undefined): void {
@@ -944,7 +1245,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const vertical = l.orientation === 'vertical'
     const avail = vertical ? el.clientWidth : el.clientHeight
     if (avail <= 0) return undefined
-    return Math.min(4, Math.max(0.25, avail / (vertical ? l.width : l.height)))
+    const p = this.pad
+    const cross = vertical ? l.width + p.left + p.right : l.height + p.top + p.bottom
+    return Math.min(4, Math.max(0.25, avail / cross))
   }
 
   /** Refits while in fit mode; always asks for the screens now in view. */
@@ -1013,6 +1316,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   protected toggleSprites(): void {
     this.showSprites = !this.showSprites
+    if (!this.showSprites) {
+      this.setHoverSprite(undefined)
+      this.selectSprite(undefined)
+    }
     this.update()
     this.sync()
   }
@@ -1031,9 +1338,37 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.fitStrip()
   }
 
+  /** A hidden or detached tab gets no mouseleave, so its hover must be dropped here. */
+  protected override onAfterHide(msg: Message): void {
+    super.onAfterHide(msg)
+    this.pointer = undefined
+    this.setHoverSprite(undefined)
+    this.syncSelection()
+  }
+
+  protected override onBeforeDetach(msg: Message): void {
+    this.pointer = undefined
+    this.setHoverSprite(undefined)
+    super.onBeforeDetach(msg)
+  }
+
+  /** A zoom or layout change moves the sprite: once the render has committed, place the hover again. */
+  protected override onUpdateRequest(msg: Message): void {
+    super.onUpdateRequest(msg)
+    if (this.spriteAnchor) requestAnimationFrame(() => this.updateHover())
+  }
+
   protected override onActivateRequest(msg: Message): void {
     super.onActivateRequest(msg)
     this.node.focus()
+    // The active map owns the panel: its selection, else "No sprite selected" (a split layout keeps both maps visible).
+    if (this.selectedSprite) this.syncSelection()
+    else this.properties.publish(this, { kind: 'none' })
+  }
+
+  protected override onAfterShow(msg: Message): void {
+    super.onAfterShow(msg)
+    this.syncSelection()
   }
 
   /** Layer 3's tooltip: its role when drawn (the header's priority bit), else why it is not. */
@@ -1203,6 +1538,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     }
   }
 
+  /**
+   * The strip: checkerboard, back area (masked to fade over the gutters), one canvas stack per screen, then
+   * the overlays. Every overlay is positioned from the one `pad`, so the map sits where its data says.
+   */
   protected renderStrip(): React.ReactNode {
     const l = this.mapLayout
     if (!l) {
@@ -1214,6 +1553,17 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         <div className="hb-map-view-empty">Reading the ROM...</div>
       )
     }
+    const pad = this.pad
+    const z = this.zoom
+    const [mapW, mapH] = this.mapPx(l)
+    const origin = this.mapOrigin()
+    // The back color is solid across the map and fades to transparent over each long-end gutter only (D48 part 2,
+    // R24), by a mask, so the element's background-color stays the map's back color.
+    const vertical = l.orientation === 'vertical'
+    const back = `rgb(${l.backdrop.join(',')})`
+    const fade = fadeMask(vertical, GUTTER_PX * z)
+    // The strip's rect without the gutters: the outermost `GUTTER_PX` of each long-end pad (content grows inward of it).
+    const checker = vertical ? `${GUTTER_PX * z}px 0` : `0 ${GUTTER_PX * z}px`
     return (
       <div className="hb-map-grid-host">
         <div
@@ -1231,22 +1581,42 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             const at = l.orientation === 'vertical' ? t.scrollTop : t.scrollLeft
             if (this.startState === 'pending' && at !== 0) this.movedBeforeStart = true
             this.requestVisible()
+            // The sprite moved under a still pointer: drop the hover so it is asked for again at the new place.
+            this.setHoverSprite(undefined)
             this.updateHover()
           }}
           onMouseMove={this.onPointerMove}
+          onWheelCapture={this.countInput}
+          onPointerDownCapture={this.countInput}
           onMouseLeave={() => {
             this.pointer = undefined
             this.setHover(undefined)
             this.setLift(undefined)
+            this.setHoverSprite(undefined)
           }}
         >
           {/* Bottom to top (planes by `screens`, composited per screen): the checkerboard, the back area, then the screens,
               so hiding a layer shows what is under it, down to nothing. */}
-          <div className="hb-map-view-strip hb-checkerboard">
+          <div
+            className="hb-map-view-strip"
+            style={{ padding: `${pad.top * z}px ${pad.right * z}px ${pad.bottom * z}px ${pad.left * z}px` }} // prettier-ignore
+            onClick={e => {
+              const strip = e.currentTarget.getBoundingClientRect()
+              // Strip pixels to map pixels: the gutter before screen 0 is not map.
+              this.selectSprite(this.spriteUnder((e.clientX - strip.left) / this.zoom - pad.left, (e.clientY - strip.top) / this.zoom - pad.top)) // prettier-ignore
+            }}
+          >
+            {/* The checkerboard is confined to the map and its content bands: the gutter, where the back color
+                fades out, shows the panel behind it (D48 part 2). */}
+            <div
+              className="hb-checkerboard"
+              data-layer="checkerboard"
+              style={{ position: 'absolute', inset: checker }}
+            />
             <div
               className="hb-map-view-back-area"
               data-layer="back-area"
-              style={{ background: `rgb(${l.backdrop.join(',')})` }}
+              style={{ background: back, maskImage: fade, WebkitMaskImage: fade }}
             />
             {Array.from({ length: l.screenCount }, (_, s) => (
               <div
@@ -1292,9 +1662,25 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             {l.refusedCells && !this.screenError && (
               <RefusedOverlay
                 cells={l.refusedCells}
-                width={l.orientation === 'vertical' ? l.width : l.width * l.screenCount}
-                height={l.orientation === 'vertical' ? l.height * l.screenCount : l.height}
+                width={mapW}
+                height={mapH}
                 zoom={this.zoom}
+                pad={pad}
+              />
+            )}
+            {this.showSprites && !this.screenError && !!this.offMapPixels() && (
+              <canvas
+                className="hb-map-view-offmap"
+                data-layer="off-map-sprites"
+                style={{ width: (mapW + pad.left + pad.right) * z, height: (mapH + pad.top + pad.bottom) * z }} // prettier-ignore
+                ref={this.offMapRef}
+              />
+            )}
+            {!this.screenError && (
+              <div
+                className="hb-map-view-edge"
+                data-control="map-edge"
+                style={{ left: pad.left * z, top: pad.top * z, width: mapW * z, height: mapH * z }}
               />
             )}
             {this.showCollision && this.collisionCurrent() && (
@@ -1303,6 +1689,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
                 zoom={this.zoom}
                 owner={String(this.options?.index ?? '')}
                 revision={this.collisionRevision}
+                origin={{ x: origin.x * z, y: origin.y * z }}
               />
             )}
           </div>
@@ -1313,6 +1700,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             vertical={l.orientation === 'vertical'}
             screenCount={l.screenCount}
             zoom={this.zoom}
+            pad={pad}
           />
         )}
       </div>

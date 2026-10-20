@@ -89,6 +89,48 @@ content is never exempt, and a malformed line or unknown rule exits 2.
 (`tools/scripts/set-hooks-path.cjs`). The only bypass is
 `git commit --no-verify` / `git push --no-verify`.
 
+### The 8-byte window rule (synthetic carts)
+
+A synthetic cart must not carry the game's code. The rule is mechanical: no 8 consecutive bytes with at least 3
+distinct values may also occur anywhere in the vanilla ROM. `test/suite/support/vanillaWindows.ts` holds the
+checker (it reports each hit as an SNES address) and `test/suite/unit/sprites/SyntheticSpriteRomNoVanilla.test.ts`
+applies it to the sprite cart, the default and each `SyntheticOptions` value on its own; it needs the vanilla ROM and
+skips without it. `CastleFlames.test.ts` applies it to the bytes its fixtures write over the plain cart.
+
+Where a reader in `src/` fixes the game's opcodes (or a fixture keeps the game's operand values on purpose), the
+window stays and the gate's allow list names the region and why. Each region spans at most 64 bytes and lists its
+exact hit count: a count that rises, drops or reaches zero fails until the list is updated, and planted cases prove
+those checks go red.
+
+ExecutePtr, CallSpriteInit and the grinder handler (#1082) were removed by running them instead: a stock-code
+SHA-256 needs at least 24 unknown bytes (not masked, not stated elsewhere in the working tree), and each of those had
+fewer. The runs follow the stock-code exception in `.claude/rules/rom-interpretation.md` (added in #1030): a fixed
+entry, a step budget, a refusal that names why. Entries are reached from HandleSprite through the ROM's own operands
+and tables: ExecutePtr from its JSL operand, CallSpriteInit from its status table, the grinder handler from the MAIN
+pointer table.
+
+- `checkExecutePtr` calls the routine as a JSL with a table of its own in WRAM, for all 256 indices, and requires
+  the landing, the popped frame, the kept registers and no register or SRAM write.
+- `resolveTables` runs CallSpriteInit for every sprite number in three slots and requires the JSL frame at
+  ExecutePtr, the number as the index and the run status as the only write besides the frame; the INIT table is read
+  from that frame.
+- `grinderDrawsBeforeSnap` runs the handler in every slot, then in slot 3 with each WRAM cell it reads set to every
+  value, one cell at a time, and requires the draw, the interact and the line step in that order; it returns a
+  reason, which the runner puts in `lineGateReason`. Known limit: a hook that needs two cells set together (for
+  example `LDA $9D / AND $13 / BNE`) is not caught. The three expected routine addresses are the old `targets`,
+  fixed for vanilla; a relocated routine fails closed.
+- Register and SRAM writes are refused in all three runs (the bus reports SRAM stores through `onSramWrite`).
+  Evidence scope: the vanilla USA ROM and the synthetic cart, one machine, 2026-10-18.
+- The block spawn dispatcher, slot search and status write are one 81-byte span (`BLOCK_SPAWN_DISPATCHER`).
+
+Planted defects for each are in `test/suite/unit/sprites/ShapeRuns.test.ts`.
+
+The fix for an allowed region is to make the reader recognize the code by SHA-256 (as
+`CastleFlames.ts` and `SubmapFlagGate.ts` do), then delete the region.
+
+Source-text probes read the file text only, so they miss runs built from helpers, named opcodes or spread
+arrays. The assembled gate, run against the built cart, is the oracle; a clean probe alone proves nothing.
+
 ## Where the corpus lives
 
 The ROM corpus is **outside the repo**, beside the clone:
@@ -260,6 +302,14 @@ is registered on every machine and the skip count names it.
 Reading the corpus INSIDE a case body stays fine: the case exists either
 way. Put a tripwire on the listing so it cannot pass vacuously, as
 `Map16.tileCount.test.ts` does with `expect(carts.length).toBeGreaterThan(0)`.
+
+Nest no `describe.skipIf` inside a suite that is itself `skipIf`: when the
+outer suite skips, the inner tests end `pending`, and the summary line counts
+`pending` as neither passed nor skipped, so the totals no longer add up. Put
+every condition on ONE `describe.skipIf` (`!romPresent || !fs.existsSync(csv)`)
+and leave the outer suite a plain `describe`. Evidence: vitest ^5.0.3,
+2026-10-18, a synthetic probe (nested gave `pending`, flat gave `skipped`);
+27 scrollSim capture tests showed it before this change.
 
 ## Writing new tests
 
@@ -667,7 +717,8 @@ and `core-registry.json` in per-machine app data (`src/project/appData.ts`:
 `APPDATA` on Windows, `XDG_DATA_HOME` on Linux). `playwright.config.cjs` points
 both at a per-run folder under the OS temp dir before any spec loads, which
 every process it starts inherits, and deletes it when the run exits. It never
-reuses a server already on port 3000, since that server's app data is unknown.
+reuses a server already on its port, since that
+server's app data is unknown.
 
 The same folder holds the run's Theia config dir. The backend keeps user
 `settings.json`, `recentworkspace.json`, `backend-settings.json`,
@@ -814,30 +865,136 @@ private to the test file.
 - `HB_CORE_JS` is the absolute path to `snes9x_libretro.js` (its `.wasm` must sit beside it). `emulator-view` and `emulator-gamepad` read it; unset, they fall back to the documented path (`vendor/cores/snes9x-wasm/` inside the worktree) and skip only if the core is missing there too, which in a worktree it usually is; a skipped run still exits 0. Set it, e.g. `HB_CORE_JS=C:/Projects/hackbench-cores/snes9x-wasm/snes9x_libretro.js`, and check the run reports passed, not skipped. `[EST]`
 - Nightly cost is why e2e is not per-PR. `[EST]`
 
-## Run lock
+## ROM-window probe
 
-Full unit runs, Theia builds and Playwright runs share one lock so they do
-not overlap (timeouts in #485, #771). It is the directory
-`<main checkout>/.hackbench-state/locks/run`; worktrees resolve the main
-checkout through git, and `HACKBENCH_STATE_DIR` overrides it.
+`node tools/scripts/rom-window-probe.mjs` reports 8-byte windows of text or
+assembled bytes that also occur in the vanilla ROM, so a synthetic ROM,
+fixture or detection pattern can be checked before pushing. It is
+report-only and local-only: no hook, CI job or `check-content.mjs` runs it,
+and CI has no ROM to run it against.
 
-```bash
-node tools/scripts/run-lock.mjs acquire --owner "<team> <worktree>" --purpose "<text>"
-node tools/scripts/run-lock.mjs status
-node tools/scripts/run-lock.mjs release --owner "<team> <worktree>"
+```
+node tools/scripts/rom-window-probe.mjs <files...>        text scan (PARTIAL, below)
+node tools/scripts/rom-window-probe.mjs --git-range <spec> files the range touches
+node tools/scripts/rom-window-probe.mjs --bin <files...>  assembled bytes
 ```
 
-- Raw equivalent: `mkdir locks` then a non-recursive `mkdir locks/run`
-  (atomic; failure means held), then write `locks/run/owner.txt`.
+`--rom <file>` skips the lookup. `--repo <dir>` names the repo `--git-range`
+diffs; the ROM lookup always uses the checkout the script lives in, as
+`test/suite/support/corpus.cjs` does. `--git-range` takes `a..b` (post-image
+`b`), `a...b` (from `merge-base(a,b)`) or one rev (that rev against the
+WORKTREE, so uncommitted edits count, and untracked files are scanned whole). It
+scans each touched text file whole and keeps runs that overlap an added line;
+binary files go through the bytes check; deleted lines and deleted files are
+never scanned, but a touched file whose post-image cannot be read is an error.
+
+**The text scan is partial.** It reads `0x..`, `$..`, bare two-digit hex and
+decimal 0-255 tokens, with comments blanked: `//` and block comments in
+JS/TS files, `;` in `.asm`/`.inc`/`.s` files, nothing in any other file
+type (no Lua `--`, no markdown). Quoted strings are skipped when blanking, so
+`'http://x'` hides nothing. It does not see 16-bit words, hex strings,
+quoted-byte arrays, per-byte writes (`buf[a] = 0xa9`), split strings, or values
+behind `as number`. Comment blanking can desync on a regex literal with an escaped slash or an
+unterminated backtick, and `.c`/`.h` files get none. A comma-separated list of bare hex pairs (also in asm, e.g. `.db a9, 10, 85`), or a
+space-separated decimal list, is not read reliably (a two-digit number beside
+a comma is taken as decimal, otherwise as hex). Wildcard bytes (a fingerprint's
+zeroed operands) split runs on purpose, so a pattern with wildcards is checked
+per fixed stretch. **`--bin` on the assembled bytes is the authoritative
+check:** have the fixture builder write its bytes to a scratch file
+(`writeFileSync(scratch, builder())`), then run
+`rom-window-probe.mjs --bin <scratch>`.
+
+Windows with fewer than 3 distinct values are ignored (they match any ROM):
+43,597 of 524,281 positions and 2,982 of 442,994 distinct windows in the
+vanilla ROM (one machine). A 512-byte copier header is stripped, so no window
+straddles it. Output is `HIT path:line windows=N` (`offset=0x..` for bytes) and
+a `TOTAL` line, never ROM bytes. Exit codes: 0 no hit, 1 a hit, 2 nothing was
+checked (no input, no ROM found, a missing `--rom` file, a git or file error;
+HIT lines found before an error are still printed, the message goes to stderr
+and starts `SKIP:` when no ROM exists). Exit 2 on a missing ROM is deliberate:
+"probe exit 0" is cited as proof, so a run that checked nothing must not exit 0.
+
+`bytesHits` in `tools/scripts/lib/rom-windows.mjs` is the shared in-memory
+finder. The assembled-ROM tests (`SyntheticEeriesNoVanilla` and the like) and
+`test/suite/support/romWindows.ts` can adopt it; that is a follow-up for their
+owners.
+
+## Run lock
+
+Full unit runs, Theia builds and Playwright runs share a counting semaphore
+of 3 lock slots, so at most 3 overlap (timeouts in #485, #771). ("Slot" in
+the glossary is a ROM pointer-table index; a lock slot is a different thing.) A lock slot is
+a directory under `<main checkout>/.hackbench-state/locks/`: `run` (lock
+slot 1, the original single lock, so an older script's lock is slot 1),
+`run-2` and `run-3`. Worktrees resolve the main checkout through git, and
+`HACKBENCH_STATE_DIR` overrides it. `HACKBENCH_RUN_SLOTS` sets how many lock
+slots `acquire` may create (a positive integer; anything else falls back to
+3). `status`, `release` and the one-per-team check always look at every
+`run` and `run-N` directory on disk, whatever the count.
+
+```bash
+MAIN_CHECKOUT="/absolute/path/to/main/checkout"
+node "$MAIN_CHECKOUT/tools/scripts/run-lock.mjs" acquire --owner "<team> <worktree>" --purpose "<text>"
+node "$MAIN_CHECKOUT/tools/scripts/run-lock.mjs" status
+node "$MAIN_CHECKOUT/tools/scripts/run-lock.mjs" release --owner "<team> <worktree>"
+```
+
+- Always run the script from the main checkout, as above. A worktree's copy
+  from before this change cannot see `run-2` and `run-3`, and would treat
+  `run` as the only lock.
+- Raw equivalent: `mkdir locks` then a non-recursive `mkdir` of the first
+  free lock slot dir (atomic; failure means held), then write its
+  `owner.txt`.
+- `acquire` takes the first free lock slot and prints
+  `acquired slot N by <owner>`. All held is a refusal that lists the holders.
+- One lock slot per team. `acquire` is refused while any lock slot's `owner:`
+  names the same team (the leading letters of the first word, lowercased, so
+  `xray-909` and `xray C:/wt/b` are one team), which includes the exact same
+  owner string. A lock slot with no parseable `owner:` line names no team and
+  does not block. Two simultaneous acquires from one team are caught by a
+  re-check after `owner.txt` is written: the one that sees the other removes
+  only its own lock slot and says to retry (both may back out).
+- Ports. Playwright picks a free port itself, so concurrent runs do not
+  share a fixed port (best effort: the port is free when picked, not reserved
+  until Theia binds it). `playwright.config.cjs` finds free ports for the app server,
+  `HB_RECONNECT_PORT` and `HB_MULTIWINDOW_PORT` at startup and writes them to
+  `process.env`, which its workers inherit (checked: a worker reloads the
+  config and sees the same values). Set `HB_PORT` (an integer 1-65535; the
+  config refuses anything else) only to force a fixed port. The `start`
+  script of `theia/browser-app` stays on 3000 for servers started by hand.
+  Env you set does not persist across agent tool calls, so prefix the command
+  you run it with, not a separate step.
+- Vitest workers. `vitest.config.ts` uses
+  `max(1, floor(cores / 2 / slots))` (5 on a 32-thread machine with 3),
+  so 3 full runs together use about the half of the cores one run used before.
+  `HACKBENCH_VITEST_WORKERS` (positive integer) overrides it, and when `CI`
+  is set the old `max(2, floor(cores / 2))` applies. The cap covers
+  `test:unit` only: the corpus and timing vitest configs and Theia builds are
+  uncapped. The value is a starting point, not measured under 3 concurrent
+  runs.
+- Shared installs are refused (#1038). `tools/scripts/check-theia-install.mjs`
+  runs as the Theia `prebuild*` hooks and at the top of the Playwright config
+  (unless `HB_APP_URL` or `HB_SKIP_INSTALL_GUARD` is set; the unit gates that
+  only load the config set the latter). It fails when the `theia` folder or
+  `theia/node_modules` is a junction or link, a
+  `hackbench-*` workspace link resolves outside the checkout, or a package
+  `node_modules` or `theia/node_modules/.cache` is a link out. Such a worktree
+  would bundle another checkout's extension and share its nx cache. Fix for a
+  junction: remove it WITHOUT a recursive delete (`cmd /c rmdir`, with
+  backslashes: `theia\node_modules`), then `yarn --cwd theia install` in that
+  worktree. For a linked `theia` folder, remove the link, `git checkout -- theia`,
+  then install. Evidence: synthetic layouts, one Windows machine; 8.3 short
+  paths compare through native realpath but are untested. The checkout is found from INIT_CWD, a PWD equal to the cwd, or the cwd, because POSIX cwd is the symlink target; that path is simulated on Windows (cwd in the target, logical path in the env) and never run on POSIX.
 - `owner.txt` holds `owner:`, `purpose:` and `started:` (UTC) lines.
-- Only the owner removes it, with `release` and the exact same id (no
-  prefix, no padding; blank ids and line breaks (CR, LF, U+2028, U+2029) are refused). A wrong or
-  missing owner line refuses and leaves the lock (see #923 for the incident
+- Only the owner removes a lock slot, with `release` and the exact same id (no
+  prefix, no padding; only the slot whose `owner:` matches is freed; blank ids and line breaks (CR, LF, U+2028, U+2029) are refused). A wrong or
+  missing owner line refuses and leaves the lock; a team that holds no lock
+  slot is told "<owner> holds no lock slot" with the holders (see #923 for the incident
   where a non-owner deleted one by hand). A lock taken by hand, with
   free-form text and no `owner:` line, cannot be proven, so `release` refuses
   it: it is removed by hand by its owner.
-- `status` prints `owner.txt` as written, plus `next.txt` when it is not
-  blank. A lock with no parseable `started:` (hand-made, unreadable or
+- `status` prints every lock slot (`slot N: free`, or its `owner.txt` as written
+  with the age), plus `next.txt` when it is not blank. A lock with no parseable `started:` (hand-made, unreadable or
   missing `owner.txt`), or a `started:` in the future, is aged by the lock
   dir's mtime, and says so. If that age is still negative, `status` prints
   "age unknown (clock skew), report to the BA" and never calls it fresh. An
@@ -849,9 +1006,13 @@ node tools/scripts/run-lock.mjs release --owner "<team> <worktree>"
   free for that owner only if it is the FIRST word of `next.txt` (same
   normalisation); the BA writes the team name first, and a path later in the
   line (`bravo C:/wt/923-alpha-fix`) reserves for `bravo` only.
-  Otherwise do not take a free lock; the named team takes it, and the helper
-  then deletes the file. A blank `next.txt` is ignored.
-- A lock older than 2 hours (`status` prints STALE, strictly over 120 min) is
+  The reservation gates every lock slot: other teams are refused even while
+  slots are free. The named team takes any free one, and the helper then
+  deletes the file. If the named team already holds a lock slot it cannot
+  take another, so `acquire` ignores the reservation (and says so in its
+  output) rather than blocking everyone; the BA should then replace or
+  delete `next.txt`. A blank `next.txt` is ignored.
+- A lock slot older than 2 hours (`status` prints STALE, strictly over 120 min) is
   never removed by a non-owner. Report it to the BA with its `owner.txt`.
 - The CLI finds the state dir from the script's own location, not the
   current directory. When git cannot resolve the main checkout and

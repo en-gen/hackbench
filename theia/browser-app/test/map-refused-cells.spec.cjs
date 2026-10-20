@@ -11,7 +11,7 @@ const path = require('path')
 const os = require('os')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
-const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
+const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 test.skip(!fs.existsSync(ROM), `vanilla ROM not present at ${ROM}`)
 
@@ -95,7 +95,9 @@ async function openMap(page, index, cells) {
 const cellAt = (page, index, screenW, n) =>
   page.evaluate(
     ({ sel, screenW, n }) => {
-      const strip = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
+      const strip = document
+        .querySelector(`${sel} [data-control="map-edge"]`)
+        .getBoundingClientRect() // the map's own origin (#1004)
       const screen = document.querySelector(`${sel} .hb-map-view-screen`).getBoundingClientRect()
       const cells = document.querySelectorAll(`${sel} [data-control="refused-cell"] rect`)
       const r = cells[n].getBoundingClientRect()

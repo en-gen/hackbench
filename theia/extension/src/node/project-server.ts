@@ -13,6 +13,7 @@ import {
   updateProject,
 } from '../../../../src/project/Project'
 import { CoreRegistry } from '../../../../src/project/CoreRegistry'
+import { readMapAliasesOrError } from '../../../../src/project/Aliases'
 import { RecentProjects } from '../../../../src/project/RecentProjects'
 import { buildMapTree, MapTree } from '../../../../src/rom/MapTree'
 import { readLevelStart } from '../../../../src/rom/LevelStart'
@@ -25,7 +26,7 @@ import {
 import { buildMapDetails } from './map-details'
 import { L1ModelCache, mapScreen, toolbarArtOf } from './map-screen'
 import { mapCollision, mapCollisionCheck, probeStateOf } from './map-collision'
-import { mapSprites } from './map-sprites'
+import { mapSpriteFrames, mapSprites } from './map-sprites'
 import { mapBlockContents } from './map-block-contents'
 import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
 import { exportPatch } from '../../../../src/project/ExportPatch'
@@ -56,6 +57,7 @@ import {
   MapScreenResult,
   MapBlockContentsResult,
   MapSpritesResult,
+  SpriteFramesResult,
   MapStartResult,
   PalaceIconsResult,
   PatchFormatDto,
@@ -91,6 +93,8 @@ export class ProjectServiceImpl implements ProjectService {
 
   async openProject(manifestPath: string): Promise<ProjectDto> {
     const p = openProject(manifestPath)
+    // A cached copy must not outlive a base ROM that has gone (#975).
+    this.workingRoms.revalidateOnOpen(manifestPath)
     // Recorded only on a SUCCESSFUL open, so a manifest that cannot be read
     // never enters the list that exists to offer working projects.
     this.recent.remember(p)
@@ -131,6 +135,16 @@ export class ProjectServiceImpl implements ProjectService {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     return mapSprites(this.screens, r.working.bytes(), r.romPath, index)
+  }
+
+  async mapSpriteFrames(
+    manifestPath: string,
+    index: number,
+    spriteIndex: number,
+  ): Promise<SpriteFramesResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    return mapSpriteFrames(this.screens, r.working.bytes(), r.romPath, index, spriteIndex)
   }
 
   /** Start screen and position for a map slot, or the reason it cannot be read. */
@@ -258,7 +272,19 @@ export class ProjectServiceImpl implements ProjectService {
       rawGroups: groups,
       romPath,
       groupsError,
+      ...this.readMapAliases(manifestPath),
     }
+  }
+
+  /** A bad aliases.json must not hide the maps; the reason travels with the empty table. */
+  private readMapAliases(manifestPath: string): {
+    mapAliases: Record<string, string>
+    aliasesError?: string
+  } {
+    const { aliases, error } = readMapAliasesOrError(manifestPath)
+    return error === undefined
+      ? { mapAliases: aliases }
+      : { mapAliases: aliases, aliasesError: error }
   }
 
   /** Saves the user's map groups after admission checks, returning invalid with the reason instead of throwing. */
