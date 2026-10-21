@@ -165,6 +165,8 @@ describe('L2 planes (synthetic)', () => {
   })
 })
 
+const routeNote = 'No route from the overworld reaches this map, so it opens at the first screen.' // prettier-ignore
+
 describe('the wire carries four planes in the view stacking order (synthetic)', () => {
   /** What the view shows: each plane over the ones below it, a covering pixel replacing what is under it. */
   const stack = (
@@ -273,6 +275,19 @@ describe('the wire carries four planes in the view stacking order (synthetic)', 
     const wire = wireOf(mapOf(m, { ok: true, l2 }))
     expect(wire.planes.l2Low).toBeTruthy()
     expect(wire.layerNotes).toEqual(['Background height unverified: x'])
+  })
+
+  it('an unreached map and an unverified height are two layer notes, not one sentence (#945)', () => {
+    const m = inputs(hGrid(1), false, 1)
+    const l2 = { ...l2Of(nullGrid(27, 16), tiles2(solid)), note: 'Background height unverified: x' } // prettier-ignore
+    const wire = wireOf({ ...mapOf(m, { ok: true, l2 }), routeNote })
+    expect(wire.layerNotes).toEqual(['Background height unverified: x', routeNote])
+  })
+
+  it('the no-route note still shows when the background is refused (#945)', () => {
+    const m = inputs(hGrid(1), false, 1)
+    const wire = wireOf({ ...mapOf(m, { ok: false, reason: 'gone' }), routeNote })
+    expect(wire.layerNotes).toEqual(['The background is not drawn: gone', routeNote])
   })
 })
 
@@ -417,7 +432,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
         [0x05fa00 + C, [0x20]], // A's values again
         [0x05fc00 + C, [0x05]],
       ])
-    const via = (overworld: boolean, primary: boolean, ...secondary: number[]) => ({ overworld, primary, secondary }) // prettier-ignore
+    const via = (overworld: boolean, primary: boolean, ...secondary: number[]) => ({ overworld, primary, secondary, route: overworld || primary || !secondary.length ? null : Math.min(...secondary) }) // prettier-ignore
     /** These fixtures hold no level-load code; the gate itself is pinned below. */
     const stock = () => null
     const build = (rom: RomFile, entrances: ReturnType<typeof via>, vertical = true) => {
@@ -456,6 +471,18 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       expect(build(entry(3, 0x03), via(false, false, A), false).dy).toBe(0x40 - 0x60) // not vertical: no high bytes
       // The primary data, by contrast, for a map entered from the overworld only.
       expect(build(entry(3), via(true, false)).dy).toBe(0x320 - 0xc0)
+    })
+
+    // #945: the Theia build asks for the map's entrances; a graph that never reached the map must
+    // give the chooser an empty record (so it says "no route"), not undefined (primary, silent).
+    it('the Theia build: a graph lacking the map draws the primary entrance and says no route was found', () => {
+      objects([[1]])
+      const m = inputs(vGrid(1), true, 1)
+      const built = buildMapInputs(smw(entry(1), true), LEVEL, UNCLEARED, () => ({ ok: true, mode: 1 }), () => ({ ok: true, inputs: m }), () => new Map()) // prettier-ignore
+      if (!built.ok) throw new Error('refused')
+      expect(built.inputs.routeNote).toMatch(/no route/i)
+      expect(built.inputs.l2).toMatchObject({ ok: true })
+      expect(built.inputs.l2?.ok && (built.inputs.l2.l2.note ?? '')).not.toMatch(/no route/i)
     })
 
     it('entrances that agree draw without a note; ones that disagree draw the entrance chooseEntrance names and say the height is unverified', () => {
@@ -536,7 +563,12 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       vi.mocked(Map16Real.loadMap16Tiles).mockReturnValue(tiles2(one))
       const smw = new SmwRom(rom)
       const reached = readMapEntrances(smw, SYNTHETIC_FINGERPRINTS)?.get(0x177)
-      expect(reached).toEqual({ overworld: false, primary: false, secondary: [0x110, 0x111] })
+      expect(reached).toEqual({
+        overworld: false,
+        primary: false,
+        secondary: [0x110, 0x111],
+        route: 0x110,
+      })
       const l2 = ok(buildL2Inputs(smw, 0x177, inputs(hGrid(1), false, 1), reached, stock))
       expect(l2).toMatchObject({ kind: 'image', dy: 0x40 - 0x60 })
       expect(l2.note).toBe('Background height unverified: drawn as entered through secondary entrance $110; entered through secondary entrance $111 it starts at a different height.') // prettier-ignore
