@@ -511,6 +511,34 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       expect(build(entry(3), via(true, false)).note).toBeUndefined() // no midway screen: no restart there
     })
 
+    it('every nonzero F400 midway nibble adds the midway path, $0 does not; the drawn dy is the flag-clear one (#927)', () => {
+      const f400 = (v: number) => {
+        const rom = entry(3)
+        rom.writeAt(0x05f400 + LEVEL, [v])
+        return rom
+      }
+      // Low bits 0b0110 pick L1/L2 rows the same way on every nibble, so only the nibble varies.
+      for (let nibble = 0; nibble <= 0xf; nibble++) {
+        const out = build(f400((nibble << 4) | 0x06), via(true, false))
+        const hex = nibble.toString(16).toUpperCase()
+        // Flag clear (overworld entry) keeps `_1 & $1F` = 3 in the L1 high byte (bank_05.asm:7377); the
+        // flag-set restart jumps past it (:7373), so the note appears while the numeric dy stays the drawn path's.
+        expect(out.dy, `nibble $${hex}`).toBe(0x320 - 0xc0)
+        if (nibble === 0) expect(out.note, `nibble $${hex}`).toBeUndefined()
+        else expect(out.note, `nibble $${hex}`).toMatch(/entered from the midway point/)
+      }
+      // Bit 4 alone is not the test: $26 has it clear yet still sets the flag (>> 4 is nonzero).
+      expect(build(f400(0x26), via(true, false)).note).toMatch(/midway point/)
+    })
+
+    it('a screen-exit-only entry never adds a midway path: SublevelCount != 0 skips the midway test (bank_05.asm:7349-7350)', () => {
+      const rom = entry(3)
+      rom.writeAt(0x05f400 + LEVEL, [0x16])
+      const out = build(rom, via(false, true))
+      expect(out.note).toBeUndefined() // only the exit path exists
+      expect(out.dy).toBe(0x320 - 0xc0) // the exit path's own height
+    })
+
     // Through the node side's own reader: the exit graph's ids (the $1xx half included) reach a
     // background image's note. Also the image branch's note, beside the object branch's above.
     it('end to end: readMapEntrances feeds a background image its $1xx entrances', () => {
@@ -522,7 +550,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       plantOverworldTiles(rom)
       const l1Ptr = (map: number, at: number) => rom.writeAt(ADDR.LEVEL_L1_PTR + map * 3, [at & 0xff, (at >> 8) & 0xff, at >> 16]) // prettier-ignore
       l1Ptr(0x105, 0x068000) // a submap root: its exits index the $1xx half
-      rom.writeAt(0x068000, [0, 0, 0, 0, 0, 0x00, 0x02, 0x00, 0x10, 0x00, 0x02, 0x00, 0x11, 0xff])
+      rom.writeAt(0x068000, [0, 0, 0, 0, 0, 0x00, 0x02, 0x00, 0x10, 0x01, 0x02, 0x00, 0x11, 0xff])
       l1Ptr(0x177, 0x06b000) // clear of the planted uploader chain at $06A000
       rom.writeAt(0x06b000, [0, 0, 0, 0, 0, 0x42, 0xff])
       rom.writeAt(ADDR.SEC_EXIT_DEST + 0x110, [0x77, 0x77])
@@ -861,4 +889,24 @@ describe.skipIf(!hasRom(VANILLA))('the entrances over the 143-map roster', () =>
     expect([...noted.keys()]).toEqual([0x118])
     expect(noted.get(0x118)).toBe('Background height unverified: drawn as entered from the overworld; entered through secondary entrance $1C3 it starts at a different height.') // prettier-ignore
   }, 600_000)
+})
+
+// #927 AC3: the midway restart skips the Layer 1 Y high byte (bank_05.asm:7362-7373), so it can only
+// differ from the normal entry on a vertical map (F600 bit 5, :7292-7299) that also has a midway
+// nibble (F400 >> 4). Measured on vanilla: 38 midway maps, 0 vertical, so the two entry branches
+// give the same Layer 1 Y everywhere.
+describe.skipIf(!hasRom(VANILLA))('midway entry versus vertical maps (vanilla, #927)', () => {
+  it('no map is both vertical (F600 & $20) and has a nonzero F400 midway nibble', () => {
+    const rom = RomFile.load(romPath(VANILLA))
+    const byte = (a: number) => rom.readByte(a) ?? 0
+    const midway: number[] = []
+    const both: number[] = []
+    for (let i = 0; i < 0x200; i++) {
+      const hasMidway = byte(0x05f400 + i) >> 4 !== 0
+      if (hasMidway) midway.push(i)
+      if (hasMidway && (byte(0x05f600 + i) & 0x20) !== 0) both.push(i)
+    }
+    expect(midway.length).toBeGreaterThan(30) // the sweep sees real midway maps (38 over all 512 slots)
+    expect(both).toEqual([])
+  })
 })

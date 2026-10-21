@@ -125,8 +125,8 @@ describe('generator flags (C9/CA are shooters, a separate system: bank_02.asm:57
 
   it('pins names that carry a direction or kind', () => {
     expect(SPRITE_METADATA[0xd5].displayName).toBe('Bullet Bill Generator')
-    expect(SPRITE_METADATA[0xe2].displayName).toBe('Boo Ring (angle step +1)')
-    expect(SPRITE_METADATA[0xe3].displayName).toBe('Boo Ring (angle step -1)')
+    expect(SPRITE_METADATA[0xe2].displayName).toBe('Rotating ring of 10, counter-clockwise')
+    expect(SPRITE_METADATA[0xe3].displayName).toBe('Rotating ring of 10, clockwise')
     expect(SPRITE_METADATA[0xd2].displayName).toContain('stops respawns')
   })
 })

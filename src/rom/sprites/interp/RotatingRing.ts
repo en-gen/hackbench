@@ -1,0 +1,186 @@
+/**
+ * RotatingRing.ts -- sprites $E2 and $E3, a ring of 10 cluster sprites round the list entry's
+ * position, drawn by the ROM's own spawn and draw routines run on the core (#983). Nothing is
+ * written here: the spawn makes the slots, the draw makes the OAM entries, we read them back.
+ * Like CastleFlames.ts (same mechanism, #894); the ring stands in the level, not on Layer 2.
+ * Related: #839 (cluster OAM must never be counted as another sprite's parts).
+ *
+ * - Spawn: CODE_02AB11 (SMWDisX bank_02.asm:5669-5719), reached from CODE_02AAC0 on ids $E2/$E3
+ *   (5640-5641): 10 cluster sprites of type 4; the first carries the rotation (+1 for $E2,
+ *   -1 for $E3) and the ring's centre.
+ * - Draw: CODE_02FA98 (16290-16429), the cluster dispatch's type 4 entry (15969), then
+ *   CODE_02FC8D / CODE_02FD48 (16531-16569, 16627-16686): 16 x 16 pieces, 80 px from the centre, 40/512 of a turn
+ *   (28.1 degrees) apart, so the 10 make an open arc of about 253 degrees, not a closed circle
+ *   (DATA_02FA84, 16282-16288, 16333-16343; radius $50 at 16366, 16384).
+ * - Frame policy: SpriteLock is set, so the angle is the spawn state (angle 0, the state before the
+ *   ring's first frame; #983 owner call A) and does not turn. The level image's own ring state is
+ *   not zero ($0EC's loader image has BooRingIndex 1 and angle $1FF), so it is cleared first.
+ *   Mario is put far away: the draw's contact test (CODE_02FE71, 16781-16823) then never fires. docs/sprites/sprite-e2-e3-ring.md has the derivation.
+ *
+ * Evidence scope: vanilla USA ROM; 10 of 10 OAM entries equal the hardware ones in the layers_v5
+ * captures of map $107 at the angle those frames held (test/suite/unit/sprites/RotatingRing.test.ts).
+ * Viewers draw, they do not blank (owner ruling D52, option B): a routine or call-path byte that is
+ * not the vanilla one is named in `unverified`; only what cannot draw refuses.
+ */
+import { callSubroutine, describe, Refusal } from '../../cpu/call'
+import { spanFingerprint } from '../../SubmapFlagGate'
+import type { RomFile } from '../../RomFile'
+import { bytesAt } from './Guards'
+import { smwMachine } from './Machine'
+import { checkExecutePtr } from './SpriteDispatch'
+import {
+  CLUSTER_NUMBER,
+  CLUSTER_PATH,
+  pathMismatches,
+  SPRITE_LOCK,
+  touchedOamParts,
+  VANILLA_FLAME_ROUTINES,
+  type PathCheck,
+} from './CastleFlames'
+import type { SpritePart } from './SpriteRunner'
+import type { SpriteSeed } from './SpriteSeed'
+
+const SPAWN = 0x02ab11
+const DRAW = 0x02fa98
+/** CMP #$E2 / BCS CODE_02AB11 (bank_02.asm:5640-5641) and the cluster dispatch's type 4 entry (5th dw of the table at $02:F825). */
+const PATH: PathCheck[] = [
+  // CastleFlames names the AAC0 entry for $E6; here it is shared by every cluster id.
+  ...CLUSTER_PATH.map(c => (c.at === 0x02aac0 ? { ...c, what: 'the cluster spawn entry' } : c)),
+  { what: 'the $E2/$E3 branch to the ring spawn', at: 0x02aad1, want: [0xc9, 0xe2, 0xb0, 0x3c] },
+  { what: 'the cluster dispatch entry for type 4', at: 0x02f82d, want: [0x98, 0xfa] },
+]
+
+/** SHA-256 of the spawn (103 bytes), the draw (291), the two draw helpers (85 + 112) and the contact test the draw calls (84), each span ending in RTS; data tables are not part. */
+export interface RingRoutines {
+  spawn: string
+  draw: string
+  helpers: string
+  contact: string
+  /** The loader route and cluster loop prints (CastleFlames.ts, FlameRoutines): a test cart supplies its own. */
+  route: string
+  loop: string
+  /** The call-path checks; the vanilla ones when absent. A test cart supplies its own, so no vanilla code bytes are committed to it. */
+  path?: PathCheck[]
+}
+export const VANILLA_RING_ROUTINES: RingRoutines = {
+  spawn: '6c4c591c502ae9ebb9e48d14a6d6583f75069c2001a8aa6c1a3683e5504c9540',
+  draw: '99d5589cf4ad06fcc69a17ff7257eb51131d23eea6e5f76142ac58c6fbfe3da2',
+  helpers: 'ace622f06ed6f86fc473ce4ce0750eb5cfdd82dae5d8a858ab60910347f1de1c',
+  contact: '5a99e22284fa1bfa79da87ab13fd21672273d44995a4e4aa91cf03b29b28e985',
+  route: VANILLA_FLAME_ROUTINES.route,
+  loop: VANILLA_FLAME_ROUTINES.loop,
+}
+/** Spans: the spawn, the draw, the helpers CODE_02FC8D..(CODE_02FCD9's RTS) and CODE_02FD48..its RTS, and CODE_02FE71..Return02FEC4 (the contact test, bank_02.asm:16781-16823; it runs during the draw even though Mario is out of reach). */
+export const RING_SPANS = { spawn: [[SPAWN, 103]], draw: [[DRAW, 291]], helpers: [[0x02fc8d, 85], [0x02fd48, 112]], contact: [[0x02fe71, 84]] } as const // prettier-ignore
+
+/** Where the ring's centre sits on screen: the camera is put at the centre less this, and a piece's OAM position less this is its offset from the centre. */
+const SCREEN_CENTRE = { x: 128, y: 112 }
+const CLUSTER_SLOTS = 20
+const CUR_SPRITE_PROCESS = 0x15e9
+const EFF_FRAME = 0x14
+const BOO_RING_INDEX = 0x18ba
+/** BooRingAngle through BooRingLoadIndex, 16 bytes (rammap.asm:1435-1442): cleared here, so the ring starts from angle 0 or the requested one, whatever the level image held. */
+const RING_STATE = 0x0fae
+/** PlayerXPosNext / PlayerYPosNext ($94 / $96, rammap.asm:860, 866): far from any ring, so the contact test misses. */
+const MARIO_POS = 0x94
+
+/** The ring's list entry: the id, its map position in px, its index in the stream and the offset of its first byte. */
+export interface RingEntry {
+  id: number
+  x: number
+  y: number
+  index: number
+  streamOffset: number
+  /** The ring's angle, 0-511 (512 per turn). The map view leaves it 0, the spawn state; a test sets a hardware frame's. */
+  angle?: number
+  /** EffFrame ($14), which picks the tile of each piece's two-frame animation; the map view holds the image's. */
+  effFrame?: number
+}
+
+export type RingResult =
+  { ok: true; parts: SpritePart[]; unverified: string[] } | { ok: false; reason: string }
+
+/** `unverified` names each routine or call-path part that is not the vanilla shape (empty when all match). */
+export function ringGate(
+  rom: RomFile,
+  routines: RingRoutines = VANILLA_RING_ROUTINES,
+  spans: typeof RING_SPANS = RING_SPANS,
+): string[] {
+  const out = pathMismatches(rom, routines.path ?? PATH, routines)
+  const callee = bytesAt(rom, 0x02f822, 3)
+  if (!callee || !checkExecutePtr(rom, [callee]).ok) out.push('the cluster dispatch call target')
+  // A span that will not read is "unreadable", not a changed routine: hashing the spans that did read would blur the two.
+  const check = (name: string, parts: readonly (readonly [number, number])[], want: string) => {
+    const got = parts.map(([at, n]) => bytesAt(rom, at, n))
+    if (got.some(g => !g)) out.push(`${name} (unreadable)`)
+    else if (spanFingerprint(Uint8Array.from(got.flat() as number[])) !== want) out.push(name)
+  }
+  check('the ring spawn routine', spans.spawn, routines.spawn)
+  check('the ring draw routine', spans.draw, routines.draw)
+  check('the ring draw helpers', spans.helpers, routines.helpers)
+  check('the ring contact test', spans.contact, routines.contact)
+  return out
+}
+
+/**
+ * The ring of one $E2/$E3 entry as OAM parts, `dx`/`dy` from the entry's position (`ox`/`oy` are the OAM values).
+ * `seed` is `levelSeed`'s: its loaded image holds the level's sprite stream pointer and the cleared
+ * ring state; a fresh machine per call draws each ring alone (#983 owner call C).
+ */
+export function rotatingRing(
+  rom: RomFile,
+  seed: SpriteSeed,
+  e: RingEntry,
+  routines: RingRoutines = VANILLA_RING_ROUTINES,
+): RingResult {
+  if (!seed.loaded) return { ok: false, reason: seed.loadRefusal ?? 'no level image' }
+  const unverified = ringGate(rom, routines)
+  try {
+    const { bus, cpu } = smwMachine(rom, seed.loaded)
+    const w = bus.wram
+    for (const [k, v] of Object.entries(seed.ram)) w[Number(k)] = v
+    // Camera on the centre so all 10 pieces (80 px out, 16 wide) are on screen; the 16-bit wrap is the game's own.
+    const cam = { x: (e.x - SCREEN_CENTRE.x) & 0xffff, y: (e.y - SCREEN_CENTRE.y) & 0xffff }
+    w.set([cam.x & 255, cam.x >> 8, cam.y & 255, cam.y >> 8], 0x1a)
+    w[BOO_RING_INDEX] = 0
+    w.fill(0, RING_STATE, RING_STATE + 16)
+    const angle = (e.angle ?? 0) & 0x1ff
+    w[RING_STATE] = angle & 255 // BooRingAngleLow, ring 0 (the ring is the first, BooRingIndex 0)
+    w[RING_STATE + 2] = angle >> 8 // BooRingAngleHigh, ring 0
+    w.set([0xf0, 0x7f, 0xf0, 0x7f], MARIO_POS)
+    if (e.effFrame !== undefined) w[EFF_FRAME] = e.effFrame
+    w[SPRITE_LOCK] = 1
+    // The loader's hand-off to the spawn: _0/_1 the entry's X, _2 its list index, _3 the offset of its first byte (CODE_02A8C0, 5351-5355).
+    w.set([e.x & 255, e.x >> 8, e.index, e.streamOffset], 0)
+    const run = (entry: number, regs: { a?: number; x?: number }) => {
+      const r = callSubroutine(cpu, entry, {
+        kind: 'jsr',
+        maxSteps: 20_000,
+        regs: { db: 2, ...regs },
+      })
+      if (r.kind !== 'returned') throw new Refusal(describe(r, 20_000)!)
+    }
+    run(SPAWN, { a: e.id })
+    const touched = new Set<number>()
+    bus.onWramWrite = off => touched.add(off)
+    // The cluster loop descends from slot 19 and sets CurSpriteProcess, which the draw reloads X from (bank_02.asm:15951-15953, 16400).
+    for (let x = CLUSTER_SLOTS - 1; x >= 0; x--) {
+      if (w[CLUSTER_NUMBER + x] !== 4) continue
+      w[CUR_SPRITE_PROCESS] = x
+      run(DRAW, { x })
+    }
+    // Screen to map: a piece at OAM (ox, oy) is (ox, oy) less the centre's screen position from the centre. Subtracting the
+    // 16-bit camera instead breaks when a piece's map coordinate is negative (a centre under 80 px).
+    // The OAM X high bit (bit 8) is never set here: the draw sets it only when a piece's X less the camera's has a non-zero high byte (bank_02.asm:16557-16567),
+    // and with the camera 48 to 208 px left of every piece that byte is zero.
+    const parts = touchedOamParts(w, touched, (x9, y) => ({ dx: x9, dy: y })).map(p => ({
+      ...p,
+      dx: p.ox - SCREEN_CENTRE.x,
+      dy: p.oy - SCREEN_CENTRE.y,
+    }))
+    return { ok: true, parts, unverified }
+  } catch (err) {
+    if (err instanceof Refusal) return { ok: false, reason: err.message }
+    throw err
+  }
+}

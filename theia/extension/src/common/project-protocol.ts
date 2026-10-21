@@ -159,6 +159,10 @@ export type LoadMapsResult =
       rawGroups: MapGroupDto[]
       romPath: string
       groupsError?: string
+      /** meta/aliases.json 'map' namespace: hex slot to the user's name. For search. */
+      mapAliases?: Record<string, string>
+      /** Why meta/aliases.json could not be read; mapAliases is empty then. */
+      aliasesError?: string
     }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
@@ -248,12 +252,16 @@ export type MapPlaneKey = (typeof MAP_PLANE_KEYS)[number]
 export interface MapLayer3Dto {
   priority: boolean
   reason: string | null
+  /** Layer 3 drifts slowly to the left in the game, which the drawing does not show (#563). Kept for the map properties panel, Decisions pending; no tooltip reads it. */
+  drifts?: boolean
+  /** Layer 3 follows the camera in the game and is drawn once (#997). Kept for the map properties panel, Decisions pending; no view reads it yet. */
+  followsCamera?: boolean
 }
 
 /**
  * An object the map could not draw (#816), at its anchor cell in map tiles
- * (16 px, whole-map coordinates). `why` is plain words; the tooltip reads
- * `Object <objectIndex> (<objectType>): <why>`, the same numbering as the map note.
+ * (16 px, whole-map coordinates). `reasons` is one plain-words line per distinct issue (#1005); the tooltip
+ * is `Object <objectIndex> (<objectType>)` then one line each, the same numbering as the map note.
  */
 export interface MapRefusedCellDto {
   x: number
@@ -261,7 +269,7 @@ export interface MapRefusedCellDto {
   objectIndex: number
   objectType: string
   handler: number
-  why: string
+  reasons: string[]
 }
 
 /**
@@ -301,6 +309,19 @@ export type MapScreenResult =
   | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
+/** One part of a drawn sprite, as the interpreter placed it (#984). */
+export interface SpritePartDto {
+  /** OBJ char number, hackbench's $400-based numbering. */
+  char: number
+  /** CGRAM row the part's colors come from. */
+  palette: number
+  flipX: boolean
+  flipY: boolean
+  /** Offset of the part's top-left pixel from the sprite's anchor. */
+  dx: number
+  dy: number
+}
+
 /**
  * One sprite of a map's sprite layer (#564), in map pixels. `box` is where its
  * bitmap lands (x1 and y1 exclusive); the bitmap is `box`-sized RGBA, base64.
@@ -312,11 +333,18 @@ export type MapScreenResult =
 export interface MapSpriteDto {
   index: number
   id: number
+  /** The sprite's plain name for the hover (#981), from the app's sprite name table; absent when it has none. */
+  name?: string
   /** Anchor, the sprite's tile corner. */
   x: number
   y: number
   box: { x0: number; y0: number; x1: number; y1: number }
   rgba: string
+  /**
+   * The parts the bitmap was blitted from, in the order drawn (#984): the Properties view lists them from
+   * the same list, so what it says cannot differ from the picture. Absent on a placeholder, which draws none.
+   */
+  parts?: SpritePartDto[]
   /**
    * Each pixel's OAM priority 0-3 (#795), one byte per `box` pixel, base64: the
    * attribute bits 5:4 of the part that wins the pixel. Absent on a placeholder,
@@ -336,7 +364,19 @@ export interface MapSpriteDto {
    * level loader refused this ROM: drawn, but not run from the level's state.
    */
   unverified?: string
+  /** A plain-words line about what the map shows of this sprite, not a flaw (for example fewer Eeries than the placement asks for); the map's note line carries it too. */
+  note?: string
 }
+
+/**
+ * One sprite's distinct poses for the Properties preview (#984), each a `MapSpriteDto` bitmap measured from
+ * the first drawn pass (the sprite's own movement removed), in pass order, at most 16. Fewer than 2 means not
+ * animated; `reason` says why when the run drew nothing or was refused.
+ */
+export type SpriteFramesResult =
+  | { status: 'ok'; frames: MapSpriteDto[]; reason?: string }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /** A map's sprites, with the screen geometry the view needs to cut them per screen. */
 export type MapSpritesResult =
@@ -350,8 +390,10 @@ export type MapSpritesResult =
       sprites: MapSpriteDto[]
       /** Why some sprites may be missing (an unterminated stream), when they may be. */
       note?: string
+      /** The technical text behind `note`, for its tooltip only. */
+      noteDetail?: string
     }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /** One line of the collision overlay (#435), in map pixels: `points` is x0,y0,x1,y1,..., an unknown cell its closed outline. */
@@ -363,7 +405,7 @@ export interface MapCollisionLineDto {
 /** Whether a map's collision can be probed, found without probing (#435): the toggle's enabled state and tooltip. */
 export type MapCollisionCheckResult =
   | { status: 'available' }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /**
@@ -379,7 +421,7 @@ export type MapCollisionResult =
       height: number
       lines: MapCollisionLineDto[]
     }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   /** The working copy moved on while the probe ran: ask again, and do not treat it as a refusal. */
   | { status: 'stale' }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
@@ -401,7 +443,7 @@ export interface BlockIndicatorDto {
  */
 export type MapStartResult =
   | { status: 'ok'; screen: number; x: number; y: number; vertical: boolean }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /**
@@ -422,8 +464,10 @@ export type MapBlockContentsResult =
       indicators: BlockIndicatorDto[]
       /** Contents that could not be drawn, and why. */
       note?: string
+      /** The technical text behind `note`, for its tooltip only. */
+      noteDetail?: string
     }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /**
@@ -434,7 +478,7 @@ export type SwitchStateDto = Record<Map16SwitchKind, boolean>
 
 /** One palace's switch block as 16x16 RGBA, both states, or why it cannot be drawn. */
 export type PalaceIconDto = { palace: keyof SwitchFlagsDto } & (
-  { uncleared: string; cleared: string } | { unavailable: string }
+  { uncleared: string; cleared: string } | { unavailable: string; detail?: string }
 )
 
 /** The map toolbar's art: each palace's block (per ROM) and each char switch's own (#574's). */
@@ -445,8 +489,10 @@ export type PalaceIconsResult =
       switchArt: Partial<Record<Map16SwitchKind, Map16SwitchButtonImages>>
       /** Why a switch has no art. */
       switchUnavailable: Partial<Record<Map16SwitchKind, string>>
+      /** The technical text behind each `switchUnavailable`, for a tooltip's second line (#967). */
+      switchDetail?: Partial<Record<Map16SwitchKind, string>>
     }
-  | { status: 'unavailable'; reason: string }
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /** 'bps' is the default: SMW Central's Hacks section no longer accepts IPS. */
@@ -581,6 +627,12 @@ export interface ProjectService {
 
   /** Every sprite of a map, drawn by the sprite interpreter or marked, from the working copy (#564, #585). */
   mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult>
+  /** The distinct poses of one sprite of a map (its stream `index`), run on demand from the working copy (#984). */
+  mapSpriteFrames(
+    manifestPath: string,
+    index: number,
+    spriteIndex: number,
+  ): Promise<SpriteFramesResult>
   /** Where each item block of a map shows its contents, from the working copy (#566). */
   mapBlockContents(manifestPath: string, index: number): Promise<MapBlockContentsResult>
   /** Where the player first enters a map, read from the working copy (#339). */

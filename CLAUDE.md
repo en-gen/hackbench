@@ -12,6 +12,9 @@ call.
   registration block naming both manuals; register from your title, then read
   yours before anything else.
 - **Role agents:** your role file in `.claude/agents/` plus this file.
+- **Side quest:** when the owner says side quest in your chat, you work that
+  one problem yourself: no registration, team or hand-offs, questions to the
+  owner directly. Rules in [docs/protocols/README.md](docs/protocols/README.md#side-quest).
 - **ROM rules** load automatically from `.claude/rules/rom-interpretation.md`
   when you read or edit `src/`, `test/`, `tools/` or the node backend. Read it
   before any ROM design discussion.

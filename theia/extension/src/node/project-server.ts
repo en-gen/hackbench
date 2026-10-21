@@ -13,20 +13,20 @@ import {
   updateProject,
 } from '../../../../src/project/Project'
 import { CoreRegistry } from '../../../../src/project/CoreRegistry'
+import { readMapAliasesOrError } from '../../../../src/project/Aliases'
 import { RecentProjects } from '../../../../src/project/RecentProjects'
-import { RomFile } from '../../../../src/rom/RomFile'
-import { SmwRom } from '../../../../src/rom/SmwRom'
 import { buildMapTree, MapTree } from '../../../../src/rom/MapTree'
 import { readLevelStart } from '../../../../src/rom/LevelStart'
 import {
-  WorkingRomEntry,
+  romFileOf,
+  smwRomOf,
   WorkingRomRegistry,
   WorkingRomResult,
 } from '../../../../src/project/WorkingRomRegistry'
 import { buildMapDetails } from './map-details'
-import { L1ModelCache, mapScreen, toolbarArtOf } from './map-screen'
+import { L1ModelCache, mapScreen, startResult, toolbarArtOf } from './map-screen'
 import { mapCollision, mapCollisionCheck, probeStateOf } from './map-collision'
-import { mapSprites } from './map-sprites'
+import { mapSpriteFrames, mapSprites } from './map-sprites'
 import { mapBlockContents } from './map-block-contents'
 import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
 import { exportPatch } from '../../../../src/project/ExportPatch'
@@ -57,6 +57,7 @@ import {
   MapScreenResult,
   MapBlockContentsResult,
   MapSpritesResult,
+  SpriteFramesResult,
   MapStartResult,
   PalaceIconsResult,
   PatchFormatDto,
@@ -92,6 +93,8 @@ export class ProjectServiceImpl implements ProjectService {
 
   async openProject(manifestPath: string): Promise<ProjectDto> {
     const p = openProject(manifestPath)
+    // A cached copy must not outlive a base ROM that has gone (#975).
+    this.workingRoms.revalidateOnOpen(manifestPath)
     // Recorded only on a SUCCESSFUL open, so a manifest that cannot be read
     // never enters the list that exists to offer working projects.
     this.recent.remember(p)
@@ -106,13 +109,14 @@ export class ProjectServiceImpl implements ProjectService {
     this.recent.clear()
   }
 
+  /** Details for one map slot, read from the working copy. */
   async mapDetails(
     manifestPath: string,
     index: number,
   ): Promise<MapDetailsDto | MapDetailsNotLocated> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
-    return buildMapDetails(romOf(r), index)
+    return buildMapDetails(smwRomOf(r), index)
   }
 
   async mapScreen(
@@ -133,13 +137,22 @@ export class ProjectServiceImpl implements ProjectService {
     return mapSprites(this.screens, r.working.bytes(), r.romPath, index)
   }
 
+  async mapSpriteFrames(
+    manifestPath: string,
+    index: number,
+    spriteIndex: number,
+  ): Promise<SpriteFramesResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    return mapSpriteFrames(this.screens, r.working.bytes(), r.romPath, index, spriteIndex)
+  }
+
+  /** Reads a level's start; a failure uses the shared plain-words start-unavailable wording (#967). */
   async mapStart(manifestPath: string, index: number): Promise<MapStartResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
-    const s = readLevelStart(romOf(r), index)
-    return s.ok
-      ? { status: 'ok', screen: s.screen, x: s.x, y: s.y, vertical: s.vertical }
-      : { status: 'unavailable', reason: s.reason }
+    const s = readLevelStart(smwRomOf(r), index)
+    return startResult(s)
   }
 
   async mapCollisionCheck(manifestPath: string, index: number): Promise<MapCollisionCheckResult> {
@@ -168,12 +181,13 @@ export class ProjectServiceImpl implements ProjectService {
     return mapBlockContents(this.screens, r.working.bytes(), r.romPath, index)
   }
 
+  /** Toolbar art for the palace icons, built from the same cached screens the map view paints. */
   async mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     const bytes = r.working.bytes()
     const built = this.screens.get(bytes, r.romPath, index, SWITCH_FLAGS_UNCLEARED)
-    const rom = RomFile.fromBytes(r.romPath, Buffer.from(bytes))
+    const rom = romFileOf(r)
     return toolbarArtOf(rom, built, this.screens.art(bytes, r.romPath))
   }
 
@@ -207,11 +221,12 @@ export class ProjectServiceImpl implements ProjectService {
     return this.workingRoms.register(romPath)
   }
 
+  /** The grouped map tree; a bad groups.json is reported in groupsError rather than hiding the maps. */
   async loadMaps(manifestPath: string): Promise<LoadMapsResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     const { project, romPath } = r
-    const rom = romOf(r)
+    const rom = smwRomOf(r)
     const tree = buildMapTree(rom)
 
     // A bad groups.json must not hide the maps: fall back to the ungrouped
@@ -255,13 +270,26 @@ export class ProjectServiceImpl implements ProjectService {
       rawGroups: groups,
       romPath,
       groupsError,
+      ...this.readMapAliases(manifestPath),
     }
   }
 
+  /** A bad aliases.json must not hide the maps; the reason travels with the empty table. */
+  private readMapAliases(manifestPath: string): {
+    mapAliases: Record<string, string>
+    aliasesError?: string
+  } {
+    const { aliases, error } = readMapAliasesOrError(manifestPath)
+    return error === undefined
+      ? { mapAliases: aliases }
+      : { mapAliases: aliases, aliasesError: error }
+  }
+
+  /** Saves the user's map groups after admission checks, returning invalid with the reason instead of throwing. */
   async setMapGroups(manifestPath: string, groups: MapGroup[]): Promise<SetMapGroupsResult> {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
-    const topLevel = topLevelSlots(buildMapTree(romOf(r)))
+    const topLevel = topLevelSlots(buildMapTree(smwRomOf(r)))
     const admitted = admitGroups(groups, this.readGroupsSafely(manifestPath), topLevel)
     if (admitted.status === 'invalid') return admitted
 
@@ -318,11 +346,6 @@ export class ProjectServiceImpl implements ProjectService {
   async redo(manifestPath: string): Promise<EditStackResult> {
     return this.workingRoms.redo(manifestPath)
   }
-}
-
-/** The working copy as a ROM, over a copy of its shared bytes. */
-function romOf(entry: WorkingRomEntry): SmwRom {
-  return new SmwRom(RomFile.fromBytes(entry.romPath, Buffer.from(entry.working.bytes())))
 }
 
 /** Applies groups.json to the raw tree and puts the result on the wire. */

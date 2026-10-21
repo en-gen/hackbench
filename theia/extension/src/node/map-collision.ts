@@ -28,7 +28,7 @@ import type {
   SwitchFlagsDto,
   SwitchStateDto,
 } from '../common/project-protocol'
-import { L1ModelCache } from './map-screen'
+import { L1ModelCache, unreadable } from './map-screen'
 
 type Reply = Exclude<MapCollisionResult, { status: 'rom-not-located' }>
 const TILE = 16
@@ -57,7 +57,9 @@ const lastByPath = new Map<string, Uint8Array>()
 /** Forgets the carry between working-copy bytes (a test starts each case from nothing). */
 export const forgetCollisionCarry = (): void => lastByPath.clear()
 
-const VERTICAL = 'Collision is not shown for vertical maps yet'
+/** The map drew fine; only the collision probe is out of reach (#967). */
+const NO_COLLISION = 'collision cannot be worked out for this map on this ROM.'
+const VERTICAL = 'collision is not shown for vertical maps yet.'
 
 /**
  * Whether `mapCollision` can run for this map, without running it: the level's shape and the ROM's own
@@ -70,13 +72,13 @@ export function mapCollisionCheck(
   index: number,
 ): MapCollisionCheckResult {
   const built = cache.get(bytes, romPath, index, NO_FLAGS)
-  if (!built.ok) return { status: 'unavailable', reason: built.reason }
+  if (!built.ok) return unreadable(built.detail ?? built.reason, built.reason)
   if (built.inputs.isVertical) return { status: 'unavailable', reason: VERTICAL }
   try {
     const why = collisionRefusal(RomFile.fromBytes(romPath, Buffer.from(bytes)), index)
-    return why === null ? { status: 'available' } : { status: 'unavailable', reason: why }
+    return why === null ? { status: 'available' } : unreadable(why, NO_COLLISION)
   } catch (err) {
-    return { status: 'unavailable', reason: (err as Error).message }
+    return unreadable((err as Error).message, NO_COLLISION)
   }
 }
 
@@ -135,6 +137,7 @@ export async function mapCollision(
   return r
 }
 
+/** Computes collision for one map; a Layer 1 refusal is returned as the cache's plain words with its detail (#967). */
 async function compute(
   cache: L1ModelCache,
   probes: ProbeCache,
@@ -147,7 +150,7 @@ async function compute(
 ): Promise<Reply> {
   // The grid is drawn with the view's palaces, and the probe runs in the same state (silver P-switch is not modelled).
   const built = cache.get(bytes, romPath, index, state.flags)
-  if (!built.ok) return { status: 'unavailable', reason: built.reason }
+  if (!built.ok) return unreadable(built.detail ?? built.reason, built.reason)
   const m = built.inputs
   if (m.isVertical) {
     return { status: 'unavailable', reason: VERTICAL }
@@ -161,9 +164,7 @@ async function compute(
       state,
     })
     if (!r.ok) {
-      return r.reason === SUPERSEDED
-        ? { status: 'stale' }
-        : { status: 'unavailable', reason: r.reason }
+      return r.reason === SUPERSEDED ? { status: 'stale' } : unreadable(r.reason, NO_COLLISION)
     }
     return {
       status: 'ok',
@@ -172,6 +173,6 @@ async function compute(
       lines: r.lines,
     }
   } catch (err) {
-    return { status: 'unavailable', reason: (err as Error).message }
+    return unreadable((err as Error).message, NO_COLLISION)
   }
 }

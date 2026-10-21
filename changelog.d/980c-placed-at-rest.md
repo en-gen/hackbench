@@ -1,0 +1,4 @@
+### Changed
+
+- Map view: each sprite is drawn at the position in the map's sprite list, with the look its start-up code gives it (tiles, flips, variants), so the P-switch and the Pokey now show their pictures. The moves that start-up code makes are left for play/simulate, so nothing shifts. Chainsaws and grinders, which start-up code moves off the screen, are drawn too. Sprites that still cannot be drawn keep the not-drawn marker (#980).
+- Map view: the Podoboo is drawn with its own art. Its graphics come from the player graphics buffer rather than the level's sprite sheet, so the map used to show the wrong picture. A ROM whose start-up code is not the stock one keeps the old art and says why in a note. The sprite report grader no longer lets the level's castle flames draw into the tested sprite (#980, from #1062).

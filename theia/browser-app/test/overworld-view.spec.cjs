@@ -20,7 +20,7 @@ const {
 } = require('../../../test/suite/support/overworld-pin.cjs')
 const { loromToOffset } = require('../../extension/lib/src/rom/addressing')
 
-const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
+const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 const EXPLORER = '#hackbench\\.map-explorer'
 // Theia also puts data-node-id on a row's expansion chevron, so name the row itself.
@@ -35,8 +35,8 @@ const AREA_ROW = n => NODE(`overworld/area:${n}`)
 const L1_LDX_OPCODE = 0x04dc5a
 /** `JSR CODE_04DABA`'s opcode for the high stream (bank_04.asm:5704), pinned by the L2 reader. */
 const L2_JSR_OPCODE = 0x04dc99
-/** The camera read's first opcode, `ASL A` (bank_00.asm:4324), the first byte of the derivation's pattern. */
-const CAMERA_READ_OPCODE = 0x00a130
+/** The first byte of the camera read's fingerprinted span, at CODE_00A11B (bank_00.asm:4316). */
+const CAMERA_READ_OPCODE = 0x00a11b
 /** DATA_04849D, the warp destination words (bank_04.asm:554-581). */
 const WARP_DEST_TABLE = 0x04849d
 /** Tile data byte for grid (row 1, col 55): map16ByteOffset(1, 1, 23). Opaque on vanilla. */
@@ -413,7 +413,7 @@ test('a refused derivation shows no area rows and says why on the Overworld row'
   page,
 }) => {
   test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
-  // The first opcode of the camera read (bank_00.asm:4324), pinned by the derivation.
+  // The first byte of the camera read's span (bank_00.asm:4316), pinned by the derivation.
   const planted = plantedRom('no-areas.sfc', bytes => {
     bytes[fileOffset(bytes, CAMERA_READ_OPCODE)] ^= 0xff
   })

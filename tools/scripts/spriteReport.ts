@@ -4,6 +4,7 @@
  * rendered frames are ROM graphics (copyrighted): spriteReportRun.ts writes
  * them only outside this repository.
  */
+import { hex2 } from '../../src/rom/hex'
 import { deflateSync } from 'zlib'
 import { existsSync, realpathSync } from 'fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path'
@@ -24,7 +25,6 @@ export interface ReportRow {
   hardware?: string
 }
 
-const hex2 = (n: number): string => n.toString(16).toUpperCase().padStart(2, '0')
 const anchor = (r: ReportRow, n: number): string => `m${r.map}-s${hex2(r.id)}-${r.slot}-${n}`
 
 /** Page files by relative path. Every row lands on exactly one verdict page and once in the index. */

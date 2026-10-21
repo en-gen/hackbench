@@ -31,7 +31,12 @@ import {
   type L1InputsResult,
 } from '../../../../src/rom/model/L1Model'
 import { buildL2Inputs, type L2Inputs, type L2Result } from '../../../../src/rom/model/L2Model'
-import { buildL3Verdict, type L3Inputs, type L3Verdict } from '../../../../src/rom/model/L3Model'
+import {
+  buildL3Verdict,
+  GRAPH_UNAVAILABLE,
+  type L3Inputs,
+  type L3Verdict,
+} from '../../../../src/rom/model/L3Model'
 import {
   L3_HUD_ROW_CUTOFF,
   L3_TILEMAP_COLS,
@@ -43,7 +48,8 @@ import { PALACES, type Palace } from '../../../../src/rom/SwitchBlockTiles'
 import { palaceArt, type PalaceArt } from '../../../../src/rom/SwitchArt'
 import { renderMap16Tile } from '../../../../src/rom/TileRenderer'
 import { ghostOf, overlayHidden } from '../../../../src/rom/render/HiddenTiles'
-import { MAP_PLANE_KEYS } from '../common/project-protocol'
+import { MAP_PLANE_KEYS, type MapStartResult } from '../common/project-protocol'
+import type { LevelStart } from '../../../../src/rom/LevelStart'
 import { FALLBACK_SCREENS } from '../../../../src/rom/model/ScreenPlanes'
 import type {
   MapPlaneKey,
@@ -226,9 +232,12 @@ export type L3Planes = Record<'l3Low' | 'l3High', Plane>
  * R (gameplay rows only; the first 8 are the status bar) at level Y
  * R*8 - Layer3YPos + Layer1YPos, x repeating every 512 px (a tide, whose BG3
  * scrolls with the camera, every 256 px over the first 32 columns, and its
- * second copy of the tilemap is not drawn). Rows that start above the level
- * are skipped whole, as the reference view does. Char 0 of every 2bpp
- * palette is clear.
+ * second copy of the tilemap is not drawn). A layer that follows the camera (a loaded smash
+ * sprite, #997) is drawn as ONE copy of the 512 px tilemap, at world x = column*8 - Layer3XPos,
+ * with no repeat. A world-locked layer (settings byte $81-$BF, #563) puts column 0 at the entrance camera X
+ * (`worldLocked.camXPx`) and repeats every 512 px, as the game's wrapping BG3 does. Rows that start above
+ * the level are skipped whole, as the reference view does.
+ * Char 0 of every 2bpp palette is clear.
  */
 export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
   const { w, h } = screenTiles(false) // vertical maps never reach here (L3Model)
@@ -250,13 +259,17 @@ export function drawL3Planes(l3: L3Inputs, screen: number): L3Planes {
   }
   const planes = [0, 1].map(() => new Uint8ClampedArray(width * height * 4))
   const drew = [false, false]
-  const xOff = l3.xPx ?? 0
+  // World-locked: column 0 sits at map X camXPx, so a tile at map X m shows column (m - camXPx) (#563); the modulo below repeats it every 512 px, as the game's BG3 does.
+  const wl = l3.worldLocked
+  const xOff = wl ? -wl.camXPx : (l3.xPx ?? 0)
   for (let r = L3_HUD_ROW_CUTOFF; r < end; r++) {
     const y = r * 8 - l3.yPx + l3.camYPx
     if (y < 0 || y >= height) continue
-    // Tiles sit at Layer3XPos-shifted columns (camera X at load is 0); a start left of 0 clips the first tile.
+    // Tiles sit at Layer3XPos-shifted columns (a smash sprite's X; a world-locked layer's is the entrance camera, negated); a start left of 0 clips the first tile.
     for (let sx = -(xOff & 7); sx < width; sx += 8) {
-      const word = cell(r, ((((x0 + sx + xOff) % (cols * 8)) + cols * 8) % (cols * 8)) >> 3)
+      const bgX = x0 + sx + xOff
+      if (l3.followsCamera && (bgX < 0 || bgX >= cols * 8)) continue
+      const word = cell(r, (((bgX % (cols * 8)) + cols * 8) % (cols * 8)) >> 3)
       const pixels = l3.chars[(word & 0x3ff) >> 7]?.[word & 0x7f]
       if (!word || !pixels) continue
       const p = word & 0x2000 ? 1 : 0
@@ -289,7 +302,9 @@ export interface MapInputs extends L1Inputs {
   /** No route from the overworld reaches the map, so it opens at screen 0: its own note, shown even when Layer 2 is refused (#945). */
   routeNote?: string
 }
-export type MapInputsResult = { ok: true; inputs: MapInputs } | { ok: false; reason: string }
+/** A refusal from the shared cache words itself once: plain `reason`, the gate or exception text in `detail` (#967). */
+export type MapInputsResult =
+  { ok: true; inputs: MapInputs } | { ok: false; reason: string; detail?: string }
 
 export const base64 = (b: Uint8ClampedArray) =>
   Buffer.from(b.buffer, b.byteOffset, b.byteLength).toString('base64')
@@ -331,7 +346,9 @@ export function screenResult(
     ) as Record<MapPlaneKey, string | null>,
     layer3: {
       priority: model.l3?.priority ?? model.header.layer3Priority,
+      ...(model.l3?.l3?.followsCamera ? { followsCamera: true } : {}),
       reason: model.l3 ? model.l3.reason : 'Layer 3 not drawn yet',
+      ...(model.l3?.l3?.worldLocked && { drifts: true }),
     },
     screens: model.l3?.screens ?? FALLBACK_SCREENS,
     math:
@@ -365,10 +382,10 @@ export function screenResult(
  */
 function positionNotes(model: MapInputs): string[] {
   const l2 = model.l2?.ok ? model.l2.l2 : undefined
-  const camY = model.l3?.l3?.camYUnverified
+  const camY = model.l3?.l3?.camYReasons ?? []
   const parts = [
     { label: 'Background height', reasons: l2?.reasons ?? [] },
-    { label: 'Layer 3 position', reasons: camY ? [camY] : [] },
+    { label: 'Layer 3 position', reasons: camY },
   ]
   const owners = new Map<string, string[]>()
   for (const p of parts) {
@@ -397,7 +414,7 @@ export function palaceIconsOf(art: Record<Palace, PalaceArt>): PalaceIconDto[] {
   return PALACES.map(palace => {
     const a = art[palace]
     return 'reason' in a
-      ? { palace, unavailable: a.reason }
+      ? { palace, unavailable: PALACE_UNDRAWN, detail: a.reason }
       : { palace, uncleared: base64(a.uncleared), cleared: base64(a.cleared) }
   })
 }
@@ -424,13 +441,14 @@ export function buildMapInputs(
   const built = l1(rom, index, flags)
   if (!built.ok) return built
   const bg = bgMode()
-  const via = entrancesOfMap(entrances(), index)
+  const graph = entrances()
+  const via = entrancesOfMap(graph, index)
   return {
     ok: true,
     inputs: {
       ...built.inputs,
       l2: buildL2Inputs(rom, index, built.inputs, via),
-      l3: buildL3Verdict(rom.rom, index, built.inputs, bg, undefined, undefined, undefined, via), // prettier-ignore
+      l3: buildL3Verdict(rom.rom, index, built.inputs, bg, undefined, undefined, undefined, graph ? via : GRAPH_UNAVAILABLE), // prettier-ignore
       orderNote: bg.ok ? undefined : bg.reason,
       routeNote: chooseEntranceNoted(via).note,
     },
@@ -485,6 +503,8 @@ export class L1ModelCache {
       } catch (err) {
         built = { ok: false, reason: (err as Error).message }
       }
+      // The one place the gate's ROM-internal text is swapped for plain words (#967); every caller shows `reason` and keeps `detail` for the tooltip or log. // prettier-ignore
+      if (!built.ok) built = { ok: false, reason: MAP_UNREADABLE, detail: built.reason }
       if (models.size >= 8) models.delete(models.keys().next().value!)
       models.set(key, built)
     }
@@ -500,6 +520,32 @@ export class L1ModelCache {
   }
 }
 
+const MAP_UNREADABLE = 'this part of the map could not be read from the ROM.'
+const SWITCH_UNDRAWN = "this switch's picture could not be drawn on this ROM."
+const PALACE_UNDRAWN = 'this block could not be drawn on this ROM.'
+
+/**
+ * Sprites, collision and block contents share one wording when their read fails (#967): plain
+ * words in `reason`, the exception or gate text apart in `detail` for the tooltip.
+ */
+export const unreadable = (detail: string, reason = MAP_UNREADABLE) =>
+  ({ status: 'unavailable', reason, detail }) as const
+
+/** A level-start read as the RPC reply: on failure the loader's `detail` (the diagnostic, e.g. on a changed-code ROM) is kept, `reason` only when there is none (#967). */
+export const startResult = (s: LevelStart): MapStartResult =>
+  s.ok
+    ? { status: 'ok', screen: s.screen, x: s.x, y: s.y, vertical: s.vertical }
+    : startUnavailable(s.detail ?? s.reason)
+
+/** A start position the entrance loader could not work out (#967): plain words, the loader's text apart. */
+export const startUnavailable = (detail: string) =>
+  ({
+    status: 'unavailable',
+    reason: 'the start position could not be worked out for this map.',
+    detail,
+  }) as const
+
+/** Builds one screen; a refusal keeps the cache's plain-words reason and carries the gate text as detail (#967). */
 export function mapScreen(
   cache: L1ModelCache,
   bytes: Uint8Array,
@@ -511,8 +557,8 @@ export function mapScreen(
 ): ScreenReply {
   const built = cache.get(bytes, romPath, index, flags)
   if (built.ok) return screenResult(built.inputs, screen, switches)
-  // A thrown build's exception text and a gate's ROM-internal reason both stay in `detail` (#786).
-  return { status: 'unavailable', reason: 'This part of the map could not be read from the ROM.', detail: built.reason } // prettier-ignore
+  // The cache already swapped the exception or gate text for plain words (#967); a screen note is a sentence, so only the casing is the caller's.
+  return { status: 'unavailable', reason: built.reason.replace(/^./, c => c.toUpperCase()), detail: built.detail } // prettier-ignore
 }
 
 /**
@@ -522,18 +568,19 @@ export function mapScreen(
  */
 export function toolbarArtOf(
   rom: RomFile,
-  built: L1InputsResult,
+  built: L1InputsResult | MapInputsResult,
   art: Record<Palace, PalaceArt>,
 ): Exclude<PalaceIconsResult, { status: 'rom-not-located' }> {
   if (!built.ok) {
-    const unavailable = Object.fromEntries(
-      (['blue', 'silver', 'onOff'] as const).map(k => [k, built.reason]),
-    )
+    const every = (text: string) =>
+      Object.fromEntries((['blue', 'silver', 'onOff'] as const).map(k => [k, text]))
     return {
       status: 'ok',
       icons: palaceIconsOf(art),
       switchArt: {},
-      switchUnavailable: unavailable,
+      // A refusal from the shared cache already carries the plain words; a bare one is worded here.
+      switchUnavailable: every('detail' in built && built.detail ? built.reason : MAP_UNREADABLE),
+      switchDetail: every('detail' in built && built.detail ? built.detail : built.reason),
     }
   }
   const m = built.inputs
@@ -544,6 +591,8 @@ export function toolbarArtOf(
     status: 'ok',
     icons: palaceIconsOf(art),
     switchArt: buttons.art,
-    switchUnavailable: buttons.unavailable,
+    // The reasons name ROM routines and tile ids: they ride in `switchDetail`, for the tooltip's second line (#967).
+    switchUnavailable: Object.fromEntries(Object.keys(buttons.unavailable).map(k => [k, SWITCH_UNDRAWN])), // prettier-ignore
+    switchDetail: buttons.unavailable,
   }
 }

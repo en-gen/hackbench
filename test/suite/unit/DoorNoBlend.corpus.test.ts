@@ -1,6 +1,9 @@
 /**
  * #936 precondition: on the vanilla ROM no door pixel lies under a layer in its map's CGADSUB, so the
- * no-blend rule cannot change vanilla output. This checks the data, not ColorMath (the code is covered by
+ * no-blend rule would not change vanilla output, EXCEPT on maps $011, $130 and $1C1 (#563), where a
+ * door under their translucent Layer 3 is blended by the rule (D60 B / D62 call 2 B: the tile part takes the
+ * covering plane's CGADSUB bit, the sprite part skips color math). That exception is the owner's to
+ * confirm: it is queued with Decisions and under owner review. This checks the data, not ColorMath (the code is covered by
  * DoorNoBlend.test.ts); the predicate is test/suite/support/doorBlend.ts, proven able to go red there.
  * Every map 0x000-0x1FF that builds, every screen with sprites and a color-math table, sprites cut the way
  * the map view cuts them, lists as the view composes them (withFlameKeys). The invariant is `hits` empty;
@@ -22,7 +25,7 @@ import {
 } from '../../../theia/extension/src/browser/map-view-model'
 import { VANILLA, freshRom, hasRom, romPath } from '../support/corpus'
 import { slow } from '../support/loadTimeout'
-import { doorPixelsUnderMath } from '../support/doorBlend'
+import { blendedOnlyByLayer3, doorPixelsUnderMath } from '../support/doorBlend'
 
 const NO_FLAGS: SwitchFlagsDto = { green: false, yellow: false, blue: false, red: false }
 
@@ -30,6 +33,18 @@ const NO_FLAGS: SwitchFlagsDto = { green: false, yellow: false, blue: false, red
 // that moves a few screens stays green, while a sweep that silently covers little still goes red.
 const MIN_MAPS = 400 // a broken map builder or sprite parser drops whole maps, not a few
 const MIN_SCREENS = 1000 // a sweep that skips the sprite or color-math screens would otherwise pass with hits empty
+
+// The one place on vanilla where the precondition is false by design (#563): CODE_009FB8 clears BG3 from
+// CGADSUB on every Layer 3 path except $81-$BF off Castle1/Underground1 (bank_00.asm:4170-4199), i.e. maps
+// $011, $130 and $1C1 (CGADSUB $24 in their captures, bit 2 = BG3). A sprite behind one of their Layer 3
+// tiles is a door under a blended layer, and the view's rule is then the intended one (obj-priority.md,
+// D60 B / D62 call 2 B, proven in DoorNoBlend.test.ts): the tile part takes the covering plane's CGADSUB
+// bit, the sprite part skips color math. A door is an editor see-through; the game draws the tile there.
+// Exempt only when every blended door pixel of the screen is covered by Layer 3 itself (the covering plane
+// is the one whose bit is in CGADSUB); a door blended through Layer 1 or Layer 2, on any map, still fails.
+const WORLD_LOCKED_L3_MAPS = ['11', '130', '1c1']
+const isWorldLockedL3Hit = (hit: string, by: { l1: number; l2: number; l3: number }) =>
+  WORLD_LOCKED_L3_MAPS.includes(hit.split('/')[0]!) && blendedOnlyByLayer3(by)
 
 describe.skipIf(!hasRom(VANILLA))(
   'door and lift pixels never meet color math on vanilla (#936)',
@@ -45,6 +60,7 @@ describe.skipIf(!hasRom(VANILLA))(
         // Door pixels per layer show/hide combination (bit 0 = Layer 1 shown, bit 1 = Layer 2, bit 2 = Layer 3).
         const doorPixels = [0, 0, 0, 0, 0, 0, 0, 0]
         const hits: string[] = []
+        const exempt = new Set<string>()
         const noSprites: string[] = []
         for (let m = 0; m < 0x200; m++) {
           const built = cache.get(bytes, romPath(VANILLA), m, NO_FLAGS)
@@ -69,14 +85,21 @@ describe.skipIf(!hasRom(VANILLA))(
               const planes: Record<string, Uint8ClampedArray | null> = {}
               for (const k of MAP_PLANE_KEYS) if (c & (1 << (+k[1]! - 1))) planes[k] = decoded[k]!
               Object.assign(planes, spritePlanes(sp, s), flamePlanes(sp, s, decoded.l2High))
-              const found = doorPixelsUnderMath(lists, planes, doors, shot.math.cgadsub)
+              const by = { l1: 0, l2: 0, l3: 0 }
+              const found = doorPixelsUnderMath(lists, planes, doors, shot.math.cgadsub, by)
               doorPixels[c]! += found.doorPixels
-              if (found.blended) hits.push(`${m.toString(16)}/${s}/${c}`)
+              if (found.blended) {
+                const hit = `${m.toString(16)}/${s}/${c}`
+                hits.push(hit)
+                if (isWorldLockedL3Hit(hit, by)) exempt.add(hit)
+              }
             }
           }
         }
         console.log(`#936 vanilla: ${maps} maps, ${screens} screens with sprites, ${doorPixels.join('/')} door pixels per layer combination, ${hits.length} under a blended layer`) // prettier-ignore
-        expect(hits).toEqual([])
+        const unexplained = hits.filter(h => !exempt.has(h))
+        expect(unexplained).toEqual([])
+        expect(hits.length - unexplained.length, 'the Layer 3 exception is still in use').toBeGreaterThan(0) // prettier-ignore
         // A map that builds but has no sprite data is never scanned, so floors alone could pass over it.
         expect(noSprites).toEqual([])
         expect(maps).toBeGreaterThanOrEqual(MIN_MAPS)

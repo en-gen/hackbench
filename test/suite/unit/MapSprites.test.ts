@@ -13,6 +13,7 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   drawSprites,
+  type SpriteDrawResult,
   mapSprites,
   readStream,
   spriteLayer,
@@ -93,6 +94,44 @@ describe('drawSprites', () => {
   })
 })
 
+describe('drawSprites: chars a sprite uploads to the player slots (#980)', () => {
+  // A buffer whose piece at $2000 is solid color 3, so a slot pointed there is recognisable.
+  const buffer = () => {
+    const bytes = new Uint8Array(0xb000 - 0x2000)
+    bytes.fill(0xff, 0, 0x40)
+    return { ok: true as const, bytes }
+  }
+  // SP1 reaching char $406, which holds the left-1/right-2 pattern of char $400.
+  const WIDE = { ...MODEL, vram: { sp1: [...SP1, ...Array(6).fill(SP1[0])] } }
+  const draw = (...uploads: { slot: number; ptr: number }[]) => (): SpriteDrawResult => ({ ...ok(part(0x406, 0, 0)), uploads }) // prettier-ignore
+
+  it("draws the sprite's own chars where the map's SP1 has others, and only that sprite's", () => {
+    const model = { ...WIDE, playerGraphics: buffer }
+    const [a, b] = drawSprites([spr(0, 0, 0, 0x33), spr(1, 4, 0, 0x10)], model, s => s.index === 0 ? draw({ slot: 3, ptr: 0x2000 })() : ok(part(0x406, 0, 0))) // prettier-ignore
+    expect(px(decode(a!), 8, 0, 0)[0]).toBe(9 * 16 + 15)
+    expect(px(decode(b!), 8, 0, 0)[0]).toBe(9 * 16 + 1)
+    expect(a).not.toHaveProperty('unverified')
+  })
+
+  it('draws the map chars, with the reason as the sprite note, when the buffer cannot be read', () => {
+    const model = { ...WIDE, playerGraphics: () => ({ ok: false as const, reason: 'not stock' }) } // prettier-ignore
+    const [s] = drawSprites([spr(0, 0, 0, 0x33)], model, draw({ slot: 3, ptr: 0x2000 }))
+    expect(s).toMatchObject({ status: 'drawn', unverified: expect.stringContaining('not stock') })
+    expect(px(decode(s!), 8, 0, 0)[0]).toBe(9 * 16 + 1)
+  })
+
+  it('keeps an earlier note and adds the reason, and does the same when no buffer reader is given', () => {
+    const [s] = drawSprites([spr(0, 0, 0, 0x33)], WIDE, () => ({ ...draw({ slot: 3, ptr: 0x2000 })(), unverified: 'seed' }) as SpriteDrawResult) // prettier-ignore
+    expect(s).toMatchObject({ status: 'drawn', unverified: expect.stringMatching(/^seed; its chars come from/) }) // prettier-ignore
+  })
+
+  it('does not read the buffer for a sprite that uploaded nothing', () => {
+    const read = vi.fn(buffer)
+    drawSprites([spr(0, 0, 0)], { ...MODEL, playerGraphics: read }, () => ok(part(0x401, 0, 0)))
+    expect(read).not.toHaveBeenCalled()
+  })
+})
+
 describe('drawSprites: extra bits, palette splice', () => {
   it('marks a custom sprite (bit 3) but draws one that only has bit 2, which vanilla uses', () => {
     const withBits = (raw0: number) => ({ ...spr(0, 1, 1), raw: [raw0, 0, 0x10] }) as LevelSprite
@@ -143,6 +182,35 @@ describe('spriteLayer', () => {
     expect(r).toMatchObject({ orientation: 'vertical', width: 512, height: 256, screenCount: 2 })
     expect(r.sprites[0]).toMatchObject({ x: 48, y: 21 * 16 })
     expect(r.note).toBeUndefined()
+  })
+
+  it('puts a sprite note on the map note line once, and on its entry', () => {
+    const h = { ...MODEL, isVertical: false, screenCount: 1 }
+    /** An engine reply that carries a sprite note, to prove the note reaches the map's note line once. */
+    const said = () => ({ ...ok(part(0x401, 0, 0)), note: 'Only 4 of the 5 Eeries appear.' }) as EngineResult & { note: string } // prettier-ignore
+    const r = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x10, 0x20, 0x02, 0x10, END]), h, said)
+    expect(r.sprites.map(s => s.note)).toEqual(['Only 4 of the 5 Eeries appear.', 'Only 4 of the 5 Eeries appear.']) // prettier-ignore
+    expect(r.note).toBe('Only 4 of the 5 Eeries appear.')
+  })
+
+  it('names each sprite from the sprite name table (#981)', () => {
+    const h = { ...MODEL, isVertical: false, screenCount: 1 }
+    const r = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x33, 0x20, 0x02, 0xf0, 0x30, 0x03, 0x28, END]), h, stub) // prettier-ignore
+    expect(r.sprites.map(s => [s.id, s.name])).toEqual([[0x33, 'Podoboo'], [0xf0, 'Scroll command 9: Unused (vanilla)'], [0x28, 'Big Boo']]) // prettier-ignore
+  })
+
+  it('gives no name to a sprite drawn as a placeholder because its identity is not vanilla (#981)', () => {
+    const h = { ...MODEL, isVertical: false, screenCount: 1 }
+    // Extra bits set on id $28: the placeholder must not wear the vanilla name; the plain $28 beside it keeps it.
+    const r = spriteLayer(Uint8Array.from([0, 0x18, 0x01, 0x28, 0x20, 0x02, 0x28, END]), h, stub)
+    expect(r.sprites.map(s => [s.reason, s.name])).toEqual([['extraBits', undefined], [undefined, 'Big Boo']]) // prettier-ignore
+    // Header bit 2 alone (0x04) is drawn as the vanilla sprite (see the test above), so it is named as one: name and art agree.
+    const bit2 = spriteLayer(Uint8Array.from([0, 0x14, 0x01, 0x28, END]), h, stub)
+    expect(bit2.sprites.map(s => [s.status, s.name])).toEqual([['drawn', 'Big Boo']])
+    // A repointed handler: the engine refuses with customHandler, and that sprite is not named either.
+    const custom = () => ({ ok: false as const, failure: { kind: 'customHandler' as const, spriteId: 0x28, table: 'main' as const, expected: 0, found: 1 } }) // prettier-ignore
+    const c = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x28, END]), h, custom as never)
+    expect(c.sprites.map(s => [s.reason, s.name])).toEqual([['customHandler', undefined]])
   })
 
   it('notes a stream cut before its end marker, and still draws what is there', () => {
@@ -329,11 +397,13 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
     return r
   }
 
-  it('draws 21 of the 25 sprites of $106 and marks the rest, every one with a matching bitmap', () => {
+  // 24: 21 plus the 3 stationary shells on $106 ($DB at 272,368 and 1312,368; $DA at 1664,368), drawn since #837.
+  // $3E (the P-switch) draws too, now INIT runs for the picture (D139 D); the other sprite is marked (D52).
+  it('draws 24 of the 25 sprites of $106 and marks the rest, every one with a matching bitmap', () => {
     const r = run(0x106)
     expect(r.sprites).toHaveLength(25)
     const drawn = r.sprites.filter(s => s.status === 'drawn')
-    expect(drawn).toHaveLength(21)
+    expect(drawn).toHaveLength(24)
     // Sprite $05 stands at tile row 20: its parts begin above the anchor, a 16 x 32 body.
     const koopa = drawn.find(s => s.id === 0x05)!
     expect(sized(koopa)).toEqual([16, 32])
@@ -351,10 +421,11 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
     expect(tape!.reason).not.toBe('extraBits')
   })
 
-  it('draws 31 of the 34 sprites of $105 from the interpreter, marking the rest with its reason', () => {
+  // 32: 31 plus the stationary shell $DB at 3344,368, drawn since #837.
+  it('draws 32 of the 34 sprites of $105 from the interpreter, marking the rest with its reason', () => {
     const r = run(0x105)
     expect(r.sprites).toHaveLength(34)
-    expect(r.sprites.filter(s => s.status === 'drawn')).toHaveLength(31)
+    expect(r.sprites.filter(s => s.status === 'drawn')).toHaveLength(32)
     for (const s of r.sprites.filter(s => s.status === 'placeholder')) expect(s.reason).toMatch(/^(refused: |drew no OAM tile)/) // prettier-ignore
   })
 })

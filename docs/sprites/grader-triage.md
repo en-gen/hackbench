@@ -76,6 +76,15 @@ runner zeroes cluster sprites in `load`, and the grader drops flame pieces from 
 attributes by slot (C). Assert: the part list for $33 at map 1d4 416,240 has no OAM index 124-127; the
 30 listed cases grade close or better.
 
+**A, measured after the grader cleared the loaded cluster cells (#980).** The grader seed now clears `$18B8` and
+`$1892-$18A5` as `levelSeed` does (#809). Chosen-pass totals over the 1,957 records ('rom' seed, hardware timeline;
+one machine, one run each, commit 17dbd4d0): before exact 998 / shape 803 / close 18 / wrong 125 / empty 13 / missAtK
+25, after exact 1018 / shape 810 / close 18 / wrong 97 / empty 14 / missAtK 29. Of the 28 records that changed: map
+101 14 wrong to exact, 1d4 5 and 1cd 1 wrong to exact, 01f `$67` 7 wrong to shape, and one wrong to empty (map 101 `$54`
+slot 0, whose only recorded tile is OAM entry 124, a castle-flame piece, so the model drawing nothing is correct).
+Pinned by `spriteGrade.captures.test.ts` (map 101 tally 14 exact / 6 wrong / 1 empty, and the raised floors) and by
+`SpriteReport.test.ts` (the report grader against a mirrored loop); both go red with the clearing removed.
+
 **B, graded pass (161: 89 exact at a later pass, 72 shape-only).** The policy grades the first pass that
 draws (`SpriteModel.chosen`, the first pass with any OAM parts, `SpriteRunner.ts:526-527`; it is pass 0 in 153 of the 161, pass 4 in 5, 11 in 2, 19 in 1; the probe read the same `chosen`, so the counts stand). No recorded frame equals it, but a later pass equals one
 exactly (89) or up to position (72, sprites that move: $72 41 of 72 shape cases, $09 16). The match is at pass 1
@@ -88,12 +97,20 @@ on purpose), so two options: grade any pass against any frame (grader-only), or 
 to pass N. Assert for N=4: wrong over all graded at most 190 and exact at least 880.
 
 **K, stationary-shell list ids (35).** All 35 are $04-$07 whose list byte is $DA-$DD and whose capture
-record has `initFrame` null: 38 of the 2,262 spawn records in `layers_v5` (not of the 1,957 gradable) have it null: 35 Koopa records (list ids $DA-$DC, sprites $04-$07) and 3 records labelled $39 (list id $DE, maps 021 x2 and 11d; not part of this cause). All 35 Koopa
+record has `initFrame` null: 38 of the 2,262 spawn records in `layers_v5` (not of the 1,957 gradable) have it null: 35 Koopa records (list ids $DA-$DC, sprites $04-$07) and 3 records labelled $39 (list id $DE, maps 021 x2 and 11d; not part of this cause: $DE spawns five Eeries and only the first carries the list index, `bank_02.asm:6305-6308`, so the recorder links one per placement; docs/sprites/sprite-de-five-eeries.md). All 35 Koopa
 records are wrong. The level loader sends every list id from $DA up to $E0 to status 9 (`bank_02.asm:5348-5350`) and, for the Koopa ids, makes the sprite number `id - $DA + 4`; no INIT (`SMWDisX bank_02.asm:5339-5340`, `:5348-5350`, `:5360-5373`, `:5455-5461`). The runner
 seeds the number alone with status 1, so it runs a walking Koopa's INIT and draws two parts where the
 capture shows one. This is a real product defect: the map draws a walking Koopa for a stationary shell.
 Not run: that status 9 reproduces the captured pose. Fix: map list ids to number and status as the loader
 does. Assert: map 135 $05 at 3184,240 draws one part, and the 35 graded cases leave "wrong".
+
+Fixed in #837: `src/rom/sprites/ShellSprites.ts` reads the loader's mapping from its bytes ($DA-$DD and $DF to status 9 and
+number `id - $DA + 4` on the vanilla ROM; a changed opcode refuses; $DE and $E0 are not shells, `bank_02.asm:5312`, `:5325`); the runner loads those ids that
+way and runs InitSpriteTables but no INIT. The special-world remap of numbers 4 and 5 (`bank_02.asm:5464-5471`)
+is not applied: the flag is read as clear, as on a fresh save. The grader hands the runner the placed list id
+(sprites.json, by `listIndex`) because a record's own id is the already-converted number. Evidence scope: one
+machine, 2026-10-16, vanilla ROM, layers_v5: all 35 K cases grade exact (exact 998 to 1033, wrong 125 to 90,
+nothing else moved).
 
 **C, spawned companions counted (12).** $61 (6), $1E (5), $B9 (1): our pass has 3 or more extra parts than the
 capture (which keys parts by the slot that wrote them). $61's INIT spawns three more skull sprites
