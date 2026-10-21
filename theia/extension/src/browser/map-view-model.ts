@@ -66,9 +66,18 @@ function bitmapOf(s: MapSpriteDto): { rgba: Uint8ClampedArray; prio: Uint8Array 
   return bmp
 }
 
+/** Whether `s` has an opaque pixel at map pixel (px, py). */
+function opaqueAt(s: MapSpriteDto, px: number, py: number): boolean {
+  const { x0, y0, x1, y1 } = s.box
+  if (px < x0 || px >= x1 || py < y0 || py >= y1) return false
+  return bitmapOf(s).rgba[((py - y0) * (x1 - x0) + (px - x0)) * 4 + 3] !== 0
+}
+
 /**
  * The sprite that owns the map pixel (x, y), in map pixels: the topmost of the `stackOrder` `spriteLayer` draws
- * with an opaque pixel there. Transparent pixels and Layer 2 flames hit nothing (#981).
+ * with an opaque pixel there. Transparent pixels and Layer 2 flames hit nothing (#981). A sprite its parent drew
+ * (`drawnBy`) takes the hit over that parent wherever it has a pixel, whichever sorts on top, because the parent's
+ * bitmap holds the same pixels (D52).
  */
 export function spriteAt(
   sprites: readonly MapSpriteDto[],
@@ -80,9 +89,9 @@ export function spriteAt(
   const order = stackOrder(sprites, g, false)
   for (let n = order.length - 1; n >= 0; n--) {
     const s = order[n]!
-    const { x0, y0, x1, y1 } = s.box
-    if (px < x0 || px >= x1 || py < y0 || py >= y1) continue
-    if (bitmapOf(s).rgba[((py - y0) * (x1 - x0) + (px - x0)) * 4 + 3] !== 0) return s
+    if (!opaqueAt(s, px, py)) continue
+    // A sprite its parent drew is inside the parent's bitmap, which wins here when it sorts on top: the child takes the hit (D52).
+    return order.find(c => c.drawnBy === s.index && opaqueAt(c, px, py)) ?? s
   }
   return undefined
 }
@@ -115,6 +124,8 @@ function spriteLayer(
   const order = stackOrder(sprites, g, onLayer2)
   let out: SpriteLayer | null = null
   for (const [n, s] of order.entries()) {
+    // A sprite its parent drew is in the parent's bitmap already (#1049).
+    if (s.drawnBy !== undefined) continue
     const { x0, y0, x1, y1 } = s.box
     const [cx0, cx1] = [Math.max(x0, left), Math.min(x1, left + g.width)]
     const [cy0, cy1] = [Math.max(y0, top), Math.min(y1, top + g.height)]

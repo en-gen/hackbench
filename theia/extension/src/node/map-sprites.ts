@@ -28,8 +28,11 @@
  * placed so the sprite is on screen. The colors the sprite's own code wrote to
  * CGRAM (NMI upload list, palette mirror, direct registers;
  * `Machine.paletteWrites`) override the level's row for that sprite only.
- * Not modelled: the sprite is run alone, so one that reacts to a neighbour or
- * to the player's actions shows its first pose.
+ * Each sprite is run alone, except one whose own code scans the slot tables
+ * for a companion ($9C looks for a $9B): it is run a second time with the
+ * map's neighboring sprites in the other slots, because the picture it draws
+ * includes that companion (#841). Not modelled: any other reaction to a
+ * neighbor, and the player's actions: a sprite shows its first pose.
  * A sprite with bit 3 of byte 0 set is marked, not drawn: the gate fails
  * closed for sprites that MAY be custom (PIXI dispatches on bit 3), which the
  * vanilla descriptor would draw wrongly. Vanilla scroll/command sprites ($E8,
@@ -69,6 +72,7 @@ import {
   type FlameRoutines,
 } from '../../../../src/rom/sprites/interp/CastleFlames'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
 import {
   EERIES_COUNT,
   fiveEeries,
@@ -155,6 +159,8 @@ export type SpriteDrawResult =
       uploads?: SlotUpload[]
       /** Set when the run's seed is not the ROM-run level state: why the art is unverified. */
       unverified?: string
+      /** The list sprites this sprite's own code drew (a neighbor run, #1049), each with the parts drawn for it. */
+      children?: { index: number; parts: DrawPart[] }[]
       /** A plain-words line about what the map shows of this sprite (not a flaw): it goes on the map's note line. */
       note?: string
     })
@@ -239,10 +245,8 @@ export function drawSprites(
   draw: SpriteDrawer,
   dynamic: (note: PaletteNote) => RgbaColor[] = () => [],
 ): MapSpriteDto[] {
-  return sprites.map(s => {
-    // Fail closed: a possibly custom sprite is never given vanilla art.
-    if ((s.raw[0] ?? 0) & EXTRA_BITS) return placeholder(s, 'extraBits')
-    const res = draw(s)
+  /** One sprite's bitmap from a drawer result: its parts blitted at the anchor, or the marker when it cannot be drawn. */
+  const render = (s: LevelSprite, res: SpriteDrawResult): MapSpriteDto => {
     if (!res.ok) return placeholder(s, 'reason' in res ? res.reason : res.failure.kind, 'unverified' in res ? res.unverified : undefined) // prettier-ignore
     if (res.parts.length === 0) return placeholder(s, 'noParts')
     let unverified = 'unverified' in res ? res.unverified : undefined
@@ -301,6 +305,23 @@ export function drawSprites(
       ...(unverified ? { unverified } : {}),
       ...('note' in res && res.note ? { note: res.note } : {}),
     }
+  }
+  // Sprites a parent drew (the $9B a $9C picks up, #1049) are part of the parent's picture, not unexplained.
+  const claimed = new Map<number, { parent: number; res: SpriteDrawResult; parts: DrawPart[] }>()
+  const dtos = sprites.map((s): MapSpriteDto => {
+    // Fail closed: a possibly custom sprite is never given vanilla art.
+    if ((s.raw[0] ?? 0) & EXTRA_BITS) return placeholder(s, 'extraBits')
+    const res = draw(s)
+    if (res.ok) for (const c of res.children ?? []) claimed.set(c.index, { parent: s.index, res, parts: c.parts }) // prettier-ignore
+    return render(s, res)
+  })
+  // Such a sprite (a placeholder, for whatever reason it drew nothing alone) stays in the list (D52: it can be selected and dragged) with the
+  // tiles the parent drew for it as its area and no marker. The view hit-tests it and does not paint it again.
+  return dtos.map((d, n) => {
+    const c = claimed.get(d.index)
+    if (!c || d.status !== 'placeholder' || d.reason === 'extraBits') return d
+    const own = render(sprites[n]!, { ...c.res, parts: c.parts } as SpriteDrawResult)
+    return own.status === 'drawn' ? { ...own, x: d.x, y: d.y, drawnBy: c.parent } : d
   })
 }
 
@@ -401,6 +422,9 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     parts: interpParts(pass.parts),
     anchor: { x: m.anchor.x, y: m.anchor.y },
     runtimePalette: pass.palette,
+    ...(pass.drew
+      ? { children: pass.drew.children.map(c => ({ index: c.index, parts: interpParts(pass.parts.filter(p => c.oam.includes(p.oam))) })) } // prettier-ignore
+      : {}),
     ...(uploads?.length ? { uploads } : {}),
     ...u,
     identity: { spriteId: m.id, mainHandler: 0, initHandler: 0, status: 'vanilla' },
@@ -601,6 +625,8 @@ export function interpRunner(
   ringRoutines: RingRoutines = VANILLA_RING_ROUTINES,
   eeriesRoutines: EeriesRoutines = VANILLA_EERIES_ROUTINES,
   platformRoutines: PlatformRoutines = VANILLA_PLATFORM_ROUTINES,
+  /** The map's whole sprite list: a sprite that scans the slots for a companion is run with its neighbors (#841). */
+  list: readonly LevelSprite[] = [],
 ): (sprite: LevelSprite) => SpriteRun {
   // The loader runs once per map, not per sprite.
   const base = seedFor(rom, index)
@@ -625,14 +651,15 @@ export function interpRunner(
     if (s.spriteId === RING_LEFT || s.spriteId === RING_RIGHT) return { direct: ringResult(rom, base, s, model.isVertical, ringRoutines) } // prettier-ignore
     const [x, y] = [pixelX(s), s.y * TILE]
     const camera = cameraFor(x, y, model.isVertical, model.screenCount)
-    const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...extra }, base) // prettier-ignore
+    const neighbours = neighboursOf(list, s, e => ({ x: pixelX(e), y: e.y * TILE }))
+    const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...(neighbours.length ? { neighbours } : {}), ...extra }, base) // prettier-ignore
     if (s.spriteId === FIVE_EERIES) return { direct: eeriesResult(rom, seed(camera), s, model.isVertical, eeriesRoutines) } // prettier-ignore
     if (s.spriteId === THREE_PLATFORMS) return { direct: platformsResult(rom, seed(camera), s, model.isVertical, platformRoutines) } // prettier-ignore
     if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
     const m = run(rom, s.spriteId, seed(camera))
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return { m, fixed: false } // prettier-ignore
-    // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbour
+    // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbor
     // tile cannot alias) towards the sprite's screen centre, so it stays drawn; run only to the drawn pass.
     // A sprite with its own gate on the camera ($8D draws only while low byte of Layer1XPos < $46, bank_02.asm:15670-15673)
     // may draw nothing there: the shift is tried the other way, and if that draws nothing too the probe
@@ -912,12 +939,12 @@ function compute(
     if (!data) return unreadable(`No sprite data at the pointer for slot ${index.toString(16)}`, "this map's sprites could not be found in the ROM.") // prettier-ignore
     // The level loader runs once; the sprites and the castle flames both start from its image.
     const base = levelSeed(rom.rom, index)
-    const draw = interpDrawer(rom.rom, index, model, runWithUploads, () => base)
+    const stream = parseLevelSprites(data, model.isVertical)
+    const draw = interpDrawer(rom.rom, index, model, runWithUploads, () => base, undefined, undefined, undefined, stream) // prettier-ignore
     // Read (and cached on the cart) only when a drawn sprite points Mario's tile DMA at the buffer.
     const withUploads = { ...model, playerGraphics: () => readMarioGraphics(rom.rom) }
     const dynamic = dynamicOf(rom.rom)
     const layer = spriteLayer(data, withUploads, draw, dynamic)
-    const stream = parseLevelSprites(data, model.isVertical)
     const flames = castleFlameSprites(rom.rom, base, stream, model, model.l2?.ok ? model.l2.l2.dy : undefined, dynamic) // prettier-ignore
     if (flames.sprites.length === 0 && !flames.note) return layer
     return {
@@ -1000,9 +1027,10 @@ export function frameRun(
   model: { isVertical: boolean; screenCount: number },
   base: SpriteSeed,
   s: LevelSprite,
+  list: readonly LevelSprite[] = [],
 ): SpriteRun {
   // prettier-ignore
-  return interpRunner(rom, index, model, undefined, () => base)(s)
+  return interpRunner(rom, index, model, undefined, () => base, undefined, undefined, undefined, list)(s)
 }
 
 /** One sprite of a map as frames: the same seed, camera and drawer the map view used, run again for this sprite alone. */
@@ -1029,11 +1057,14 @@ export function mapSpriteFrames(
     // Extra bits fail closed in the map view; there is nothing to animate either.
     if ((s.raw[0] ?? 0) & EXTRA_BITS) return { status: 'ok', frames: [], reason: 'extraBits' }
     const base = levelSeed(rom.rom, index)
-    return {
-      status: 'ok',
-      // The same player-buffer reader the map path gives, so frame 0 is the bitmap the map drew (D138 A).
-      ...framesOf(frameRun(rom.rom, index, model, base, s), s, { ...model, playerGraphics: () => readMarioGraphics(rom.rom) }, dynamicOf(rom.rom)), // prettier-ignore
-    }
+    const stream = parseLevelSprites(data, model.isVertical)
+    // The same player-buffer reader the map path gives, so frame 0 is the bitmap the map drew (D138 A).
+    const withUploads = { ...model, playerGraphics: () => readMarioGraphics(rom.rom) }
+    const frames = framesOf(frameRun(rom.rom, index, model, base, s, stream), s, withUploads, dynamicOf(rom.rom)) // prettier-ignore
+    // Drawn by its parent on the map (the $9B a $9C carries): its tiles are the parent's, so say that, not "drew no tile".
+    const dto = frames.frames.length ? undefined : drawSprites(stream, model, interpDrawer(rom.rom, index, model, undefined, () => base, undefined, undefined, undefined, stream)).find(d => d.index === s.index) // prettier-ignore
+    if (dto?.drawnBy !== undefined) return { status: 'ok', frames: [], reason: 'Drawn as part of the sprite it rides with, not on its own.' } // prettier-ignore
+    return { status: 'ok', ...frames }
   } catch (err) {
     return { status: 'unavailable', reason: (err as Error).message }
   }

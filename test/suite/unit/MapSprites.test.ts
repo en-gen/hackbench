@@ -13,6 +13,7 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   drawSprites,
+  mapSpriteFrames,
   type SpriteDrawResult,
   mapSprites,
   readStream,
@@ -139,6 +140,33 @@ describe('drawSprites: extra bits, palette splice', () => {
     expect(a).toMatchObject({ status: 'placeholder', reason: 'extraBits' })
     expect(b!.status).toBe('drawn')
     expect(c).toMatchObject({ reason: 'extraBits' })
+  })
+
+  it('a sprite its parent drew stays in the list, flagged, with the parent-drawn tiles and no marker (#1049, D52)', () => {
+    const child = (index: number) => ({ index, parts: [part(0x401, 0, -16)] })
+    const parent = (kids: ReturnType<typeof child>[]): EngineResult => ({ ...ok(part(0x401, 0, 0)), children: kids }) as EngineResult // prettier-ignore
+    const list = [spr(10, 3, 2, 0x9c), spr(11, 3, 2, 0x9b), spr(12, 9, 2, 0x9b)]
+    const draw = (kids: ReturnType<typeof child>[]) => (s: LevelSprite): EngineResult => s.spriteId === 0x9c ? parent(kids) : ok() // prettier-ignore
+    // Index 11 is the one $9C drew; 12 draws nothing and nothing drew it, so it keeps its marker.
+    const [p, c, m] = drawSprites(list, MODEL, draw([child(11)]))
+    expect(c).toMatchObject({ index: 11, id: 0x9b, status: 'drawn', drawnBy: 10, x: 48, y: 32 })
+    expect(c!.reason).toBeUndefined()
+    // Its area is the tiles the parent drew for it (16 px above the anchor), not a 16 x 16 marker at the anchor.
+    expect(c!.box).toEqual({ x0: 48, y0: 16, x1: 56, y1: 24 })
+    expect(c!.parts).toHaveLength(1)
+    expect(p!.drawnBy).toBeUndefined()
+    expect(m).toMatchObject({ index: 12, status: 'placeholder', reason: 'noParts' })
+    // The same list with no claim keeps both markers, so the flag is the claim and not the id.
+    expect(drawSprites(list, MODEL, draw([])).map(d => [d.index, d.status])).toEqual([[10, 'drawn'], [11, 'placeholder'], [12, 'placeholder']]) // prettier-ignore
+  })
+
+  it('claims a placeholder whatever its reason, but never an extra-bits one (#1049)', () => {
+    const kids = [{ index: 11, parts: [part(0x401, 0, -16)] }]
+    const stub = (s: LevelSprite): EngineResult => s.spriteId === 0x9c ? ({ ...ok(part(0x401, 0, 0)), children: kids } as EngineResult) : ({ ok: false, reason: 'drew no OAM tile in 64 passes' } as EngineResult) // prettier-ignore
+    const [, c] = drawSprites([spr(10, 3, 2, 0x9c), spr(11, 3, 2, 0x9b)], MODEL, stub)
+    expect(c).toMatchObject({ status: 'drawn', drawnBy: 10 })
+    const custom = { ...spr(11, 3, 2, 0x9b), raw: [0x08] }
+    expect(drawSprites([spr(10, 3, 2, 0x9c), custom], MODEL, stub)[1]).toMatchObject({ status: 'placeholder', reason: 'extraBits' }) // prettier-ignore
   })
 
   it('splices only the parts on the note row', () => {
@@ -427,5 +455,43 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
     expect(r.sprites).toHaveLength(34)
     expect(r.sprites.filter(s => s.status === 'drawn')).toHaveLength(32)
     for (const s of r.sprites.filter(s => s.status === 'placeholder')) expect(s.reason).toMatch(/^(refused: |drew no OAM tile)/) // prettier-ignore
+  })
+
+  // Maps 006 and 126 hold every vanilla $9C beside its $9B (one machine, one run).
+  it('lists each $9B beside a $9C as drawn by it, on $006 and $126', () => {
+    const six = run(0x6).sprites
+    expect(six.find(s => s.index === 11)).toMatchObject({ id: 0x9b, status: 'drawn', drawnBy: 10 })
+    for (const map of [0x6, 0x126]) {
+      const bros = run(map).sprites.filter(s => s.id === 0x9b)
+      expect(bros.length).toBeGreaterThan(0)
+      for (const b of bros) expect(b, `map ${map.toString(16)} index ${b.index}`).toMatchObject({ status: 'drawn' }) // prettier-ignore
+      expect(bros.every(b => b.drawnBy !== undefined)).toBe(true)
+    }
+  })
+
+  it('the Properties preview of a $9B its platform drew says so in plain words, not "drew no OAM tile" (#1049)', () => {
+    const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
+    for (const [map, index] of [
+      [0x6, 11],
+      [0x126, 28],
+    ] as const) {
+      const f = mapSpriteFrames(new L1ModelCache(), bytes, romPath(VANILLA), map, index)
+      if (f.status !== 'ok') throw new Error(JSON.stringify(f))
+      expect(f.frames).toEqual([])
+      expect(f.reason, `map ${map.toString(16)} index ${index}`).toMatch(/^Drawn as part of the sprite it rides with/) // prettier-ignore
+      expect(f.reason).not.toMatch(/OAM|\$/)
+    }
+    // A sprite nobody drew keeps the engine's own reason.
+    const lone = mapSpriteFrames(new L1ModelCache(), bytes, romPath(VANILLA), 0x6, 10)
+    expect(lone.status === 'ok' && lone.frames.length).toBeGreaterThan(0)
+  })
+
+  it("the Properties preview's first frame is the map's own bitmap for the $9C on $006 (frame 0 IS the map's picture)", () => {
+    const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
+    const cache = new L1ModelCache()
+    const map = run(0x6).sprites.find(s => s.index === 10)!
+    const f = mapSpriteFrames(cache, bytes, romPath(VANILLA), 0x6, 10)
+    if (f.status !== 'ok') throw new Error(JSON.stringify(f))
+    expect(f.frames[0]!.rgba).toBe(map.rgba)
   })
 })

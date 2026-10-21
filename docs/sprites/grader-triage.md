@@ -120,10 +120,28 @@ attribute parts to the slot (OAM index range from `$15EA`, as the capture does).
 returns 1 part; $1E on map 1c4 returns 2; the 12 cases grade close or better.
 
 **H, companion absent (14).** $9C scans slots 0-9 for a $9B (Hammer Brother) and draws it on the platform
-(`bank_02.asm:12114-12142`, `PutHammerBroOnPlat`). The runner runs the sprite alone, so ours has 4 parts
-and the capture 8 in all 14 (maps 006, 126, 127, 1c0, 1c4, 1c5, 11e). Fix: spawn the level's neighbouring
-$9B for sprites that scan for one, or record the dependency in `dependsOn`. Assert: $9C on map 006 at 1168,272
-draws 8 parts equal to one captured frame.
+(`bank_02.asm:12118-12148`, `PutHammerBroOnPlat`; `HammerBroGfx` 12044-12091). The $9B draws nothing in its own
+turn (`bank_02.asm:11964-11969` draws only at status 2), so the capture's 8 parts under the platform's slot are 4 of
+the platform and 4 of the bro. The runner ran the sprite alone: 4 parts, in all 14 (maps 006, 126, 127, 1c0, 1c4,
+1c5, 11e). **Fixed (#841):** a run whose own code read the number or status table at another slot while its
+slot was running (`scansSlots`) is run again with the map's neighbors (`neighboursOf`: its screen and the one
+each side, nearest first, at most 9) in the other slots, counting only OAM written under its own `$15E9`; that run
+is used when it adds parts and keeps the ones the run alone had (`dependsOn: neighbours`). Measured (one machine, vanilla
+cart, `spriteGrade.captures.test.ts`): base develop 6d23b7b0 against the merge head, one machine: exact 1053 to 1058, shape 810 to 819, wrong 62 to 48, close 18, empty 14, and only the 14 $9C rows changed (all better); all 14 $9C records
+leave "wrong" (5 exact, 9 shape); no record graded worse. Without the "keeps
+the parts it had" rule, 26 other records graded worse (sprites that scan the slots for collisions), so that rule is
+load-bearing.
+
+The neighbors the sprite drew itself (it read their `$15EA` OAM index on its own turn) are recorded in
+`PassResult.drew` by list index, with the OAM entries written for each. In the map view such a sprite (the $9B) stays in
+the list, flagged `drawnBy` its parent (D52): it gets no marker, its area is the tiles the parent drew for it, it can be
+hit, named and selected (it wins the hit over its parent's bitmap, which holds the same pixels), and the view does not
+paint it again. A lone $9B has no drawn pass, so any placeholder the parent drew is claimed, whatever its reason; a
+sprite with extra bits keeps its marker. The group is drawn at the parent's spawn frame (D137): however far the parent
+had moved from its anchor when it drew the children comes off every part of the pass. The $9C draws before it moves
+(`bank_02.asm:12115-12148`), so its shift is 0 and the grades above are unchanged; a parent that moves first (synthetic
+fixture in `NeighbourScan.test.ts`, swept over +x, -x, +y, -y) is the case it changes. Evidence scope: vanilla ROM maps
+$006 and $126 for the claim, synthetic cart for the rest, one machine.
 
 **S, floating-platform sink (9).** $A4 on map 102 only. INIT runs the sink loop (`bank_01.asm:6815-6837`):
 ours ends 32 px below the list y (anchor y 432 for a list y of 400) while the capture's first draw is at

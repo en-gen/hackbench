@@ -352,6 +352,11 @@ export interface MapSpriteDto {
    */
   priority?: string
   status: 'drawn' | 'placeholder'
+  /**
+   * List index of the sprite whose own code drew this one (the $9B a $9C carries, #1049). Its bitmap is the tiles
+   * that parent drew for it: the view hit-tests and names it but does not paint it, the parent's bitmap already holds them.
+   */
+  drawnBy?: number
   reason?: string
   /**
    * Set on a pixel group the map's cluster code draws on Layer 2 (sprite $E6's castle flames, #894):
