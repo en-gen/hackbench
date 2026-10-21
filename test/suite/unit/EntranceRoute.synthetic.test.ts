@@ -36,7 +36,8 @@ describe('chooseEntrance follows the route (#945)', () => {
   it('no route found: the earlier rule as a defined fallback, and a note says so', () => {
     const noted = chooseEntranceNoted(via({ secondary: [0x30, 0x1c3] }))
     expect(noted.entrance).toBe(0x30)
-    expect(noted.note).toMatch(/no route/i)
+    // Entries exist, so the record does not show that no route exists: no note (CodeRabbit, #945).
+    expect(noted.note).toBeUndefined()
     expect(chooseEntranceNoted(via({ primary: true, secondary: [0x30] })).entrance).toBeNull()
     expect(chooseEntranceNoted(via({})).entrance).toBeNull()
     expect(chooseEntranceNoted(via({})).note).toMatch(/no route/i)

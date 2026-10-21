@@ -150,11 +150,12 @@ export function chooseEntranceNoted(via?: MapEntrances): {
 } {
   if (!via || via.overworld) return { entrance: null }
   if (via.route !== undefined) return { entrance: via.route }
-  // Reached only by a record the walk did not build (a hand-built one with no `route`): the earlier
-  // lowest-id rule. A walk-built record always has a route or no way in (primary, below).
-  const entrance = via.primary || via.secondary.length === 0 ? null : Math.min(...via.secondary)
+  // A hand-built record with entries but no `route` (the walk always sets one): the earlier
+  // lowest-id rule, no note, since the record does not show that no route exists.
+  const hasEntries = via.primary || via.secondary.length > 0
+  if (hasEntries) return { entrance: via.primary ? null : Math.min(...via.secondary) }
   return {
-    entrance,
+    entrance: null,
     note: 'No route from the overworld reaches this map, so it opens at the first screen.',
   }
 }

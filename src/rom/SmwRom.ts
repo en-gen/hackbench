@@ -125,15 +125,9 @@ export interface MapEntrances {
   secondary: number[]
   /**
    * The entrance that first reaches the map on the normal route (D66 call 1, #945): null is the
-   * primary entrance (the overworld, or a screen exit without the secondary flag), a number the
-   * secondary entrance id. "First" is the exit-graph walk's own order: one global breadth-first
-   * walk from all the overworld roots (ascending slot order), each map's screen exits in the order
-   * the level parser lists them (object-stream order), the first discovery wins. So the map takes
-   * the entrance on the path with the fewest screen exits from any overworld root; ties go to the
-   * lower root slot, then to object-stream order of the exits. Not per level, and not "the root
-   * queued earlier" unless depths tie. Absent when no walk step entered the map (a hand-built
-   * record). Rule from the walk's own order, not a ROM read; the entrance semantics are
-   * bank_05.asm:7111-7162, 7300-7337.
+   * primary entrance, a number the secondary entrance id. Order is the exit-graph walk's own
+   * (one global breadth-first walk), derived in docs/rom/map-data-mechanics.md. Absent when no
+   * walk step entered the map (a hand-built record). bank_05.asm:7111-7162, 7300-7337.
    */
   route?: number | null
 }
