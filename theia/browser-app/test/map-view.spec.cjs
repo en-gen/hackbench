@@ -1729,7 +1729,7 @@ test('a map no overworld route reaches opens at screen 0 and shows the route not
   await openMap(page, project.manifestPath, 0x100)
   const notes = page.locator(`${root(0x100)} [data-note="layers"]`)
   await expect(notes.filter({ hasText: /No route from the overworld/ })).toHaveCount(1)
-  await expect(notes.filter({ hasText: /^No route from the overworld reaches this map, so it opens at the start\.$/ })).toHaveCount(1) // prettier-ignore
+  await expect(notes.filter({ hasText: /^No route from the overworld reaches this map, so it opens at the first screen\.$/ })).toHaveCount(1) // prettier-ignore
   await expect(notes.filter({ hasText: /unverified: No route/ })).toHaveCount(0)
   // The behaviour behind the note: the view stays at screen 0 (no start to scroll to) and the
   // start refusal is shown, not a guessed entrance.

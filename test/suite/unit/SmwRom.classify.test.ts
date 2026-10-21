@@ -367,7 +367,7 @@ describe('SmwRom.buildLevelExitGraph', () => {
     it('two routes: the early one wins even when a later one has the lower id', () => {
       const rom = make4MbRom()
       // Root exits: $0A5 -> $050 first, $030 -> $060 second. $060 then enters $050 by $020.
-      level(rom, 0x010, 0x068000, [...exitObj(0xa5, true), ...exitObj(0x30, true)])
+      level(rom, 0x010, 0x068000, [...exitAt(0, 0xa5, true), ...exitAt(1, 0x30, true)])
       dest(rom, 0xa5, 0x50)
       dest(rom, 0x30, 0x60)
       dest(rom, 0x20, 0x50)
@@ -390,7 +390,7 @@ describe('SmwRom.buildLevelExitGraph', () => {
 
     it('a primary exit that reaches the map first makes the route the primary entrance (null)', () => {
       const rom = make4MbRom()
-      level(rom, 0x010, 0x068000, [...exitObj(0x50, false), ...exitObj(0x60, false)])
+      level(rom, 0x010, 0x068000, [...exitAt(0, 0x50, false), ...exitAt(1, 0x60, false)])
       level(rom, 0x050, 0x06a000, [])
       level(rom, 0x060, 0x06b000, exitObj(0x22, true))
       dest(rom, 0x22, 0x50)

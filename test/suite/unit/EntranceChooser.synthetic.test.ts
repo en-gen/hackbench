@@ -85,7 +85,7 @@ describe('one entrance chooser for the layer 2 height and the layer 3 camera (#8
   it('the no-route fact is its own note, never joined onto the background height note', () => {
     const via: MapEntrances = { overworld: false, primary: false, secondary: [0x1c5, 0x1c3] }
     const r = drawn(via)
-    expect(chooseEntranceNoted(via).note).toBe('No route from the overworld reaches this map, so it opens at the start.') // prettier-ignore
+    expect(chooseEntranceNoted(via).note).toBe('No route from the overworld reaches this map, so it opens at the first screen.') // prettier-ignore
     expect(r.note ?? '').not.toMatch(/no route/i)
   })
 

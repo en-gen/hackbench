@@ -141,7 +141,7 @@ export function chooseEntrance(via?: MapEntrances): number | null {
  * entry map is primary. For any other map the route decides, even when a primary exit also enters
  * it later: `via.route` is the entrance the exit-graph walk reached it by first (null: a primary
  * exit got there first). A graph that never reached the map gives an empty record with no route:
- * primary, with a note that the map opens at the start (screen 0, D78 call 2: only the scroll stays
+ * primary, with a note that the map opens at the first screen (screen 0, D78 call 2: only the scroll stays
  * at screen 0; the layer 2 and 3 heights still read the map's own primary entrance row), never silent.
  */
 export function chooseEntranceNoted(via?: MapEntrances): {
@@ -155,7 +155,7 @@ export function chooseEntranceNoted(via?: MapEntrances): {
   const entrance = via.primary || via.secondary.length === 0 ? null : Math.min(...via.secondary)
   return {
     entrance,
-    note: 'No route from the overworld reaches this map, so it opens at the start.',
+    note: 'No route from the overworld reaches this map, so it opens at the first screen.',
   }
 }
 

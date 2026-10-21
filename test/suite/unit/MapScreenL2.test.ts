@@ -165,7 +165,7 @@ describe('L2 planes (synthetic)', () => {
   })
 })
 
-const routeNote = 'No route from the overworld reaches this map, so it opens at the start.' // prettier-ignore
+const routeNote = 'No route from the overworld reaches this map, so it opens at the first screen.' // prettier-ignore
 
 describe('the wire carries four planes in the view stacking order (synthetic)', () => {
   /** What the view shows: each plane over the ones below it, a covering pixel replacing what is under it. */
