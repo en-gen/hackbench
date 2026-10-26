@@ -216,8 +216,8 @@
     "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^26.6.5",
     "@types/vscode": "^1.140.0",
-    "@typescript-eslint/eslint-plugin": "^8.71.2",
-    "@typescript-eslint/parser": "^8.71.2",
+    "@typescript-eslint/eslint-plugin": "^8.72.0",
+    "@typescript-eslint/parser": "^8.72.0",
     "@vitest/coverage-v8": "^5.0.5",
     "@vscode/codicons": "^0.0.45",
     "cloudevents": "^10.0.0",
@@ -233,7 +233,7 @@
     "typescript-eslint": "^8.71.2",
     "vitest": "^5.0.5",
     "vscode-uri": "^3.2.0",
-    "webpack": "^5.112.0",
+    "webpack": "^5.112.2",
     "webpack-cli": "^7.2.3"
   },
   "dependencies": {
