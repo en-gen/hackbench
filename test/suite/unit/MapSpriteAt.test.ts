@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   spriteAt,
+  compositeSpriteScreen,
   spriteDoors,
   doorIdAt,
   spriteName,
@@ -46,6 +47,36 @@ describe('spriteAt', () => {
     const a = dto(0x01, 4, [1, 0])
     const b = dto(0x02, 5, [1, 0])
     expect(spriteAt([b, a], H, 1, 0)?.id).toBe(0x02) // same column: the higher stream index
+  })
+
+  it('a sprite its parent drew is hit and named but paints nothing of its own (#1049)', () => {
+    const parent = dto(0x9c, 10, [0, 0])
+    const child = dto(0x9b, 11, [0, 0], [2, 1], [], { drawnBy: 10 })
+    expect(spriteAt([parent, child], H, 1, 0)).toBe(child)
+    // The parent's bitmap already holds the child's tiles: with only the child listed, nothing is composed.
+    expect(compositeSpriteScreen([child], 0, H)).toBeNull()
+    expect(compositeSpriteScreen([parent, child], 0, H)).toEqual(
+      compositeSpriteScreen([parent], 0, H),
+    )
+  })
+
+  it('a sprite its parent drew wins over that parent whichever sorts on top (D52)', () => {
+    // The parent's bitmap holds the child's pixels, so without the rule the parent hides the child from the pointer.
+    for (const [parentIndex, childIndex] of [
+      [29, 28],
+      [28, 29],
+    ] as const) {
+      for (const childX of [0, 1, 2]) {
+        const parent = dto(0x9c, parentIndex, [1, 0], [2, 1])
+        const child = dto(0x9b, childIndex, [childX, 0], [2, 1], [], { drawnBy: parentIndex })
+        const hit = spriteAt([parent, child], H, Math.max(childX, 1), 0)
+        expect(hit, `${parentIndex}/${childIndex} x${childX}`).toBe(child)
+      }
+    }
+    // Where the child has no pixel the parent is still the one hit.
+    const parent = dto(0x9c, 29, [1, 0], [2, 1])
+    const child = dto(0x9b, 28, [1, 0], [2, 1], [1], { drawnBy: 29 })
+    expect(spriteAt([parent, child], H, 2, 0)).toBe(parent)
   })
 
   it('agrees with the door map that decides what is drawn on top', () => {

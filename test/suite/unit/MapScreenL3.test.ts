@@ -201,6 +201,14 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
     const l3 = { ...verdict(false, null), cgadsub: null }
     expect(wireOf({ ...l1Of(0, 0, false), l3 }).math).toBeNull()
   })
+  it('an unreached map is one line of its own, after the layer 3 position note (#945)', () => {
+    const routeNote =
+      'No route from the overworld reaches this map, so it opens at the first screen.'
+    const l3 = verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYReasons: ['because'] }))
+    const w = wireOf({ ...l1Of(0, 0, false), l3, routeNote })
+    expect(w.layerNotes.filter(n => n === routeNote)).toHaveLength(1)
+    expect(w.layerNotes).toEqual(['Layer 3 position unverified: because', routeNote])
+  })
   it('an unverified layer 3 camera is a layer note on a map that still draws it (#860)', () => {
     const drawn = (...notes: string[]) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYReasons: notes.length ? notes : undefined })) // prettier-ignore
     const w = wireOf({ ...l1Of(0, 0, false), l3: drawn('because') })
@@ -251,6 +259,7 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
       [['b', 'a'], 'b', [`${BOTH}: b`, 'Background height unverified: a']],
       [undefined, 'a', ['Layer 3 position unverified: a']],
     ]
+    const routeNote = 'No route from the overworld reaches this map, so it opens at the first screen.' // prettier-ignore
     for (const [l2, l3, expected] of cases) {
       it(`L2 ${JSON.stringify(l2)} with L3 ${JSON.stringify(l3)}`, () => {
         const m = {
@@ -259,6 +268,10 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
           l3: drawn(...(l3 ? [l3] : [])),
         }
         expect(wireOf(m).layerNotes).toEqual(expected)
+        // The route note (#945) is its own entry, last, exactly once, never joined onto a position note.
+        const guessed = wireOf({ ...m, routeNote }).layerNotes
+        expect(guessed).toEqual([...expected, routeNote])
+        expect(guessed.filter(n => n.includes(routeNote))).toHaveLength(1)
       })
     }
   })

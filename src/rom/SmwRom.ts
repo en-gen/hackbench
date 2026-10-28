@@ -123,6 +123,13 @@ export interface MapEntrances {
   primary: boolean
   /** Secondary entrance ids (the index into DATA_05F800 and its sibling tables) that enter it, ascending. */
   secondary: number[]
+  /**
+   * The entrance that first reaches the map on the normal route (D66 call 1, #945): null is the
+   * primary entrance, a number the secondary entrance id. Order is the exit-graph walk's own
+   * (one global breadth-first walk), derived in docs/rom/map-data-mechanics.md. Absent when no
+   * walk step entered the map (a hand-built record). bank_05.asm:7111-7162, 7300-7337.
+   */
+  route?: number | null
 }
 
 export interface RomSummary {
@@ -561,7 +568,11 @@ export class SmwRom {
     const entrances = new Map<number, MapEntrances>()
     const entrancesOf = (map: number): MapEntrances =>
       entrances.get(map) ?? entrances.set(map, { overworld: false, primary: false, secondary: [] }).get(map)! // prettier-ignore
-    for (const root of overworld) entrancesOf(root).overworld = true
+    for (const root of overworld) {
+      const r = entrancesOf(root)
+      r.overworld = true
+      r.route = null
+    }
     let qi = 0
     while (qi < queue.length) {
       const cur = queue[qi++]!
@@ -581,6 +592,8 @@ export class SmwRom {
           if (!spec.isSecondary) into.primary = true
           else if (!into.secondary.includes(high | spec.rawByte))
             into.secondary.push(high | spec.rawByte)
+          // The walk's first entry is the route (see MapEntrances.route); roots already hold null.
+          if (into.route === undefined) into.route = spec.isSecondary ? high | spec.rawByte : null
         }
         if (dest === cur || !validDestinations.has(dest)) continue
 

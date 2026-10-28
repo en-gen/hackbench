@@ -32,6 +32,10 @@ import type { RomFile } from '../../../../src/rom/RomFile'
 import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState, NO_CLUSTER_SPRITES } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
+import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
+import type { LevelSprite } from '../../../../src/rom/LevelParser'
+import { levelSpriteList } from '../../support/levelSpriteList'
+import { SmwRom } from '../../../../src/rom/SmwRom'
 import {
   CAPTURE_DIR,
   freshRom,
@@ -57,9 +61,9 @@ import {
 } from '../../support/spriteGrade'
 
 interface Rec {
+  listIndex?: number
   id: string
   slot: number
-  listIndex?: number
   listX: number
   listY: number
   cameraX: number
@@ -154,6 +158,9 @@ function gradeAll(
   const rows: Row[] = []
   const inputs = new Map<number, { reads: number; nonzero: number }>()
   const loadedByMap = new Map<string, Uint8Array | undefined>()
+  // Each map's own sprite list, for the neighbor run of a sprite that scans the slot tables (#841).
+  const listByMap = new Map<string, LevelSprite[]>()
+  const smw = new SmwRom(rom)
   let fallbacks = 0
   let missAtK = 0
   for (const { map, rec, wram, anchorFrame, marioStart, listed } of all) {
@@ -175,6 +182,19 @@ function gradeAll(
     }
     // Hardware timeline: INIT sees marioAtInit, MAIN sees marioStart, and the graded pass is the
     // one the capture's drawn frame falls on. Without the fields, the old first-drawing-pass rule.
+    if (!listByMap.has(map)) {
+      const lv = parseInt(map, 16)
+      const ptr = smw.getLevelSpritePointer(lv)
+      const data = ptr === null ? null : rom.readUpTo(ptr, 4096)
+      const raw = smw.getLevelRawData(lv)
+      // A vertical map's stream swaps X and Y (#1018); the helper decides it as MapBuilder does.
+      // A capture map without level data is a broken corpus, not an empty list: fail by name.
+      if (!data || !raw) throw new Error(`map ${map}: no sprite or level data for the sprite list`)
+      listByMap.set(map, levelSpriteList(data, raw, smw.requireVerticalTable()))
+    }
+    const list = listByMap.get(map)!
+    const me = list.find(e => e.index === rec.listIndex)
+    const neighbours = me ? neighboursOf(list, me, e => ({ x: e.x * 16, y: e.y * 16 })) : []
     const k = gradedPass(rec.initFrame, anchorFrame, rec.drawnFrame)
     const timed = k !== undefined && marioStart !== undefined
     if (!timed) fallbacks++
@@ -198,6 +218,7 @@ function gradeAll(
       sprite: { x: rec.listX, y: rec.listY },
       camera: { x: rec.cameraX, y: rec.cameraY },
       mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
+      ...(neighbours.length ? { neighbours } : {}),
     })
     const probe = timed
       ? (p: number, w: Uint8Array): void => {
@@ -249,14 +270,14 @@ function gradeAll(
   return { rows, by, inputs, fallbacks, missAtK }
 }
 
-/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised after #837 (stationary shells): measured 2026-10-16, one machine: exact 1033, exact+shape 1836, wrong 90, empty 13. */
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised for #841 (neighbor run): measured with the merge head against develop 6d23b7b0, one machine: exact 1058, exact+shape 1877, wrong 48, close 18, empty 14 (develop: 1053, 1863, 62, 18, 14); only the 14 $9C rows changed. */
 const FLOOR = {
   graded: 1957,
-  exact: 1030,
-  exactOrShape: 1830,
+  exact: 1055,
+  exactOrShape: 1874,
   maxRefused: 0,
   maxEmpty: 16,
-  maxWrong: 93,
+  maxWrong: 51,
   maxMissAtK: 30,
   // 38 measured (spawned records without initFrame); all-timed would read 0.
   minFallbacks: 30,
