@@ -3,9 +3,9 @@ Normalise em-dashes to regular dashes inside GitNexus-managed doc regions.
 
 `gitnexus analyze` rewrites the text between the gitnexus:start and
 gitnexus:end markers in CLAUDE.md and AGENTS.md, and the text it generates
-uses em-dashes. This repo's CI content check (range mode) blocks em-dashes in added lines,
-so every refresh would otherwise leave a PR that fails CI. This
-makes the generator and the gate stop fighting.
+uses em-dashes. This repo's CI content check (range mode) blocks em-dashes
+in added lines, so every refresh would otherwise leave a PR that fails CI.
+This makes the generator and the gate stop fighting.
 
 Only the managed region is touched. The rest of each file is hand-written, and
 a blanket substitution would rewrite prose nobody asked it to.

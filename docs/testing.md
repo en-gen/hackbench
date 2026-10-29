@@ -55,7 +55,8 @@ cannot be told from invented values by content, so the claim is the signal;
 say "invented values" instead, or add the pragma. A decimal array with `0x`
 elements mixed in counts toward `byte-tokens` too.
 
-Modes: `staged` (no hook runs it since #1183), `range BASE HEAD` (CI), `push REMOTE`
+Modes: `staged` (no hook runs it since #1183), `range BASE HEAD` (CI),
+`push REMOTE`
 (`.githooks/pre-push`, reading stdin ref-updates and querying the remote
 live via `git ls-remote` rather than trusting local, possibly stale,
 remote-tracking refs), and `history [REF]` (the repo-migration oracle, run

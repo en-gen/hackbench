@@ -119,8 +119,9 @@ gate has a test that plants a defect per rule and proves both halves fail.
 pre-commit hook (#1183; refinement in #1163). Lint and format run in CI, the
 content check on pre-push and in CI:
 
-- `tools/scripts/check-staged-style.sh` (no hook or CI calls it now) runs ESLint at `--max-warnings 0`
-  and Prettier in check mode over staged JS/TS/CSS. Warnings are fatal.
+- `tools/scripts/check-staged-style.sh` runs ESLint at `--max-warnings 0`
+  and Prettier in check mode over staged JS/TS/CSS. Warnings are fatal. No
+  hook or CI calls it now.
 - `tools/scripts/check-content.mjs` (issue #678) blocks ROM-derived bytes
   and em-dashes in newly added lines, in `staged`/`range`/`push`/`history`
   modes.
