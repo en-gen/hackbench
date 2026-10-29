@@ -8,7 +8,7 @@
  *
  * - A patch VALUE is a byte copied out of the cart. A file full of them is
  *   ROM-derived output, which this repo refuses to commit (see
- *   tools/scripts/check-staged-content.sh). An edit history nobody can commit
+ *   tools/scripts/check-content.mjs). An edit history nobody can commit
  *   or share is worth much less. An op is just intent, so it travels freely.
  * - Ops survive the base ROM changing underneath them, because the byte to
  *   patch is located by re-reading the level's streams. A stored raw offset
