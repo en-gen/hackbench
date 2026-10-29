@@ -3047,10 +3047,10 @@ electron-store@^8.2.0:
     conf "^10.2.0"
     type-fest "^2.17.0"
 
-electron@42.10.0:
-  version "42.10.0"
-  resolved "https://registry.yarnpkg.com/electron/-/electron-42.10.0.tgz#0d1924b64944a5ace5eea6a650d5f71d677edaa4"
-  integrity sha512-yBWnZO8tKId0ADvGa4+imPmm3+8Kfs8MtkUPhQQJz1AjTnUUDwCTWkQEU0CrArVVL97Jo4Q/0mVcLHciicBDGQ==
+electron@42.11.16:
+  version "42.11.16"
+  resolved "https://registry.yarnpkg.com/electron/-/electron-42.11.16.tgz#fdf64707a465550f92f301654efbab9c64d1ce92"
+  integrity sha512-CHCEsZbWm9zspEnYsro+g8FFllh0e82A1Jtofi/XqPs/XqlrpDPdLP0OhzfhG/IkxNXQ8iHEoYms+wVepZNzZA==
   dependencies:
     "@electron-internal/extract-zip" "^1.0.1"
     "@electron/get" "^5.0.0"
@@ -5583,9 +5583,9 @@ package-json-from-dist@^1.0.0:
   integrity sha512-UEZIS3/by4OC8vL3P2dTXRETpebLI2NiI5vIrjaD/5UtrkFX/tNbwjTSRAGC/+7CAo2pIcBaRgWmcBBHcsaCIw==
 
 pacote@21.0.1, pacote@^21.0.0, pacote@^21.0.2, pacote@^21.5.1:
-  version "21.5.1"
-  resolved "https://registry.yarnpkg.com/pacote/-/pacote-21.5.1.tgz#74ab896fc7b1f00545ecbbbf666a61895cd50d38"
-  integrity sha512-KvcJ9iy3crysCsgqc4+PknH/w6jkrp8JN36mpZBPwNaDRwTfMZD37YzRazNstiZUOhuF5pno9f78n9mEJBavwg==
+  version "21.5.2"
+  resolved "https://registry.yarnpkg.com/pacote/-/pacote-21.5.2.tgz#f4369f07772281484d4f5525f40f58a36abaa5f1"
+  integrity sha512-rifBXawDMv3nLvABWr1kTpSk0UjeglTT4Vt9t8nU9xSnfdZcCTy+FOjO6TgXWAS77lIfbZlRkl2eKQcdY0++jA==
   dependencies:
     "@gar/promise-retry" "^1.0.0"
     "@npmcli/git" "^7.0.0"
@@ -6339,9 +6339,9 @@ send@~0.19.0, send@~0.19.1:
     statuses "~2.0.2"
 
 serialize-javascript@^6.0.2, serialize-javascript@^7.0.5:
-  version "7.1.2"
-  resolved "https://registry.yarnpkg.com/serialize-javascript/-/serialize-javascript-7.1.2.tgz#0161010a0815dd7b7e011cbc5a3644850b8c2289"
-  integrity sha512-GL2BWwVa6JydKO6l/ljVgjAZF4QJ3S7dWDWi53s5GZT8PJzD2fNxi67HANQGKAqPrwEpL5ba7gUBGi0Ls/sEoQ==
+  version "7.1.4"
+  resolved "https://registry.yarnpkg.com/serialize-javascript/-/serialize-javascript-7.1.4.tgz#477af55bdec0d831fa3b209245f673217fd27380"
+  integrity sha512-FqlEuoTq/zRmA4Lg6aOqyH3lCHbUtCB0bmHCeFniX2GBdDqMJM3FwdvEhlE5Pim1dlt2FfBdVPmUNNiGhhKqpw==
 
 serve-static@~1.16.2:
   version "1.16.3"
