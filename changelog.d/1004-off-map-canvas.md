@@ -1,0 +1,3 @@
+### Changed
+
+- The map view's canvas now extends past the map (#1004, owner rulings D76 call 2, D48 part 2 and D145). Every map has a 128 px gutter, half a screen, at each long end: left and right on a horizontal map, top and bottom on a vertical one. A refused-object mark ("!") or a sprite that the data places off the map is drawn where the data names it instead of being pulled onto the last row or column or cut off, and the canvas grows to hold it, with the gutter beyond it. The background color is solid across the map and fades to transparent over each gutter. Grid lines continue across the whole canvas and a thin line marks the map's edge. When the sprites finish loading and the canvas grows, the view stays on the same spot.

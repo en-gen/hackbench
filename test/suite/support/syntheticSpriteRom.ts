@@ -14,23 +14,27 @@
  * 17 retries INIT and records $13/$14 per call; 18 draws its tile from $14; 19 writes a tile but
  * a Y only on odd frames; 14, 15 and 16 draw their tile from $13 (frame counter), $148B (RNG) and $76 (Mario direction). InitSpriteTables stores into a table indexed by X (the
  * slot) and GetRand steps an RNG at $148B, both with the vanilla call shape. The level
- * loader entries ($05:D8AE, $05:D8B7, $00:A635, $05:801E) carry the vanilla shape bytes
- * and small routines of our own. Ids 20, 21 and 22 draw like id 0 and set one CGRAM color
+ * loader entries ($05:D8B7, $00:A635, $05:801E and the rest) are small routines of our own,
+ * with the few single instructions the loader checks (LevelLoader.ts SITES) at their offsets. Ids 20, 21 and 22 draw like id 0 and set one CGRAM color
  * in INIT: 20 through the NMI upload list ($0681/$0682), 21 through a MainPalette list
  * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 34 draws, moves X by +4, then draws again; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move. Options plant a defect for the oracle tests.
  */
 import { RomFile } from '../../../src/rom/RomFile'
-import { markSyntheticRom } from '../../../src/rom/sprites/interp/LevelLoader'
 import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
 
 import { putGm11Spans } from './syntheticGm11Spans'
-import { putLoaderStandIns } from './syntheticLoaderStandIns'
 import { putDrawPosProbes } from './syntheticDrawProbes'
+import { EERIE_HANDLER, putEeries } from './syntheticEeries'
+import { putLoaderStandIns } from './syntheticLoaderStandIns'
 import { putGrinderRoutines } from './syntheticGrinder'
 
 export interface SyntheticOptions {
   /** ADC operand of id 0's INIT shift. */
   initShift?: number
+  /** Id 0's INIT also adds 256 to X, and its MAIN draws nothing unless it is within 0-255 px right of the camera (GetDrawInfo's cull). */
+  initFarCull?: boolean
+  /** With `initFarCull`: id 0's MAIN first steps X back by $40, so it draws only after moving partway back. */
+  mainStepsBack?: boolean
   /** Replace id 0's MAIN tile STA with NOPs (draws nothing useful). */
   noTileWrite?: boolean
   /** Break the sprite loop's countdown (loop reader must refuse). */
@@ -68,6 +72,8 @@ export interface SyntheticOptions {
     | 'scrollPop'
     | 'layer3'
     | 'gm12'
+    | 'gm12Bpl'
+    | 'gm12Jsr'
     | 'reset'
   /**
    * UpdateScreenPosition carries a JML at $00:F6E4 (86 of 107 corpus ROMs do) to $05:F000, which
@@ -96,43 +102,85 @@ export interface SyntheticOptions {
   irqCommand?: number
   /** Id 31's MAIN pointer is id 103's handler: the shape matches, the id does not. */
   id31IsGrinder?: boolean
+  /**
+   * The sprite loader's five-Eerie spawner (#1015): a call site, a spawn routine of our own at the spawner's entry
+   * (inputs in $00-$03, the sprite data through $CE, up to five slots out), its tables, a slot search over `room` slots
+   * (default 12), and a sprite $39 whose tile is its X speed. `stream` is the sprite list the data pointer reaches.
+   */
+  eeries?: { stream?: number[]; spacing?: number[]; room?: number; travel?: boolean }
 }
 
 const BANK = 0x8000
 
-/** Our own block spawn dispatcher, written for this fixture: index compare, JSL FindFreeSprSlot, fall-through. */
-// prettier-ignore
-export const SYNTHETIC_DISPATCHER_CODE: readonly number[] = Object.freeze([
-  0xa5, 0x05,             // LDA $05: the content index
-  0xc9, 0x0c,             // CMP #$0C
-  0xf0, 0x03,             // BEQ slot
-  0x4c, 0x05, 0x89,       // JMP $8905: GenSpriteFromBlk's own countdown
-  0x22, 0xe4, 0xa9, 0x02, // slot: JSL FindFreeSprSlot, Y = slot or $FF
-  0x5a, 0xfa,             // PHY / PLX: X = Y, N set when none was free
-  0x30, 0x03,             // BMI done
-  0x4c, 0x22, 0x89,       // JMP $8922: the status write
-  0x6b,                   // done: RTL
-])
+/**
+ * Our own item block spawn routine, written for this fixture, as ONE contiguous 81-byte span from $02:88DC like
+ * the game's. Its instructions and its layout are ours (a dispatcher on X, a slot countdown that decrements first,
+ * a status write through A and TAY), so it rebuilds none of the game's code: dispatcher at +0, slot search at +44,
+ * status write at +58 and the start of the rest of the routine after it. Gaps are zero. `bad` breaks one piece's
+ * first byte.
+ */
+export function syntheticSpawnCode(bad?: 'head' | 'status' | 'dispatch'): number[] {
+  const code = new Array<number>(81).fill(0)
+  const HEAD = 0x288dc + 44
+  const STATUS = 0x288dc + 58
+  const lo = (a: number) => a & 0xff
+  const hi = (a: number) => a >> 8
+  // prettier-ignore
+  const dispatcher = [
+    0xa6, 0x05,                           // LDX $05: the content index
+    0xe0, 0x0c,                           // CPX #$0C
+    0xd0, 0x0c,                           // BNE generic
+    0x22, 0xe4, 0xa9, 0x02,               // JSL FindFreeSprSlot: Y = slot or $FF
+    0x98, 0xaa,                           // TYA / TAX: N set when none was free
+    0x30, 0x03,                           // BMI done
+    0x4c, lo(STATUS), hi(STATUS),         // JMP status write
+    0x6b,                                 // done: RTL
+    0x4c, lo(HEAD), hi(HEAD),             // generic: JMP slot search
+  ]
+  // The slot search counts down from 12, decrementing first, and gives up (RTL) below zero.
+  const head = [0xa2, 0x0c, 0xca, 0x30, 0x08, 0xbd, 0xc8, 0x14, 0xd0, 0xf8, 0x4c, lo(STATUS), hi(STATUS), 0x6b] // prettier-ignore
+  // Status through A and Y from the table at $02:88C5, then the number from $02:88A3 and InitSpriteTables.
+  const status = [0xa5, 0x05, 0xa8, 0xb9, 0xc5, 0x88, 0x9d, 0xc8, 0x14]
+  const rest = [0xb9, 0xa3, 0x88, 0x95, 0x9e, 0x22, 0xd2, 0xf7, 0x07, 0x4c, 0x36, 0x89] // prettier-ignore
+  code.splice(0, dispatcher.length, ...dispatcher)
+  code.splice(44, head.length, ...head)
+  code.splice(58, status.length, ...status)
+  code.splice(67, rest.length, ...rest)
+  if (bad === 'dispatch') code[0] = 0xea
+  if (bad === 'head') code[44] = 0xea
+  if (bad === 'status') code[58] = 0xea
+  return code
+}
 
-/** The gate's view of SYNTHETIC_DISPATCHER_CODE: the JSL operand masked, the rest hashed. */
+/** The gate's view of `syntheticSpawnCode()`: the JSL operand and the status table address masked, the rest hashed. */
 export const SYNTHETIC_DISPATCHER: DispatcherSpan = Object.freeze({
-  length: SYNTHETIC_DISPATCHER_CODE.length,
-  callAt: 10,
-  fingerprints: Object.freeze(['5e321bdaabc6e582f75144b988d69dda7e2942736697a29d06e5f5f2ec6b9f3b']),
+  length: 81,
+  callAt: 7,
+  operands: Object.freeze([62, 63]),
+  fingerprints: Object.freeze(['12a81b2eff7ff222bc6fde0468a2c70178d44b20da3aa75b5b01544cb39ff81d']),
 })
 
+/**
+ * Our own 16-bit pointer-table jump (the same steps as the game's ExecutePtr, with its own cells) for the cart's ExecutePtr slot at $00:86FA, not the game's address (JSL with A = index, the table inline after
+ * the call): the index doubled into $08, the return address popped into the pointer at $0A-$0C, the table word read
+ * through it, JML [$000A]. Y is kept in $0D. The cells are ours, not the game's.
+ */
+export const SYNTHETIC_EXECUTE_PTR_CODE: readonly number[] = Object.freeze([
+  0x84, 0x0d, 0x7a, 0x84, 0x0a, 0xc2, 0x30, 0x29, 0xff, 0x00, 0x0a, 0x85, 0x08, 0x68, 0x85, 0x0b,
+  0xa4, 0x08, 0xc8, 0xb7, 0x0a, 0x85, 0x0a, 0xe2, 0x30, 0xa4, 0x0d, 0xdc, 0x0a, 0x00,
+]) // prettier-ignore
+
+/** Where the cart's INIT pointer table starts, from the start of its CallSpriteInit at $01:8170 (the routine is 12 bytes). */
+export const SYNTHETIC_INIT_TABLE_OFFSET = 12
+
+/** The synthetic cart: hand-written routines at the addresses the interpreter's tests read, with the planted defects `o` asks for. */
 export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   const rom = new Uint8Array(8 * BANK) // banks 0-7
   const put = (snes: number, bytes: number[]): void => {
     const bank = snes >>> 16
     rom.set(bytes, bank * BANK + ((snes & 0xffff) - 0x8000))
   }
-  // ExecutePtr at $00:86FA, the 16-bit pointer-table jump: reads the return address as the table base,
-  // indexes it by A, jumps through DP in bank 1. The shape the runner reads (checkExecutePtr) fixes the
-  // opcodes and leaves the direct-page cells free, so this uses $0A-$0D, not the game's scratch cells.
-  const [save, ptr] = [0x0d, 0x0a] // Y saved here; the 3-byte pointer at $0A-$0C
-  const [STY, PLY, REP, AND, ASL, TAY, PLA, STA, INY, LDAL, SEP, LDY, JML] = [0x84, 0x7a, 0xc2, 0x29, 0x0a, 0xa8, 0x68, 0x85, 0xc8, 0xb7, 0xe2, 0xa4, 0xdc] // prettier-ignore
-  put(0x0086fa, [STY, save, PLY, STY, ptr, REP, 0x30, AND, 0xff, 0x00, ASL, TAY, PLA, STA, ptr + 1, INY, LDAL, ptr, STA, ptr, SEP, 0x30, LDY, save, JML, ptr, 0x00]) // prettier-ignore
+  put(0x0086fa, [...SYNTHETIC_EXECUTE_PTR_CODE])
   // $07:F7D2 InitSpriteTables: JSL / JSL / RTL. The first stub stores into a table
   // indexed by X, so a run that does not set X to the slot leaves the wrong cell.
   put(0x07f7d2, [o.badInitTables ? 0xea : 0x22, 0xa0, 0xf7, 0x07, 0x22, 0xb0, 0xf7, 0x07, 0x6b])
@@ -142,23 +190,26 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   const gb = o.fastRomGetRand ? 0x81 : 0x01
   put(0x01acf9, [0x5a, 0xa0, 0x01, 0x22, 0x40, 0xad, gb, o.badGetRand ? 0xea : 0x88, 0x22, 0x40, 0xad, gb, 0x7a, 0x6b]) // prettier-ignore
   put(0x01ad40, [0xee, 0x8b, 0x14, 0x6b]) // INC $148B / RTL
-  // Level loader: the vanilla shape bytes, then a small routine of our own after each.
+  // Level loader: hand-written stand-ins; the loader checks single instructions of them (LevelLoader.ts SITES), not runs.
   const bad = (k: string, b: number) => (o.badLoader === k ? 0xea : b)
   // GM11's three calls, CODE_05D796's prologue and sublevel branch, and the JMP into the pointer loader.
   put(0x0096f4, [bad('callsite', 0x22), 0x96, 0xd7, 0x05])
-  put(0x0096f8, [0xa2, 0x07, 0xb5, 0x1a, 0x9d, 0x62, 0x14, 0xca, 0x10, 0xf8])
-  put(0x009705, [0x20, 0x35, 0xa6])
-  put(
-    0x009708,
-    [0xa9, 0x20, 0x85, 0x5e, 0x20, 0x96, 0xa7, 0xee, 0x04, 0x14, 0x22, 0xdb, 0xf6, 0x00],
-  )
-  put(0x009716, [0x22, 0x1e, 0x80, 0x05])
-  put(0x05d796, [bad('lead', 0x8b), 0x4b, 0xab, 0xe2, 0x30, 0x9c, 0xcf, 0x13, 0xad, 0x95, 0x1b, 0xd0, 0x05, 0xac, 0x25, 0x14, 0xf0, 0x03, 0x20, 0xac, 0xdb, 0xad, 0x1a, 0x14, 0xd0, 0x03, 0x4c, 0x3e, 0xd8]) // prettier-ignore
+  // Layer position copy, unrolled: $1A to $1462 and $1B to $1463 (only $1A is read downstream), ends at $9702.
+  put(0x0096f8, [0xa5, 0x1a, 0x8d, 0x62, 0x14, 0xa5, 0x1b, 0x8d, 0x63, 0x14])
+  put(0x009705, [0x20, 0xa0, 0xa6]) // JSR to the entrance setup, which this cart keeps off its vanilla address
+  // Screen setup: LDA # / STA $62, $1405++, JSR $A796, JSL $F6DB; ends at $9716 (the JSL must be last: a hook's stray RTS lands there).
+  // Only the opening load and the JSL are checked. The data stub writes $62 too, so its value shows which ran last.
+  // The JSR $A796 and JSL $00F6DB targets: forced by the #1120 stand-ins; moves when #1120 retargets them.
+  put(0x009708, [0xa9, 0x21, 0x85, 0x62, 0xee, 0x05, 0x14, 0x20, 0x96, 0xa7, 0x22, 0xdb, 0xf6, 0x00]) // prettier-ignore
+  put(0x009716, [0x22, 0x1e, 0x80, 0x85]) // bank byte as the FastROM mirror of bank 5; never run (the loader enters $05:801E itself)
+  // CODE_05D796's place: its prologue is run (the loader checks PHB at +0, STZ at +5, the LDA of the sublevel flag at +21,
+  // BNE past the JMP $D83E at +26), so it narrows the registers, tests the flag and branches over the jump; NOPs between.
+  put(0x05d796, [bad('lead', 0x8b), 0xe2, 0x30, 0xea, 0xea, 0x9c, 0x55, 0x15, ...Array(13).fill(0xea), 0xad, 0x3c, 0x15, 0xd0, 0x03, 0x4c, 0x3e, 0xd8, 0xea]) // prettier-ignore
   put(0x05d83b, [bad('jump', 0x4c), 0xb7, 0xd8])
   putGm11Spans(put, o)
   putLoaderStandIns(put, o)
-  // CODE_00A635 shape, then LDA $0000 / LDA #6 / STA $71 / RTS
-  put(0x00a635, [bad('entrance', 0xad), 0xad, 0x14, 0x0d, 0xae, 0x14, 0x0d, 0x0c, 0x19, 0xd0, 0x0a, 0xad, 0x00, 0x00, 0xa9, 0x06, 0x85, 0x71, 0x60]) // prettier-ignore
+  // Entrance setup: LDA abs (the checked opening load) / SEP #$20 / STZ / NOP / BNE to the next load (the checked branch lands on a load) / LDA / STZ / LDA #6 / STA $71 / RTS
+  put(0x00a6a0, [bad('entrance', 0xad), 0x41, 0x15, 0xe2, 0x20, 0x9c, 0x55, 0x15, 0xea, 0xd0, 0x00, 0xad, 0x56, 0x15, 0x9c, 0x56, 0x15, 0xa9, 0x06, 0x85, 0x71, 0x60]) // prettier-ignore
   // $01:808C sprite loop: PHB PHK PLB, X = $0B..0 { STX $15E9; JSR setup; JSR handle }
   put(0x01808b, [0xea]) // a NOP before the loop: the zero fill then PHB PHK is itself a window of the game's
   put(0x01808c, [
@@ -179,7 +230,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   )
   put(0x018160, [0x60])
   // $01:8170 CallSpriteInit, table of 201 words after the JSL.
-  put(0x018170, [0xa9, 0x08, 0x9d, 0xc8, 0x14, 0xb5, 0x9e, 0x22, o.badExecutePtr ? 0x00 : 0xfa, 0x86, 0x00]) // prettier-ignore
+  put(0x018170, [0xa0, 0x08, 0x98, 0x9d, 0xc8, 0x14, 0xb5, 0x9e, 0x22, o.badExecutePtr ? 0x00 : 0xfa, 0x86, 0x00]) // prettier-ignore
   // $01:8320 CallSpriteMain.
   put(0x018320, [0x9c, 0x00, 0x14, 0xb5, 0x9e, 0x22, 0xfa, 0x86, 0x00])
   const initTable = Array.from({ length: 201 }, () => 0x8600)
@@ -228,10 +279,11 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[33] = 0x8a80
   mainTable[35] = 0x9700
   mainTable[36] = 0x9740
+  if (o.eeries) mainTable[57] = EERIE_HANDLER
   if (o.id31IsGrinder) mainTable[31] = 0x9500
   for (const id of [20, 21, 22, 23, 24, 25]) mainTable[id] = 0x8640
   const words = (t: number[]) => t.flatMap(w => [w & 0xff, w >> 8])
-  put(0x018170 + 11, words(initTable))
+  put(0x018170 + SYNTHETIC_INIT_TABLE_OFFSET, words(initTable))
   put(0x018320 + 9, words(mainTable))
   // $02:8905 GenSpriteFromBlk (item block spawn): the vanilla shapes at its entry and at $028922, then a
   // body of our own: status from a table indexed by the content index $05, sprite number from another,
@@ -243,12 +295,9 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // The dispatcher at $02:88DC: our own routine (not the game's), with the observable behaviour the runner needs.
   // Content 12 goes through FindFreeSprSlot (which here always answers slot 7) and on a slot to the status write
   // at $028922; every other index jumps to $028905. Its fingerprint is SYNTHETIC_DISPATCHER, injected by the tests.
-  if (o.badSpawn !== 'dispatch') put(0x0288dc, [...SYNTHETIC_DISPATCHER_CODE])
+  put(0x0288dc, syntheticSpawnCode(o.badSpawn))
   put(0x02a9e3, [0xea]) // a NOP before the opening: six zero bytes then STZ $0E is itself a window of the game's
   put(0x02a9e4, [0x64, 0x0e, 0x8b, 0x4b, 0xab, 0xa0, 0x07, 0xab, 0x6b]) // FindFreeSprSlot stand-in (its STZ $0E / PHB PHK PLB opening): Y = 7
-  // The free-slot hit branches to a JMP $8922 at $028912 (a displacement of 6, not the game's), so the head shares no 8 bytes with it.
-  put(0x028905, [o.badSpawn === 'head' ? 0xea : 0xa2, 0x0b, 0xbd, 0xc8, 0x14, 0xf0, 0x06, 0xca, 0xe0, 0xff, 0xd0, 0xf6, 0x6b, 0x4c, 0x22, 0x89]) // prettier-ignore
-  put(0x028922, [o.badSpawn === 'status' ? 0xea : 0x8e, 0x61, 0x18, 0xa4, 0x05, 0xb9, 0xc5, 0x88, 0x9d, 0xc8, 0x14, 0xb9, 0xa3, 0x88, 0x95, 0x9e, 0x22, 0xd2, 0xf7, 0x07]) // prettier-ignore
   put(
     0x028936,
     o.spawnLoop
@@ -278,7 +327,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   ] // prettier-ignore
   // Handlers.
   put(0x018600, [0x60])
-  put(0x018610, [0xa9, o.initShift ?? 8, 0x18, 0x75, 0xe4, 0x95, 0xe4, 0x60])
+  put(0x018610, [0xa9, o.initShift ?? 8, 0x18, 0x75, 0xe4, 0x95, 0xe4, ...(o.initFarCull ? [0xfe, 0xe0, 0x14] : []), 0x60]) // prettier-ignore
   // id 1 INIT: X + 8, Y - 1 with the borrow into the high byte.
   put(0x018620, [0xa9, 0x08, 0x18, 0x75, 0xe4, 0x95, 0xe4, 0xb5, 0xd8, 0xd0, 0x03, 0xde, 0xd4, 0x14, 0xd6, 0xd8, 0x60]) // prettier-ignore
   // One 16x16 piece at the sprite position minus the scroll, in OAM entry 4 * slot.
@@ -287,7 +336,12 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
     0x99, 0x01, 0x03, ...tile, ...attr, 0xda, 0x98, 0x4a, 0x4a, 0xaa, 0xa9, 0x01, 0x0a, 0x9d, 0x60, 0x04, 0xfa, 0x60,
   ] // prettier-ignore
   const tileSta = o.noTileWrite ? [0xea, 0xea, 0xea] : [0x99, 0x02, 0x03]
-  put(0x018640, draw([0xa9, 0x24, ...tileSta], [0xa9, 0x0a, 0x99, 0x03, 0x03]))
+  // 16-bit X minus the camera; a high byte other than 0 means off screen, as GetDrawInfo culls.
+  const back = o.mainStepsBack ? [0xb5, 0xe4, 0x38, 0xe9, 0x40, 0x95, 0xe4] : []
+  const cull = o.initFarCull
+    ? [0xb5, 0xe4, 0x38, 0xe5, 0x1a, 0xbd, 0xe0, 0x14, 0xe5, 0x1b, 0xf0, 0x01, 0x60]
+    : []
+  put(0x018640, [...back, ...cull, ...draw([0xa9, 0x24, ...tileSta], [0xa9, 0x0a, 0x99, 0x03, 0x03])]) // prettier-ignore
   // id 2: attribute $4A (X flip) when Mario is left of the sprite, else $0A.
   put(0x018680, draw([0xa9, 0x24, 0x99, 0x02, 0x03], [0xa9, 0x0a, 0x99, 0x03, 0x03, 0xa5, 0xd1, 0xd5, 0xe4, 0xb0, 0x05, 0xa9, 0x4a, 0x99, 0x03, 0x03])) // prettier-ignore
   // id 3: tile = 3 * 5 from the CPU multiplier ($4202/$4203 in, $4216 out).
@@ -415,9 +469,6 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   ]) {
     put(addr, [0xa0, status, 0x98, 0x9d, 0xc8, 0x14, 0x60, 0xea]) // LDY #st / TYA / STA $14C8,X / RTS
   }
-  const cart = RomFile.fromBytes('synthetic.sfc', rom)
-  // The loader pins three spans by fingerprint; this cart's hand-written ones are vouched for unless the
-  // option planted a defect in one.
-  markSyntheticRom(cart, o.badLoader ? [o.badLoader] : [])
-  return cart
+  if (o.eeries) putEeries(put, o.eeries)
+  return RomFile.fromBytes('synthetic.sfc', rom)
 }

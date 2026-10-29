@@ -22,10 +22,12 @@ import { WILD } from '../../../src/rom/BytePattern'
 import { GFX_FGBG_TABLE, GFX_FILE_COUNT } from '../../../src/rom/GfxLoader'
 import { ADDR_BACK_AREA } from '../../../src/rom/PaletteLoader'
 import { fingerprint } from '../../../src/rom/Fingerprint'
+import { SYNTHETIC_AREA_FPS } from './syntheticAreas'
 import { plantStockPaletteCol1 } from '../../../src/rom/PaletteStockTables'
 import type { StockCode, StockSpan } from '../../../src/rom/SubmapFlagGate'
 import type { WorkingRom } from '../../../src/project/WorkingRom'
 import { FULL_WORD_MASK } from '../../../src/rom/PaletteOp'
+import { le16, le24 } from './le'
 import { TABLE_BANK, TABLE_HI, TABLE_LO, plantGfxReadPath } from './syntheticGfxCart'
 
 export const TILE_DATA = 0x0d9000
@@ -38,14 +40,14 @@ export const TITLE_HEADER = 0x078000
 const BG_COLOR_INDEX = 3
 export const BACKDROP_BGR = 0x1234
 
-/** CODE_00AD25 and CODE_04DABA as planted here: NOPs, recognized by these fingerprints. */
+/** CODE_00AD25 and CODE_04DABA as planted here, and the area routines of syntheticAreas: NOPs, recognized by these fingerprints. */
 export const SYNTHETIC_FPS = {
   cgram: [fingerprint(Buffer.alloc(0x81, 0xea))!],
   l2: [fingerprint(Buffer.alloc(0x35, 0xea))!],
+  areas: SYNTHETIC_AREA_FPS,
 }
 
-export const le16 = (v: number): number[] => [v & 0xff, (v >> 8) & 0xff]
-export const le24 = (v: number): number[] => [...le16(v), (v >> 16) & 0xff]
+export { le16, le24 }
 export const hex4 = (w: number): string => `$${w.toString(16).padStart(4, '0')}`
 
 /** Appends a working-copy layer setting the word at `at` to `next(old)`. */

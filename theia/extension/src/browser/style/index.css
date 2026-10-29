@@ -73,6 +73,15 @@
   min-width: 0;
 }
 
+/* The project's own name for a map: the user wrote it, so it reads brighter than the ROM's. */
+.hb-map-alias {
+  margin-left: 0.6em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 /* A back edge, or a subtree left unexpanded: shown rather than dropped. */
 .hb-map-note {
   margin-left: 0.5em;
@@ -350,6 +359,8 @@
      axis cannot make it appear and change the fit again. */
   overflow-x: scroll;
   overflow-y: auto;
+  /* A sprites reply can grow the pad before the view; keepViewOnPadChange restores the view itself. */
+  overflow-anchor: none;
 }
 
 .hb-map-view-scroller.hb-vertical {
@@ -358,7 +369,8 @@
   overflow-y: scroll;
 }
 
-/* Exactly the map's extent, so the layers stop where the map does. */
+/* The map's extent plus the canvas pad around it (#1004), set inline as padding. The screens are flex
+   children, so the padding keeps them where the map is; overlays are positioned from the strip's corner. */
 .hb-map-view-strip {
   position: relative;
   flex: none;
@@ -391,6 +403,23 @@
 
 .hb-map-refused [data-control='refused-cell'] {
   pointer-events: all;
+}
+
+.hb-map-view-offmap {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 120;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
+/* The map's edge, drawn on every map once its layout is known (#1004). */
+.hb-map-view-edge {
+  position: absolute;
+  z-index: 160;
+  pointer-events: none;
+  outline: 1px solid color-mix(in srgb, var(--theia-foreground, #cccccc) 35%, transparent);
 }
 
 .hb-map-refused rect {
@@ -541,4 +570,34 @@
   margin-right: 8px;
   color: var(--theia-editorWarning-foreground);
   font-size: var(--theia-ui-font-size0);
+}
+
+/*
+ * Empty state that replaces a filtered explorer tree with no matches (#336).
+ * Core's search box is absolutely placed at the top right of the same panel, so
+ * the margin keeps the words below it (the box is ~30px tall).
+ */
+.hb-explorer-no-match {
+  margin-top: 40px;
+  padding: 8px 12px;
+  color: var(--theia-descriptionForeground, #8b8b8b);
+}
+
+/*
+ * The explorer search box's text field (#336 T4). Core styles the old span as
+ * non-selectable text; a field needs a caret, a minimum width and the editor's
+ * input colours, or it is a zero-width strip beside the buttons.
+ */
+.theia-search-box-widget .theia-search-input.hb-explorer-search-input {
+  user-select: text;
+  min-width: 160px;
+  border: none;
+  outline: none;
+  color: var(--theia-input-foreground, #cccccc);
+  font: inherit;
+}
+
+.theia-search-box-widget .theia-search-input.hb-explorer-search-input:focus {
+  outline: 1px solid var(--theia-focusBorder, #007fd4);
+  outline-offset: -1px;
 }

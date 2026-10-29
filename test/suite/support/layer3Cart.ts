@@ -7,8 +7,8 @@ import { long, OP, word } from './asm65'
 import { BUFFER_FIRST, BUFFER_LAST, LAYER3_CELL, putLayer3, TILESET_CELL } from './syntheticLayer3'
 import { buildSyntheticRom } from './syntheticSpriteRom'
 
-/** The synthetic pointer loader's LDA #irqCommand, at offset 18 (before its STA $0D9B, PLB, RTL). */
-export const POINTER_TAIL = 0x05d8c9
+/** The synthetic pointer loader's LDA #irqCommand, at offset 15 (before its STA $0D9B, PLB, RTL). */
+export const POINTER_TAIL = 0x05d8c6
 
 export function layer3Cart(ts: number, l3: number, irq = 0) {
   const rom = buildSyntheticRom()

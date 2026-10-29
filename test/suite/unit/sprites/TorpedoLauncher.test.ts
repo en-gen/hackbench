@@ -16,7 +16,7 @@ import { spanFingerprint } from '../../../../src/rom/SubmapFlagGate'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { parseLevelSprites, type LevelSprite } from '../../../../src/rom/LevelParser'
 import { bytesAt } from '../../../../src/rom/sprites/interp/Guards'
-import { levelSeed, markSyntheticRom } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import type { SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
@@ -32,7 +32,7 @@ import {
 import * as TorpedoModule from '../../../../src/rom/sprites/interp/TorpedoLauncher'
 import { drawSprites, interpDrawer } from '../../../../theia/extension/src/node/map-sprites'
 import { freshRom, hasRom, romPath, VANILLA } from '../../support/corpus'
-import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
+import { buildSyntheticRom, SYNTHETIC_EXECUTE_PTR_CODE } from '../../support/syntheticSpriteRom'
 
 const LEVEL = 0x105
 const off = (snes: number) => (snes >>> 16) * 0x8000 + ((snes & 0xffff) - 0x8000)
@@ -122,7 +122,6 @@ function launcherRom(tweak: (bytes: Uint8Array) => void = () => {}, launch = lau
   }
   tweak(bytes)
   const rom = RomFile.fromBytes('launcher.sfc', bytes)
-  markSyntheticRom(rom) // a copy of the synthetic cart: vouch for its hand-written loader spans again
   return rom
 }
 
@@ -309,12 +308,13 @@ describe('Torpedo Ted launcher from the routines (synthetic cart)', () => {
     expect(!r.ok && r.reason).toMatch(/^MAIN: /)
   })
 
-  // The dispatch bytes the run follows are not the whole check: an ExecutePtr copy that behaves the same but is not the
-  // vanilla shape runs, and is reported (the call-target line in torpedoLauncher).
+  // The dispatch bytes the run follows are not the whole check: an ExecutePtr copy that behaves the same on the indexes
+  // the launcher uses but not on all 256 (it masks the index to 7 bits) runs, and is reported (the call-target line in torpedoLauncher).
   it('a dispatch call to a differently shaped ExecutePtr runs, unverified, naming the call target', () => {
     const copy = 0x008800
     const dirty = launcherRom(b => {
-      b.set([0xea, ...b.subarray(off(0x0086fa), off(0x0086fa) + 27)], off(copy)) // NOP + ExecutePtr
+      b.set(b.subarray(off(0x0086fa), off(0x0086fa) + SYNTHETIC_EXECUTE_PTR_CODE.length), off(copy))
+      b[off(copy) + 8] = 0x7f // AND #$00FF -> AND #$007F
       b.set([copy & 0xff, (copy >> 8) & 0xff, 0x00], off(DISPATCH_AT + 2))
     })
     const r = ok(dirty, routinesOf(launcherRom()))

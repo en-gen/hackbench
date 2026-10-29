@@ -21,7 +21,7 @@ import {
   readL2Pointer,
   tilePresetGrid,
 } from '../L2Loader'
-import { chooseEntrance, readInitialLayer1YPos } from '../L3Loader'
+import { chooseEntranceNoted, readInitialLayer1YPos } from '../L3Loader'
 import { isLevelModeVerticalL2, SCREEN_H_VERT, SCREEN_W_VERT } from '../LevelParser'
 import { readL2UploaderTable } from '../L2UploaderTable'
 import { loadMap16Tiles, readL2Map16Table, type Map16Tile } from '../Map16'
@@ -71,18 +71,41 @@ const pathWords = (p: EntryPath): string => (p.kind === 'secondary' ? `through s
  * ScreenMode vertical (:7292-7299, 7379-7381), from `_1 & $1F`, `_1` being F600 or the entrance's
  * FC00 (:7147-7148, 7336-7337, 7376-7388); L2's only when VertLayer2Setting != 3 (:7390-7393).
  * The midway restart jumps past both high-byte writes, which stay 0 (:7287-7288, 7362-7373).
+ * Null when a table byte lies past the end of the ROM: an unreadable byte is not a 0 (#911).
  */
-function entryDy(rom: RomFile, index: number, path: EntryPath): number {
-  const byte = (addr: number) => rom.readByte(addr) ?? 0
+function entryDy(rom: RomFile, index: number, path: EntryPath): number | null {
+  let cut = false
+  const byte = (addr: number) => rom.readByte(addr) ?? ((cut = true), 0)
   const sec = path.kind === 'secondary'
   const lows = byte(sec ? 0x05fa00 + path.id : 0x05f400 + index)
   const l1 = byte(0x05d708 + ((lows >> (sec ? 4 : 2)) & 3))
   const l2 = byte(0x05d70c + ((lows >> (sec ? 6 : 0)) & 3))
   const vertical = (byte(0x05f600 + index) & 0x20) !== 0
-  if (!vertical || path.kind === 'midway') return l1 - l2
+  if (!vertical || path.kind === 'midway') return cut ? null : l1 - l2
   const high = (sec ? byte(0x05fc00 + path.id) : byte(0x05f600 + index)) & 0x1f
   const l2High = byte(0x05d710 + (byte(0x05f000 + index) >> 4)) === 3 ? 0 : high // :7268-7277
-  return ((high << 8) | l1) - ((l2High << 8) | l2)
+  return cut ? null : ((high << 8) | l1) - ((l2High << 8) | l2)
+}
+
+const TABLES_CUT = 'The ROM ends before the entrance tables that place it' // prettier-ignore
+
+/**
+ * Whether every table byte the no-entrance fallback (`readInitialLayer1/2YPos`) reads is in the
+ * ROM. Those shared readers take an unreadable byte as 0 (they feed the L3 camera too), so the
+ * check lives here: on a ROM cut short the exit graph is unavailable (it needs DATA_05F800), which
+ * is exactly when this fallback runs (#911).
+ */
+export function fallbackReadable(rom: RomFile, index: number): boolean {
+  const lows = rom.readByte(0x05f400 + index)
+  const screen = rom.readByte(0x05f600 + index)
+  if (lows === null || screen === null) return false
+  const rows = [0x05d708 + ((lows >> 2) & 3), 0x05d70c + (lows & 3)]
+  if ((screen & 0x20) !== 0) {
+    const setting = rom.readByte(0x05f000 + index)
+    if (setting === null) return false
+    rows.push(0x05d710 + (setting >> 4))
+  }
+  return rows.every(a => rom.readByte(a) !== null)
 }
 
 /**
@@ -93,31 +116,35 @@ function dyFromEntrances(
   rom: RomFile,
   index: number,
   via?: MapEntrances,
-): { dy: number; note?: string } | null {
+): { dy: number; note?: string } | { cut: true } | null {
   if (!via) return null
   // A midway restart needs MidwayFlag, which the tape (Map16 $038) sets only while DisableMidway,
   // F400[map] >> 4 at the overworld entry, is nonzero (bank_00.asm:13042-13050; bank_05.asm:7349-7357).
-  const midway = (rom.readByte(0x05f400 + index) ?? 0) >> 4 !== 0
+  const disableMidway = via.overworld ? rom.readByte(0x05f400 + index) : 0
+  if (disableMidway === null) return { cut: true }
+  const midway = disableMidway >> 4 !== 0
   const paths: EntryPath[] = [
     ...(via.overworld ? [{ kind: 'overworld' as const }] : []),
     ...(via.primary ? [{ kind: 'exit' as const }] : []),
     ...(via.overworld && midway ? [{ kind: 'midway' as const }] : []),
     ...via.secondary.map(id => ({ kind: 'secondary' as const, id })),
   ]
-  if (paths.length === 0) return null
+  // A map the walk never reached has no path of its own: draw the primary and say so (#945).
+  if (paths.length === 0) paths.push({ kind: 'exit' })
   // The drawn path is the one L3Model's camera uses, from the same chooser (#861): null is the
   // primary entry (the first primary path), else the secondary id it names. Never an ordering of
   // our own, so the two views cannot drift apart on a non-ascending entrance list.
-  const chosen = chooseEntrance(via)
+  // The no-route note is the map's (MapInputs.routeNote), not the height's: two facts, two notes (#945).
+  const { entrance: chosen } = chooseEntranceNoted(via)
   const at = chosen === null ? 0 : paths.findIndex(p => p.kind === 'secondary' && p.id === chosen)
   const ordered = [paths[at]!, ...paths.filter((_, i) => i !== at)]
   const dys = ordered.map(p => entryDy(rom, index, p))
+  // Any path cut short refuses the lot: the note compares the paths, and a made-up height on one
+  // would be a false difference (or a false agreement).
+  if (dys.some(d => d === null)) return { cut: true }
   const differ = ordered.filter((_, i) => dys[i] !== dys[0]).map(pathWords)
-  if (differ.length === 0) return { dy: dys[0]! }
-  return {
-    dy: dys[0]!,
-    note: `drawn as entered ${pathWords(ordered[0]!)}; entered ${differ.join(', ')} it starts at a different height.`, // prettier-ignore
-  }
+  const differNote = differ.length === 0 ? undefined : `drawn as entered ${pathWords(ordered[0]!)}; entered ${differ.join(', ')} it starts at a different height.` // prettier-ignore
+  return differNote ? { dy: dys[0]!, note: differNote } : { dy: dys[0]! }
 }
 
 /**
@@ -144,13 +171,16 @@ export function buildL2Inputs(
   // (so none is chosen), the primary entrance's F400/F600.
   const entryVertical = ((rom.rom.readByte(0x05f600 + index) ?? 0) & 0x20) !== 0
   const known = dyFromEntrances(rom.rom, index, entrances)
+  if (known && 'cut' in known) return refuse(TABLES_CUT)
+  if (!known && !fallbackReadable(rom.rom, index)) return refuse(TABLES_CUT)
   const dy = (): number => known?.dy ?? readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore
   // The tables are the game's only while the code reading them is stock (LEVEL_START_Y): if not,
   // the best reading still draws, said to be unverified.
   const gate = startGate(rom.rom)
-  const why = [gate, known?.note && gate ? `D${known.note.slice(1)}` : known?.note].filter(
-    (r): r is string => !!r,
-  )
+  const why = [
+    gate,
+    known?.note && gate ? `${known.note[0]!.toUpperCase()}${known.note.slice(1)}` : known?.note,
+  ].filter((r): r is string => !!r)
   const note = why.length ? `Background height unverified: ${why.join(' ')}` : undefined
   const preset = isPresetPtr(ptr)
   // Order (D51 B, #506): develop's #637 gate owns the object-stream path in the ten skipped modes,

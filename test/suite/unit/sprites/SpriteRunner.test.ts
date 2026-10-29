@@ -3,7 +3,11 @@
  * checks gated on the corpus. Every defect the oracle claims to catch is
  * planted here and shown to change the verdict.
  */
-import { levelSeed, loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
+import {
+  levelSeed,
+  loaderShapeProblem,
+  loadLevelState,
+} from '../../../../src/rom/sprites/interp/LevelLoader'
 import { readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { runOnce, runSprite, TOTAL_STEP_CAP } from '../../../../src/rom/sprites/interp/SpriteRunner'
@@ -51,7 +55,7 @@ describe('sprite loop reader', () => {
 describe('dispatch reader', () => {
   it('reads both table bases from the dispatch code', () => {
     const t = resolveTables(rom)
-    expect(t).toEqual({ ok: true, tables: { initTable: 0x01817b, mainTable: 0x018329 } })
+    expect(t).toEqual({ ok: true, tables: { initTable: 0x01817c, mainTable: 0x018329 } })
   })
   it('refuses a HandleSprite that is not the known shape', () => {
     const t = resolveTables(buildSyntheticRom({ badDispatch: true }))
@@ -59,7 +63,7 @@ describe('dispatch reader', () => {
   })
   it('refuses dispatch calls that do not reach one 16-bit ExecutePtr', () => {
     const t = resolveTables(buildSyntheticRom({ badExecutePtr: true }))
-    expect(t).toMatchObject({ ok: false, reason: expect.stringMatching(/same routine/) })
+    expect(t).toMatchObject({ ok: false, reason: expect.stringMatching(/CallSpriteInit is not/) })
     // Agreeing calls into a routine of another shape (here, a RTS) are refused too.
     const rts = buildSyntheticRom()
     rts.writeAt(0x0086fa, [0x60])
@@ -531,7 +535,7 @@ describe.skipIf(!hasRom(VANILLA))('ROM level loader (vanilla)', () => {
     rom.writeAt(0x05d83b, [0x4c, 0x00, 0x80])
     expect(loadLevelState(rom, 0x105)).toMatchObject({
       ok: false,
-      reason: expect.stringMatching(/jump into the pointer loader/),
+      reason: expect.stringMatching(/pointer loader/),
     })
   })
   it('a planted header-decode defect changes the loaded state (the loader can go red)', () => {
@@ -671,22 +675,24 @@ describe('level loader on a synthetic cart', () => {
     expect(l.wram[0x1692]).toBe(7) // CODE_05D8B7 stand-in
     expect(l.wram[0x71]).toBe(6) // CODE_00A635 stand-in: skipping it leaves 0
     expect(l.wram[0xc800]).toBe(0x25) // CODE_05801E stand-in
-    expect(l.wram[0x0e]).toBe(0x05)
-    expect(l.wram[0x0f]).toBe(0x01)
+    // The level number lands in the cell the pointer stub reads (LDA $10 here, read from the ROM's own operand, not $0E).
+    expect(l.wram[0x10]).toBe(0x05)
+    expect(l.wram[0x11]).toBe(0x01)
+    expect(l.wram[0x0e]).toBe(0)
     // The GM11 spans (bank_00.asm:2645-2656), run from the cart's bytes; each cell needs the
     // step before it: $1462 and $1E hold the pointer stub's $1A only if the copy ran after it,
     // and $20 holds $71 only if the entrance setup ran before the screen setup.
     expect(l.wram[0x1462]).toBe(7)
     expect(l.wram[0x1e]).toBe(7)
     expect(l.wram[0x20]).toBe(6)
-    expect(l.wram[0x5e]).toBe(0x77) // the data stub's, written after GM11's STA $5E (so the data loader ran last)
-    expect(l.wram[0x1404]).toBe(1)
+    expect(l.wram[0x62]).toBe(0x77) // the data stub's, written after the screen setup stub's $21 to the same cell (so the data loader ran last)
+    expect(l.wram[0x1405]).toBe(1) // the screen setup stub's INC
   })
 
   it('refuses each differing entry with its name', () => {
     expect(run({ badLoader: 'lead' })).toMatchObject({
       ok: false,
-      reason: expect.stringMatching(/CODE_05D796 prologue/),
+      reason: expect.stringMatching(/header loader/),
     })
     expect(run({ badLoader: 'jump' })).toMatchObject({
       ok: false,
@@ -708,35 +714,20 @@ describe('level loader on a synthetic cart', () => {
       ok: false,
       reason: expect.stringMatching(/data loader/),
     })
-    expect(run({ badLoader: 'scroll' })).toMatchObject({
-      ok: false,
-      reason: expect.stringMatching(/Layer 2 scroll setup/),
-    })
-    expect(run({ badLoader: 'update' })).toMatchObject({
-      ok: false,
-      reason: expect.stringMatching(/UpdateScreenPosition/),
-    })
-    // The LAST byte of each new shape: a shape cut short of it (8 bytes for the update) would not see these.
-    expect(run({ badLoader: 'scrollTail' })).toMatchObject({
-      ok: false,
-      reason: expect.stringMatching(/Layer 2 scroll setup/),
-    })
-    expect(run({ badLoader: 'updateTail' })).toMatchObject({
-      ok: false,
-      reason: expect.stringMatching(/UpdateScreenPosition/),
-    })
-    // The LDA operand is exact ($142A), not a wildcard.
-    expect(run({ badLoader: 'updateOperand' })).toMatchObject({
-      ok: false,
-      reason: expect.stringMatching(/UpdateScreenPosition/),
-    })
+    // CODE_00A796 and UpdateScreenPosition are not compared: the screen setup runs their bytes, so a changed
+    // one is never refused as "not the vanilla shape" (it either runs or is refused while running).
+    for (const k of ['scroll', 'update', 'scrollTail', 'updateTail', 'updateOperand'] as const) {
+      const r = run({ badLoader: k })
+      expect(loaderShapeProblem(buildSyntheticRom({ badLoader: k })), k).toBeNull()
+      expect(r.ok ? 'ran' : r.reason, k).not.toMatch(/not the vanilla shape/)
+    }
   })
 
   it('a JML inside UpdateScreenPosition (a hack hook at $00:F6E4) runs and leaves the same state', () => {
     const base = run()
     const hooked = run({ updateHook: 'jml' })
     if (!base.ok || !hooked.ok) throw new Error('refused')
-    for (const c of [0x1462, 0x1463, 0x1469, 0x1e, 0x20, 0x5e, 0x1404, 0x142c, 0x142d])
+    for (const c of [0x1462, 0x1463, 0x1469, 0x1e, 0x20, 0x62, 0x1405, 0x142c, 0x142d])
       expect(hooked.wram[c], `cell ${c.toString(16)}`).toBe(base.wram[c])
     expect(hooked.wram[0x1e]).toBe(7)
     expect(hooked.wram[0x20]).toBe(6)

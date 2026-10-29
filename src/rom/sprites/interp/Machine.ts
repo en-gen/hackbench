@@ -3,22 +3,21 @@
  * over a SpriteBus with the guard installed, a guard bound to one ROM, and a
  * write recorder. The call loop itself is src/rom/cpu/call.ts.
  */
+import { formatAddr } from '../../addressing'
 import { Cpu65816 } from '../../cpu/Cpu65816'
 import { Refusal } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
 import { mapperProblem, refusedOp } from './Guards'
 import { romOffset, SpriteBus } from './SpriteBus'
 
-const hex = (n: number): string => n.toString(16).toUpperCase().padStart(6, '0')
-
 /** Bus `onInstruction` hook for one ROM: refuses BRK/COP/WDM/WAI/STP and any fetch the bus does not read from cart ROM (WRAM, registers, low halves, SRAM). */
 export function romGuard(rom: RomFile): (addr: number, op: number) => void {
   const size = rom.romSize
   return (addr, op) => {
     if (romOffset(addr, size) === null)
-      throw new Refusal(`execution left ROM code at $${hex(addr)}`)
+      throw new Refusal(`execution left ROM code at ${formatAddr(addr)}`)
     const bad = refusedOp(op)
-    if (bad) throw new Refusal(`${bad} executed at $${hex(addr)}`)
+    if (bad) throw new Refusal(`${bad} executed at ${formatAddr(addr)}`)
   }
 }
 
@@ -30,6 +29,50 @@ export function smwMachine(rom: RomFile, wram?: Uint8Array): { bus: SpriteBus; c
   bus.onInstruction = romGuard(rom)
   if (wram) bus.wram.set(wram.subarray(0, bus.wram.length))
   return { bus, cpu: new Cpu65816(bus) }
+}
+
+/**
+ * Remembers the verdict of a sweep for one key, together with every ROM byte the sweep read, and answers again for
+ * ANY ROM whose size and those bytes are the same (a run depends on nothing else, and the working copy hands out a
+ * new `RomFile` per call, so identity is no key). A sweep takes hundreds of runs and a map asks for it once per
+ * sprite, so without this the same answer is recomputed per sprite. At most `KEEP` distinct ROMs per key.
+ */
+export class RunCache<T> {
+  private static readonly KEEP = 8
+  private entries = new Map<string, { size: number; idx: number[]; vals: number[]; result: T }[]>()
+
+  /** Starts recording the ROM bytes `bus` reads; call before the first run of the sweep. */
+  track(bus: SpriteBus, rom: RomFile): void {
+    bus.romSeen = new Uint8Array(rom.buffer.length)
+    bus.romList = []
+  }
+
+  lookup(rom: RomFile, key: string): T | undefined {
+    const hit = this.entries
+      .get(key)
+      ?.find(
+        e => e.size === rom.buffer.length && e.idx.every((i, k) => rom.buffer[i] === e.vals[k]),
+      )
+    return hit?.result
+  }
+
+  store(rom: RomFile, key: string, bus: SpriteBus, result: T): T {
+    const idx = [...bus.romList]
+    const list = this.entries.get(key) ?? []
+    list.push({ size: rom.buffer.length, idx, vals: idx.map(i => rom.buffer[i]!), result })
+    if (list.length > RunCache.KEEP) list.shift()
+    this.entries.set(key, list)
+    return result
+  }
+}
+
+/** Counts SRAM stores on `bus` (any value, including one equal to what was there); reset `writes` between runs. */
+export function watchSram(bus: SpriteBus): { writes: number } {
+  const w = { writes: 0 }
+  bus.onSramWrite = () => {
+    w.writes++
+  }
+  return w
 }
 
 /**

@@ -12,11 +12,9 @@ import { loaderShapeProblem, loadLevelState } from '../../../../src/rom/sprites/
 import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { CAPTURE_DIR, freshRom, hasCaptures, hasRom, VANILLA } from '../../support/corpus'
-import { RomFile } from '../../../../src/rom/RomFile'
 import { OP, word } from '../../support/asm65'
 import { POINTER_TAIL } from '../../support/layer3Cart'
 import { putLayer3 } from '../../support/syntheticLayer3'
-import { cartBytes } from '../../support/cartBytes'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
 // A capture's first-frame WRAM (frame_0000_wram.bin), the hardware side of the comparisons below.
@@ -193,46 +191,39 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
   },
 )
 
-// The fingerprinted spans of the loader: every unmasked byte is in the hash (a change is refused by name) and
-// every masked byte is not (a change is accepted). The masks are spelled here on purpose: an empty mask, or one
-// that covers too much, fails one half. Synthetic, then the same sweep on the vanilla ROM.
-const SPAN_SWEEP = [
-  { name: /^pointer loader at \$05:D8B7/, at: 0x05d8b7, length: 9, masked: [] as number[] },
-  { name: /^level data loader at \$05:801E/, at: 0x05801e, length: 12, masked: [] as number[] },
-  {
-    name: /^Layer 3 reset at \$05:BE8A/,
-    at: 0x05be8a,
-    length: 28,
-    masked: [6, 7, 9, 10, 12, 13, 15, 16, 18, 19],
-  },
-  {
-    name: /^GM12PrepLevel call site/,
-    at: 0x00a5af,
-    length: 23,
-    masked: [11, 12, 14, 15, 17, 18, 19],
-  },
-]
-const sweep = (make: () => ReturnType<typeof buildSyntheticRom>) => {
-  for (const span of SPAN_SWEEP)
-    for (let i = 0; i < span.length; i++) {
-      const rom = make()
-      rom.writeAt(span.at + i, [rom.readAt(span.at + i, 1)[0] ^ 0x55])
-      const problem = loaderShapeProblem(rom)
-      if (span.masked.includes(i)) expect(problem, `${span.at.toString(16)}+${i}`).toBeNull()
-      else expect(problem, `${span.at.toString(16)}+${i}`).toMatch(span.name)
-    }
-}
-describe('fingerprinted spans: unmasked offsets are refused, masked ones are not', () => {
-  it('on the synthetic cart', () => sweep(() => buildSyntheticRom()))
-  it('the unchanged synthetic cart is accepted, and only the instance that was vouched for', () => {
-    expect(loaderShapeProblem(buildSyntheticRom())).toBeNull()
-    const src = buildSyntheticRom()
-    const bytes = Uint8Array.from(cartBytes(src))
-    const copy = RomFile.fromBytes('copy.sfc', bytes)
-    expect(loaderShapeProblem(copy)).toMatch(/is not the vanilla shape/)
+// The Layer 3 sites are single instructions (loaderSites), swept like the others in levelLoaderFingerprint.test.ts;
+// these name the ones the bit 7 mirror depends on. No corpus needed.
+describe('GM12PrepLevel call site: each instruction the loader mirrors is checked', () => {
+  it.each([
+    ['the BPL opcode at $00:A5B2 (skip polarity)', 0x00a5b2, 0x30],
+    ['the BPL distance at $00:A5B3 (it must land on the JSR)', 0x00a5b3, 0x06],
+    ['the LDA operand at $00:A5B0 (IRQNMICommand)', 0x00a5b0, 0x9c],
+    ['the JSL opcode at $00:A5BF', 0x00a5bf, 0x20],
+    ['the JSR opcode at $00:A5C3', 0x00a5c3, 0x22],
+    ['the JSR target low byte at $00:A5C4 (the handler)', 0x00a5c4, 0xb9],
+    ['the JSR target high byte at $00:A5C5 (the handler)', 0x00a5c5, 0x9e],
+  ])('refuses %s changed, by name', (_n, at, v) => {
+    const rom = buildSyntheticRom()
+    expect(loaderShapeProblem(rom)).toBeNull()
+    rom.writeAt(at, [v])
+    expect(loaderShapeProblem(rom)).toBe(
+      'GM12PrepLevel call site of the Layer 3 handler at $00:A5AF is not the vanilla shape; the loader will not run it',
+    )
+    expect(loadLevelState(rom, 0x105)).toMatchObject({ ok: false })
+  })
+  it.each(['gm12Bpl', 'gm12Jsr'] as const)('the %s cart option is refused by name', k => {
+    const l = loadLevelState(buildSyntheticRom({ badLoader: k }), 0x105)
+    expect(l).toMatchObject({ ok: false, reason: expect.stringMatching(/GM12PrepLevel call site/) })
+  })
+  it('the reset call target is not compared (hacked ROMs hook it), the reset opcode is checked by name', () => {
+    const rom = buildSyntheticRom()
+    rom.writeAt(0x00a5c2, [0x0e])
+    expect(loaderShapeProblem(rom)).toBeNull()
+    const bare = buildSyntheticRom()
+    bare.writeAt(0x05be8a, [0xea])
+    expect(loaderShapeProblem(bare)).toMatch(/^Layer 3 reset at \$05:BE8A/)
   })
 })
-describe.skipIf(!hasRom(VANILLA))('fingerprinted spans on the vanilla ROM', () => {
+describe.skipIf(!hasRom(VANILLA))('Layer 3 sites on the vanilla ROM', () => {
   it('the unchanged ROM is accepted', () => expect(loaderShapeProblem(freshRom())).toBeNull())
-  it('every unmasked offset is refused, every masked one accepted', () => sweep(() => freshRom()))
 })

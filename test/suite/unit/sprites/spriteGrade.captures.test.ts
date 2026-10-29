@@ -29,8 +29,12 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { unzip } from '../../../../tools/scripts/capture_render'
 import type { RomFile } from '../../../../src/rom/RomFile'
 import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
-import { loadLevelState } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { loadLevelState, NO_CLUSTER_SPRITES } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
+import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
+import type { LevelSprite } from '../../../../src/rom/LevelParser'
+import { levelSpriteList } from '../../support/levelSpriteList'
+import { SmwRom } from '../../../../src/rom/SmwRom'
 import {
   CAPTURE_DIR,
   freshRom,
@@ -56,9 +60,9 @@ import {
 } from '../../support/spriteGrade'
 
 interface Rec {
+  listIndex?: number
   id: string
   slot: number
-  listIndex?: number
   listX: number
   listY: number
   cameraX: number
@@ -153,6 +157,9 @@ function gradeAll(
   const rows: Row[] = []
   const inputs = new Map<number, { reads: number; nonzero: number }>()
   const loadedByMap = new Map<string, Uint8Array | undefined>()
+  // Each map's own sprite list, for the neighbor run of a sprite that scans the slot tables (#841).
+  const listByMap = new Map<string, LevelSprite[]>()
+  const smw = new SmwRom(rom)
   let fallbacks = 0
   let missAtK = 0
   for (const { map, rec, wram, anchorFrame, marioStart, listed } of all) {
@@ -174,11 +181,27 @@ function gradeAll(
     }
     // Hardware timeline: INIT sees marioAtInit, MAIN sees marioStart, and the graded pass is the
     // one the capture's drawn frame falls on. Without the fields, the old first-drawing-pass rule.
+    if (!listByMap.has(map)) {
+      const lv = parseInt(map, 16)
+      const ptr = smw.getLevelSpritePointer(lv)
+      const data = ptr === null ? null : rom.readUpTo(ptr, 4096)
+      const raw = smw.getLevelRawData(lv)
+      // A vertical map's stream swaps X and Y (#1018); the helper decides it as MapBuilder does.
+      // A capture map without level data is a broken corpus, not an empty list: fail by name.
+      if (!data || !raw) throw new Error(`map ${map}: no sprite or level data for the sprite list`)
+      listByMap.set(map, levelSpriteList(data, raw, smw.requireVerticalTable()))
+    }
+    const list = listByMap.get(map)!
+    const me = list.find(e => e.index === rec.listIndex)
+    const neighbours = me ? neighboursOf(list, me, e => ({ x: e.x * 16, y: e.y * 16 })) : []
     const k = gradedPass(rec.initFrame, anchorFrame, rec.drawnFrame)
     const timed = k !== undefined && marioStart !== undefined
     if (!timed) fallbacks++
     const seed = withSeed({
       loaded,
+      // The ROM-run level's cluster sprites (map $101's castle flames) would draw into the OAM read as the
+      // tested sprite's; levelSeed clears them (#809), so the grader does too. The oracle image keeps the capture's.
+      ...(mode === 'rom' ? { ram: NO_CLUSTER_SPRITES } : {}),
       slot: rec.slot,
       mainPasses: Math.max(opts.passes ?? 64, timed ? k + 1 : 0),
       // Pass p runs at seed + 1 + p only when INIT takes one frame, so pass k lands on the frame
@@ -195,6 +218,7 @@ function gradeAll(
       sprite: { x: rec.listX, y: rec.listY },
       camera: { x: rec.cameraX, y: rec.cameraY },
       mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
+      ...(neighbours.length ? { neighbours } : {}),
     })
     const probe = timed
       ? (p: number, w: Uint8Array): void => {
@@ -246,23 +270,25 @@ function gradeAll(
   return { rows, by, inputs, fallbacks, missAtK }
 }
 
-/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised after #837 (stationary shells): measured 2026-10-16, one machine: exact 1033, exact+shape 1836, wrong 90, empty 13. */
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised for #841 (neighbor run): measured with the merge head against develop 6d23b7b0, one machine: exact 1058, exact+shape 1877, wrong 48, close 18, empty 14 (develop: 1053, 1863, 62, 18, 14); only the 14 $9C rows changed. */
 const FLOOR = {
   graded: 1957,
-  // 1865 measured after merging #837 (1830 on the #842 head alone), shape 0 (#842: offsets from the draw-time position). Shape is not floored: with
-  // shape at 0, exact + shape could never fire below the exact floor.
-  exact: 1850,
+  // Measured on the merge of develop a9de2145 and #842 (offsets from the draw-time position, Layer 3 handler run),
+  // one machine, 2026-10-28: exact 1906, shape 0, close 17, wrong 33, empty 1 (the #842 head alone, before
+  // the merge: 1865, 0, 17, 75, 0). Shape is not floored: with shape at 0, exact + shape could never fire below the
+  // exact floor.
+  exact: 1890,
   maxRefused: 0,
   maxShape: 5, // 0 measured
   maxClose: 20, // 17 measured
-  maxEmpty: 5, // 0 measured
-  maxWrong: 90, // 75 measured (110 before #837)
-  maxMissAtK: 6, // 3 measured
+  maxEmpty: 5, // 1 measured
+  maxWrong: 45, // 33 measured
+  maxMissAtK: 10, // 7 measured
   // 38 measured (spawned records without initFrame); all-timed would read 0.
   minFallbacks: 30,
-  // 3 measured after #842 (25 before: the 22 initFrames > 1 records missed until the loader ran the
-  // Layer 3 handler); a runner that stops counting misses (or stops grading at k) drops below.
-  minMissAtK: 2,
+  // 7 measured on the merge (3 on the #842 head alone, 25 before it: the 22 initFrames > 1 records missed until the
+  // loader ran the Layer 3 handler); a runner that stops counting misses (or stops grading at k) drops below.
+  minMissAtK: 3,
 }
 
 describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-load captures', () => {
@@ -331,6 +357,25 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     },
     120_000,
   )
+
+  // #1035: a stationary shell is placed as list id $DA-$DD but recorded as $04-$07 (the loader rebases it,
+  // bank_02.asm:5456-5462). Graded under the record id it is a walking Koopa and grades wrong; under the
+  // list id (runnerId) it is exact. Measured 2026-10-17, one machine, vanilla captures: 35 such records,
+  // 8 on map 12d, all wrong under the record id and all exact under the list id. Entry 10 on 12d has later
+  // kicked frames, but its drawn frame is the still shell and the grader accepts any recorded frame.
+  // Other list ids that differ from the record ($E0 -> $A3, $DE -> $39, 14 records) are not shells and keep
+  // the record id: the runner has no loader rule for them, so the list id would only refuse.
+  it('every record whose list id differs through the shell rule grades exact (35, 8 on map 12d)', () => {
+    const rom = freshRom()
+    const shells = all.filter(a => {
+      const id = parseInt(a.rec.id.slice(1), 16)
+      return runnerId(rom, id, a.rec.listIndex, a.listed) !== id
+    })
+    expect(shells).toHaveLength(35)
+    expect(shells.filter(a => a.map === '12d').map(a => a.rec.listIndex)).toEqual([0, 4, 8, 10, 13, 17, 22, 29]) // prettier-ignore
+    const { rows } = gradeAll(rom, shells)
+    expect(rows.map(r => r.verdict)).toEqual(shells.map(() => 'exact'))
+  }, 120_000)
 
   // A miss at k: the model draws nothing on the hardware's pass, which grades wrong. Without
   // `m.chosen = k` the grader falls back to the first drawing pass and the detail changes.

@@ -3,22 +3,28 @@
  * path-transition and warp record (en-gen/hackbench#364). A record is live when its
  * source area is inside the camera table (a $FF-filled slot is not); its destination
  * is then listed, marked invalid when the camera table cannot place it. Each routine
- * read is opcode-gated and so is the caller that makes it run; a failed gate
- * refuses with its address and nothing falls back to vanilla.
+ * read is fingerprint-gated (SHA-256, operands masked, at least 24 unknown bytes each). A routine
+ * is also not trusted for being stock alone: it must be reached by a call of the shape its
+ * callers have (a compare and branch before each warp-scan JSR, a branch before the path JSR,
+ * a branch over the destination JSL in the camera routine's bank), the target read from the
+ * call's own operand. Those call sites are short, so they carry no fingerprint, only that
+ * structure. A failed gate refuses with its address and nothing falls back to vanilla.
  *
- * The camera gate currently refuses most Lunar Magic edited ROMs: LM's `JSL $0F:FAB0` hook
- * replaces `STA $20; SEP #$20` there (#522). The table reads themselves are unchanged.
+ * The camera gate currently refuses most Lunar Magic edited ROMs: LM's hook inside the
+ * camera span replaces some of its instructions (#522). The table reads themselves are unchanged.
  *
  * Hack-fragility points, not checked:
  * - DATA_00A06B is taken to be followed immediately by DATA_00A079 (bank_00.asm:4242-4246),
  *   so their operand distance is the camera table length.
+ * - A call is recognized by its own shape (see `unreached`); whether the game reaches it is not
+ *   checked, so a hack that keeps the shape but jumps past it is not noticed.
  * - CODE_048509 and CODE_049A24 read their tables with DB = their own bank; only
  *   CODE_04853B sets DB itself (PHK/PLB). The callers' own callers are not checked.
  */
 import type { RomFile } from './RomFile'
-import { WILD, findUnique, type BytePattern } from './BytePattern'
+import { findPattern } from './BytePattern'
+import { spanFingerprint } from './SubmapFlagGate'
 import { hex4 } from './hex'
-import { loromToOffset } from './addressing'
 
 export interface OverworldArea {
   area: number
@@ -31,75 +37,148 @@ export interface OverworldArea {
 }
 export type OverworldAreaSet = { areas: OverworldArea[] } | { unavailable: string }
 
-const A: BytePattern = [WILD, WILD]
+/** Operand offsets of the two camera tables inside the camera span. */
+const CAMERA_X_AT = 26
+const CAMERA_Y_AT = 33
+/** Each span's first opcode, the only speed filter for the scan (the SHA-256 decides). */
+const OP_LDY_IMM = 0xa0
+const OP_REP = 0xc2
+const OP_LDY_ABS = 0xac
+const OP_PHB = 0x8b
 const PATH_STRIDE = 5
 const WARP_STRIDE = 2
 
-interface Site {
+/**
+ * A recognized span, by fingerprint rather than by its bytes (docs/testing.md "Legal position":
+ * no ROM slices in commits). `mask` lists the operand offsets zeroed before hashing; the code
+ * reads the ones that matter itself. `anchor` is the span's first opcode, only a speed
+ * filter for the scan: the SHA-256 decides. A moved routine still matches wherever it sits.
+ */
+interface Span {
   name: string
-  pattern: BytePattern
+  length: number
+  mask: readonly number[]
+  anchor: number
+  fingerprints: readonly string[]
 }
 // prettier-ignore
-const SITES = {
-  /** The camera read: X table then Y table, indexed by area*2 (bank_00.asm:4324-4333).
-   *  Operands: X table at 5, Y table at 12. */
-  camera: { name: 'the camera read (bank_00.asm:4324-4333)', pattern: [
-    0x0a, 0xaa, 0xc2, 0x20, 0xbd, ...A, 0x85, 0x1a, 0x85, 0x1e, 0xbd, ...A, 0x85, 0x1c, 0x85, 0x20,
-    0xe2, 0x20,
-  ] },
+const SPANS = {
+  /** CODE_00A11B from its screen setup to the camera read's last store (bank_00.asm:4316-4341): the
+   *  camera X table then Y table, indexed by area*2, and on through the calls that follow it
+   *  (to bank_00.asm:4341). Operands: call targets and RAM reads (see the mask), X table at 26,
+   *  Y table at 33. Found by scan: nothing calls it. */
+  camera: { name: 'the camera read (bank_00.asm:4316-4341)', length: 63, mask: [3, 4, 12, 13, 14, 16, 17, 19, 20, 26, 27, 33, 34, 42, 43, 47, 48, 49, 51, 52, 54, 55, 61, 62], anchor: OP_LDY_IMM, fingerprints: ['b98cc4f11fb1ddfaa01daa23ffdb858b772c899ed50c01e7f1a6d77b0e7923d8'] },
   /** CODE_049A24 to the end of its loop (bank_04.asm:2835-2885). Operands: counter 18, LDY 23,
-   *  source area table 44, destination area table 67. */
-  path: { name: 'CODE_049A24, the path transitions (bank_04.asm:2835, $04:9A24)', pattern: [
-    0xc2, 0x20, 0xad, 0xd6, 0x0d, 0x4a, 0x4a, 0xaa, 0xbd, 0x11, 0x1f, 0x29, 0xff, 0x00,
-    0x8d, 0xc3, 0x13, 0xa9, WILD, 0x00, 0x85, 0x02, 0xa0, WILD,
-    0xae, 0xd6, 0x0d, 0xbd, 0x19, 0x1f, 0xd9, ...A, 0xd0, 0x3e,
-    0xbd, 0x17, 0x1f, 0xd9, ...A, 0xd0, 0x36,
-    0xb9, ...A, 0x29, 0xff, 0x00, 0xcd, 0xc3, 0x13, 0xd0, 0x2b,
-    0xb9, ...A, 0x9d, 0x19, 0x1f, 0xb9, ...A, 0x9d, 0x17, 0x1f,
-    0xb9, ...A, 0x29, 0xff, 0x00, 0x8d, 0xc3, 0x13,
-    0xa4, 0x02, 0xb9, ...A, 0x29, 0xff, 0x00, 0x9d, 0x21, 0x1f,
-    0xb9, ...A, 0x29, 0xff, 0x00, 0x9d, 0x1f, 0x1f, 0x80, 0x0b,
-    0xc6, 0x02, 0xc6, 0x02, 0x88, 0x88, 0x88, 0x88, 0x88, 0x10, 0xaf, 0xe2, 0x20,
-  ] },
+   *  source area table 44, destination area table 67; the rest are ignored table addresses. */
+  path: { name: 'CODE_049A24, the path transitions (bank_04.asm:2835, $04:9A24)', length: 110, mask: [18, 23, 31, 32, 39, 40, 44, 45, 55, 56, 61, 62, 67, 68, 78, 79, 87, 88], anchor: OP_REP, fingerprints: ['d26f51c1fa40605fe0621e4109e2f92b55c42d2719a29e014a9888dfafa6bbeb'] },
   /** CODE_048509's scan of DATA_048431, ending at STY StarWarpIndex (bank_04.asm:527-550).
    *  Operands: LDY 16, source word table 18. */
-  scan: { name: 'CODE_048509, the warp scan (bank_04.asm:527, $04:8509)', pattern: [
-    0xac, 0xb3, 0x0d, 0xb9, 0x11, 0x1f, 0x85, 0x01, 0x64, 0x00, 0xc2, 0x20, 0xae, 0xd6, 0x0d,
-    0xa0, WILD,
-    0xb9, ...A, 0x45, 0x00, 0xc9, 0x00, 0x02, 0xb0, 0x0d, 0xdd, 0x1f, 0x1f,
-    0xd0, 0x08, 0xbd, 0x21, 0x1f, 0xd9, ...A, 0xf0, 0x04, 0x88, 0x88, 0x10, 0xe5,
-    0x8c, 0xf6, 0x1d,
-  ] },
+  scan: { name: 'CODE_048509, the warp scan (bank_04.asm:527, $04:8509)', length: 47, mask: [16, 18, 19, 36, 37], anchor: OP_LDY_ABS, fingerprints: ['37a1f3b40432191c88d42b886f0e63c37a37bd7b8f71a32ebce33f6a2a67396f'] },
   /** CODE_04853B's decode of DATA_04849D into CurrentSubmap (bank_04.asm:554-581).
    *  Operand: destination word table 12. */
-  dest: { name: 'CODE_04853B, the warp destination (bank_04.asm:554, $04:853B)', pattern: [
-    0x8b, 0x4b, 0xab, 0xc2, 0x20, 0xae, 0xd6, 0x0d, 0xac, 0xf6, 0x1d,
-    0xb9, ...A, 0x48, 0x29, 0xff, 0x01, 0x9d, 0x17, 0x1f, 0x4a, 0x4a, 0x4a, 0x4a,
-    0x9d, 0x1f, 0x1f, 0xb9, ...A, 0x9d, 0x19, 0x1f, 0x4a, 0x4a, 0x4a, 0x4a,
-    0x9d, 0x21, 0x1f, 0x68, 0x4a, 0xeb, 0x29, 0x0f, 0x00, 0x8d, 0xc3, 0x13,
-  ] },
-} satisfies Record<string, Site>
-type Name = keyof typeof SITES
+  dest: { name: 'CODE_04853B, the warp destination (bank_04.asm:554, $04:853B)', length: 50, mask: [12, 13, 29, 30], anchor: OP_PHB, fingerprints: ['bfab0d7cefabefcf270b71855026a0db935c8445c9d2cfa0f4d26ba9428eb08f'] },
+} satisfies Record<string, Span>
+type Name = keyof typeof SPANS
+/** Recognized fingerprints per span; a synthetic ROM passes its own (code that is not the cart's). */
+export type AreaFingerprints = Record<Name, readonly string[]>
+export const AREA_FINGERPRINTS = Object.fromEntries(
+  Object.entries(SPANS).map(([k, v]) => [k, v.fingerprints]),
+) as unknown as AreaFingerprints
+/** Span geometry, for a test that plants its own code at the same operand offsets. */
+export const AREA_SPANS: Readonly<Record<Name, Pick<Span, 'length' | 'mask' | 'anchor'>>> = SPANS
 
-/** Each routine's caller: its call target must be the site the routine was found at. */
-// prettier-ignore
-const CALLERS: { what: string; call: BytePattern; at: number; long?: true; to: Name }[] = [
-  { what: 'JSL CODE_04853B in GM0CLoadOverworld (bank_00.asm:4252-4255)', to: 'dest', at: 6, long: true,
-    call: [0xad, 0x9c, 0x1b, 0xf0, 0x04, 0x22, ...A, WILD, 0x20, 0xa6, 0xa1] },
-  { what: 'JSR CODE_049A24 (bank_04.asm:2356-2361)', to: 'path', at: 7,
-    call: [0xdd, 0x26, 0x94, 0xd0, 0x2a, 0x5a, 0x20, ...A, 0x7a, 0xa9, 0x01] },
-  { what: 'JSR CODE_048509 on the star tile (bank_04.asm:1753-1757)', to: 'scan', at: 5,
-    call: [0xc9, 0x5f, 0xd0, 0x18, 0x20, ...A, 0xd0, 0x2e, 0x9c, 0xf7, 0x1d] },
-  { what: 'JSR CODE_048509 on the pipe tile (bank_04.asm:1770-1774)', to: 'scan', at: 5,
-    call: [0xc9, 0x5b, 0xd0, 0x11, 0x20, ...A, 0xd0, 0x0b, 0xee, 0x9c, 0x1b] },
-]
+/** The routines a call must reach. */
+const CALLED: readonly Name[] = ['dest', 'path', 'scan']
+
+/** Cart offsets whose span hashes (operands masked) to a recognized fingerprint, at most `max`. */
+function findSpan(rom: RomFile, n: Name, fps: AreaFingerprints, max = 8): number[] {
+  const s: Span = SPANS[n]
+  const hits: number[] = []
+  for (const at of findPattern(rom, [s.anchor])) {
+    if (!fps[n].includes(spanFingerprint(rom.readAtFileOffset(at, s.length), s.mask) ?? ''))
+      continue
+    hits.push(at)
+    if (hits.length >= max) break
+  }
+  return hits
+}
+
+/** One opcode each, checked one at a time (D126): no stored run of instructions. */
+const OP_JSR = 0x20
+const OP_JSL = 0x22
+const OP_BEQ = 0xf0
+const OP_BNE = 0xd0
+const OP_CMP_IMM = 0xc9
+const OP_PHY = 0x5a
+const OP_LDA_ABS = 0xad
+/** Instruction lengths, from the 65816 encoding: the offsets between neighbours derive from them. */
+const LEN_JSL = 4
+const LEN_BRANCH = 2
+const LEN_CMP_IMM = 2
+const LEN_LDA_ABS = 3
+
+/**
+ * Why no call of the right shape reaches the routine at cart offset `target`, or null when one
+ * does. The call is found by its own opcode and operand; its neighbours are then checked one
+ * opcode at a time at offsets derived from instruction lengths (no operand value is stated):
+ * - dest: a JSL naming it (the FastROM mirror too), skipped by a BEQ whose displacement is the
+ *   JSL's length, after an absolute load, in the camera routine's bank. GM0CLoadOverworld
+ *   precedes the camera read in that bank (bank_00.asm:4250-4254); the bank is taken from where
+ *   the camera read was found.
+ * - path: a JSR to it from its own bank, after a push and a BNE.
+ * - scan: JSRs to it from its own bank, each after a compare-immediate and a BNE; there must be
+ *   two with different immediates (the star tile and the pipe tile).
+ * A data run that spells the shape passes too; the check is structure, not proof it runs.
+ */
+function unreached(rom: RomFile, n: Name, target: number, cameraAt: number): string | null {
+  const lo = 0x8000 | (target & 0x7fff)
+  const [l, h] = [lo & 0xff, lo >> 8]
+  const bank = target >> 15
+  const byte = (at: number): number => (at < 0 ? -1 : (rom.readAtFileOffset(at, 1)?.[0] ?? -1))
+  const here = (hits: number[]): number[] => hits.filter(at => at >> 15 === bank)
+  if (n === 'dest') {
+    const camBank = cameraAt >> 15
+    const jsl = [bank, bank | 0x80]
+      .flatMap(b => findPattern(rom, [OP_JSL, l, h, b]))
+      .filter(
+        at =>
+          at >> 15 === camBank &&
+          byte(at - LEN_BRANCH) === OP_BEQ &&
+          byte(at - LEN_BRANCH + 1) === LEN_JSL &&
+          byte(at - LEN_BRANCH - LEN_LDA_ABS) === OP_LDA_ABS,
+      )
+    return jsl.length > 0 ? null : "JSL in the camera routine's bank"
+  }
+  if (n === 'path') {
+    const jsr = here(findPattern(rom, [OP_JSR, l, h])).filter(
+      at => byte(at - 1) === OP_PHY && byte(at - 1 - LEN_BRANCH) === OP_BNE,
+    )
+    return jsr.length > 0 ? null : 'JSR after a push and a branch'
+  }
+  const tiles = new Set(
+    here(findPattern(rom, [OP_JSR, l, h]))
+      .filter(
+        at =>
+          byte(at - LEN_BRANCH) === OP_BNE && byte(at - LEN_BRANCH - LEN_CMP_IMM) === OP_CMP_IMM,
+      )
+      .map(at => byte(at - LEN_BRANCH - 1)),
+  )
+  return tiles.size >= 2 ? null : 'JSR after a compare for each of two tiles'
+}
 
 /** Cart offset an operand names in the bank of `bankOf` (a cart offset in that bank), or null
  *  when the operand is not a LoROM bank-local address. */
 const bankLocal = (bankOf: number, operand: number): number | null =>
   operand < 0x8000 ? null : (bankOf & ~0x7fff) | (operand & 0x7fff)
 
-export function deriveOverworldAreas(rom: RomFile): OverworldAreaSet {
+/**
+ * The area set the ROM names, or why it cannot be read. Every gate refuses rather than falling
+ * back to vanilla, because a hack's areas must come from its own tables.
+ */
+export function deriveOverworldAreas(
+  rom: RomFile,
+  fps: AreaFingerprints = AREA_FINGERPRINTS,
+): OverworldAreaSet {
   const no = (unavailable: string): { unavailable: string } => ({ unavailable })
   const read = (at: number, n: number): Buffer => rom.readAtFileOffset(at, n)!
   const u8 = (at: number): number => read(at, 1)[0]!
@@ -110,40 +189,41 @@ export function deriveOverworldAreas(rom: RomFile): OverworldAreaSet {
     return at === null || operand + n > 0x10000 ? null : rom.readAtFileOffset(at, n)
   }
 
-  const at = {} as Record<Name, number>
-  for (const k of Object.keys(SITES) as Name[]) {
-    const found = findUnique(rom, SITES[k].pattern)
-    if (found === null) return no(`${SITES[k].name} is not stock: absent or not unique.`)
-    at[k] = found
-  }
-  for (const c of CALLERS) {
-    const call = findUnique(rom, c.call)
-    const op = call === null ? 0 : u16(call + c.at)
-    // A JSL target is a full address ($84 mirrors $04); a JSR stays in the caller's bank.
-    const target =
-      call === null
-        ? null
-        : c.long
-          ? loromToOffset((u8(call + c.at + 2) << 16) | op, rom.romSize)
-          : bankLocal(call, op)
-    if (call === null || target !== at[c.to]) {
+  const notStock = (n: Name): { unavailable: string } =>
+    no(`${SPANS[n].name} is not stock: absent or not unique.`)
+  const found = findSpan(rom, 'camera', fps, 2)
+  if (found.length !== 1) return notStock('camera')
+  const at = { camera: found[0]! } as Record<Name, number>
+  // A routine is where a call reaches it: a hack that moves one and retargets the call still
+  // resolves, and a left-behind stock copy that nothing calls is ignored.
+  for (const name of CALLED) {
+    const hits = findSpan(rom, name, fps)
+    if (hits.length === 0) return notStock(name)
+    const called = hits.filter(h => unreached(rom, name, h, at.camera) === null)
+    if (called.length === 0) {
       return no(
-        `${c.what} does not call ${SITES[c.to].name}, so it is not reached through stock code.`,
+        `${SPANS[name].name} is not reached through stock code: no ${unreached(rom, name, hits[0]!, at.camera)} names it.`,
       )
     }
+    if (called.length > 1) {
+      return no(
+        `${SPANS[name].name} appears twice and is called twice, so which copy runs is unknown.`,
+      )
+    }
+    at[name] = called[0]!
   }
 
   // The camera tables are adjacent (bank_00.asm:4242-4246), so their distance is the length.
-  const cameraX = u16(at.camera + 5)
-  const cameraY = u16(at.camera + 12)
+  const cameraX = u16(at.camera + CAMERA_X_AT)
+  const cameraY = u16(at.camera + CAMERA_Y_AT)
   if (cameraX < 0x8000 || cameraY <= cameraX || (cameraY - cameraX) % 2 !== 0) {
-    return no(`${SITES.camera.name} reads two tables that are not an even distance apart.`)
+    return no(`${SPANS.camera.name} reads two tables that are not an even distance apart.`)
   }
   const cameraCount = (cameraY - cameraX) / 2
   const camX = table(at.camera, cameraX, cameraCount * 2)
   const camY = table(at.camera, cameraY, cameraCount * 2)
   if (!camX || !camY) {
-    return no(`${SITES.camera.name} reads a table that runs past the end of its bank.`)
+    return no(`${SPANS.camera.name} reads a table that runs past the end of its bank.`)
   }
 
   // Each loop starts at `LDY #n` and drops one record while Y stays below $80 (BPL).
@@ -155,7 +235,7 @@ export function deriveOverworldAreas(rom: RomFile): OverworldAreaSet {
   const wy = ldy(at.scan + 16, WARP_STRIDE)
   if (y === null || wy === null || u8(at.path + 18) !== (y / PATH_STRIDE) * 2) {
     return no(
-      `${SITES.path.name} or ${SITES.scan.name} has a record count that does not match its stride.`,
+      `${SPANS.path.name} or ${SPANS.scan.name} has a record count that does not match its stride.`,
     )
   }
   const records = y / PATH_STRIDE + 1
@@ -170,7 +250,7 @@ export function deriveOverworldAreas(rom: RomFile): OverworldAreaSet {
     )
   }
 
-  // The camera read's ASL runs with 8-bit A (bank_00.asm:4324), so the index is (area*2) & $FF.
+  // The camera read doubles the area index with 8-bit A (bank_00.asm:4324), so the index is (area*2) & $FF.
   const valid = (a: number): boolean => a < cameraCount && a < 0x80
   const seen = new Map<number, string | undefined>([[0, undefined]])
   const list = (area: number, label?: string): void => {

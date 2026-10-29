@@ -173,3 +173,29 @@ describe.each(['ips', 'bps'] as const)('a preview layer never reaches the export
     }
   })
 })
+
+describe('exportPatch and hard links', () => {
+  it('replaces a hard link at the target instead of writing through it', () => {
+    const dir = path.join(tmp, EXPORT_DIR)
+    fs.mkdirSync(dir, { recursive: true })
+    const other = path.join(tmp, 'precious.bin')
+    fs.writeFileSync(other, 'untouched')
+    fs.linkSync(other, path.join(dir, 'MyHack.ips'))
+
+    const base = fakeRom()
+    const offset = loromToOffset(MARIO_RED_ADDR, base.length, false) as number
+    base[offset] = 0x1f
+    base[offset + 1] = 0x39
+    const working = new WorkingRom(base, false)
+    working.append({
+      id: 'L1',
+      label: 'edit',
+      scope: 'edit',
+      ops: [{ address: '$00B2CE', old: '$391F', new: '$03E0' }],
+    })
+    const result = exportPatch(tmp, 'MyHack', working, 'ips')
+
+    expect(fs.readFileSync(other, 'utf8')).toBe('untouched')
+    expect(decodeIps(new Uint8Array(fs.readFileSync(result.path)))).not.toBeNull()
+  })
+})

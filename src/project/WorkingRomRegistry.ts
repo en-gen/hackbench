@@ -15,6 +15,7 @@ import { openProject, Project, RomIdentity, romIdentity } from './Project'
 import { readRomBounded } from './BoundedRead'
 import { RomRegistry } from './RomRegistry'
 import { RomFile } from '../rom/RomFile'
+import { SmwRom } from '../rom/SmwRom'
 import type { DataBanks } from '../rom/DataBanks'
 import { resolveDataBanks } from './DataBanksConfig'
 import { GfxCharEdit, GfxRefusal } from '../rom/GfxLayer'
@@ -49,6 +50,21 @@ export interface WorkingRomEntry {
   project: Project
   /** Detected on the base ROM, hand edits applied (meta/data-banks.json); a reader attaches it to the RomFile it builds. */
   dataBanks: DataBanks
+}
+
+/**
+ * The working copy as a RomFile, over a copy of its bytes (WorkingRom.bytes()
+ * returns the live cached array, so the copy is what keeps a later edit from
+ * changing a RomFile already handed out) with the project's data banks
+ * attached. Callers of this helper need not copy again.
+ */
+export function romFileOf(entry: WorkingRomEntry): RomFile {
+  return RomFile.fromBytes(entry.romPath, Buffer.from(entry.working.bytes()), entry.dataBanks)
+}
+
+/** Lets servers that read SMW tables get romFileOf's copy and data banks without re-stating either. */
+export function smwRomOf(entry: WorkingRomEntry): SmwRom {
+  return new SmwRom(romFileOf(entry))
 }
 
 export type WorkingRomResult =
@@ -138,8 +154,10 @@ export class WorkingRomRegistry {
   /**
    * Fires, once per project, when the ROM behind a project's working copy
    * changes: `relocate`, a `register` that serves a project that was waiting
-   * for its ROM, a `get` that finds a waiting project's ROM again, or a rebuild
-   * that replaces a cached entry. NOT on the first build (a view asking for the
+   * for its ROM, a `get` that finds a waiting project's ROM again, a rebuild
+   * that replaces a cached entry, or a drop of a cached copy whose base ROM is
+   * gone (`revalidateOnOpen`, or a `get` rebuild that cannot find the ROM).
+   * NOT on a never-cached project's not-located answer, NOT on the first build (a view asking for the
    * project is already loading it) and NOT on edits (the edit event covers
    * those).
    */
@@ -301,15 +319,10 @@ export class WorkingRomRegistry {
       stamp = { key: opsStamp(project.directory).key, takenAt: Date.now() }
       const resolved = this.registry.resolveVerified(project.baseRom.sha256)
       if (!resolved) {
-        this.waiting.set(manifestPath, project.baseRom.sha256)
-        // A stale entry must not outlive the answer: when the ROM is found, the
-        // later build would look like a second swap after register announced it.
-        if (cached) {
-          this.cache.delete(manifestPath)
-          this.stamps.delete(manifestPath)
-          this.releaseCopy(cached.working)
-        }
-        return { status: 'rom-not-located', baseRom: project.baseRom }
+        const notLocated = this.markNotLocated(manifestPath, project, cached)
+        // Same as an open that finds the ROM gone (#975): views on the dropped copy must redraw.
+        if (cached) this.fireRomChanged(manifestPath)
+        return notLocated
       }
       wasWaiting = this.waiting.has(manifestPath)
       romPath = resolved.path
@@ -339,6 +352,42 @@ export class WorkingRomRegistry {
     // relocate) is announced too: a view stuck on "Locate" has no other cue.
     if (cached || wasWaiting) this.fireRomChanged(manifestPath)
     return { status: 'ok', ...entry }
+  }
+
+  /**
+   * Project open (#975): a cached copy outlives its base ROM file, so an open
+   * checks the registered path still holds the project's ROM, with the same
+   * hash check Project Properties makes (one hash per open), so the two never
+   * disagree: a directory, an unreadable file or another ROM at the path all
+   * count as gone. Only an open asks (the Open Recent path and Project
+   * Properties both reach it); a `get` that hits the cache mid-session keeps
+   * serving the copy (a rebuild `get` drops it and announces too).
+   * Gone: drop the cache like `get`'s not-located answer, release the copy,
+   * and announce `onRomChanged` so an already-open view (opening the open
+   * project keeps views) redraws as not located. With no cached copy there is
+   * nothing stale to drop: it does nothing and the next `get` resolves as before.
+   */
+  revalidateOnOpen(manifestPath: string): void {
+    const cached = this.cache.get(manifestPath)
+    if (!cached || this.registry.resolveVerified(cached.project.baseRom.sha256)) return
+    this.markNotLocated(manifestPath, cached.project, cached)
+    this.fireRomChanged(manifestPath)
+  }
+
+  private markNotLocated(
+    manifestPath: string,
+    project: Project,
+    cached: WorkingRomEntry | undefined,
+  ): WorkingRomResult {
+    this.waiting.set(manifestPath, project.baseRom.sha256)
+    // A stale entry must not outlive the answer: when the ROM is found, the
+    // later build would look like a second swap after register announced it.
+    if (cached) {
+      this.cache.delete(manifestPath)
+      this.stamps.delete(manifestPath)
+      this.releaseCopy(cached.working)
+    }
+    return { status: 'rom-not-located', baseRom: project.baseRom }
   }
 
   /** Whether `ops/` on disk still holds exactly the layers `working` does. */

@@ -21,7 +21,7 @@ import {
   type FlameRoutines,
 } from '../../../../src/rom/sprites/interp/CastleFlames'
 import { bytesAt } from '../../../../src/rom/sprites/interp/Guards'
-import { levelSeed, markSyntheticRom } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { RAM } from '../../../../src/rom/sprites/interp/SpriteRunner'
@@ -119,7 +119,6 @@ function flameRom(
   for (const [at, b] of PATH_BYTES) put(at, b)
   tweak(bytes)
   const rom = RomFile.fromBytes('flames.sfc', bytes)
-  markSyntheticRom(rom) // a copy of the synthetic cart: vouch for its hand-written loader spans again
   return rom
 }
 
@@ -462,6 +461,33 @@ describe('castle flames on the map (synthetic cart)', () => {
     expect(got.note).toBe('Some castle flames are only marked: their chars are not loaded.')
   })
 
+  it('every opaque flame pixel is a colour of the CGRAM row its OAM attribute selects (#965)', () => {
+    // Attribute bits 1-3 sweep 0..7 over two carts, one palette value per flame slot (Misc = slot). The rows are
+    // literals (CGRAM 8 + palette). COLORS gives each row colours no other row has, so a wrong row cannot match.
+    const rows = [[8, 9, 10, 11], [12, 13, 14, 15]] // prettier-ignore
+    rows.forEach((want, half) => {
+      const props = want.map(r => ((r - 8) << 1) | 1)
+      const own = flameRom({ ...DATA, props }, b => void b.fill(0xea, off(0x02aa6c + 14), off(0x02aa6c + 16))) // prettier-ignore
+      const got = draw(stream(0xe6), 16, own)
+      expect(got.sprites).toHaveLength(16)
+      for (const s of got.sprites) {
+        const slot = DATA.xs.indexOf(s.box.x0 % 256)
+        expect(slot).toBeGreaterThanOrEqual(0)
+        const row = want[slot]!
+        const rgba = Buffer.from(s.rgba, 'base64')
+        let opaque = 0
+        for (let i = 0; i < rgba.length; i += 4) {
+          if (rgba[i + 3] === 0) continue
+          opaque++
+          // Colour 0 is transparent, so it is excluded; alpha is compared too.
+          const ok = COLORS.slice(row * 16 + 1, row * 16 + 16).some(c => c.every((v, k) => v === rgba[i + k])) // prettier-ignore
+          expect(ok, `half ${half} slot ${slot} row ${row}`).toBe(true)
+        }
+        expect(opaque, `half ${half} slot ${slot}`).toBe(16 * 16) // every char is solid: all four parts blit
+      }
+    })
+  })
+
   it('routines that drew nothing draw none and say so', () => {
     // The spawn writes cluster type 6, which the draw loop does not run.
     const none = flameRom(DATA, b => void (b[off(0x02aa6c + SPAWN_TYPE_OPERAND)] = 6))
@@ -470,14 +496,15 @@ describe('castle flames on the map (synthetic cart)', () => {
 
   it('a refused run draws none and carries the reason in the note, never silently', () => {
     const brk = flameRom(DATA, b => void (b[off(0x02fa16)] = 0x00))
-    expect(draw(stream(0xe6), 16, brk)).toEqual({ sprites: [], note: 'The castle flames are not drawn: BRK executed at $02FA16.' }) // prettier-ignore
+    expect(draw(stream(0xe6), 16, brk)).toEqual({ sprites: [], note: 'The castle flames are not drawn: the routines that draw them could not be run on this ROM.', noteDetail: 'BRK executed at $02FA16' }) // prettier-ignore
   })
 
   it('a changed routine still draws the flames, flagged unverified, and the note names what differs (ruling B)', () => {
     const changed = flameRom(DATA, b => void (b[off(0x02aa6c + SPAWN_HARMLESS)]! ^= 1))
     const r = draw(stream(0xe6), 16, changed, {}, routinesOf(rom))
     expect(r.sprites.length).toBe(16)
-    expect(r.note).toBe("The castle flames are unverified: the flame spawn routine is not the vanilla shape; drawn from the code at the vanilla address.") // prettier-ignore
+    expect(r.note).toBe("The castle flames are drawn from this ROM's own code, which differs from the original game.") // prettier-ignore
+    expect(r.noteDetail).toBe('the flame spawn routine is not the vanilla shape')
     expect(r.sprites.every(s => s.unverified?.includes('the flame spawn routine is not the vanilla shape'))).toBe(true) // prettier-ignore
   })
 
@@ -485,7 +512,8 @@ describe('castle flames on the map (synthetic cart)', () => {
     const hacked = flameRom(DATA, b => void (b[off(0x02f82f)]! ^= 1))
     const r = draw(stream(0xe6), 16, hacked)
     expect(r.sprites.length).toBe(16)
-    expect(r.note).toContain('the cluster dispatch entry for type 5 is not the vanilla shape')
+    expect(r.note).not.toContain('vanilla shape')
+    expect(r.noteDetail).toContain('the cluster dispatch entry for type 5 is not the vanilla shape')
   })
 
   describe('through mapSprites', () => {
@@ -504,7 +532,6 @@ describe('castle flames on the map (synthetic cart)', () => {
       const fromBytes = RomFile.fromBytes.bind(RomFile)
       vi.spyOn(RomFile, 'fromBytes').mockImplementation((...args) => {
         const rom = fromBytes(...args)
-        markSyntheticRom(rom)
         return rom
       })
       const inputs = {

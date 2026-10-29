@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { RomFile } from '../../../../src/rom/RomFile'
-import { levelSeed, markSyntheticRom } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
@@ -54,14 +54,13 @@ function clusterRom(cell: number): RomFile {
     0x6b,
   ]) // prettier-ignore
   // Level data loader tail: JSL a stub that spawns one cluster sprite, then its own PLP / RTL.
-  put(0x05801e + 20, [0x22, 0x00, 0xf1, 0x05, 0x28, 0x6b], 2)
+  put(0x05801e + 18, [0x22, 0x00, 0xf1, 0x05, 0x28, 0x6b], 2)
   // LDA #1 / STA $18B8 / LDA #5 / STA cell / RTL, as the vanilla loader leaves map $101.
   put(0x05f100, [0xa9, 0x01, ...sta(0x18b8), 0xa9, 0x05, ...sta(cell), 0x6b])
   // Id 40's MAIN pointer (table at $01:8329) to LDA #1 / STA $18B8 / JMP id 0's MAIN ($8640).
   put(0x018329 + SETS_FLAG * 2, [0x00, 0x98], 2)
   put(0x019800, [0xa9, 0x01, ...sta(0x18b8), 0x4c, 0x40, 0x86])
   const rom = RomFile.fromBytes('cluster.sfc', bytes)
-  markSyntheticRom(rom) // a copy of the synthetic cart: vouch for its hand-written loader spans again
   return rom
 }
 
