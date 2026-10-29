@@ -55,6 +55,29 @@ cannot be told from invented values by content, so the claim is the signal;
 say "invented values" instead, or add the pragma. A decimal array with `0x`
 elements mixed in counts toward `byte-tokens` too.
 
+`rom-window` (#1053): an ADDED text file (not `.md`) with a run of byte notation
+(`0x` and `$` tokens, bare hex pairs, `\x` escapes, unbroken hex strings; the
+parser of the ROM-window probe below) that contains an 8-byte window of the
+vanilla ROM, windows with fewer than 3 distinct values ignored. It prints
+`BLOCKED (rom-window): <path> line N, M windows`, never the bytes, and exits 1
+like every other rule. **With a ROM** (found by `corpus.cjs`, so
+`HACKBENCH_ROMS` applies) the windows come from the real ROM. **Without one
+(CI)** the rule prints `rom-window rule not checked: no ROM` on stderr and
+passes; the committed hashed-window set that would cover CI waits on owner ruling
+D155 (copyright weight of committing a fingerprint of every vanilla window), so
+today only local runs enforce it. The lookup is chosen in one function
+(`romWindowLookup`) and `bytesHits` takes any object with `has()`, so that set
+drops in later. Not applied to: modified files (101 of 1,512 files on develop
+already hold a run, so an edit would fail on old content), whole-history mode
+(red forever for the same reason), and `.md` (prose lists addresses). Evidence
+scope, one machine, 2026-10-28: of the 1,249 non-`.md` files on develop, 93 hold
+a run (existing fixtures, tests and sources); across the 24 other remote
+branches, 5 added files hold one.
+`test/suite/gates/contentGateRomWindows.test.ts` proves it red on planted runs in
+each notation with a fake PRNG ROM (CI) and the real ROM (local), and sweeps every
+synthetic ROM builder in `test/suite/support` against the vanilla windows (4a);
+ten builders carry a pinned, known count today.
+
 Modes: `staged` (no hook runs it since #1183), `range BASE HEAD` (CI),
 `push REMOTE`
 (`.githooks/pre-push`, reading stdin ref-updates and querying the remote
@@ -871,8 +894,8 @@ private to the test file.
 `node tools/scripts/rom-window-probe.mjs` reports 8-byte windows of text or
 assembled bytes that also occur in the vanilla ROM, so a synthetic ROM,
 fixture or detection pattern can be checked before pushing. It is
-report-only and local-only: no hook, CI job or `check-content.mjs` runs it,
-and CI has no ROM to run it against.
+report-only: no hook or CI job runs it (the content gate's `rom-window` rule shares
+its parser and window finder, and runs where a ROM is present).
 
 ```
 node tools/scripts/rom-window-probe.mjs <files...>        text scan (PARTIAL, below)
@@ -893,7 +916,7 @@ never scanned, but a touched file whose post-image cannot be read is an error.
 decimal 0-255 tokens, with comments blanked: `//` and block comments in
 JS/TS files, `;` in `.asm`/`.inc`/`.s` files, nothing in any other file
 type (no Lua `--`, no markdown). Quoted strings are skipped when blanking, so
-`'http://x'` hides nothing. It does not see 16-bit words, hex strings,
+`'http://x'` hides nothing. It reads `\x` escapes and unbroken hex strings of 8+ bytes, but not 16-bit words,
 quoted-byte arrays, per-byte writes (`buf[a] = 0xa9`), split strings, or values
 behind `as number`. Comment blanking can desync on a regex literal with an escaped slash or an
 unterminated backtick, and `.c`/`.h` files get none. A comma-separated list of bare hex pairs (also in asm, e.g. `.db a9, 10, 85`), or a

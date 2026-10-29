@@ -14,6 +14,8 @@
 
 import { spawnSync } from 'node:child_process'
 import { readFileSync, existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { commentMode, locateVanillaRom, textHits, windowSet } from './lib/rom-windows.mjs'
 
 // ---------------------------------------------------------------------------
 // Rules (docs/testing.md has the prose version)
@@ -441,9 +443,43 @@ export function checkBlob(rawPath, buf) {
   return checkTextContent(rawPath, buf.toString('utf8'))
 }
 
-/** Combines checkPath + checkBlob for one (path, blob-bytes) entry. */
-export function evaluateEntry(path, buf) {
-  return [...checkPath(path), ...checkBlob(path, buf)]
+/** True when a blob is text the content rules read (not binary, oversize or a lockfile). */
+const isScannableText = (path, buf) =>
+  buf.length <= OVERSIZE_THRESHOLD && !isBinary(buf) && !isLockfile(normalizePath(path))
+
+/** Which entries the ROM-window rule reads: ADDED text files outside .md, never in whole-history
+ * mode. A modified file would be judged on lines it did not add (101 of 1,512 files on develop
+ * already hold a run, 2026-10-28), so a one-line edit would fail on old content, and history mode
+ * would be red for good. Markdown prose lists addresses, not fixture bytes. */
+const windowRuleApplies = (e, buf, whole) =>
+  !whole && e.status === 'A' && !/.md$/i.test(e.path) && isScannableText(e.path, buf)
+
+/** ROM-window rule (#1053): a run of byte notation in a text file that matches an 8-byte window
+ * of the vanilla ROM. `lookup` is any object with `has(windowKey)` (see hitRuns in
+ * lib/rom-windows.mjs). Reports the line and window count, never the bytes. */
+export function checkRomWindows(path, buf, lookup) {
+  if (!lookup || !isScannableText(path, buf)) return []
+  return textHits(buf.toString('utf8'), lookup, 1, undefined, commentMode(path)).map(h => ({
+    rule: 'rom-window',
+    path,
+    where: `line ${h.at}, ${h.windows} window${h.windows === 1 ? '' : 's'}`,
+  }))
+}
+
+/** Combines checkPath + checkBlob (+ the ROM-window rule when `lookup` is given) for one entry. */
+export function evaluateEntry(path, buf, lookup = null) {
+  return [...checkPath(path), ...checkBlob(path, buf), ...checkRomWindows(path, buf, lookup)]
+}
+
+const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url))
+
+/** THE one place the window lookup is chosen. Today only the real ROM (local) is used; with no ROM
+ * (CI) there is no lookup and the rule is reported "not checked", never failed. The committed hashed
+ * window set that would serve CI is held for owner ruling D155 (copyright weight of committing a
+ * fingerprint of every vanilla window); when it lands, return it from here and nothing else changes. */
+export function romWindowLookup(env = process.env) {
+  const rom = locateVanillaRom(env, REPO_ROOT)
+  return existsSync(rom) ? windowSet(readFileSync(rom)) : null
 }
 
 // ---------------------------------------------------------------------------
@@ -596,7 +632,7 @@ function stagedEntries() {
   for (let i = 0; i < fields.length; i++) {
     const m = modeLineRe.exec(fields[i])
     if (!m) continue
-    const [, , newMode, , newBlob] = m
+    const [, , newMode, , newBlob, status] = m
     if (newMode === '160000') continue
     const path = fields[++i]
     if (path === undefined) break
@@ -604,6 +640,7 @@ function stagedEntries() {
       commit: null,
       path: Buffer.from(path, 'binary').toString('utf8'),
       blob: newBlob,
+      status,
     })
   }
   return entries
@@ -740,11 +777,21 @@ function evaluateEntries(entries, messages = [], whole = false) {
   const evalWith = blobs => {
     for (const e of list) {
       if (!blobs.has(e.blob)) continue
-      for (const hit of evaluateEntry(e.path, blobs.get(e.blob)))
+      const buf = blobs.get(e.blob)
+      const lk = windowRuleApplies(e, buf, whole) ? lookupOnce() : null
+      for (const hit of evaluateEntry(e.path, buf, lk))
         hits.push({ ...hit, commit: e.commit, blob: e.blob })
     }
   }
   const blobShas = [...pathOf.keys()]
+  let lookup
+  const lookupOnce = () => {
+    if (lookup === undefined) {
+      lookup = romWindowLookup()
+      if (!lookup) process.stderr.write('check-content: rom-window rule not checked: no ROM\n')
+    }
+    return lookup
+  }
   try {
     readBudgeted(blobShas, pathOf, whole, blobs => {
       if (!whole) {
@@ -877,7 +924,7 @@ function emDashHits(diffArgs) {
 
 function formatHit(h) {
   const suffix = h.commit ? ` (first added in ${h.commit})` : ''
-  return `BLOCKED (${h.rule}): ${h.path}${suffix}`
+  return `BLOCKED (${h.rule}): ${h.path}${h.where ? ` ${h.where}` : ''}${suffix}`
 }
 
 function runStaged() {

@@ -35,7 +35,10 @@ export function windowSet(rom, width = WINDOW_BYTES) {
 }
 
 /** Runs of `{ at, windows, end }` where consecutive windows of `bytes` are in
- *  `set`; `at` and `end` are lineOf() of the run's first and last byte. */
+ *  `set`; `at` and `end` are lineOf() of the run's first and last byte.
+ *  `set` is any lookup with `has(windowKey)`, the window as a latin1 string; the
+ *  in-memory Set from windowSet() is one. The check-content gate picks the lookup
+ *  in one place (romWindowLookup), so a different source needs no change here. */
 function hitRuns(bytes, lineOf, set, width) {
   const out = []
   let open = null
@@ -107,6 +110,11 @@ export function textRuns(text, base = 1, mode = 'js') {
   // An asm data directive joins the lines of a table; as a word it would read as the byte 0xDB.
   if (mode === 'asm')
     src = src.replace(/(?<![\w$])\.?(?:db|byte)(?![\w$])/gi, d => ' '.repeat(d.length))
+  // \xNN escapes and long unbroken hex strings become spaced tokens. Positions move, but the line
+  // counter below reads this same rewritten src, so line numbers hold.
+  src = src
+    .replace(/\\x([0-9a-fA-F]{2})/g, ' 0x$1 ')
+    .replace(/(?<![\w$.])(?:[0-9a-fA-F]{2}){8,}(?![\w.])/g, m => m.replace(/../g, '$& '))
   // Tokens arrive in ascending index order, so the line counter only moves forward.
   let line = base
   let nl = src.indexOf('\n')

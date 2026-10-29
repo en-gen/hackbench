@@ -456,6 +456,20 @@ ${lit}`,
 // Layer 2: CLI, throwaway git repos
 // ---------------------------------------------------------------------------
 
+/** The script plus what it imports (the window lib and the corpus resolver), laid out as in the repo. */
+function installGate(into: string): void {
+  fs.mkdirSync(path.join(into, 'tools/scripts'), { recursive: true })
+  fs.mkdirSync(path.join(into, 'test/suite/support'), { recursive: true })
+  fs.copyFileSync(realScript, path.join(into, 'tools/scripts/check-content.mjs'))
+  fs.cpSync(path.join(repoRoot, 'tools/scripts/lib'), path.join(into, 'tools/scripts/lib'), {
+    recursive: true,
+  })
+  fs.copyFileSync(
+    path.join(repoRoot, 'test/suite/support/corpus.cjs'),
+    path.join(into, 'test/suite/support/corpus.cjs'),
+  )
+}
+
 let dir: string
 
 beforeEach(() => {
@@ -465,7 +479,7 @@ beforeEach(() => {
   run('git', ['config', 'user.name', 'Test'])
   run('git', ['config', 'color.ui', 'always']) // must not leak ANSI into our parsing
   fs.mkdirSync(path.join(dir, 'tools/scripts'), { recursive: true })
-  fs.copyFileSync(realScript, path.join(dir, 'tools/scripts/check-content.mjs'))
+  installGate(dir)
   writeFile('README.md', 'clean control file\n')
   run('git', ['add', 'README.md'])
   run('git', ['commit', '-q', '-m', 'base'])
@@ -764,7 +778,7 @@ describe(
       const shallow = fs.mkdtempSync(path.join(os.tmpdir(), 'contentgate-shallow-'))
       spawnSync('git', ['clone', '--quiet', '--depth', '1', `file://${dir}`, shallow])
       fs.mkdirSync(path.join(shallow, 'tools/scripts'), { recursive: true })
-      fs.copyFileSync(realScript, path.join(shallow, 'tools/scripts/check-content.mjs'))
+      installGate(shallow)
       const res = spawnSync('node', ['tools/scripts/check-content.mjs', 'history'], {
         cwd: shallow,
       })
@@ -914,7 +928,7 @@ describe(
       g(['add', 'root.asm'])
       g(['commit', '-q', '-m', 'root commit with a defect'])
       fs.mkdirSync(path.join(fresh, 'tools/scripts'), { recursive: true })
-      fs.copyFileSync(realScript, path.join(fresh, 'tools/scripts/check-content.mjs'))
+      installGate(fresh)
       const hist = spawnSync('node', ['tools/scripts/check-content.mjs', 'history'], { cwd: fresh })
       expect(hist.stdout.toString()).toMatch(/root\.asm/)
       fs.rmSync(fresh, { recursive: true, force: true })
