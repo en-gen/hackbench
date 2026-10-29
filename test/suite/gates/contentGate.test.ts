@@ -1421,3 +1421,42 @@ refs/heads/b ${head()} refs/heads/b ${zero}
   },
   CLI_TIMEOUT_MS,
 )
+
+// ---------------------------------------------------------------------------
+// The real hook file, run by real `git push` (#1183). Text matching on the
+// hook cannot see an early exit, a `|| true` or a wrong mode; running it can.
+// ---------------------------------------------------------------------------
+
+describe('the real .githooks/pre-push', () => {
+  function pushWithHook(relPath: string, content: string): number {
+    const hooksDir = path.join(dir, '.githooks')
+    fs.mkdirSync(hooksDir)
+    fs.copyFileSync(path.join(repoRoot, '.githooks/pre-push'), path.join(hooksDir, 'pre-push'))
+    run('git', ['config', 'core.hooksPath', '.githooks'])
+    addBareRemote('origin')
+    writeFile(relPath, content)
+    run('git', ['add', relPath])
+    run('git', ['commit', '-q', '-m', 'add'])
+    const res = spawnSync('git', ['push', '-q', 'origin', 'HEAD:refs/heads/master'], {
+      cwd: dir,
+      stdio: 'pipe',
+    })
+    return res.status ?? -1
+  }
+
+  it(
+    'refuses a push carrying a planted ROM-extension file',
+    () => {
+      expect(pushWithHook('game.smc', 'synthetic bytes, not a cartridge')).not.toBe(0)
+    },
+    CLI_TIMEOUT_MS,
+  )
+
+  it(
+    'lets a clean push through',
+    () => {
+      expect(pushWithHook('notes.txt', 'clean\n')).toBe(0)
+    },
+    CLI_TIMEOUT_MS,
+  )
+})
