@@ -8,7 +8,7 @@
 # `.gitnexusrc` (skipAgentsMd, read by a bare analyze too) and the
 # --skip-agents-md flag on every call below. The normalizer and canary stay as
 # a net for a generator that ignores both: it also writes em-dashes, which this
-# repo's pre-commit gate blocks, and an old generator once ate the Quality
+# repo's CI content check (range mode) blocks, and an old generator once ate the Quality
 # gates section when the start marker sat above it.
 #
 # Run this whenever the index is reported stale.
