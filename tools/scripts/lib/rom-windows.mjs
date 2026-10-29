@@ -17,8 +17,16 @@ export function locateVanillaRom(env, repoRoot, exists = existsSync) {
 }
 
 /** A window worth looking up: all-00 or all-FF runs and the like match any
- *  ROM, so fewer than MIN_DISTINCT distinct values are ignored. The one filter. */
-export const isCandidate = w => new Set(w).size >= MIN_DISTINCT
+ *  ROM, so fewer than MIN_DISTINCT distinct values, a constant step or a short period are ignored. The one filter. */
+export const isCandidate = w => new Set(w).size >= MIN_DISTINCT && !isPattern(w)
+
+/** A constant step (counting up or down, mod 256) or a repeat of period 2 to 4: any ROM has them,
+ *  and they carry no content. Costs a copied table that is itself a pure ramp or loop (#1053). */
+const isPattern = w => {
+  const d = (w[1] - w[0]) & 255
+  if (Array.from(w).every((v, i) => i === 0 || ((v - w[i - 1]) & 255) === d)) return true
+  return [2, 3, 4].some(p => Array.from(w).every((v, i) => i < p || v === w[i - p]))
+}
 
 // Map key for a window: its bytes as a latin1 string.
 const key = w => Buffer.from(w).toString('latin1')

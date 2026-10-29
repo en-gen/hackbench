@@ -58,7 +58,9 @@ elements mixed in counts toward `byte-tokens` too.
 `rom-window` (#1053): an ADDED text file (not `.md`) with a run of byte notation
 (`0x` and `$` tokens, bare hex pairs, `\x` escapes, unbroken hex strings; the
 parser of the ROM-window probe below) that contains an 8-byte window of the
-vanilla ROM, windows with fewer than 3 distinct values ignored. It prints
+vanilla ROM, windows with fewer than 3 distinct values, a constant step (a ramp) or
+a repeat of period 2 to 4 ignored (they occur in any ROM; the cost is that a copied
+table which is itself a pure ramp or short loop is not seen). It prints
 `BLOCKED (rom-window): <path> line N, M windows`, never the bytes, and exits 1
 like every other rule. **With a ROM** (found by `corpus.cjs`, so
 `HACKBENCH_ROMS` applies) the windows come from the real ROM. **Without one
@@ -70,9 +72,9 @@ today only local runs enforce it. The lookup is chosen in one function
 drops in later. Not applied to: modified files (101 of 1,512 files on develop
 already hold a run, so an edit would fail on old content), whole-history mode
 (red forever for the same reason), and `.md` (prose lists addresses). Evidence
-scope, one machine, 2026-10-28: of the 1,249 non-`.md` files on develop, 93 hold
-a run (existing fixtures, tests and sources); across the 24 other remote
-branches, 5 added files hold one.
+scope, one machine, 2026-10-28: of the 1,249 non-`.md` files on develop, 71 hold
+a run (existing fixtures, tests and sources; 20 of them a 16+ byte contiguous
+match); across the 24 other remote branches, 3 added files hold one.
 `test/suite/gates/contentGateRomWindows.test.ts` proves it red on planted runs in
 each notation with a fake PRNG ROM (CI) and the real ROM (local), and sweeps every
 synthetic ROM builder in `test/suite/support` against the vanilla windows (4a);
@@ -928,7 +930,8 @@ check:** have the fixture builder write its bytes to a scratch file
 (`writeFileSync(scratch, builder())`), then run
 `rom-window-probe.mjs --bin <scratch>`.
 
-Windows with fewer than 3 distinct values are ignored (they match any ROM):
+Windows with fewer than 3 distinct values, a constant step or a short repeat are ignored
+(they match any ROM; the counts below are for the distinct-values filter alone):
 43,597 of 524,281 positions and 2,982 of 442,994 distinct windows in the
 vanilla ROM (one machine). A 512-byte copier header is stripped, so no window
 straddles it. Output is `HIT path:line windows=N` (`offset=0x..` for bytes) and

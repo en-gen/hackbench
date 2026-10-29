@@ -98,6 +98,17 @@ describe('rom-window rule, a synthetic ROM injected through the lookup seam', ()
     }
   })
 
+  it('a ramp or a short loop present in the injected set passes (pattern filter)', () => {
+    const ramp = Uint8Array.from([3, 7, 11, 15, 19, 23, 27, 31]) // constant step
+    const wrap = Uint8Array.from([250, 253, 0, 3, 6, 9, 12, 15]) // constant step across 255 to 0
+    const loop = Uint8Array.from([9, 4, 7, 9, 4, 7, 9, 4]) // period 3
+    const rom2 = prng(256)
+    for (const [i, w] of [ramp, wrap, loop].entries()) rom2.set(w, 20 + i * 20)
+    const set2 = windowSet(rom2)
+    for (const w of [ramp, wrap, loop])
+      for (const n of NAMES) expect(checkRomWindows('f.ts', text(n, w), set2), n).toEqual([])
+  })
+
   it('no lookup, a lockfile and a binary blob are not scanned', () => {
     const t = text('hex array', planted)
     expect(checkRomWindows('f.ts', t, null)).toEqual([])
@@ -188,7 +199,7 @@ const NOT_BUILDERS = ['syntheticSpcUpload', 'syntheticEeries', 'syntheticGm11Spa
 // Windows each builder shares with the vanilla ROM today (one machine, 2026-10-28, windows not runs).
 // Reported to the BA under #1053; builders are NOT changed here. Delete an entry when its builder is
 // cleaned; the gate for a builder not listed is zero.
-const KNOWN_HITS: Record<string, number> = { stub: 5, blankStockRom: 76, syntheticOverworldRom: 1295, buildSyntheticRom: 2, platformCart: 1, pswitchRom: 26, buildCart: 57, bgModeRom: 9, modeTablesRom: 20, productionCart: 7 } // prettier-ignore
+const KNOWN_HITS: Record<string, number> = { stub: 5, blankStockRom: 76, syntheticOverworldRom: 230, buildSyntheticRom: 2, platformCart: 1, pswitchRom: 26, buildCart: 57, bgModeRom: 9, modeTablesRom: 20, productionCart: 7 } // prettier-ignore
 
 describe('4a: synthetic ROM builders carry no vanilla window', () => {
   it('every builder-shaped support module is listed (a new one must be added)', () => {

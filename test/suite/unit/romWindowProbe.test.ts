@@ -124,7 +124,8 @@ const FORMS: Record<string, (w: ArrayLike<number>) => string> = {
 describe('sweep', () => {
   // A window with exactly d distinct values, planted in a fresh fake ROM.
   const planted = (d: number) => {
-    const w = Array.from({ length: 8 }, (_, i) => 0x30 + (i % d) * 0x11)
+    // Not a ramp or a short loop (those are filtered as patterns), so only the distinct count varies.
+    const w = [0, 3, 1, 6, 2, 7, 5, 4].map(x => 0x30 + (x % d) * 0x11)
     const rom = prng(1024, 99 + d)
     rom.set(w, 300)
     return { w, set: windowSet(rom) }
