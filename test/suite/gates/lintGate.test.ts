@@ -90,10 +90,7 @@ describe('the lint gate can fail', () => {
   it(
     'rejects an unused variable',
     () => {
-      const file = writeFixture(
-        'unused.ts',
-        'export function f(): number {\n  const dead = 1\n  return 2\n}\n',
-      )
+      const file = writeFixture('unused.ts', UNUSED_VAR)
       expect(exitCodeOf(ESLINT_BIN, ['--max-warnings', '0', file])).not.toBe(0)
     },
     ESLINT_TIMEOUT_MS,
@@ -225,10 +222,7 @@ describe('the lint gate can fail', () => {
     () => {
       // Documents WHY the flag is load-bearing: this is the exact state the
       // repo shipped in, where 14 warnings rode along under a green check.
-      const file = writeFixture(
-        'unused.ts',
-        'export function f(): number {\n  const dead = 1\n  return 2\n}\n',
-      )
+      const file = writeFixture('unused.ts', UNUSED_VAR)
       expect(exitCodeOf(ESLINT_BIN, [file])).toBe(0)
     },
     ESLINT_TIMEOUT_MS,
