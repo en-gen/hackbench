@@ -121,7 +121,8 @@ function launcherRom(tweak: (bytes: Uint8Array) => void = () => {}, launch = lau
     bytes.set(b, off(snes))
   }
   tweak(bytes)
-  return RomFile.fromBytes('launcher.sfc', bytes)
+  const rom = RomFile.fromBytes('launcher.sfc', bytes)
+  return rom
 }
 
 /** This cart's own routine fingerprints (the vanilla ones are for the vanilla bytes). */

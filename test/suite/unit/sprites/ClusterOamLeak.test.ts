@@ -60,7 +60,8 @@ function clusterRom(cell: number): RomFile {
   // Id 40's MAIN pointer (table at $01:8329) to LDA #1 / STA $18B8 / JMP id 0's MAIN ($8640).
   put(0x018329 + SETS_FLAG * 2, [0x00, 0x98], 2)
   put(0x019800, [0xa9, 0x01, ...sta(0x18b8), 0x4c, 0x40, 0x86])
-  return RomFile.fromBytes('cluster.sfc', bytes)
+  const rom = RomFile.fromBytes('cluster.sfc', bytes)
+  return rom
 }
 
 const oamOf = (m: ReturnType<typeof runOnce>) =>

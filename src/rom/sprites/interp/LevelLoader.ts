@@ -10,7 +10,9 @@
  * (bank_00.asm:2645-2649 layer position copy, 2652-2656 screen setup), then the level-data loader
  * (CODE_05801E, bank_05.asm:20-70: header parse CODE_0584E3, called at line
  * 428, for $5B/$5D/$64; tileset slope pointer CODE_0581FB, line 253; then every
- * object of Layer 1 expanded into the Map16 tables at $7E:C800/$7F:C800).
+ * object of Layer 1 expanded into the Map16 tables at $7E:C800/$7F:C800), then GM12PrepLevel's
+ * Layer 3 handler (CODE_009FB8, bank_00.asm:4870; skipped when IRQNMICommand bit 7 is set,
+ * bank_00.asm:4861-4864): the tide's $5B bit 7 and buffer clear (#842, #845).
  * Hardware registers are the bus stubs; nothing is read from an emulator capture.
  *
  * The fixed GM11 calls and single instructions at the resolved entries are checked (loaderSites); the GM11
@@ -38,10 +40,10 @@ import { smwMachine } from './Machine'
 import { withSeed, type SeedOverride, type SpriteSeed } from './SpriteSeed'
 
 /**
- * Instruction cap for the whole load (all five steps). The loader runs on the
+ * Instruction cap for the whole load (all seven steps). The loader runs on the
  * Theia RPC thread (map-sprites.ts), so a ROM that passes the shapes and loops
- * must be refused quickly. Vanilla's worst level over all 512 level numbers is
- * 276,864 steps (max over levels 0-511, one run, 2026-10-07), so this is ~7x headroom.
+ * must be refused quickly. Vanilla's worst level over all 512 slots is
+ * 276,894 steps (slot $11A) with the Layer 3 reset and handler (276,864 before them; max over slots 0-511, one run, 2026-10-07 and the review of #842), so this is ~7x headroom.
  */
 export const LOADER_TOTAL_CAP = 2_000_000
 
@@ -129,6 +131,8 @@ export interface Site {
   operand?: { value: number; size: 1 | 2 }
   bank?: number
   bankExact?: boolean
+  /** A call whose target is neither compared nor followed (the loader runs the routine itself). */
+  targetFree?: boolean
   lands?: number
 }
 
@@ -211,6 +215,18 @@ export function loaderSites(rom: RomFile): Site[] {
     // UpdateScreenPosition in bank 0 itself (a $80 mirror is another return bank). The rest is run.
     { name: 'GM11 code between the entrance setup and the level data call at $00:9708', at: SCREEN_SETUP, op: LDA_IMM }, // prettier-ignore
     { name: 'GM11 code between the entrance setup and the level data call at $00:9708', at: SCREEN_UPDATE_CALL, op: JSL, bank: 0, bankExact: true }, // prettier-ignore
+    // The Layer 3 handler opens with a load of ObjectTileset (bank_00.asm:4139); the rest is run.
+    { name: 'Layer 3 handler at $00:9FB8', at: L3_HANDLER, op: LDA_ABS },
+    // The reset opens with PHB (bank_05.asm:4784); its PLB pairs with it inside the routine, which is run.
+    { name: 'Layer 3 reset at $05:BE8A', at: L3_RESET, op: PHB },
+    // GM12PrepLevel's test of IRQNMICommand ($0D9B) and the two calls the loader mirrors (bank_00.asm:4861-4870):
+    // BPL runs them when bit 7 is clear (its distance lands on a JSR), the JSL is the reset call, the JSR goes to the handler.
+    { name: GM12_NAME, at: GM12_LDA, op: LDA_ABS, operand: { value: 0x0d9b, size: 2 } },
+    { name: GM12_NAME, at: GM12_BPL, op: BPL, lands: JSR },
+    // The JSL's target is NOT compared: 19 of the 22 store hacks the loader accepts route it through a hook (a JSL into bank $0E),
+    // and the loader runs the reset itself. Comparing it would refuse them (levelLoaderFingerprint.test.ts parity).
+    { name: GM12_NAME, at: GM12_RESET_CALL, op: JSL, targetFree: true },
+    { name: GM12_NAME, at: GM12_HANDLER_CALL, op: JSR, operand: { value: L3_HANDLER & 0xffff, size: 2 } }, // prettier-ignore
     // The sublevel branch ends in JMP CODE_05D8B7 (bank_05.asm:7162).
   ]
   const e = entriesOf(rom)
@@ -257,6 +273,17 @@ function siteHolds(rom: RomFile, s: Site): boolean {
   return (s.bankExact ? b[3]! : b[3]! & 0x7f) === s.bank
 }
 
+/** The Layer 3 handler's entry (CODE_009FB8, bank_00.asm:4139); the reset is CODE_05BE8A (bank_05.asm:4784). */
+const L3_HANDLER = 0x009fb8
+const L3_RESET = 0x05be8a
+const GM12_NAME = 'GM12PrepLevel call site of the Layer 3 handler at $00:A5AF'
+/** GM12PrepLevel's call site (bank_00.asm:4861-4870): LDA IRQNMICommand, BPL over the skip, ..., JSL reset, JSR handler. */
+const GM12_LDA = 0x00a5af
+const GM12_BPL = 0x00a5b2
+const GM12_RESET_CALL = 0x00a5bf
+const GM12_HANDLER_CALL = 0x00a5c3
+const BPL = 0x10
+
 /** The first loader site whose instruction is not the one this loader knows, or null. */
 export function loaderShapeProblem(rom: RomFile): string | null {
   const mapper = mapperProblem(rom)
@@ -265,7 +292,8 @@ export function loaderShapeProblem(rom: RomFile): string | null {
   const bad = loaderSites(rom).find(s => !siteHolds(rom, s))
   if (bad) return refuse(bad.name)
   const e = entriesOf(rom)
-  return typeof e === 'string' ? refuse(e) : null
+  if (typeof e === 'string') return refuse(e)
+  return null
 }
 
 /** RNGCalc (rammap.asm), the 16-bit GetRand state. */
@@ -359,14 +387,26 @@ export function loadLevelState(rom: RomFile, level: number, rng = 0): LevelLoad 
     // GM11LoadLevel's order (bank_00.asm:2644-2657): the header loader, the layer position copy
     // (2645-2649), [UploadLevelMusic, not modelled], CODE_00A635 (the per-level timers and Mario's
     // entrance state), the screen setup (2652-2656, ending in UpdateScreenPosition), then CODE_05801E.
-    // That one ends with PLP, RTL; it saves its own DB use via the JSL caller.
+    // That one ends with PLP, RTL; it saves its own DB use via the JSL caller. GM12PrepLevel then runs the
+    // Layer 3 handler (CODE_009FB8, bank_00.asm:4870): on a tide level it sets ScreenMode bit 7, Layer3YPos and the
+    // $26/$28 offset, which CODE_019140's second pass reads as liquid (#842). The game skips it when
+    // IRQNMICommand ($0D9B, set from SpecialLevTable by the header loader, bank_05.asm:500-503, 551)
+    // has bit 7 (bank_00.asm:4861-4863 branches to CODE_0097BC instead). That is by mode, not by level
+    // list: 24 vanilla maps end with it set (modes 9, $B and $10; docs/sprites/sprite-a4-floating-spike-ball.md),
+    // so the loader tests the same cell. The same branch skips CODE_05BE8A (bank_00.asm:4869), which copies
+    // Layer1YPos into Layer3YPos (bank_05.asm:4794-4795) just before the handler; on the maps where the handler
+    // writes nothing (011, 130, 1c1) that copy is all that sets $24.
     const bad =
       prologue() ??
       run('level pointer loader', e.pointer, 'jsl', e.pointer >> 16, [e.pointer >> 16]) ??
       span('layer position copy', ...GM11_SPANS.layerCopy) ??
       run('Mario entrance setup', e.entrance, 'jsr', 0x00) ??
       span('screen position setup', ...GM11_SPANS.screenSetup) ??
-      run('level data loader', e.data, 'jsl', e.dataBank)
+      run('level data loader', e.data, 'jsl', e.dataBank) ??
+      (w[0x0d9b] & 0x80
+        ? null
+        : (run('Layer 3 reset', L3_RESET, 'jsl', 0x05) ??
+          run('Layer 3 handler', L3_HANDLER, 'jsr', 0x00)))
     if (bad) return { ok: false, reason: bad }
   } catch (e) {
     if (e instanceof Refusal) return { ok: false, reason: e.message }

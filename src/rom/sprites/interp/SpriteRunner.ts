@@ -118,6 +118,12 @@ export interface PassResult {
   pass: number
   /** Level position of the sprite at the end of this pass. */
   pos: { x: number; y: number }
+  /**
+   * Level position at the pass's first OAM write: the position the capture records (headless_capture.lua
+   * "read at the first OAM write by this slot that frame"). Differs from `pos` for a sprite that draws, then
+   * moves (DolphinMain, SMWDisX bank_02.asm:7896-7901). Absent when the pass wrote no OAM.
+   */
+  drawPos?: { x: number; y: number }
   /** Where this pass's parts are measured from: `SpriteModel.anchor` when INIT's moves are kept; the end-of-pass `pos` at rest; the pass before's `pos` for $67 on a vanilla-shaped handler (where the pass before left it). */
   origin: { x: number; y: number }
   parts: SpritePart[]
@@ -247,6 +253,8 @@ export class Machine {
   readonly bus: SpriteBus
   readonly cpu: Cpu65816
   private touched = new Set<number>()
+  /** The sprite's position at the first OAM write since `clearOamWrites` (the capture's sampling moment). */
+  private drawAt: { x: number; y: number } | null = null
   /** Colors set so far, in the order they took effect (cumulative; see `nmi`). */
   private applied: PaletteWrite[] = []
   /** The run itself wrote $0680 PaletteIndexTable since the last NMI (a loaded image's value is not the sprite's). */
@@ -285,6 +293,17 @@ export class Machine {
     this.cpu = m.cpu
     this.bus.onWramWrite = off => {
       this.touched.add(off)
+      // The capture's own filter (headless_capture.lua:1270-1290): $0200-$049F minus the $0400-$041F gap,
+      // and only while $15E9 (the current sprite) is the slot, so a write by another routine does not count.
+      if (
+        !this.drawAt &&
+        off >= RAM.oam &&
+        off < 0x4a0 &&
+        (off < 0x400 || off >= 0x420) &&
+        this.bus.wram[RAM.curSprite] === this.seed.slot
+      )
+        // prettier-ignore
+        this.drawAt = this.pos()
       if (this.bus.wram[RAM.curSprite] === this.seed.slot) {
         this.own.add(off)
         if (this.drawingFor !== undefined) {
@@ -530,6 +549,7 @@ export class Machine {
 
   clearOamWrites(): void {
     this.touched.clear()
+    this.drawAt = null
     this.own.clear()
     this.drewSlots.clear()
     this.childTiles.clear()
@@ -550,6 +570,11 @@ export class Machine {
     })
     if (!this.drewAt || !children.length) return undefined
     return { children, shift: { x: this.drewAt.x - origin.x, y: this.drewAt.y - origin.y } }
+  }
+
+  /** Where the sprite stood when it first wrote OAM since the last clear; null when it wrote none. */
+  drawPos(): { x: number; y: number } | null {
+    return this.drawAt
   }
 
   /** OAM mirror indices whose tile byte this pass wrote. */
@@ -816,9 +841,11 @@ function runCore(
       // end too: measuring from the draw changed 12 vanilla rows ($05, $06) from same to differ against the table engine.
       const origin = snaps ? (model.passes[p - 1]?.pos ?? anchor) : atRest ? m.pos() : anchor
       const drew = neighbourRun ? m.drew(origin) : undefined
+      const drawPos = m.drawPos()
       model.passes.push({
         pass: p,
         pos: m.pos(),
+        ...(drawPos ? { drawPos } : {}),
         origin: { x: origin.x, y: origin.y },
         parts: readParts(m, origin),
         uploads: uploadsOf(m, hw),

@@ -13,6 +13,14 @@ export function putGm11Spans(
   o: SyntheticOptions,
 ): void {
   const bad = (k: string, b: number) => (o.badLoader === k ? 0xea : b)
+  // GM12PrepLevel's call site of the Layer 3 handler (bank_00.asm:4861-4870), 23 bytes the loader never runs (it calls
+  // the reset and the handler itself) but checks instruction by instruction: LDA $0D9B / BPL over the skip, onto the
+  // JSR at +10 / JSR / BRA / JSR / JSR / JSL reset (target not compared) / JSR handler. The other operands are arbitrary.
+  put(0x00a5af, [
+    bad('gm12', 0xad), 0x9b, 0x0d, o.badLoader === 'gm12Bpl' ? 0x30 : 0x10, 0x05, 0x20, 0x34, 0x12, 0x80, 0x16,
+    0x20, 0x56, 0x34, 0x20, 0x78, 0x56, 0x22, 0x8a, 0xbe, 0x05,
+    0x20, ...(o.badLoader === 'gm12Jsr' ? [0xb9, 0x9f] : [0xb8, 0x9f]),
+  ]) // prettier-ignore
   // Hand-written stand-ins for CODE_00A796 and UpdateScreenPosition (the loader runs them, it does not compare
   // them). A796: REP #$20, LDA #$0003, a countdown, SEP #$20, RTS. UpdateScreenPosition: REP #$20, SEC, PHB PHK PLB,
   // LDA $142A, then the hook site (SBC #$000C / STA $142C) and SEP #$20 / LDA $1462 (the
