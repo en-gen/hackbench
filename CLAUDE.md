@@ -175,16 +175,21 @@ Each one corresponds to a defect that actually reached review in this repo.
 
 ## Enforced mechanically
 
-`npm install` sets `core.hooksPath` to `.githooks`. Two gates run on
-pre-commit, pre-push and in CI:
+`npm install` sets `core.hooksPath` to `.githooks`. There is no pre-commit
+hook (#1183; refinement in #1163); `.githooks/pre-push` is the only hook.
 
-- `tools/scripts/check-staged-style.sh`: ESLint at `--max-warnings 0` and
-  Prettier check over staged JS/TS/CSS. Warnings are fatal.
-  `test/suite/gates/lintGate.test.ts` proves both halves go red.
-- `tools/scripts/check-content.mjs` (#678): blocks ROM-derived bytes (the
-  copyright rule in `docs/testing.md`; `.gitignore` alone is defeated by
-  `git add -f`) and em-dashes in added lines. `--no-verify` only with a reason
-  stated in the PR.
+- CI `static` job: `npm run lint` (ci.yml:102; ESLint over `src test tools
+  theia` and root `*.js *.mjs`, `--max-warnings 0`; root `*.ts` configs are
+  not covered) and `npm run format:check` (ci.yml:105; Prettier over JS/TS/CSS
+  tree-wide). `tools/scripts/check-staged-style.sh` is not called by
+  anything now (kept for #1163); `test/suite/gates/lintGate.test.ts` proves
+  the lint and format scripts go red.
+- `tools/scripts/check-content.mjs` (#678): ROM-derived bytes are blocked on
+  pre-push and in CI (`range`, `history`); em-dashes in added lines only in
+  CI `range` (and `staged` mode, which no hook runs). `.gitignore` alone is
+  defeated by `git add -f` (copyright rule: `docs/testing.md`).
+  `git push --no-verify` skips pre-push only; CI has no bypass, so say why
+  in the PR.
 
 ## Claim discipline
 

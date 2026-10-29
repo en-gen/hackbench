@@ -220,7 +220,7 @@ and the control looks unstyled.
 - US spelling. **color**, never "colour". `romTerminologyGate.test.ts`
   fails on "colour" in any string literal or JSX text under
   `theia/extension/src`, `src/rom` or `src/project` (#273).
-- No em-dashes. A pre-commit hook blocks them in added lines.
+- No em-dashes. The CI content check (range mode) blocks them in added lines.
 - Say what the app actually does. "Save" is correct; "Save to ROM"
   is not, because saving appends an op layer and the base ROM is
   never written. A wrong verb here is an architecture error before it is
