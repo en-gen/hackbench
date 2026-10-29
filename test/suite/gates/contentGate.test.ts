@@ -1428,10 +1428,12 @@ refs/heads/b ${head()} refs/heads/b ${zero}
 // ---------------------------------------------------------------------------
 
 describe('the real .githooks/pre-push', () => {
-  function pushWithHook(relPath: string, content: string): number {
+  function pushWithHook(relPath: string, content: string): { status: number; out: string } {
     const hooksDir = path.join(dir, '.githooks')
     fs.mkdirSync(hooksDir)
     fs.copyFileSync(path.join(repoRoot, '.githooks/pre-push'), path.join(hooksDir, 'pre-push'))
+    // The tracked file is mode 100644 and git on Linux (CI) skips a non-executable hook.
+    fs.chmodSync(path.join(hooksDir, 'pre-push'), 0o755)
     run('git', ['config', 'core.hooksPath', '.githooks'])
     addBareRemote('origin')
     writeFile(relPath, content)
@@ -1441,13 +1443,17 @@ describe('the real .githooks/pre-push', () => {
       cwd: dir,
       stdio: 'pipe',
     })
-    return res.status ?? -1
+    return { status: res.status ?? -1, out: `${res.stdout}${res.stderr}` }
   }
 
   it(
     'refuses a push carrying a planted ROM-extension file',
     () => {
-      expect(pushWithHook('game.smc', 'synthetic bytes, not a cartridge')).not.toBe(0)
+      const res = pushWithHook('game.smc', 'synthetic bytes, not a cartridge')
+      expect(res.status).not.toBe(0)
+      // The hook itself spoke, so the push did not fail for some other reason.
+      expect(res.out).toContain('Blocked by tools/scripts/check-content.mjs')
+      expect(res.out).toContain('game.smc')
     },
     CLI_TIMEOUT_MS,
   )
@@ -1455,7 +1461,7 @@ describe('the real .githooks/pre-push', () => {
   it(
     'lets a clean push through',
     () => {
-      expect(pushWithHook('notes.txt', 'clean\n')).toBe(0)
+      expect(pushWithHook('notes.txt', 'clean\n').status).toBe(0)
     },
     CLI_TIMEOUT_MS,
   )
