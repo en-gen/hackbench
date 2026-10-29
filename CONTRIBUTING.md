@@ -28,7 +28,7 @@ git clone https://github.com/en-gen/hackbench
 cd hackbench
 npm install                     # root: the core, the tests, the tooling
 yarn --cwd theia install        # the desktop app's own workspace
-git config core.hooksPath .githooks   # the pre-commit gates, once per clone
+git config core.hooksPath .githooks   # the pre-push content check, once per clone
 ```
 
 Build and run the app:

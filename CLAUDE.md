@@ -175,11 +175,13 @@ Each one corresponds to a defect that actually reached review in this repo.
 
 ## Enforced mechanically
 
-`npm install` sets `core.hooksPath` to `.githooks`. Two gates run on
-pre-commit, pre-push and in CI:
+`npm install` sets `core.hooksPath` to `.githooks`. There is no pre-commit
+hook (#1183; refinement in #1163). Lint and format run in CI; the content
+check runs on pre-push and in CI:
 
 - `tools/scripts/check-staged-style.sh`: ESLint at `--max-warnings 0` and
-  Prettier check over staged JS/TS/CSS. Warnings are fatal.
+  Prettier check over staged JS/TS/CSS. Warnings are fatal. No hook or CI
+  calls it now (kept for #1163).
   `test/suite/gates/lintGate.test.ts` proves both halves go red.
 - `tools/scripts/check-content.mjs` (#678): blocks ROM-derived bytes (the
   copyright rule in `docs/testing.md`; `.gitignore` alone is defeated by

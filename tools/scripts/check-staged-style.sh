@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Kept for #1163; no hook or CI calls it since #1183 (owner ruling R28). [PROP]
 # Lint and format gate for staged JS/TS/CSS.
 #
 # The CI job sweeps the whole tree; this checks only what is being committed,
