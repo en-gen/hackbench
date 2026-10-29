@@ -87,6 +87,9 @@ export const RAM = {
   oamEntries: 128,
 } as const
 
+/** The passes a sprite that probes, locks and walks is on its line after (lock, then the first walk); a later lock means it fell first. */
+const FIRST_STEPS = 1
+
 /** Instruction budget for one call (INIT or one MAIN pass). */
 const STEP_BUDGET = 200_000
 /**
@@ -882,7 +885,9 @@ function runCore(
     const online = atRest && snaps ? onLinePass(lineStates) : undefined
     if (online !== undefined && model.passes[online + 1]?.parts.length) {
       model.chosen = online + 1
-      model.onLine = online > 1 ? 'fell' : 'step'
+      // A lock on pass 0 or 1 is the probe lock then the first walk (bank_01.asm:12045-12061, 11863-11930): it stepped. A later lock came
+      // after the line step found nothing and let it fall (SpriteTableC2 = 2, bank_01.asm:11976-11981): it fell.
+      model.onLine = online <= FIRST_STEPS ? 'step' : 'fell'
     } else if (atRest && snaps && first >= 0)
       model.noLineReason = 'it never reached its line within the passes run'
     // The line-guided ids draw before their own move (SMWDisX bank_01.asm:12194-12204). Pass 0 draws at the off-track INIT spot,
