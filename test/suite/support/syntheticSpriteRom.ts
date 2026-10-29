@@ -101,6 +101,10 @@ export interface SyntheticOptions {
   grinderDrawsOnPass1?: boolean
   /** Id 103 draws from its second MAIN onward (already on its track at the first draw). */
   grinderDrawsFromPass1?: boolean
+  /** Id 103's step also runs the line step's lock from its Nth call on: SpriteTableC2,X = 1 and SpriteMisc1540,X = 0 (the sprite is then on its line, D156). */
+  grinderLocksOnPass?: number
+  /** Id 103's draw keeps the 9th bit of its X (off-screen pieces read back where they are). */
+  grinderWideX?: boolean
   /** Id 31's MAIN pointer is id 103's handler: the shape matches, the id does not. */
   id31IsGrinder?: boolean
   /**

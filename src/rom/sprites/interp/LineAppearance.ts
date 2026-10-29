@@ -1,7 +1,4 @@
-/**
- * Where a line-guided sprite is first drawn on its line, and whether it ever appears (D156, owner ruling of 2026-10-29).
- * Interpreted from the ROM's own state and loader, no fixed frame count or pixel offset.
- */
+/** Where a line-guided sprite is first drawn on its line, and whether it ever appears (D156). Read from the ROM's own state and loader. */
 import type { RomFile } from '../../RomFile'
 import { fingerprint } from '../../Fingerprint'
 
@@ -12,29 +9,23 @@ export interface LineState {
 }
 
 /**
- * The first pass after which the sprite is on its line: the line step has locked (SpriteTableC2 = 1, CODE_01D933,
- * bank_01.asm:12116-12118) and the lock timer InitLineBrwnPlat starts (bank_01.asm:11811-11812) has run out, so the
- * walk has written a line-table point (CODE_01D7B0). Before that the lock leaves it on the probe corner (CODE_01D8A4,
- * bank_01.asm:12045-12061). The game draws each frame where the frame before ended (the draw comes before the step,
- * bank_01.asm:12204-12215), so the first line spot is drawn on the pass after.
+ * The first pass after which the sprite is on its line: locked (SpriteTableC2 = 1, bank_01.asm:12116-12118) with the
+ * timer InitLineBrwnPlat starts (bank_01.asm:11809-11810) run out. The lock alone leaves it on the probe corner
+ * (bank_01.asm:12045-12061). The draw comes before the step (bank_01.asm:12204-12215), so the line spot is drawn next pass.
  */
 export function onLinePass(states: readonly LineState[]): number | undefined {
   const at = states.findIndex(s => s.lock === 1 && s.timer === 0)
   return at < 0 ? undefined : at
 }
 
-/** Where a spawn left the sprite's parts along the scroll axis, in screen pixels, or null when it drew nothing. */
+/** Where a spawn left the sprite's parts along the scroll axis (screen pixels), or null when it drew nothing. */
 export interface Spawn {
   /** 1 scrolling right/down, -1 left/up, 0 the map-load window (no scroll). */
   dir: -1 | 0 | 1
   extent: { lo: number; hi: number } | null
 }
 
-/**
- * A spawn shows the sprite when it is not behind the scroll: scrolling right only moves the screen away from a sprite
- * entirely left of it. A still camera is NOT conservative (a sprite behind it drifts into view at its own speed), so
- * the test is the side it starts on, not a run of frames. "Starts behind", not "can never be seen".
- */
+/** Shown unless behind the scroll. A still camera is not conservative (a sprite behind it drifts in), so: the side it starts on. */
 export function appears({ dir, extent }: Spawn, screen: number): boolean {
   if (!extent) return false
   if (dir > 0) return extent.hi > 0
@@ -46,20 +37,31 @@ export function appears({ dir, extent }: Spawn, screen: number): boolean {
 export const neverAppears = (spawns: readonly Spawn[], screen: number): boolean =>
   spawns.length > 0 && spawns.every(s => !appears(s, screen))
 
-/**
- * LoadSprFromLevel (bank_02.asm:5217-5280) with the two offset tables before it: a sprite spawns when
- * (camera + offset) & $F0 is its column, offset by scroll direction (DATA_02A7F6/DATA_02A7F9, 16 bits each, index 0
- * left/up, 2 right/down; ScrollDir is $55). Read from the ROM only when the routine and its tables hash to the stock
- * ones (86 bytes, one digest, vanilla US, one machine); any other cart gets null and no never-appears call.
- */
-const LOADER = {
-  at: 0x02a7f6,
-  len: 86,
-  sha: 'ad9e12473a8247b2b1cd48cfec4dc3cb1b710b120e5d71d50398320f94dd6edf',
+/** A routine's bytes named by one SHA-256 (whole span, vanilla US, one machine). */
+export interface LoaderDigest {
+  at: number
+  len: number
+  sha: string
 }
-export function loaderWindow(rom: RomFile): { right: number; left: number } | null {
-  const b = rom.readAt(LOADER.at, LOADER.len)
-  if (!b || fingerprint(b) !== LOADER.sha) return null
+
+/**
+ * LoadSprFromLevel with its offset tables, DATA_02A7F6 to the column compare (bank_02.asm:5217-5281): a sprite spawns when
+ * (camera + offset) & $F0 is its column; DATA_02A7F6/DATA_02A7F9 hold 16-bit offsets, index 0 left/up, 2 right/down.
+ * 96 bytes in one digest, none stated elsewhere (D126).
+ */
+export const LOADER: LoaderDigest = {
+  at: 0x02a7f6,
+  len: 96,
+  sha: '309784bc22b4810a3da31cedfaf5d00ba6c4d5e2412738d4f861398f44d43eea',
+}
+
+/** The offsets, or null when the loader is not the stock one (the caller then says it could not check). */
+export function loaderWindow(
+  rom: RomFile,
+  d: LoaderDigest = LOADER,
+): { right: number; left: number } | null {
+  const b = rom.readAt(d.at, d.len)
+  if (!b || fingerprint(b) !== d.sha) return null
   const word = (i: number) => ((b[i]! | (b[3 + i]! << 8)) << 16) >> 16
   return { left: word(0), right: word(2) }
 }

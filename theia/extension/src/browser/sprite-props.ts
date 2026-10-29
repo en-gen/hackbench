@@ -90,7 +90,7 @@ export interface SpriteProps {
  * difference the run produced, never a constant here. Absent when the picture is on its stored tile.
  */
 export function shiftNote(
-  s: Pick<MapSpriteDto, 'x' | 'y' | 'stored' | 'afterInit'>,
+  s: Pick<MapSpriteDto, 'x' | 'y' | 'stored' | 'afterInit' | 'onLine'>,
 ): string | undefined {
   if (!s.stored) return undefined
   const words = (dx: number, dy: number) =>
@@ -106,15 +106,22 @@ export function shiftNote(
     words(mid.x - s.stored.x, mid.y - s.stored.y),
     words(s.x - mid.x, s.y - mid.y),
   ]
+  // Wording from what happened: a fall is not a "first step" (it can last many frames), and `onLine` is absent when no line was reached.
+  const fell = s.onLine === 'fell'
   const cause = start
     ? step
-      ? `Its start-up code moves it ${start}, and its first step ${step} more, before it is first drawn`
+      ? fell
+        ? `Its start-up code moves it ${start}, and it then falls ${step} more onto its line`
+        : `Its start-up code moves it ${start}, and its first step ${step} more, before it is first drawn`
       : `Its own start-up code moves it ${start} before it is first drawn`
     : step
-      ? `Its first step moves it ${step} before it is first drawn`
+      ? fell
+        ? `It falls ${step} onto its line before it is first drawn`
+        : `Its first step moves it ${step} before it is first drawn`
       : undefined
   if (!cause) return undefined
-  return `${cause}, so the map draws it where it first sits on its line, as the game does. The highlighted tile is where the map stores it.`
+  const there = s.onLine ? 'where it first sits on its line' : 'there'
+  return `${cause}, so the map draws it ${there}, as the game does. The highlighted tile is where the map stores it.`
 }
 
 export function spriteProps(s: MapSpriteDto): SpriteProps {

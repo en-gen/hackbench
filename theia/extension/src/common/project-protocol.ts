@@ -347,6 +347,8 @@ export interface MapSpriteDto {
   stored?: { x: number; y: number }
   /** With `stored`: where the sprite's start-up code left it, before its first step (`x`, `y` are where it is first drawn). */
   afterInit?: { x: number; y: number }
+  /** With `stored`: how it got onto its line from there: by its first steps, or after a fall. Absent: no line was reached. */
+  onLine?: 'step' | 'fell'
   rgba: string
   /**
    * The parts the bitmap was blitted from, in the order drawn (#984): the Properties view lists them from

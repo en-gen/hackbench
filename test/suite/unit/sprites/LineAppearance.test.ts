@@ -12,7 +12,7 @@ import {
   modelResult,
   readStream,
 } from '../../../../theia/extension/src/node/map-sprites'
-import { spriteProps } from '../../../../theia/extension/src/browser/sprite-props'
+import { shiftNote, spriteProps } from '../../../../theia/extension/src/browser/sprite-props'
 import { parseLevelSprites } from '../../../../src/rom/LevelParser'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
@@ -22,6 +22,7 @@ import {
   neverAppears,
   onLinePass,
 } from '../../../../src/rom/sprites/interp/LineAppearance'
+import { withSeed, type SpriteSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { runOnce, type SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { hasRom, romPath, VANILLA } from '../../support/corpus'
 
@@ -110,7 +111,11 @@ const CASES: {
 ]
 
 describe.skipIf(!hasRom(VANILLA))('the covered vanilla sprites at rest (D156)', () => {
-  const rest = (map: number, at: number): SpriteModel => {
+  const rest = (
+    map: number,
+    at: number,
+    tweak: (sd: SpriteSeed) => SpriteSeed = sd => sd,
+  ): SpriteModel => {
     const path = romPath(VANILLA)
     const bytes = new Uint8Array(readFileSync(path))
     const rom = new SmwRom(RomFile.fromBytes(path, Buffer.from(bytes)))
@@ -125,7 +130,7 @@ describe.skipIf(!hasRom(VANILLA))('the covered vanilla sprites at rest (D156)', 
       rom.rom,
       map,
       built.inputs,
-      (r, id, sd) => (m = runOnce(r, id, sd, { atRest: true })),
+      (r, id, sd) => (m = runOnce(r, id, tweak(sd), { atRest: true })),
     )(p)
     return m!
   }
@@ -151,6 +156,20 @@ describe.skipIf(!hasRom(VANILLA))('the covered vanilla sprites at rest (D156)', 
     expect(res).toMatchObject({ ok: true, note: 'never appears in play' })
     expect(res).not.toHaveProperty('stored')
     expect(spriteProps({ status: 'drawn', id: 0x65, name: 'Chainsaw', x: 1248, y: 288, note: 'never appears in play', parts: [] } as never).notes).toContain('never appears in play') // prettier-ignore
+  })
+
+  it('a sprite the run never puts on its line is drawn where it first drew and says so; one that falls first is worded as a fall (the reviewer witness: $00F idx 32 at row 26, and at row 1)', () => {
+    const never = rest(0x00f, 32, sd => withSeed({ sprite: { y: 26 * 16 } }, sd))
+    expect(never.noLineReason).toMatch(/never reached its line/)
+    expect(never.onLine).toBeUndefined()
+    expect(modelResult(never)).toMatchObject({ unverified: expect.stringMatching(/never reached its line/) }) // prettier-ignore
+    expect(modelResult(never)).not.toHaveProperty('onLine')
+    const fell = rest(0x00f, 32, sd => withSeed({ sprite: { y: 16 } }, sd))
+    expect([fell.onLine, fell.noLineReason]).toEqual(['fell', undefined])
+    const res = modelResult(fell) as Parameters<typeof shiftNote>[0] & {
+      anchor: { x: number; y: number }
+    }
+    expect(shiftNote({ ...res.anchor, stored: res.stored, afterInit: res.afterInit, onLine: res.onLine })).toMatch(/falls .* onto its line/) // prettier-ignore
   })
 
   it('the loader window is the stock one: scrolling right at +$120, left at -$30', () => {

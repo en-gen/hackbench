@@ -14,6 +14,7 @@ import { mapperProblem } from './Guards'
 import {
   type LineState,
   type Spawn,
+  type LoaderDigest,
   loaderWindow,
   neverAppears,
   onLinePass,
@@ -199,6 +200,12 @@ export interface SpriteModel {
   initMoved?: boolean
   /** At rest, an admitted line-guided sprite that starts behind the scroll in every spawn the loader allows (D156): it stays on its stored tile. */
   neverAppears?: boolean
+  /** Set for an INIT-moved line-guided sprite when the map's sprite loader is not the stock one: whether it appears was not checked. */
+  spawnUnchecked?: boolean
+  /** At rest, how the sprite reached the line drawn: by its first steps, or after falling first. */
+  onLine?: 'step' | 'fell'
+  /** At rest, a line-guided sprite the run never put on its line: drawn where it first drew, and unverified. */
+  noLineReason?: string
   /** With `shifted`: where the sprite's INIT left it, before any step; `anchor` is where it was first drawn. */
   initAt?: { x: number; y: number }
   /** True for $67 on a vanilla-shaped handler: each pass draws where the pass before left the sprite (`PassResult.origin`). */
@@ -261,6 +268,8 @@ export interface RunOptions {
   grinderDispatch?: DispatchShape
   /** The InitLineGuidedSpr fingerprint to hold the INIT of $65-$68 to; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   stockInits?: readonly Routine[]
+  /** The sprite loader's digest to hold the map's loader to; a test hook, so a synthetic cart brings its own (default: vanilla's). */
+  loader?: LoaderDigest
   /**
    * `true` is the map view's at-rest picture. D139 D, D138 A: INIT runs for the look only (tiles, flips,
    * variants, status). D134, D91: the drawing is re-based onto the placed spot, so INIT's moves and the
@@ -871,7 +880,11 @@ function runCore(
     if (first >= 0) model.chosen = first
     // At rest, an admitted line-guided sprite is drawn on its line (D156): the pass after the one that put it there.
     const online = atRest && snaps ? onLinePass(lineStates) : undefined
-    if (online !== undefined && model.passes[online + 1]?.parts.length) model.chosen = online + 1
+    if (online !== undefined && model.passes[online + 1]?.parts.length) {
+      model.chosen = online + 1
+      model.onLine = online > 1 ? 'fell' : 'step'
+    } else if (atRest && snaps && first >= 0)
+      model.noLineReason = 'it never reached its line within the passes run'
     // The line-guided ids draw before their own move (SMWDisX bank_01.asm:12194-12204). Pass 0 draws at the off-track INIT spot,
     // pass 1 at the probe-corner spot the first MAIN snapped to (CODE_01D8A4, 12045-12061), pass 2 at the spot the
     // line walk then set, which is on the line (CODE_01D768 / CODE_01D7B0, 11863-11930; Mesen capture 6b47bb75 slot
@@ -904,26 +917,26 @@ function runCore(
       const at = { x: signed(o.x), y: signed(o.y) }
       // A sprite INIT leaves on its tile spawns where the loader puts it, ahead of the scroll; one INIT moves may start
       // behind it in every spawn, and then the game never shows it (D156): it stays on its stored tile.
-      if (
-        first >= 0 &&
-        (anchor.x !== placed.x || anchor.y !== placed.y) &&
-        startsBehind(rom, id, m.seed, opts, placed)
-      ) {
+      const moved = signed(anchor.x) !== signed(placed.x) || signed(anchor.y) !== signed(placed.y)
+      const behind = first >= 0 && moved ? startsBehind(rom, id, m.seed, opts, placed) : false
+      if (behind === undefined) model.spawnUnchecked = true
+      if (behind) {
         model.neverAppears = true
         model.chosen = first
       } else if (at.x !== signed(placed.x) || at.y !== signed(placed.y)) {
         model.anchor = { ...model.anchor!, ...at }
         model.initAt = { x: signed(anchor.x), y: signed(anchor.y) }
         model.shifted = true
-        // A sprite whose INIT moved it is trusted only when its INIT is a stock line-guided one; one moved only by its
-        // first step has no INIT move to check.
-        if (
-          inits?.ok &&
-          (model.initAt.x !== signed(placed.x) || model.initAt.y !== signed(placed.y)) &&
-          !isStockRoutine(rom, inits.handler.address, opts.stockInits ?? STOCK_INITS)
-        )
-          model.lineInitReason = `its INIT (at $${inits.handler.address.toString(16)}) is not a stock line-guided INIT, so the move it makes before the first frame is unverified`
       }
+      // A sprite whose INIT moved it is trusted only when its INIT is a stock line-guided one; one moved only by its
+      // first step has no INIT move to check.
+      if (
+        (model.shifted || model.neverAppears) &&
+        inits?.ok &&
+        moved &&
+        !isStockRoutine(rom, inits.handler.address, opts.stockInits ?? STOCK_INITS)
+      )
+        model.lineInitReason = `its INIT (at $${inits.handler.address.toString(16)}) is not a stock line-guided INIT, so the move it makes before the first frame is unverified`
     }
     if (model.passes.every(p => p.parts.length === 0))
       model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (${atRest ? "it drew no tile at rest; whether it shows in play was not checked" : 'invisible by design, or the seed lacks state'})` // prettier-ignore
@@ -945,9 +958,9 @@ function startsBehind(
   seed: SpriteSeed,
   opts: RunOptions,
   placed: { x: number; y: number },
-): boolean {
-  const win = loaderWindow(rom)
-  if (!win) return false
+): boolean | undefined {
+  const win = loaderWindow(rom, opts.loader)
+  if (!win) return undefined
   const vert = (seed.level.screenMode & 1) === 1
   const screen = vert ? 224 : 256
   const at = vert ? placed.y : placed.x
