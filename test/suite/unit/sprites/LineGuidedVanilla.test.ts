@@ -110,9 +110,13 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla line-guided placement (#792)', 
     })
   }, 600_000)
 
-  it('at rest, every vanilla placement draws on its first pass, so a later first draw (and its first step) shows for none', () => {
+  it('at rest (D156): 10 never appear (the 7 even-column $65 on map $0f, the 3 even-column $67 on map $1a) and stay on their tile; the other 98 are drawn on their line, the pass after the walk', () => {
     expect(table()).toHaveLength(108)
-    expect(table().filter(r => r.rest.chosen !== 0)).toEqual([])
+    const never = table().filter(r => r.rest.neverAppears)
+    expect(never.map(r => `${r.slot.toString(16)}:${r.id.toString(16)}`).sort()).toEqual([...Array(7).fill('f:65'), ...Array(3).fill('1a:67')].sort()) // prettier-ignore
+    for (const r of never) expect([r.rest.anchor!.x, r.rest.anchor!.y, r.rest.shifted], `slot ${r.slot}`).toEqual([r.x, r.y, undefined]) // prettier-ignore
+    const passes = Object.fromEntries(IDS.map(id => [id, sorted(of(id).filter(r => !r.rest.neverAppears).map(r => r.rest.chosen!))])) // prettier-ignore
+    expect(passes).toEqual({ 0x62: [2], 0x64: [1], 0x65: [2], 0x66: [2], 0x67: [2], 0x68: [2, 21] })
   })
 
   it('INIT-on: each one the pick moved sits on a line tile (Map16 $76-$99), and on a straight one at its edge', () => {
@@ -135,18 +139,13 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla line-guided placement (#792)', 
     }
   })
 
-  it("at rest: the picture stands on the run's own post-INIT spot: 320 px left (even column) or 15 px right (odd) for $65-$68; $62 and the 12 $64 ropes, already on their line, do not move", () => {
-    for (const r of table()) {
-      const want = r.id >= 0x65 ? [r.x & 0x10 ? 15 : -320, 0] : [0, 0]
-      expect(
-        [r.rest.anchor!.x - r.x, r.rest.anchor!.y - r.y],
-        `slot ${r.slot} id $${r.id.toString(16)}`,
-      ).toEqual(want)
-      expect(r.rest.shifted === true, `slot ${r.slot} id $${r.id.toString(16)}`).toBe(want[0] !== 0)
-    }
+  it('at rest the picture is the INIT-on spot where the line walk puts it (D156), but for the one that falls first: map $12c idx 29 ($68) is drawn at (3680,367) where the core first has it on its line', () => {
+    const apart = table().filter(r => !r.rest.neverAppears && (r.rest.anchor!.x !== r.play.anchor!.x || r.rest.anchor!.y !== r.play.anchor!.y)) // prettier-ignore
+    expect(apart.map(r => [r.slot, r.id, r.x, r.y, r.rest.anchor!.x, r.rest.anchor!.y])).toEqual([[300, 0x68, 3664, 288, 3680, 367]]) // prettier-ignore
+    expect(apart[0]!.play.anchor).toMatchObject({ x: 3679, y: 288 })
   })
 
-  it('at rest, compared with the generic rule (gate off): the origin change alone, apart from the shift. $67 is in the table but was already gated on develop', () => {
+  it('at rest (D156), compared with the generic rule (gate off): the origin change alone, apart from the shift. $67 is in the table but was already gated on develop', () => {
     // The picture's top-left with the gate on, minus with it off, minus what INIT moved: the origin change alone.
     const tally = Object.fromEntries(
       IDS.map(id => {
@@ -162,7 +161,7 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla line-guided placement (#792)', 
     expect(tally).toEqual({
       0x62: { '4,4': 6 },
       0x64: { '0,0': 12 },
-      0x65: { '4,4': 26, '0,0': 1, '-4,4': 5 },
+      0x65: { '4,6': 20, '4,4': 6, '0,0': 1, '-4,6': 5 },
       0x66: { '4,4': 1 },
       0x67: { '4,4': 12, '-4,4': 8 },
       0x68: { '-4,4': 16, '4,4': 20, '0,0': 1 },

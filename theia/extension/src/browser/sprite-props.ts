@@ -114,7 +114,7 @@ export function shiftNote(
       ? `Its first step moves it ${step} before it is first drawn`
       : undefined
   if (!cause) return undefined
-  return `${cause}, so the map draws it there, as the game does. The highlighted tile is where the map stores it.`
+  return `${cause}, so the map draws it where it first sits on its line, as the game does. The highlighted tile is where the map stores it.`
 }
 
 export function spriteProps(s: MapSpriteDto): SpriteProps {
@@ -126,6 +126,7 @@ export function spriteProps(s: MapSpriteDto): SpriteProps {
   if (s.unverified) notes.push(`Unverified: ${s.unverified}.`)
   const shift = shiftNote(s)
   if (shift) notes.push(shift)
+  if (s.note) notes.push(s.note)
   notes.push('Behavior and extra settings are not interpreted in this view yet.')
   return {
     label: spriteLabel(s),

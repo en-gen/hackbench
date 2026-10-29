@@ -432,6 +432,7 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     parts: interpParts(pass.parts),
     anchor: { x: m.anchor.x, y: m.anchor.y },
     ...stored,
+    ...(m.neverAppears ? { note: 'never appears in play' } : {}),
     runtimePalette: pass.palette,
     ...(pass.drew
       ? { children: pass.drew.children.map(c => ({ index: c.index, parts: interpParts(pass.parts.filter(p => c.oam.includes(p.oam))) })) } // prettier-ignore
@@ -673,7 +674,9 @@ export function interpRunner(
     if (s.spriteId === FIVE_EERIES) return { direct: eeriesResult(rom, seed(camera), s, model.isVertical, eeriesRoutines) } // prettier-ignore
     if (s.spriteId === THREE_PLATFORMS) return { direct: platformsResult(rom, seed(camera), s, model.isVertical, platformRoutines) } // prettier-ignore
     if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
-    const m = run(rom, s.spriteId, seed(camera))
+    // The map's own loader placed it at map load (D156): it also spawns at the map-load camera.
+    const opening = !!w && s.index >= 0 && s.index < 128 && !!w[SPRITE_LOAD_STATUS + s.index]
+    const m = run(rom, s.spriteId, seed(camera, { opening }))
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return { m, fixed: false } // prettier-ignore
     // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbor

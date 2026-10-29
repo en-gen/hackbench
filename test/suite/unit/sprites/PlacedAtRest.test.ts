@@ -66,19 +66,25 @@ describe.skipIf(!hasRom(VANILLA))('at rest on vanilla', () => {
     [0x0f, 0x65, 30],
     [0x1a, 0x67, 13],
   ] as const)
-    it(`every $${id.toString(16)} on map $${map.toString(16)} draws where its INIT leaves it: 320 px left (even column) or 15 px right (odd), R16`, () => {
+    it(`every $${id.toString(16)} on map $${map.toString(16)} is drawn on its line (odd column) or stays on its tile (even column, never appears), D156`, () => {
       const got = placed(map, id)
       expect(got.length).toBeGreaterThan(0)
       let n = 0
       for (const { s, r } of got) {
         if (!('m' in r)) throw new Error('direct answer')
         expect(r.m.refusal).toBeUndefined()
-        // The oracle is InitLineGuidedSpr (bank_01.asm:11788-11809): bit 4 of X clear subtracts $140, set adds $0F.
-        // The run supplies the number; this only checks that it agrees.
-        const dx = (s.x * 16) & 0x10 ? 15 : -320
-        expect([r.m.anchor?.x, r.m.anchor?.y]).toEqual([s.x * 16 + dx, s.y * 16])
+        // The oracle is InitLineGuidedSpr (bank_01.asm:11788-11809): bit 4 of X clear subtracts $140, set adds $0F. D156:
+        // an odd column starts ahead of the scroll and is drawn on its line (INIT's spot is `initAt`); an even column
+        // starts behind it in every spawn, so it stays on its stored tile.
         expect(r.m.anchor).toMatchObject({ rawX: s.x * 16, rawY: s.y * 16 })
-        expect(r.m.shifted).toBe(true)
+        if ((s.x * 16) & 0x10) {
+          expect(r.m.shifted).toBe(true)
+          expect(r.m.initAt).toEqual({ x: s.x * 16 + 15, y: s.y * 16 })
+        } else {
+          expect(r.m.neverAppears).toBe(true)
+          expect([r.m.anchor?.x, r.m.anchor?.y]).toEqual([s.x * 16, s.y * 16])
+          expect(r.m.shifted).toBeUndefined()
+        }
         if (r.m.chosen !== undefined) n++
         else expect(r.m.emptyReason).toMatch(/drew no OAM tile/)
       }
@@ -230,17 +236,20 @@ describe.skipIf(!hasRom(VANILLA))(
           drawn.push(id)
         }
       }
-      expect(drawn).toEqual([0x64, 0x65, 0x66, 0x67, 0x68])
+      // $65-$67 at this even column start behind the scroll (D156) and stay on their tile. $68 is not erased offscreen
+      // (its tweaker byte processes it there), so a left-scrolling camera meets it: it appears, drawn where INIT left it.
+      expect(drawn).toEqual([0x64, 0x68])
     })
 
-    it('by how much: 320 px left (even column) or 15 px right (odd) for $65-$68, 2 px right for the $64 rope, none for $62 and $63', () => {
+    it('by how much: 15 px right (odd column) or none (even column, never appears) for $65-$68, 2 px right for the $64 rope, none for $62 and $63', () => {
       const r = RomFile.load(romPath(VANILLA))
       for (const x of [0x80, 0x90]) {
         const dx = (id: number) => {
           const m = runOnce(r, id, withSeed({ slot: 3, sprite: { x, y: 0x80 } }, SPRITE_SEED), { atRest: true }) // prettier-ignore
           return [m.anchor!.x - x, m.anchor!.y - 0x80]
         }
-        for (const id of [0x65, 0x66, 0x67, 0x68]) expect(dx(id), `id ${id} at ${x}`).toEqual([x & 0x10 ? 15 : -320, 0]) // prettier-ignore
+        for (const id of [0x65, 0x66, 0x67]) expect(dx(id), `id ${id} at ${x}`).toEqual([x & 0x10 ? 15 : 0, 0]) // prettier-ignore
+        expect(dx(0x68), `id 104 at ${x}`).toEqual([x & 0x10 ? 15 : -320, 0])
         expect(dx(0x64)).toEqual([2, 0])
         expect(dx(0x62)).toEqual([0, 0])
         expect(dx(0x63)).toEqual([0, 0])

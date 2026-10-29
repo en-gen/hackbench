@@ -12,6 +12,13 @@ import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
 import {
+  type LineState,
+  type Spawn,
+  loaderWindow,
+  neverAppears,
+  onLinePass,
+} from './LineAppearance'
+import {
   type DispatchShape,
   type Routine,
   grinderDrawsBeforeSnap,
@@ -57,6 +64,10 @@ export const RAM = {
   spriteNumber: 0x9e,
   spriteYLow: 0xd8,
   spriteXLow: 0xe4,
+  /** SpriteTableC2,X: the line step's state (0 probing, 1 locked on a line, 2 none found). */
+  lineLock: 0xc2,
+  /** SpriteMisc1540,X: the lock timer InitLineBrwnPlat starts. */
+  lineTimer: 0x1540,
   status: 0x14c8,
   yHigh: 0x14d4,
   xHigh: 0x14e0,
@@ -186,6 +197,8 @@ export interface SpriteModel {
   shifted?: boolean
   /** At rest, for a line-guided sprite the gate refused: its INIT moves it, but the picture stays on its tile (see `lineGateReason`). */
   initMoved?: boolean
+  /** At rest, an admitted line-guided sprite that starts behind the scroll in every spawn the loader allows (D156): it stays on its stored tile. */
+  neverAppears?: boolean
   /** With `shifted`: where the sprite's INIT left it, before any step; `anchor` is where it was first drawn. */
   initAt?: { x: number; y: number }
   /** True for $67 on a vanilla-shaped handler: each pass draws where the pass before left the sprite (`PassResult.origin`). */
@@ -821,6 +834,7 @@ function runCore(
       model.initMoved = true
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)
+    const lineStates: LineState[] = []
     for (let p = 0; p < m.seed.mainPasses; p++) {
       w[RAM.trueFrame] = (m.seed.trueFrame + frameNo + 1 + p) & 0xff
       w[RAM.effFrame] = (m.seed.effFrame + frameNo + 1 + p) & 0xff
@@ -831,6 +845,10 @@ function runCore(
       m.frame()
       model.steps.push(m.steps - n)
       probe?.(p, w)
+      lineStates.push({
+        lock: w[RAM.lineLock + m.seed.slot]!,
+        timer: w[RAM.lineTimer + m.seed.slot]!,
+      })
       // The draw ran before this pass's own move, so for $67 it ran where the pass before left it.
       // At rest the parts are measured from where the pass ended, so MAIN's own few pixels of motion do not
       // leak into the picture (the Podoboo's jump). A handler that draws and then moves is measured from its
@@ -851,6 +869,9 @@ function runCore(
     if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)
     const first = model.passes.findIndex(p => p.parts.length > 0)
     if (first >= 0) model.chosen = first
+    // At rest, an admitted line-guided sprite is drawn on its line (D156): the pass after the one that put it there.
+    const online = atRest && snaps ? onLinePass(lineStates) : undefined
+    if (online !== undefined && model.passes[online + 1]?.parts.length) model.chosen = online + 1
     // The line-guided ids draw before their own move (SMWDisX bank_01.asm:12194-12204). Pass 0 draws at the off-track INIT spot,
     // pass 1 at the probe-corner spot the first MAIN snapped to (CODE_01D8A4, 12045-12061), pass 2 at the spot the
     // line walk then set, which is on the line (CODE_01D768 / CODE_01D7B0, 11863-11930; Mesen capture 6b47bb75 slot
@@ -881,7 +902,16 @@ function runCore(
       const signed = (v: number) => (v & 0x8000 ? v - 0x10000 : v)
       const o = model.passes[model.chosen]!.origin
       const at = { x: signed(o.x), y: signed(o.y) }
-      if (at.x !== signed(placed.x) || at.y !== signed(placed.y)) {
+      // A sprite INIT leaves on its tile spawns where the loader puts it, ahead of the scroll; one INIT moves may start
+      // behind it in every spawn, and then the game never shows it (D156): it stays on its stored tile.
+      if (
+        first >= 0 &&
+        (anchor.x !== placed.x || anchor.y !== placed.y) &&
+        startsBehind(rom, id, m.seed, opts, placed)
+      ) {
+        model.neverAppears = true
+        model.chosen = first
+      } else if (at.x !== signed(placed.x) || at.y !== signed(placed.y)) {
         model.anchor = { ...model.anchor!, ...at }
         model.initAt = { x: signed(anchor.x), y: signed(anchor.y) }
         model.shifted = true
@@ -902,6 +932,45 @@ function runCore(
     throw e
   }
   return model
+}
+
+/**
+ * Whether no spawn the loader allows shows the sprite (D156): it spawns at the right or left edge (offsets read from the
+ * ROM, `loaderWindow`) or, if the map's loader placed it, at the map-load camera. Each is run from that camera with
+ * the sprite where the loader puts it, and the side of the scroll it starts on decides (`neverAppears`).
+ */
+function startsBehind(
+  rom: RomFile,
+  id: number,
+  seed: SpriteSeed,
+  opts: RunOptions,
+  placed: { x: number; y: number },
+): boolean {
+  const win = loaderWindow(rom)
+  if (!win) return false
+  const vert = (seed.level.screenMode & 1) === 1
+  const screen = vert ? 224 : 256
+  const at = vert ? placed.y : placed.x
+  const spawn = (dir: Spawn['dir'], cam: number): Spawn => {
+    const m = runOnce(rom, id, withSeed({ camera: vert ? { y: cam } : { x: cam } }, seed), { ...opts, atRest: false, probe: undefined }) // prettier-ignore
+    const q = m.passes.find(p => p.parts.length)
+    if (!q) return { dir, extent: null }
+    const sgn = (v: number) => (v << 16) >> 16
+    const edge = (t: SpritePart, far: boolean) => sgn(vert ? q.origin.y : q.origin.x) + (vert ? t.dy : t.dx) - cam + (far ? t.size : 0) // prettier-ignore
+    return { dir, extent: { lo: Math.min(...q.parts.map(t => edge(t, false))), hi: Math.max(...q.parts.map(t => edge(t, true))) } } // prettier-ignore
+  }
+  const spawns = (
+    [
+      [1, at - win.right],
+      [-1, at - win.left],
+    ] as const
+  )
+    .filter(([, cam]) => cam >= 0 && cam <= seed.level.screens * 256 - screen)
+    .map(([dir, cam]) => spawn(dir, cam))
+  const w = seed.loaded
+  if (seed.opening && w)
+    spawns.push(spawn(0, vert ? w[0x1c]! | (w[0x1d]! << 8) : w[0x1a]! | (w[0x1b]! << 8)))
+  return neverAppears(spawns, screen)
 }
 
 const partsKey = (m: SpriteModel): string =>

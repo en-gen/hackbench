@@ -54,7 +54,10 @@ is not one of these. The calls must come in that id's order (`VANILLA_DISPATCH.b
 register or SRAM write across every slot and every value of the WRAM cells it reads in slot 3. A call to anything else
 is "unverified": the model says why (`lineGateReason`) and the sprite keeps the old rule.
 
-## First frame at rest (R16)
+## First frame at rest (R16, refined by D156)
+
+**D156 (2026-10-29):** the picture at rest is where the game first has the sprite ON ITS LINE: the pass after `SpriteTableC2,X` ($00C2) is 1 (the lock, `bank_01.asm:12116-12118`) with the lock timer `SpriteMisc1540,X` run out (`LineAppearance.ts` `onLinePass`). The draw comes before the line step (`bank_01.asm:12204-12215`), so each frame is drawn where the frame before ended. The lock itself leaves it on the probe corner. A sprite whose INIT moved it and that starts behind the scroll in every spawn the loader allows (`LoadSprFromLevel`, `bank_02.asm:5217-5280`; map load, `bank_02.asm:5880-5914`) stays on its stored tile, and the Properties note says "never appears in play": the 7 even-column `$65` on map $0f and the 3 even-column `$67` on map $1a. See [the decision](../decisions/2026-10-29-line-guided-first-frame-on-line.md). The R16 text below describes the INIT spot, now `initAt`.
+
 
 `InitLineGuidedSpr` ($01D6ED, 42 bytes, `bank_01.asm:11788-11811`) runs before the sprite's first frame: an even column
 subtracts $140 from X, an odd one adds $0F and flips. The map's at-rest picture of an admitted line-guided sprite is
