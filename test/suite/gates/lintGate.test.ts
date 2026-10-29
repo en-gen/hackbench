@@ -290,7 +290,7 @@ describe('the format gate can fail', () => {
   it('formats only JS/TS/CSS, never prose or config', () => {
     // `prettier --write .` also rewrites Markdown, YAML and JSON. That
     // reformats CLAUDE.md and AGENTS.md, and CLAUDE.md carries a generated
-    // region plus a no-em-dash rule that the pre-commit gate then blocks.
+    // region plus a no-em-dash rule that the CI content check then blocks.
     // Caught in review when the unscoped glob swept 60+ docs.
     for (const script of [pkg.scripts.format, pkg.scripts['format:check']]) {
       expect(script).toContain('{ts,tsx,js,mjs,cjs,css}')

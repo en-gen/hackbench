@@ -87,8 +87,8 @@ after a person checks it. It exempts that message for that rule only; file
 content is never exempt, and a malformed line or unknown rule exits 2.
 
 `npm install` sets `core.hooksPath` to `.githooks` automatically
-(`tools/scripts/set-hooks-path.cjs`). The only bypass is
-`git commit --no-verify` / `git push --no-verify`.
+(`tools/scripts/set-hooks-path.cjs`). The only local bypass is
+`git push --no-verify`, which skips the pre-push hook only; CI has no bypass.
 
 ### The 8-byte window rule (synthetic carts)
 

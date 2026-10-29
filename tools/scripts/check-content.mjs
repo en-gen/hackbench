@@ -1050,7 +1050,13 @@ function main(argv) {
     if (mode !== 'history') {
       console.log('')
       console.log('Blocked by tools/scripts/check-content.mjs.')
-      console.log("Override with 'git commit --no-verify' only with a stated reason.")
+      console.log(
+        mode === 'push'
+          ? "Override with 'git push --no-verify' only with a stated reason."
+          : mode === 'staged'
+            ? "Override with 'git commit --no-verify' only with a stated reason."
+            : 'No override: CI has no bypass.',
+      )
     }
     process.exit(1)
   }
