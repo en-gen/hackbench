@@ -115,14 +115,17 @@ gate has a test that plants a defect per rule and proves both halves fail.
 ## Commit gates
 
 `npm install` sets `core.hooksPath` to `.githooks` automatically
-(`tools/scripts/set-hooks-path.cjs`); nothing to do per clone. Two gates
-run on pre-commit, pre-push and in CI:
+(`tools/scripts/set-hooks-path.cjs`); nothing to do per clone. There is no
+pre-commit hook (#1183; refinement in #1163); `.githooks/pre-push` is the only
+hook.
 
-- `tools/scripts/check-staged-style.sh` runs ESLint at `--max-warnings 0`
-  and Prettier in check mode over staged JS/TS/CSS. Warnings are fatal.
-- `tools/scripts/check-content.mjs` (issue #678) blocks ROM-derived bytes
-  and em-dashes in newly added lines, in `staged`/`range`/`push`/`history`
-  modes.
+- CI `static` job runs `npm run lint` (ESLint over `src test tools theia`
+  and root `*.js *.mjs`, `--max-warnings 0`; root `*.ts` configs are not
+  covered) and `npm run format:check` (Prettier over JS/TS/CSS).
+  `tools/scripts/check-staged-style.sh` is called by nothing now.
+- `tools/scripts/check-content.mjs` (issue #678) blocks ROM-derived bytes on
+  pre-push and in CI (`range`, `history`), and em-dashes in added lines in CI
+  `range` (and `staged` mode, which no hook runs).
 
 ## Everyday commands
 
