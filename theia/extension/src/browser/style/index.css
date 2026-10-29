@@ -422,6 +422,14 @@
   outline: 1px solid color-mix(in srgb, var(--theia-foreground, #cccccc) 35%, transparent);
 }
 
+.hb-map-stored-tile {
+  position: absolute;
+  z-index: 161;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 2px solid var(--theia-focusBorder, #007fd4);
+}
+
 .hb-map-refused rect {
   fill-opacity: 0.4;
 }

@@ -11,7 +11,14 @@ import type { Cpu65816 } from '../../cpu/Cpu65816'
 import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
-import { type DispatchShape, grinderDrawsBeforeSnap } from './LineGuided'
+import {
+  type DispatchShape,
+  type Routine,
+  grinderDrawsBeforeSnap,
+  isStockRoutine,
+  LINE_GUIDED_IDS,
+  STOCK_INITS,
+} from './LineGuided'
 import { smwMachine } from './Machine'
 import { type ShellLoad, shellLoad } from '../ShellSprites'
 import {
@@ -173,6 +180,14 @@ export interface SpriteModel {
   lineGateReason?: string
   /** Why a $67 on a vanilla-shaped handler stayed on its first drawn pass although the next one draws. */
   lineStepReason?: string
+  /** Why a $65-$68 sprite's INIT is not the stock InitLineGuidedSpr: its shift is unverified, though the interpreter ran it. */
+  lineInitReason?: string
+  /** True when the at-rest picture is drawn where INIT left the sprite, not at its list position (`anchor` vs `rawX`, `rawY`). */
+  shifted?: boolean
+  /** At rest, for a line-guided sprite the gate refused: its INIT moves it, but the picture stays on its tile (see `lineGateReason`). */
+  initMoved?: boolean
+  /** With `shifted`: where the sprite's INIT left it, before any step; `anchor` is where it was first drawn. */
+  initAt?: { x: number; y: number }
   /** True for $67 on a vanilla-shaped handler: each pass draws where the pass before left the sprite (`PassResult.origin`). */
   snaps?: boolean
   dependsOn: DependsOn[]
@@ -231,6 +246,8 @@ export interface RunOptions {
   trackInputs?: boolean
   /** The dispatch shape the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   grinderDispatch?: DispatchShape
+  /** The InitLineGuidedSpr fingerprint to hold the INIT of $65-$68 to; a test hook, so a synthetic cart brings its own (default: vanilla's). */
+  stockInits?: readonly Routine[]
   /**
    * `true` is the map view's at-rest picture. D139 D, D138 A: INIT runs for the look only (tiles, flips,
    * variants, status). D134, D91: the drawing is re-based onto the placed spot, so INIT's moves and the
@@ -610,12 +627,13 @@ function uploadsOf(m: Machine, before: Map<number, number>): string[] {
 export type Probe = (pass: number, wram: Uint8Array) => void
 
 /**
- * The grinder draws, then its line step moves it (SMWDisX bank_01.asm:12194-12204, corner stores 12054-12061),
- * so it draws three different spots: the off-track INIT spot, the probe corner the first MAIN snapped to, and the
- * line point the walk then set. The editor draws the third (#126).
- * $67 only: the other line-guided ids share the order; that family is follow-up #792.
+ * The line-guided sprites ($62, $64-$68; $63 is left out, owner ruling D85) draw and then take their line step
+ * (SMWDisX bank_01.asm:12182-12204, platform arm 12323-12358, corner stores 12054-12061; $64's INIT steps it
+ * too, 11766-11783). So one run shows three spots: the off-track INIT spot, the probe corner the first MAIN
+ * snapped to, and the line point the walk then set. The editor draws the third (#126, #792). Which ids qualify
+ * is `DRAWS_BEFORE_LINE_SNAP` (`LINE_GUIDED_IDS`) plus the run-based gate, which runs each id's own arm.
  */
-const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = new Set([0x67])
+const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = LINE_GUIDED_IDS
 
 /**
  * Run with a seed; no marioX analysis (half the cost of `runSprite`). The run is alone. When the sprite's own
@@ -798,6 +816,9 @@ function runCore(
     if (atRest) m.recentre(anchor.x - placed.x, anchor.y - placed.y)
     model.anchor = { ...(atRest ? placed : anchor), rawX: placed.x, rawY: placed.y }
     if (snaps) model.snaps = true
+    // A gate-refused line-guided sprite stays on its tile at rest; if its INIT moves it, the picture says so (rom-interpretation: warn).
+    else if (atRest && gate && (anchor.x !== placed.x || anchor.y !== placed.y))
+      model.initMoved = true
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)
     for (let p = 0; p < m.seed.mainPasses; p++) {
@@ -830,7 +851,7 @@ function runCore(
     if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)
     const first = model.passes.findIndex(p => p.parts.length > 0)
     if (first >= 0) model.chosen = first
-    // $67 draws before its own move (SMWDisX bank_01.asm:12194-12204). Pass 0 draws at the off-track INIT spot,
+    // The line-guided ids draw before their own move (SMWDisX bank_01.asm:12194-12204). Pass 0 draws at the off-track INIT spot,
     // pass 1 at the probe-corner spot the first MAIN snapped to (CODE_01D8A4, 12045-12061), pass 2 at the spot the
     // line walk then set, which is on the line (CODE_01D768 / CODE_01D7B0, 11863-11930; Mesen capture 6b47bb75 slot
     // $1F: (415,336) -> (419,340) -> (431,336)). Each step is only taken if the pass before it moved the sprite
@@ -842,10 +863,38 @@ function runCore(
         a.x !== b.x || a.y !== b.y
       if (!moved(q0, anchor))
         model.lineStepReason = 'the line step did not move the sprite on pass 0: kept the first drawn pass' // prettier-ignore
-      else model.chosen = model.passes[2]?.parts.length && moved(q0, q1) ? 2 : 1
+      else if (model.passes[2]?.parts.length && moved(q0, q1)) model.chosen = 2
+      // Only the grinder (#126) falls back to pass 1, the probe-corner spot. For the ids #792 admits, a pass 2 that
+      // does not draw leaves pass 0, the generic rule: the corner spot is not where the game keeps them.
+      else if (num === 0x67) model.chosen = 1
+      else model.lineStepReason = 'the third pass drew nothing or the second did not move the sprite: kept the first drawn pass' // prettier-ignore
     }
+    // At rest the picture is the placed spot (D91), except for an admitted line-guided sprite whose own INIT moved it
+    // before its first frame (InitLineGuidedSpr, bank_01.asm:11788-11811; InitLineRope's two steps): the game draws it
+    // where INIT left it, so the picture stands on the chosen pass's own origin, which the parts are measured from
+    // (owner ruling R16 / D85 B). Interpreted, not a constant: the move is whatever INIT did.
     if (snaps && !atRest && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
+    else if (atRest && snaps && model.chosen !== undefined) {
+      // The game's first drawn frame is at the chosen pass's origin, whoever moved the sprite there: start-up code,
+      // or a step before the first pass that draws. A sprite left of the map's edge is a negative X in 16 bits.
+      const signed = (v: number) => (v & 0x8000 ? v - 0x10000 : v)
+      const o = model.passes[model.chosen]!.origin
+      const at = { x: signed(o.x), y: signed(o.y) }
+      if (at.x !== signed(placed.x) || at.y !== signed(placed.y)) {
+        model.anchor = { ...model.anchor!, ...at }
+        model.initAt = { x: signed(anchor.x), y: signed(anchor.y) }
+        model.shifted = true
+        // A sprite whose INIT moved it is trusted only when its INIT is a stock line-guided one; one moved only by its
+        // first step has no INIT move to check.
+        if (
+          inits?.ok &&
+          (model.initAt.x !== signed(placed.x) || model.initAt.y !== signed(placed.y)) &&
+          !isStockRoutine(rom, inits.handler.address, opts.stockInits ?? STOCK_INITS)
+        )
+          model.lineInitReason = `its INIT (at $${inits.handler.address.toString(16)}) is not a stock line-guided INIT, so the move it makes before the first frame is unverified`
+      }
+    }
     if (model.passes.every(p => p.parts.length === 0))
       model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (${atRest ? "it drew no tile at rest; whether it shows in play was not checked" : 'invisible by design, or the seed lacks state'})` // prettier-ignore
   } catch (e) {

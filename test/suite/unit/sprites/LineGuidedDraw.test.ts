@@ -1,37 +1,51 @@
 /**
- * The line-guided grinder ($67) run INIT-on is drawn where the line walk puts it, two passes after its first draw (#126);
- * the map's picture at rest draws it at the list position instead (D91).
- * Synthetic cart: ids 31 and 103 draw one piece at SpriteXPos and then move +4 (hand-written opcodes),
- * so CI (no cart) proves the rule picks the third drawn pass for $67 only.
+ * A line-guided sprite ($62, $64-$68) run INIT-on is drawn where the line walk puts it, two passes after its first draw
+ * (#126, #792); the map's picture at rest does not take that pick (D91) but stands on its post-INIT spot (R16).
+ * Synthetic cart: ids 31 and 103 draw one piece at SpriteXPos and then move +4 (hand-written opcodes), 98-104
+ * aliased to the grinder handler, so CI (no cart) proves the rule picks the third drawn pass for the admitted ids only.
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { fingerprint } from '../../../../src/rom/Fingerprint'
 import { L1ModelCache } from '../../../../theia/extension/src/node/map-screen'
 import {
   interpDrawer,
+  modelResult,
   mapSprites,
   readStream,
 } from '../../../../theia/extension/src/node/map-sprites'
 import { parseLevelSprites } from '../../../../src/rom/LevelParser'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
-import { grinderDrawsBeforeSnap } from '../../../../src/rom/sprites/interp/LineGuided'
+import {
+  grinderDrawsBeforeSnap,
+  isStockRoutine,
+  routineSha,
+  STOCK_INITS,
+  LINE_GUIDED_IDS,
+  VANILLA_DISPATCH,
+} from '../../../../src/rom/sprites/interp/LineGuided'
 import { RAM, runOnce, type SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
-import { hasRom, romPath, SPRITE_TRACE_SET, TOOLS_ROOT, VANILLA } from '../../support/corpus'
 import {
-  GRINDER_DISPATCH_AT,
-  GRINDER_DISPATCH,
-  GRINDER_HANDLER,
-} from '../../support/syntheticGrinder'
+  freshRom,
+  hasRom,
+  romPath,
+  SPRITE_TRACE_SET,
+  TOOLS_ROOT,
+  VANILLA,
+} from '../../support/corpus'
+import { GRINDER_DISPATCH_AT, grinderShape, GRINDER_HANDLER } from '../../support/syntheticGrinder'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
 
 const seed = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
 const gate = (rom: RomFile, handler: number) =>
-  grinderDrawsBeforeSnap(rom, handler, 0x67, RAM.spriteNumber, GRINDER_DISPATCH).ok
-const run = (id: number, o: SyntheticOptions = {}) =>
-  runOnce(buildSyntheticRom(o), id, seed, { grinderDispatch: GRINDER_DISPATCH })
+  grinderDrawsBeforeSnap(rom, handler, 0x67, RAM.spriteNumber, grinderShape(rom)).ok
+const run = (id: number, o: SyntheticOptions = {}) => {
+  const rom = buildSyntheticRom(o)
+  return runOnce(rom, id, seed, { grinderDispatch: grinderShape(rom) })
+}
 
 describe('line-guided draw pass', () => {
   it('draws another id at its first pass, at the position the draw ran', () => {
@@ -90,7 +104,7 @@ describe('line-guided draw pass', () => {
     const rom = buildSyntheticRom()
     rom.writeAt(0x019290, [0x60])
     expect(gate(rom, GRINDER_HANDLER)).toBe(true)
-    const g = runOnce(rom, 103, seed, { grinderDispatch: GRINDER_DISPATCH })
+    const g = runOnce(rom, 103, seed, { grinderDispatch: grinderShape(rom) })
     expect(g.passes[1]!.parts).toHaveLength(1)
     expect(g.chosen).toBe(0)
     expect(g.anchor!.x).toBe(0x80)
@@ -121,14 +135,14 @@ describe('line-guided draw pass', () => {
     const rom = buildSyntheticRom()
     rom.writeAt(0x019290, [0xfe, 0x50, 0x16, 0xbd, 0x50, 0x16, 0xc9, 0x02, 0x90, 0x01, 0x60, 0xb5, 0xe4, 0x18, 0x69, 0x04, 0x95, 0xe4, 0x60]) // prettier-ignore
     expect(gate(rom, GRINDER_HANDLER)).toBe(true)
-    const g = runOnce(rom, 103, seed, { grinderDispatch: GRINDER_DISPATCH })
+    const g = runOnce(rom, 103, seed, { grinderDispatch: grinderShape(rom) })
     expect(g.passes.slice(0, 3).map(p => p.parts.length > 0)).toEqual([true, true, true])
     expect(g.passes[1]!.pos).toEqual(g.passes[0]!.pos)
     expect(g.chosen).toBe(1)
     expect(g.anchor!.x).toBe(0x84)
   })
 
-  it('flags the run model as snapping for a vanilla-shaped $67 only (SpriteModel.snaps)', () => {
+  it('flags the run model as snapping for a gate-passing line-guided id only (SpriteModel.snaps)', () => {
     expect(run(103).snaps).toBe(true)
     // Not vanilla-shaped, another id, and a run whose draw dispatch is not the pinned shape: all unflagged.
     expect(run(103, { alteredGrinder: true }).snaps).toBeUndefined()
@@ -136,7 +150,7 @@ describe('line-guided draw pass', () => {
     expect(runOnce(buildSyntheticRom(), 103, seed).snaps).toBeUndefined()
   })
 
-  it('applies the snap rule to id $67 only: another id whose MAIN is the grinder handler is generic', () => {
+  it('applies the snap rule to the admitted ids only: another id whose MAIN is the grinder handler is generic', () => {
     const rom = buildSyntheticRom({ id31IsGrinder: true })
     // The alias passes the shape gate, so the id check alone is what keeps id 31 generic.
     expect(gate(rom, 0x019500)).toBe(true)
@@ -158,12 +172,15 @@ describe('line-guided draw pass', () => {
       rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ 0x10])
       return gate(rom, GRINDER_HANDLER)
     }
-    // All ten bytes of the cart's dispatch: opcodes and operands alike change what the run calls.
-    for (let i = 0; i < 10; i++) expect(flip(GRINDER_DISPATCH_AT + i), `dispatch +${i}`).toBe(false)
+    // Every byte of the cart's dispatch but the JSL operand (+4..+6): opcodes and the draw and step targets change what
+    // the run calls. The interact slot takes any callee that is not a named routine, so its target is free (D126).
+    for (let i = 0; i < 10; i++)
+      if (![4, 5, 6].includes(i))
+        expect(flip(GRINDER_DISPATCH_AT + i), `dispatch +${i}`).toBe(false)
   })
 
-  it('refuses a changed call or jump target: every target operand byte, low and high, several values', () => {
-    const TARGET_OPERANDS = [1, 2, 4, 5, 8, 9]
+  it('refuses a changed draw call or step jump target: every operand byte, low and high, several values', () => {
+    const TARGET_OPERANDS = [1, 2, 8, 9]
     const flip = (at: number, x: number) => {
       const rom = buildSyntheticRom()
       rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ x])
@@ -222,7 +239,7 @@ it('the grinder table covers both configured slots, $1a and $1f', () => {
 
 describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', () => {
   for (const [slot, want] of Object.entries(GRINDERS)) {
-    it(`slot $${Number(slot).toString(16)}: ${want.length} placements drawn at their list position, no line walk (D91)`, () => {
+    it(`slot $${Number(slot).toString(16)}: ${want.length} placements drawn where INIT leaves them (R16), no line walk (D91)`, () => {
       const path = romPath(VANILLA)
       const bytes = new Uint8Array(readFileSync(path))
       const r = mapSprites(new L1ModelCache(), bytes, path, Number(slot))
@@ -235,10 +252,13 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', (
       const got = r.sprites.filter(d => d.id === 0x67)
       expect(got).toHaveLength(want.length)
       got.forEach((d, i) => {
-        // INIT runs for the picture (D139 D); its -$140 X move (bank_01.asm:11793-11799) is re-run with the
-        // camera moved, so a grinder the INIT-on table has no anchor for (null) still draws, at its list spot.
+        // INIT runs for the picture (D139 D); its X move (bank_01.asm:11788-11809: bit 4 of X clear subtracts $140, set
+        // adds $0F) is re-run with the camera moved, so a grinder the INIT-on table has no anchor for (null) still
+        // draws, where INIT leaves it (R16); the list spot is the DTO's stored tile.
         expect(d.status, `#${i}`).toBe('drawn')
-        expect([d.x, d.y], `#${i}`).toEqual([list[i]!.x * 16, list[i]!.y * 16])
+        const [lx, ly] = [list[i]!.x * 16, list[i]!.y * 16]
+        expect([d.x, d.y], `#${i}`).toEqual([lx + (lx & 0x10 ? 15 : -320), ly])
+        expect(d.stored, `#${i}`).toEqual({ x: lx, y: ly })
       })
     }, 120_000)
 
@@ -273,12 +293,403 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla grinder, on the vanilla ROM', (
   }
 })
 
+describe('the pass pick for every admitted id (synthetic cart, ids aliased to the grinder handler)', () => {
+  // List ids 98, 100, 101, 102, 104 are $62, $64, $65, $66, $68; 103 is $67.
+  const ADMITTED = [98, 100, 101, 102, 103, 104]
+  const aliased = (o: SyntheticOptions = {}) => buildSyntheticRom({ grinderAliases: true, ...o })
+  const go = (id: number, rom = aliased()) => runOnce(rom, id, seed, { grinderDispatch: grinderShape(rom) }) // prettier-ignore
+
+  it.each(ADMITTED)('draws id %i at the third pass, where the line walk left it', id => {
+    const g = go(id)
+    expect(g.snaps).toBe(true)
+    expect(g.passes.slice(0, 3).map(p => p.origin.x)).toEqual([0x80, 0x84, 0x88])
+    expect(g.chosen).toBe(2)
+    expect(g.anchor!.x).toBe(0x88)
+  })
+
+  it.each(ADMITTED)(
+    'id %i: when pass 2 draws nothing only $67 (the grinder, #126) stops at pass 1',
+    id => {
+      const g = go(id, aliased({ grinderDrawsTwice: true }))
+      expect(g.passes.slice(0, 3).map(p => p.parts.length > 0)).toEqual([true, true, false])
+      if (id === 103) {
+        expect(g.chosen).toBe(1)
+        expect(g.anchor!.x).toBe(0x84)
+        expect(g.lineStepReason).toBeUndefined()
+      } else {
+        expect(g.chosen).toBe(0)
+        expect(g.anchor!.x).toBe(0x80)
+        expect(g.lineStepReason).toMatch(/third pass/)
+      }
+    },
+  )
+
+  it.each(ADMITTED)(
+    'id %i: keeps pass 0 when the first MAIN moved it but the second did not, though pass 2 draws',
+    id => {
+      // The step moves +4 on its first call only, so the second pass does not move the sprite.
+      const rom = aliased()
+      rom.writeAt(0x019290, [0xfe, 0x50, 0x16, 0xbd, 0x50, 0x16, 0xc9, 0x02, 0x90, 0x01, 0x60, 0xb5, 0xe4, 0x18, 0x69, 0x04, 0x95, 0xe4, 0x60]) // prettier-ignore
+      const g = go(id, rom)
+      expect(g.passes.slice(0, 3).map(p => p.parts.length > 0)).toEqual([true, true, true])
+      expect(g.passes[1]!.pos).toEqual(g.passes[0]!.pos)
+      // $67 keeps its old fallback (pass 1); the others stay on pass 0 and say why.
+      expect(g.chosen).toBe(id === 103 ? 1 : 0)
+      if (id !== 103) expect(g.lineStepReason).toMatch(/third pass/)
+    },
+  )
+
+  it.each(ADMITTED)(
+    'id %i: draws at its first pass when the dispatch is not the vanilla shape',
+    id => {
+      const g = go(id, aliased({ alteredGrinder: true }))
+      expect(g.snaps).toBeUndefined()
+      expect(g.chosen).toBe(0)
+      expect(g.anchor!.x).toBe(0x80)
+    },
+  )
+
+  it('keys the grinder fallback by the loaded number: a shell list id loaded as $67 stops at pass 1 too', () => {
+    // Plant the loader so list id $DA loads as sprite 103 in status 1 (INIT runs): the status compare operand 1 rebases it,
+    // the ADC operand 103 is the new base. A real $67 here chooses pass 1; a list-id test would choose pass 0.
+    const rom = buildSyntheticRom({ grinderDrawsTwice: true })
+    rom.writeAt(0x02a8d1, [0x01])
+    rom.writeAt(0x02a979, [0x01])
+    rom.writeAt(0x02a983, [103])
+    const shape = grinderShape(rom)
+    const [shell, real] = [0xda, 103].map(id => runOnce(rom, id, seed, { grinderDispatch: shape }))
+    expect(real!.chosen).toBe(1)
+    expect(shell!.refusal).toBeUndefined()
+    expect(shell!.chosen).toBe(real!.chosen)
+    expect(shell!.anchor!.x).toBe(real!.anchor!.x)
+  })
+})
+
+describe('the line-guided routines are named by fingerprint, read from the ROM (#792, #1121)', () => {
+  const pristine = grinderShape(buildSyntheticRom())
+  const gateOf = (rom: RomFile, number = 0x67, shape = pristine) =>
+    grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, number, RAM.spriteNumber, shape)
+  const why = (rom: RomFile, shape = pristine) => {
+    const g = gateOf(rom, 0x67, shape)
+    return g.ok ? null : g.reason
+  }
+  const DRAW_JSR = GRINDER_DISPATCH_AT + 1
+  const arm = pristine.arm
+
+  it('accepts the pristine cart and a cart whose draw, interact and step routines are moved', () => {
+    expect(gateOf(buildSyntheticRom()).ok).toBe(true)
+    const rom = buildSyntheticRom()
+    // The same routine bytes at new addresses, operands rewritten: $019400 -> $019600 (JSR), $019282 -> $019620 (JSL), $019290 -> $019640 (JMP).
+    rom.writeAt(0x019600, [...rom.readAt(0x019400, 8)!])
+    rom.writeAt(0x019620, [...rom.readAt(0x019282, 4)!])
+    rom.writeAt(0x019640, [...rom.readAt(0x019290, 8)!])
+    rom.writeAt(DRAW_JSR, [0x00, 0x96])
+    rom.writeAt(GRINDER_DISPATCH_AT + 4, [0x20, 0x96])
+    rom.writeAt(GRINDER_DISPATCH_AT + 8, [0x40, 0x96])
+    expect(why(rom)).toBeNull()
+  })
+
+  it('refuses a draw call repointed at a routine that is not stock, naming the call', () => {
+    const rom = buildSyntheticRom()
+    rom.writeAt(DRAW_JSR, [0x40, 0x94])
+    expect(why(rom)).toMatch(/slot 0: it calls \$019440, which is not a stock routine here/)
+  })
+
+  it('refuses a call repointed at another stock routine: the order is wrong', () => {
+    const rom = buildSyntheticRom()
+    rom.writeAt(DRAW_JSR, [0x82, 0x92])
+    expect(why(rom)).toMatch(/out of order/)
+  })
+
+  it('the interact slot takes a callee with different bytes, and refuses a draw or the step placed in it (D126)', () => {
+    const other = buildSyntheticRom()
+    other.writeAt(0x019282, [0xea, 0xa9, 0x00, 0x6b]) // different bytes, same slot
+    expect(why(other)).toBeNull()
+    // The draw routine as the interact callee: a known role where the slot expects the interact.
+    const draw = buildSyntheticRom()
+    draw.writeAt(GRINDER_DISPATCH_AT + 4, [0x00, 0x94])
+    expect(why(draw)).toMatch(/out of order/)
+    // The step as the interact callee.
+    const step = buildSyntheticRom()
+    step.writeAt(GRINDER_DISPATCH_AT + 4, [0x90, 0x92])
+    expect(why(step)).not.toBeNull()
+    // An unknown callee in the DRAW slot is still refused: only the interact slot is a wildcard.
+    const wrongSlot = buildSyntheticRom()
+    wrongSlot.writeAt(DRAW_JSR, [0x82, 0x92])
+    expect(why(wrongSlot)).not.toBeNull()
+  })
+
+  it('reads FastROM: the $80 bit on a long operand inside a routine is folded; any other edit there is refused', () => {
+    // A step routine of our own at $019800 holding a JSL; its bank byte is the one folded (norm offset 10).
+    const body = (bank: number) => [
+      0xb5,
+      0xe4,
+      0x18,
+      0x69,
+      0x04,
+      0x95,
+      0xe4,
+      0x22,
+      0x82,
+      0x92,
+      bank,
+      0x60,
+    ]
+    const build = (bank: number) => {
+      const rom = buildSyntheticRom()
+      rom.writeAt(0x019800, body(bank))
+      rom.writeAt(GRINDER_DISPATCH_AT + 8, [0x00, 0x98])
+      return rom
+    }
+    const norm = [10]
+    const shape = {
+      ...pristine,
+      routines: {
+        ...pristine.routines,
+        step: { len: 12, sha: routineSha(Uint8Array.from(body(1)), norm)!, norm },
+      },
+    }
+    expect(why(build(0x01), shape)).toBeNull()
+    expect(why(build(0x81), shape)).toBeNull() // the $80 bit set: the same routine
+    expect(why(build(0x02), shape)).not.toBeNull() // a different bank: not
+    const noNorm = {
+      ...shape,
+      routines: {
+        ...shape.routines,
+        step: { len: 12, sha: routineSha(Uint8Array.from(body(1)))! },
+      },
+    }
+    expect(why(build(0x81), noNorm)).not.toBeNull() // without the fold, the $81 copy would not match
+  })
+
+  it.each([
+    ['draw', 0x019400],
+    ['step', 0x019290],
+  ])('refuses an edited %s routine, though its callers are untouched', (_name, at) => {
+    const rom = buildSyntheticRom()
+    rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ 0x01])
+    const reason = why(rom)
+    expect(reason, String(_name)).not.toBeNull()
+    // The step is reached by a JMP, so an edited one is run as ordinary code rather than named; the other two are called.
+    if (_name !== 'step') expect(reason).toMatch(/unverified/)
+  })
+
+  it('runs the arm of the id it is asked about: byId wins, the default covers the rest', () => {
+    const rom = buildSyntheticRom()
+    const shape = { ...pristine, arm: ['step'], byId: { 0x68: arm } }
+    expect(gateOf(rom, 0x68, shape).ok).toBe(true)
+    expect(gateOf(rom, 0x67, shape)).toMatchObject({ ok: false, reason: expect.stringMatching(/out of order/) }) // prettier-ignore
+  })
+
+  it('refuses an id whose cart calls its arm out of order, per id', () => {
+    const rom = buildSyntheticRom({ alteredGrinder: true })
+    for (const id of [0x62, 0x64, 0x65, 0x66, 0x67, 0x68])
+      expect(gateOf(rom, id, { ...grinderShape(rom), byId: { [id]: arm } }), `id ${id}`).toMatchObject({ ok: false, reason: expect.stringMatching(/out of order/) }) // prettier-ignore
+  })
+
+  it('names exactly $62, $64, $65, $66, $67, $68 over every id 0..255 ($63 is a plant that must go red)', () => {
+    const named = Array.from({ length: 256 }, (_, id) => id).filter(id => LINE_GUIDED_IDS.has(id))
+    expect(named).toEqual([0x62, 0x64, 0x65, 0x66, 0x67, 0x68])
+    // Every named id has an arm of known roles (the interact slot is a wildcard) that ends in the line step.
+    for (const id of named) {
+      const roles = VANILLA_DISPATCH.byId?.[id] ?? VANILLA_DISPATCH.arm
+      expect(roles.at(-1), `id ${id}`).toBe('step')
+      expect(
+        roles.every(r => r === 'interact' || r in VANILLA_DISPATCH.routines),
+        `id ${id}`,
+      ).toBe(true)
+    }
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))('per-id arms on the vanilla cart (#792, #1121)', () => {
+  const seed3 = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
+
+  it('the run gate accepts each admitted id and not $63, and says why for none', () => {
+    const rom = freshRom()
+    const got = [0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68].map(id => {
+      const m = runOnce(rom, id, seed3)
+      return [id, m.snaps === true, m.lineGateReason]
+    })
+    expect(got).toEqual([[0x62, true, undefined], [0x63, false, undefined], [0x64, true, undefined], [0x65, true, undefined], [0x66, true, undefined], [0x67, true, undefined], [0x68, true, undefined]]) // prettier-ignore
+  }, 120_000)
+
+  it('refuses an id whose draw call is pointed at the interact routine (a planted hijack)', () => {
+    const rom = freshRom()
+    // CODE_01D9BA (the $67 test) is followed by JSR CODE_01DC0B: point it at MarioSprInteractRt instead.
+    const at = 0x01d9be
+    expect(rom.readAt(at, 1)![0]).toBe(0x20)
+    rom.writeAt(at + 1, [0xe4, 0xa7])
+    expect(runOnce(rom, 0x67, seed3).lineGateReason).toMatch(/out of order/)
+  }, 120_000)
+
+  it('flags an edited stock routine as unverified, whichever of the seven is edited', () => {
+    // Entry byte of each routine the arms call: prelude, $62 draw, rope draw, $67 draw, $68 draw, chainsaw draw wrapper, line step (the interact is not hashed).
+    const entries: [number, number][] = [[0x65, 0x018063], [0x62, 0x01b2df], [0x64, 0x01dc54], [0x67, 0x01dc0b], [0x68, 0x01dbd4], [0x65, 0x03c263], [0x67, 0x01d74d]] // prettier-ignore
+    // At the entry, and 30 bytes in: past the 24-byte prefix an earlier version hashed.
+    for (const [id, at0] of entries)
+      for (const off of [0, 30]) {
+        const at = at0 + off
+        const rom = freshRom()
+        rom.writeAt(at, [rom.readAt(at, 1)![0]! ^ 0x01])
+        const m = runOnce(rom, id, seed3)
+        expect(m.snaps, `$${at.toString(16)} for id ${id}`).not.toBe(true)
+        // A routine INIT itself calls (the rope's draw) stops the run there, before the gate: the refusal is the flag.
+        expect(m.lineGateReason ?? m.refusal, `$${at.toString(16)} for id ${id}`).toBeDefined()
+      }
+  }, 240_000)
+})
+
+describe('the gate and the INIT check, branch by branch (synthetic carts, findings 4 and 5)', () => {
+  const gateOf = (rom: RomFile) =>
+    grinderDrawsBeforeSnap(rom, GRINDER_HANDLER, 0x67, RAM.spriteNumber, grinderShape(rom))
+  const reasonOf = (rom: RomFile) => {
+    const g = gateOf(rom)
+    return g.ok ? null : g.reason
+  }
+
+  it('a prelude call comes anywhere and is not part of the order; an edited prelude is refused', () => {
+    // Mutant: the prelude counted in `seen` would make this order [prelude, draw, interact] and refuse.
+    expect(reasonOf(buildSyntheticRom({ grinderPrelude: true }))).toBeNull()
+    const edited = buildSyntheticRom({ grinderPrelude: true })
+    const shape = grinderShape(edited)
+    edited.writeAt(0x019680, [0xea, 0xea, 0xa9, 0x60])
+    const g = grinderDrawsBeforeSnap(edited, GRINDER_HANDLER, 0x67, RAM.spriteNumber, shape)
+    expect(g).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/not a stock routine here/),
+    })
+  })
+
+  it('pokes the cells slot 3 reads and not the ones only another slot reads (the slot-3 call, decision doc)', () => {
+    // A cell read at X = 3 that, when set, calls where the draw is expected: poked, so the gate refuses it.
+    const at3 = reasonOf(buildSyntheticRom({ grinderCell: 'At3' }))
+    expect(at3).toMatch(/WRAM \$df0 = \$1: /)
+    // The same read at every slot but 3 is not found in slot 3: not poked, so accepted (the documented weakening).
+    expect(reasonOf(buildSyntheticRom({ grinderCell: 'Not3' }))).toBeNull()
+  })
+
+  it('a JML to the line step ends the arm like a JMP does (a long jump is a transfer too)', () => {
+    const rom = buildSyntheticRom()
+    // The dispatch's last three bytes are JMP step; the four-byte JML takes the byte after them as the bank.
+    rom.writeAt(GRINDER_DISPATCH_AT + 7, [0x5c, 0x90, 0x92, 0x01])
+    expect(reasonOf(rom)).toBeNull()
+  })
+
+  it('a bare JMP entry changed to a JML is refused (the JML takes the next byte as a bank)', () => {
+    const rom = buildSyntheticRom()
+    rom.writeAt(GRINDER_HANDLER + 16, [0x5c])
+    expect(gateOf(rom).ok).toBe(false)
+  })
+
+  describe('the INIT of a line-guided sprite that moved is held to a stock INIT, whatever its id (N6)', () => {
+    const SEED = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
+    const stockOf = (rom: RomFile) => ({ len: 31, sha: fingerprint(rom.readAt(0x019700, 31))! })
+    const STOCK = [stockOf(buildSyntheticRom({ grinderInitDelta: [8, 0] }))]
+    const rest = (
+      id: number,
+      o: SyntheticOptions,
+      stocks: readonly { len: number; sha: string }[] = STOCK,
+    ) => {
+      // prettier-ignore
+      const rom = buildSyntheticRom({ grinderAliases: true, ...o })
+      return runOnce(rom, id, SEED, { atRest: true, grinderDispatch: grinderShape(rom), stockInits: stocks }) // prettier-ignore
+    }
+
+    it('two stock INITs where only the second matches: not flagged (a dropped second digest, or `every` for `some`, fails here)', () => {
+      const bogus = { len: 31, sha: '0'.repeat(64) }
+      expect(
+        rest(103, { grinderInitDelta: [8, 0] }, [bogus, STOCK[0]!]).lineInitReason,
+      ).toBeUndefined()
+      // And with the matching one dropped it is flagged, so the list is what decides.
+      expect(rest(103, { grinderInitDelta: [8, 0] }, [bogus]).lineInitReason).toMatch(
+        /not a stock line-guided INIT/,
+      )
+    })
+
+    it('the production list names both stock INITs, 42 and 41 bytes', () => {
+      expect(STOCK_INITS.map(r => r.len)).toEqual([42, 41])
+    })
+
+    it('a stock INIT that moves the sprite is not flagged; a patched one is flagged and still runs', () => {
+      expect(rest(103, { grinderInitDelta: [8, 0] }).lineInitReason).toBeUndefined()
+      const patched = rest(103, { grinderInitDelta: [12, 0] })
+      expect(patched.lineInitReason).toMatch(/not a stock line-guided INIT/)
+      expect(patched.refusal).toBeUndefined()
+      expect(patched.anchor!.x).toBe(0x8c) // the patched INIT's own +12, interpreted
+    })
+
+    it.each([[98], [100], [101], [102], [103], [104]])(
+      'id %i: a patched INIT that moves it is flagged, whatever the id',
+      id => {
+        const m = rest(id, { grinderInitDelta: [12, 0] })
+        expect(m.shifted).toBe(true)
+        expect(m.lineInitReason).toMatch(/not a stock line-guided INIT/)
+        expect(modelResult(m)).toMatchObject({ ok: true, unverified: expect.stringMatching(/not a stock line-guided INIT/) }) // prettier-ignore
+        // And the stock INIT, the same move, is not.
+        expect(rest(id, { grinderInitDelta: [8, 0] }).lineInitReason).toBeUndefined()
+      },
+    )
+
+    it('the flag reaches the picture only when the sprite moved: no stored tile, no note, no flag otherwise', () => {
+      const still = rest(103, { grinderInitDelta: [0, 0] })
+      expect(still.shifted).toBeUndefined()
+      expect(still.lineInitReason).toBeUndefined()
+      const res = modelResult(still)
+      expect(res).not.toHaveProperty('stored')
+      expect((res as { unverified?: string }).unverified ?? '').not.toMatch(/INIT/)
+    })
+  })
+})
+
+describe('InitLineGuidedSpr is checked by fingerprint (#792, D110 call 4)', () => {
+  it('every fingerprint covers at least 24 bytes in one digest (D126)', () => {
+    const lens = [...Object.values(VANILLA_DISPATCH.routines), ...STOCK_INITS].map(r => r.len)
+    expect(Math.min(...lens)).toBeGreaterThanOrEqual(24)
+  })
+
+  it('accepts a routine whose bytes hash to the stock one and refuses each single-byte edit (synthetic bytes)', () => {
+    const rom = buildSyntheticRom()
+    const stock = { len: 16, sha: fingerprint(rom.readAt(0x019200, 16))! }
+    expect(isStockRoutine(rom, 0x019200, [stock])).toBe(true)
+    const accepted = Array.from({ length: 16 }, (_, i) => i).filter(i => {
+      const r = buildSyntheticRom()
+      r.writeAt(0x019200 + i, [r.readAt(0x019200 + i, 1)![0]! ^ 0x01])
+      return isStockRoutine(r, 0x019200, [stock])
+    })
+    expect(accepted).toEqual([])
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))(
+  'InitLineGuidedSpr on the vanilla cart (#792, D110 call 4)',
+  () => {
+    const seed3 = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
+
+    it('is stock for every admitted id and not flagged, though $64 and $65-$68 move on this seed', () => {
+      const rom = freshRom()
+      for (const id of LINE_GUIDED_IDS) expect(runOnce(rom, id, seed3, { atRest: true }).lineInitReason, `id ${id}`).toBeUndefined() // prettier-ignore
+    }, 120_000)
+
+    it('flags an edited subtract constant as unverified, while the interpreter still runs the edited INIT', () => {
+      const stock = runOnce(freshRom(), 0x65, seed3, { atRest: true })
+      const rom = freshRom()
+      // The constant of the even-column branch's SBC #imm: changed, so the shift differs from stock.
+      rom.writeAt(0x01d6fa, [rom.readAt(0x01d6fa, 1)![0]! ^ 0x10])
+      const m = runOnce(rom, 0x65, seed3, { atRest: true })
+      expect(m.lineInitReason).toMatch(/not a stock line-guided INIT/)
+      expect(m.refusal).toBeUndefined()
+      expect(m.anchor!.x).not.toBe(stock.anchor!.x)
+    }, 120_000)
+  },
+)
+
 const TRACE_SLOT_7 = join(TOOLS_ROOT, 'fixtures', 'sprite-trace', SPRITE_TRACE_SET, '01f')
 
 describe.skipIf(!hasRom(VANILLA) || !existsSync(TRACE_SLOT_7))(
   'Mesen capture, slot $1F grinder in sprite slot 7',
   () => {
-    it('the INIT-on run is drawn where the capture left it after the line pull, (431,336); the picture at rest is not', () => {
+    it('the INIT-on run is drawn where the capture left it after the line pull, (431,336); the picture at rest is where INIT left it, (415,336)', () => {
       // The capture's WRAM snapshots are 8 KiB per call, taken as the next call starts. Sprite slot 7 reads
       // (400,336) after the load, (415,336) after INIT, (419,340) after the first MAIN and (431,336) after the second.
       const calls = JSON.parse(readFileSync(join(TRACE_SLOT_7, 'calls.json'), 'utf8')) as { slot: number; kind: string; wram: number }[] // prettier-ignore
@@ -294,7 +705,7 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(TRACE_SLOT_7))(
       const lastWram = next!.wram
       expect(lastWram).toBe(mains[1]!.wram + 1)
       expect(at(lastWram)).toEqual([431, 336])
-      // The INIT-on run (the default; play/simulate) reaches the capture's spot; the map's picture does not (D91).
+      // The INIT-on run (the default; play/simulate) reaches the capture's spot; the map's picture is the capture's spot after INIT (R16).
       const path = romPath(VANILLA)
       const bytes = new Uint8Array(readFileSync(path))
       const rom = new SmwRom(RomFile.fromBytes(path, Buffer.from(bytes)))
@@ -306,7 +717,7 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(TRACE_SLOT_7))(
       const rest = draws()
       if (!played.ok || !rest.ok) throw new Error('grinder not drawn')
       expect([played.anchor!.x, played.anchor!.y]).toEqual(at(lastWram))
-      expect([rest.anchor!.x, rest.anchor!.y]).toEqual([first.x * 16, first.y * 16])
+      expect([rest.anchor!.x, rest.anchor!.y]).toEqual(at(mains[0]!.wram))
     }, 120_000)
   },
 )

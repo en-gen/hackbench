@@ -1194,8 +1194,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Click selection (#984): the sprite goes to the Properties panel until another click, a map change, hide or close. */
   protected selectSprite(next: MapSpriteDto | undefined): void {
+    const redraw = !!(this.selectedSprite?.stored || next?.stored)
     this.selectedSprite = next
     this.syncSelection()
+    // The stored-tile highlight follows the selection.
+    if (redraw) this.update()
     // Revealed on a pick, not on every sync: closing the panel must stay closed until the next click.
     if (next && this.isVisible) void this.commands.executeCommand(RevealPropertiesCommand.id)
   }
@@ -1729,6 +1732,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
                 className="hb-map-view-edge"
                 data-control="map-edge"
                 style={{ left: pad.left * z, top: pad.top * z, width: mapW * z, height: mapH * z }}
+              />
+            )}
+            {this.selectedSprite?.stored && (
+              <div
+                className="hb-map-stored-tile"
+                data-control="stored-tile"
+                title="Where the map stores this sprite"
+                style={{ left: (pad.left + this.selectedSprite.stored.x) * z, top: (pad.top + this.selectedSprite.stored.y) * z, width: 16 * z, height: 16 * z }} // prettier-ignore
               />
             )}
             {this.showCollision && this.collisionCurrent() && (

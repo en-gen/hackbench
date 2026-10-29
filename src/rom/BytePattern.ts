@@ -27,12 +27,20 @@ export const WILD = -1
 /** A byte run with WILD in the positions that vary. */
 export type BytePattern = readonly number[]
 
-/** "c2 10 ??" to a BytePattern; whitespace may span lines. */
+/**
+ * "c2 10 ??" to a BytePattern; whitespace may span lines. Each token is exactly two hex digits or `??`:
+ * parseInt alone turns "zz" into NaN (a pattern that never matches, read as "not the stock ROM") and "c2x"
+ * into 0xc2, so a typo in a constant would pass as a refusal. Constants parse at module load, so it fails fast.
+ */
 export const parsePattern = (s: string): BytePattern =>
   s
     .trim()
     .split(/\s+/)
-    .map(b => (b === '??' ? WILD : parseInt(b, 16)))
+    .map(b => {
+      if (b === '??') return WILD
+      if (!/^[0-9a-fA-F]{2}$/.test(b)) throw new Error(`parsePattern: bad byte token "${b}"`)
+      return parseInt(b, 16)
+    })
 
 /**
  * Cart-relative file offsets of every match for `pattern`, ascending.

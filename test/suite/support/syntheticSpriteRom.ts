@@ -17,7 +17,7 @@
  * loader entries ($05:D8B7, $00:A635, $05:801E and the rest) are small routines of our own,
  * with the few single instructions the loader checks (LevelLoader.ts SITES) at their offsets. Ids 20, 21 and 22 draw like id 0 and set one CGRAM color
  * in INIT: 20 through the NMI upload list ($0681/$0682), 21 through a MainPalette list
- * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move. Options plant a defect for the oracle tests.
+ * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move; 98 and 104 (JMP entry) and 101 and 102 (prelude entry) reach the same dispatch, 100 has the prelude but is not admitted. Options plant a defect for the oracle tests.
  */
 import { RomFile } from '../../../src/rom/RomFile'
 import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
@@ -27,6 +27,16 @@ import { EERIE_HANDLER, putEeries } from './syntheticEeries'
 import { putGrinderRoutines } from './syntheticGrinder'
 
 export interface SyntheticOptions {
+  /** Ids 31 and 103 get id 0's INIT (adds `initShift` to X), so the line-guided id moves before its first frame. */
+  grinderInitShifts?: boolean
+  /** Ids 31 and 103 get an INIT of our own that adds this signed 16-bit [dx, dy] to the sprite, with carry into the high bytes. */
+  grinderInitDelta?: readonly [number, number]
+  /** Ids 98, 100, 101, 102 and 104 (list ids $62, $64-$66, $68) run the grinder handler, so the pass pick can be tried per id. */
+  grinderAliases?: boolean
+  /** The grinder handler starts with a JSR to a prelude routine, as the chainsaw ids' LineRope_Chainsaw does. */
+  grinderPrelude?: boolean
+  /** The grinder handler reads a WRAM cell ($0DF0) only when X is 3 (`At3`) or only when X is not 3 (`Not3`) and, when it is non-zero, calls the interact routine first. */
+  grinderCell?: 'At3' | 'Not3'
   /** ADC operand of id 0's INIT shift. */
   initShift?: number
   /** Id 0's INIT also adds 256 to X, and its MAIN draws nothing unless it is within 0-255 px right of the camera (GetDrawInfo's cull). */
@@ -270,7 +280,13 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[27] = 0x8e40
   mainTable[31] = 0x9300
   mainTable[32] = 0x92a0
+  if (o.grinderInitShifts) initTable[31] = initTable[103] = 0x8610
+  if (o.grinderInitDelta) initTable[31] = initTable[103] = 0x9700
+  if (o.grinderInitDelta && o.grinderAliases)
+    for (const id of [98, 100, 101, 102, 104]) initTable[id] = 0x9700
   mainTable[103] = 0x9200
+  for (const id of [98, 104]) mainTable[id] = o.grinderAliases ? 0x9200 : 0x9600
+  for (const id of [100, 101, 102]) mainTable[id] = o.grinderAliases ? 0x9200 : 0x9610
   mainTable[33] = 0x8a80
   if (o.eeries) mainTable[57] = EERIE_HANDLER
   if (o.id31IsGrinder) mainTable[31] = 0x9500

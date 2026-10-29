@@ -85,6 +85,38 @@ export interface SpriteProps {
   notes: string[]
 }
 
+/**
+ * The plain-words note for a sprite drawn away from the tile the map stores it on (R16): the distance is the
+ * difference the run produced, never a constant here. Absent when the picture is on its stored tile.
+ */
+export function shiftNote(
+  s: Pick<MapSpriteDto, 'x' | 'y' | 'stored' | 'afterInit'>,
+): string | undefined {
+  if (!s.stored) return undefined
+  const words = (dx: number, dy: number) =>
+    [
+      dx && `${Math.abs(dx)} px to the ${dx < 0 ? 'left' : 'right'}`,
+      dy && `${Math.abs(dy)} px ${dy < 0 ? 'up' : 'down'}`,
+    ]
+      .filter(Boolean)
+      .join(' and ')
+  // Start-up code moves it to `afterInit`, its first step on to where it is first drawn; with no split, all is start-up.
+  const mid = s.afterInit ?? { x: s.x, y: s.y }
+  const [start, step] = [
+    words(mid.x - s.stored.x, mid.y - s.stored.y),
+    words(s.x - mid.x, s.y - mid.y),
+  ]
+  const cause = start
+    ? step
+      ? `Its start-up code moves it ${start}, and its first step ${step} more, before it is first drawn`
+      : `Its own start-up code moves it ${start} before it is first drawn`
+    : step
+      ? `Its first step moves it ${step} before it is first drawn`
+      : undefined
+  if (!cause) return undefined
+  return `${cause}, so the map draws it there, as the game does. The highlighted tile is where the map stores it.`
+}
+
 export function spriteProps(s: MapSpriteDto): SpriteProps {
   const parts = s.status === 'drawn' && s.parts ? s.parts : null
   const notes: string[] = []
@@ -92,13 +124,16 @@ export function spriteProps(s: MapSpriteDto): SpriteProps {
     notes.push(`Not drawn: ${notDrawnText(s.reason)}`)
   }
   if (s.unverified) notes.push(`Unverified: ${s.unverified}.`)
+  const shift = shiftNote(s)
+  if (shift) notes.push(shift)
   notes.push('Behavior and extra settings are not interpreted in this view yet.')
   return {
     label: spriteLabel(s),
     id: s.id,
     name: s.name,
-    col: Math.floor(s.x / TILE),
-    row: Math.floor(s.y / TILE),
+    // The tile the map stores the sprite on, which is the drawn anchor unless the sprite's INIT shifts it (R16).
+    col: Math.floor((s.stored?.x ?? s.x) / TILE),
+    row: Math.floor((s.stored?.y ?? s.y) / TILE),
     parts,
     paletteRows: parts ? [...new Set(parts.map(p => p.palette))].sort((a, b) => a - b) : [],
     notes,

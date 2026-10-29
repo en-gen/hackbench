@@ -14,7 +14,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import { WILD, BytePattern, findPattern } from '../../../src/rom/BytePattern'
+import { WILD, BytePattern, findPattern, parsePattern } from '../../../src/rom/BytePattern'
 import { COPIER_HEADER_SIZE } from '../../../src/rom/addressing'
 
 const CART_SIZE = 0x10000
@@ -111,5 +111,22 @@ describe('findPattern', () => {
     const at = findPattern(rom, PATTERN)[0]!
 
     expect([...rom.readAtFileOffset(at, PATTERN.length)!]).toEqual(site(0x5a))
+  })
+})
+
+describe('parsePattern', () => {
+  it('reads two-digit hex tokens and the wildcard across any whitespace', () => {
+    expect(parsePattern(' c2 10\n?? Ff ')).toEqual([0xc2, 0x10, WILD, 0xff])
+  })
+  it.each([
+    ['a non-hex token', 'c2 zz 10', 'zz'],
+    ['trailing junk after hex digits', 'c2x 10', 'c2x'],
+    ['a one-digit token', 'c2 1', '1'],
+    ['a three-digit token', 'c2 100', '100'],
+    ['a lone question mark', 'c2 ?', '?'],
+    ['an empty string', '', ''],
+    ['only whitespace', '  \n ', ''],
+  ])('rejects %s, naming it', (_what, text, token) => {
+    expect(() => parsePattern(text)).toThrow(new RegExp(`bad byte token "${token}"`))
   })
 })

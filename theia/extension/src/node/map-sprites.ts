@@ -153,6 +153,10 @@ export type SpriteDrawResult =
   | (Omit<Extract<EngineResult, { ok: true }>, 'parts'> & {
       parts: DrawPart[]
       anchor?: { x: number; y: number }
+      /** Where the level stores the sprite, when the picture is drawn elsewhere (INIT shifts it before its first frame, R16). */
+      stored?: { x: number; y: number }
+      /** With `stored`: where the sprite's start-up code left it, before its first step. */
+      afterInit?: { x: number; y: number }
       /** CGRAM colors the sprite's own code set by its drawn frame (interpreter only). */
       runtimePalette?: PaletteWrite[]
       /** The player-buffer slots the drawn frame's run pointed Mario's tile DMA at (interpreter only; #980). */
@@ -299,6 +303,8 @@ export function drawSprites(
       y: ay,
       box,
       rgba: base64(out),
+      ...('stored' in res && res.stored ? { stored: res.stored } : {}),
+      ...('afterInit' in res && res.afterInit ? { afterInit: res.afterInit } : {}),
       parts: res.parts.map(p => ({ char: p.charNum, palette: p.palette, flipX: p.flipX, flipY: p.flipY, dx: p.dx, dy: p.dy })), // prettier-ignore
       priority: base64(new Uint8ClampedArray(prio.buffer)),
       status: 'drawn',
@@ -417,16 +423,27 @@ export function modelResult(m: RunModel): SpriteDrawResult {
   const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
   const uploads = m.chosen === undefined ? undefined : m.uploads?.[m.chosen]
   if (!m.anchor || !pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
+  // The at-rest picture of a sprite whose INIT shifts it is drawn where INIT left it; its list position is the stored tile.
+  const stored = m.shifted
+    ? { stored: { x: m.anchor.rawX, y: m.anchor.rawY }, afterInit: m.initAt }
+    : {}
   return {
     ok: true,
     parts: interpParts(pass.parts),
     anchor: { x: m.anchor.x, y: m.anchor.y },
+    ...stored,
     runtimePalette: pass.palette,
     ...(pass.drew
       ? { children: pass.drew.children.map(c => ({ index: c.index, parts: interpParts(pass.parts.filter(p => c.oam.includes(p.oam))) })) } // prettier-ignore
       : {}),
     ...(uploads?.length ? { uploads } : {}),
     ...u,
+    // A patched INIT matters to the picture only when it moved the sprite; the generic-seed note and this one both stand.
+    ...(m.shifted && m.lineInitReason
+      ? { unverified: [u.unverified, m.lineInitReason].filter(Boolean).join('; ') }
+      : m.initMoved && m.lineGateReason
+        ? { unverified: [u.unverified, `drawn on its map tile although its start-up code moves it: ${m.lineGateReason}`].filter(Boolean).join('; ') } // prettier-ignore
+        : {}),
     identity: { spriteId: m.id, mainHandler: 0, initHandler: 0, status: 'vanilla' },
   }
 }

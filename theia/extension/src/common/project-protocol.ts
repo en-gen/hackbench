@@ -339,6 +339,14 @@ export interface MapSpriteDto {
   x: number
   y: number
   box: { x0: number; y0: number; x1: number; y1: number }
+  /**
+   * Where the map stores this sprite (its list position, in map pixels), present only when the picture is drawn
+   * elsewhere because the sprite's own INIT shifts it before its first frame (R16, D85 B). The map highlights this
+   * tile when the sprite is selected; `x`, `y` stay the drawn anchor.
+   */
+  stored?: { x: number; y: number }
+  /** With `stored`: where the sprite's start-up code left it, before its first step (`x`, `y` are where it is first drawn). */
+  afterInit?: { x: number; y: number }
   rgba: string
   /**
    * The parts the bitmap was blitted from, in the order drawn (#984): the Properties view lists them from
