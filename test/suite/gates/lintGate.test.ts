@@ -84,6 +84,8 @@ const ESLINT_TIMEOUT_MS = loadTimeout(120_000)
 // About 2x the 4.3 s loaded worst (10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10). Pure package.json cases need no timeout.
 const PRETTIER_TIMEOUT_MS = loadTimeout(10_000)
 
+const UNUSED_VAR = 'export function f(): number {\n  const dead = 1\n  return 2\n}\n'
+
 describe('the lint gate can fail', () => {
   it(
     'rejects an unused variable',
@@ -235,6 +237,27 @@ describe('the lint gate can fail', () => {
   it('binds the gate to the real script: npm run lint keeps --max-warnings 0', () => {
     expect(pkg.scripts.lint).toContain('--max-warnings 0')
   })
+
+  it(
+    'rejects an unused variable planted in a root *.ts config (#1185)',
+    () => {
+      // Runs the root-file globs exactly as package.json spells them, minus the
+      // directory trees, which other cases cover and which would cost minutes.
+      // The planted file sits at the repo root, where `vitest.*.config.ts` live.
+      const rootGlobs = (pkg.scripts.lint as string).split(/\s+/).filter(t => t.startsWith('*.'))
+      const planted = path.join(repoRoot, `lintgate-planted-${process.pid}.ts`)
+      try {
+        fs.writeFileSync(planted, UNUSED_VAR)
+        expect(rootGlobs).toContain('*.ts')
+        expect(exitCodeOf(ESLINT_BIN, ['--max-warnings', '0', ...rootGlobs])).not.toBe(0)
+        fs.writeFileSync(planted, 'export const ok = 1\n')
+        expect(exitCodeOf(ESLINT_BIN, ['--max-warnings', '0', ...rootGlobs])).toBe(0)
+      } finally {
+        fs.rmSync(planted, { force: true })
+      }
+    },
+    ESLINT_TIMEOUT_MS * 2,
+  )
 
   it('lints every tree that holds product or test code', () => {
     for (const dir of ['src', 'test', 'tools', 'theia']) {
