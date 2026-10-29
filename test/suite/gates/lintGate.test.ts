@@ -232,26 +232,63 @@ describe('the lint gate can fail', () => {
     expect(pkg.scripts.lint).toContain('--max-warnings 0')
   })
 
-  it(
-    'rejects an unused variable planted in a root *.ts config (#1185)',
-    () => {
-      // Runs the root-file globs exactly as package.json spells them, minus the
-      // directory trees, which other cases cover and which would cost minutes.
-      // The planted file sits at the repo root, where `vitest.*.config.ts` live.
-      const rootGlobs = (pkg.scripts.lint as string).split(/\s+/).filter(t => t.startsWith('*.'))
-      const planted = path.join(repoRoot, `lintgate-planted-${process.pid}.ts`)
-      try {
-        fs.writeFileSync(planted, UNUSED_VAR)
-        expect(rootGlobs).toContain('*.ts')
-        expect(exitCodeOf(ESLINT_BIN, ['--max-warnings', '0', ...rootGlobs])).not.toBe(0)
-        fs.writeFileSync(planted, 'export const ok = 1\n')
-        expect(exitCodeOf(ESLINT_BIN, ['--max-warnings', '0', ...rootGlobs])).toBe(0)
-      } finally {
-        fs.rmSync(planted, { force: true })
-      }
-    },
-    ESLINT_TIMEOUT_MS * 2,
-  )
+  // #1185: root vitest*.config.ts files were skipped by the lint globs. Nothing
+  // below writes to the repo root, so a killed or concurrent run cannot leave a
+  // file that turns `npm run lint` or this case red.
+  describe('root *.ts configs are linted', () => {
+    const rootGlobs = (pkg.scripts.lint as string).split(/\s+/).filter(t => t.startsWith('*.'))
+    const rootConfigs = fs
+      .readdirSync(repoRoot)
+      .filter(f => /^vitest.*\.config\.ts$/.test(f))
+      .sort()
+
+    type Result = { filePath: string; messages: { ruleId: string | null }[] }
+    function lintJson(args: string[], input?: string): { status: number | null; out: Result[] } {
+      const r = spawnSync(
+        process.execPath,
+        [ESLINT_BIN, '--max-warnings', '0', '--format', 'json', ...args],
+        { cwd: repoRoot, encoding: 'utf8', input, maxBuffer: 64 * 1024 * 1024 },
+      )
+      if (r.error) throw r.error
+      return { status: r.status, out: JSON.parse(r.stdout) }
+    }
+
+    it('finds the four root configs, so a new one is noticed', () => {
+      expect(rootConfigs).toHaveLength(4)
+    })
+
+    it(
+      'the script globs lint each real root config, not ignored, with no findings',
+      () => {
+        const { status, out } = lintJson(rootGlobs)
+        for (const name of rootConfigs) {
+          const hit = out.find(x => path.basename(x.filePath) === name)
+          // An ignored file shows up with a "File ignored" warning, so 0 messages
+          // covers both "skipped by the glob" (absent) and "ignored" (a message).
+          expect(hit, `${name} was not linted`).toBeDefined()
+          expect(hit?.messages, name).toHaveLength(0)
+        }
+        expect(status).toBe(0)
+      },
+      ESLINT_TIMEOUT_MS,
+    )
+
+    it(
+      'rejects an unused variable in vitest.config.ts content, accepts it clean',
+      () => {
+        const real = fs.readFileSync(path.join(repoRoot, 'vitest.config.ts'), 'utf8')
+        const bad = lintJson(['--stdin', '--stdin-filename', 'vitest.config.ts'], real + UNUSED_VAR)
+        expect(bad.status).not.toBe(0)
+        expect(bad.out[0].messages.map(m => m.ruleId)).toContain(
+          '@typescript-eslint/no-unused-vars',
+        )
+        const good = lintJson(['--stdin', '--stdin-filename', 'vitest.config.ts'], real)
+        expect(good.status).toBe(0)
+        expect(good.out[0].messages).toHaveLength(0)
+      },
+      ESLINT_TIMEOUT_MS,
+    )
+  })
 
   it('lints every tree that holds product or test code', () => {
     for (const dir of ['src', 'test', 'tools', 'theia']) {

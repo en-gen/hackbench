@@ -178,6 +178,3 @@ src/**/*.d.ts.map
 
 # Vitest JSON reporter output
 .vitest/
-
-# Planted by lintGate.test.ts at the repo root; a killed run must not leave a committable file
-lintgate-planted-*.ts

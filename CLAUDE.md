@@ -179,7 +179,7 @@ Each one corresponds to a defect that actually reached review in this repo.
 hook (#1183; refinement in #1163); `.githooks/pre-push` is the only hook.
 
 - CI `static` job: `npm run lint` (ci.yml:102; ESLint over `src test tools
-  theia` and root `*.js *.mjs *.ts`, `--max-warnings 0`; the root `vitest.*.config.ts`
+  theia` and root `*.js *.mjs *.ts`, `--max-warnings 0`; the root `vitest*.config.ts`
   files are covered, #1185) and `npm run format:check` (ci.yml:105; Prettier over JS/TS/CSS
   tree-wide). `tools/scripts/check-staged-style.sh` is not called by
   anything now (kept for #1163); `test/suite/gates/lintGate.test.ts` proves

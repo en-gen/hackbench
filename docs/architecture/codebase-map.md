@@ -120,7 +120,7 @@ pre-commit hook (#1183; refinement in #1163); `.githooks/pre-push` is the only
 hook.
 
 - CI `static` job runs `npm run lint` (ESLint over `src test tools theia`
-  and root `*.js *.mjs *.ts`, `--max-warnings 0`; the root `vitest.*.config.ts`
+  and root `*.js *.mjs *.ts`, `--max-warnings 0`; the root `vitest*.config.ts`
   files are covered, #1185) and `npm run format:check` (Prettier over JS/TS/CSS).
   `tools/scripts/check-staged-style.sh` is called by nothing now.
 - `tools/scripts/check-content.mjs` (issue #678) blocks ROM-derived bytes on
