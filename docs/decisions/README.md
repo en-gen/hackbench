@@ -6,6 +6,7 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 
 | File | State | Decides |
 | --- | --- | --- |
+| [2026-10-29-keep-staged-check-scripts.md](2026-10-29-keep-staged-check-scripts.md) | Proposed | keep the staged-check scripts and their gate test as tooling for #1163 |
 | [2026-10-17-map-notes-rom-scope.md](2026-10-17-map-notes-rom-scope.md) | Proposed | whole-ROM map notes are shown once under This ROM, never on each map |
 | [2026-10-17-map-draw-notes-stay-above-map.md](2026-10-17-map-draw-notes-stay-above-map.md) | Proposed | map draw notes stay above the map and are also listed |
 | [2026-10-17-missing-base-rom-is-a-project-problem.md](2026-10-17-missing-base-rom-is-a-project-problem.md) | Proposed | a missing base ROM is a project problem, not a map note |
