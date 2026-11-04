@@ -28,6 +28,10 @@ const DESKTOP_2 = 'local_00000000-0000-0000-0000-000000000002'
 const DESKTOP_3 = 'local_00000000-0000-0000-0000-000000000003'
 const OLD = '.hackbench-state'
 const NEW = '.overwatch'
+const MARKER = '.cutover-complete'
+/** Removes a link only: a junction needs rmdir on Windows, a symlink needs unlink on POSIX. */
+const removeLink = (p: string) =>
+  process.platform === 'win32' ? fs.rmdirSync(p) : fs.unlinkSync(p)
 
 /** A main checkout holding a live-looking old state folder. */
 function withOldState() {
@@ -75,16 +79,105 @@ describe('resolveStateDir', () => {
     expect(fs.readdirSync(neu)).toEqual([])
   })
 
+  it('stateDirFor answers from its env argument, not process.env', () => {
+    const { main } = withOldState()
+    const saved = process.env.HACKBENCH_STATE_DIR
+    process.env.HACKBENCH_STATE_DIR = '/from-process-env'
+    try {
+      expect(stateDirFor(main, {})).toBe(path.join(main, OLD))
+      expect(stateDirFor(main, { HACKBENCH_STATE_DIR: '/from-arg' })).toBe('/from-arg')
+    } finally {
+      if (saved === undefined) delete process.env.HACKBENCH_STATE_DIR
+      else process.env.HACKBENCH_STATE_DIR = saved
+    }
+  })
+
+  it('a MARKED .overwatch beats a real .hackbench-state that old code recreated', () => {
+    const { main, neu } = withOldState()
+    cutoverState(main)
+    removeLink(path.join(main, OLD))
+    fs.mkdirSync(path.join(main, OLD)) // what a pre-#1202 branch does
+    fs.writeFileSync(path.join(main, OLD, 'sessions.json'), '{}')
+    expect(fs.existsSync(path.join(neu, MARKER))).toBe(true)
+    expect(resolveStateDir(main, {})).toBe(neu)
+    expect(stateDirFor(main, {})).toBe(neu)
+  })
+
+  it('an UNMARKED non-empty .overwatch beside a real .hackbench-state still answers the old one', () => {
+    const { main, old, neu } = withOldState()
+    fs.mkdirSync(neu)
+    fs.writeFileSync(path.join(neu, 'sessions.json'), '{}') // a killed gate run's leftovers
+    expect(resolveStateDir(main, {})).toBe(old)
+  })
+
   it('.overwatch is the answer when the old name is absent or a link', () => {
     const { main, neu } = withOldState()
     cutoverState(main)
     expect(resolveStateDir(main, {})).toBe(neu)
-    fs.rmdirSync(path.join(main, OLD)) // removes the link only
+    removeLink(path.join(main, OLD)) // removes the link only
     expect(resolveStateDir(main, {})).toBe(neu)
   })
 })
 
 describe('cutoverState', () => {
+  it('writes the marker into the folder before the rename, so it arrives with it', () => {
+    const { main, old, neu } = withOldState()
+    let seenAtRename = false
+    cutoverState(main, {
+      rename: (a: string, b: string) => {
+        seenAtRename = fs.existsSync(path.join(old, MARKER))
+        fs.renameSync(a, b)
+      },
+    })
+    expect(seenAtRename).toBe(true)
+    expect(fs.existsSync(path.join(neu, MARKER))).toBe(true)
+  })
+
+  it('a refused cutover (held slot) leaves an existing empty .overwatch in place and no marker', () => {
+    const { main, old, neu } = withOldState()
+    fs.mkdirSync(neu)
+    acquire(old, { owner: 'alpha wt-a', purpose: 't', slots: 1 })
+    expect(cutoverState(main).ok).toBe(false)
+    expect(fs.existsSync(neu)).toBe(true)
+    expect(fs.existsSync(path.join(old, MARKER))).toBe(false)
+  })
+
+  it('a failed rename or link leaves no marker in the old folder', () => {
+    const a = withOldState()
+    cutoverState(a.main, {
+      rename: () => {
+        throw new Error('EBUSY')
+      },
+    })
+    expect(fs.existsSync(path.join(a.old, MARKER))).toBe(false)
+    const b = withOldState()
+    cutoverState(b.main, {
+      link: () => {
+        throw new Error('EPERM')
+      },
+    })
+    expect(fs.existsSync(path.join(b.old, MARKER))).toBe(false)
+  })
+
+  it('a crash between rename and link, then a real .hackbench-state: new code stays on .overwatch and a re-run refuses', () => {
+    const { main, old, neu } = withOldState()
+    cutoverState(main, {
+      link: () => {
+        throw new Error('EPERM')
+      },
+      rename: (x: string, y: string) => {
+        if (x !== old) throw new Error('EBUSY') // the undo fails too: folder stays at .overwatch
+        fs.renameSync(x, y)
+      },
+    })
+    expect(fs.existsSync(path.join(neu, MARKER))).toBe(true)
+    fs.mkdirSync(old) // old code recreates the name
+    expect(resolveStateDir(main, {})).toBe(neu)
+    const r = cutoverState(main)
+    expect(r.ok).toBe(false)
+    expect(r.message).toMatch(/reconcile/)
+  })
+
   it('renames the folder and leaves a link at the old name', () => {
     const { main, old, neu } = withOldState()
     const r = cutoverState(main)

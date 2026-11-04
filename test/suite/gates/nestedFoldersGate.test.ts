@@ -17,6 +17,7 @@ import { execFileSync, spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 import { createRequire } from 'module'
+import { cleanupNested } from '../support/nestedFolders'
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const FOLDERS = ['.worktrees', '.overwatch'] as const
@@ -46,18 +47,7 @@ beforeAll(() => {
   }
 })
 afterAll(() => {
-  for (const dir of planted) fs.rmSync(path.join(repoRoot, dir), { recursive: true, force: true })
-  // Leave no folder behind that this test created: an empty .overwatch beside a live
-  // .hackbench-state once flipped sessions to it. rmdir, not rm -r, so another
-  // process's files in a pre-existing folder can never be deleted.
-  FOLDERS.forEach((f, i) => {
-    if (existed[i]) return
-    try {
-      fs.rmdirSync(path.join(repoRoot, f))
-    } catch {
-      // not empty or already gone: not ours to remove
-    }
-  })
+  cleanupNested(repoRoot, FOLDERS, existed, planted)
 })
 
 const run = (cmd: string, args: string[]) =>

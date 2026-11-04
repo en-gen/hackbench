@@ -50,7 +50,7 @@ When the steward reports the PR number, bind it (`bind_pr`, `set_monitor`). A gr
 ```
 # <Team> state
 ## Item: #<issue> <title>
-## Branch and worktree: feature/<name> at <repo>/.worktrees/<name>
+## Branch and worktree: feature/<name> at <main checkout>/.worktrees/<name>
 ## Phase: design | plan-gate | delegate | review | verify | ship | closed | stopped: <reason>
 ## Open questions: <question> (to BA <date>)
 ## Proposed calls: <call>, filed as docs/decisions/<file> | not yet filed

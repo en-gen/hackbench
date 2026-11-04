@@ -76,3 +76,29 @@ describe('the documented worktree command (#1202)', () => {
     }
   })
 })
+
+// A bare `git worktree add` (no -C to the main checkout) nests when typed from a linked worktree.
+const bareForms = (text: string) => text.match(/git worktree add(?!\w)/g) ?? []
+
+describe('tech-lead docs give the safe worktree form only (#1202)', () => {
+  const read = (f: string) => fs.readFileSync(path.join(root, f), 'utf8')
+
+  it('tech-lead-reference.md carries the exact form and no bare relative one', () => {
+    const text = read('docs/agents/tech-lead-reference.md')
+    expect(text.replace(/\s+/g, ' ')).toContain(FORM)
+    expect(bareForms(text)).toEqual([])
+  })
+
+  it('tech-lead.md has no bare relative form and names the main checkout, not "<repo>"', () => {
+    const text = read('docs/agents/tech-lead.md')
+    expect(bareForms(text)).toEqual([])
+    expect(text).not.toContain('<repo>/.worktrees')
+  })
+
+  it('oracle: the scan goes red on a planted bare relative form', () => {
+    expect(
+      bareForms('run `git worktree add .worktrees/x -b feature/x origin/develop`'),
+    ).toHaveLength(1)
+    expect(bareForms(FORM)).toEqual([])
+  })
+})

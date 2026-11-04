@@ -26,6 +26,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { status as runLockStatus } from './run-lock.mjs'
 import {
+  CUTOVER_MARKER,
   OLD_STATE_DIR_NAME,
   STATE_DIR_NAME,
   mainCheckoutDir,
@@ -564,14 +565,18 @@ export function cutoverState(main, { rename = renameSync, link = defaultLink } =
   if (existsSync(newDir)) {
     if (readdirSync(newDir).length) {
       return fail(
-        `both ${OLD_STATE_DIR_NAME} and a non-empty ${STATE_DIR_NAME} exist; merge them by hand, nothing moved`,
+        `both ${OLD_STATE_DIR_NAME} and a non-empty ${STATE_DIR_NAME} exist; reconcile them by hand (docs/runbooks/state-cutover.md, "Recovery"), nothing moved`,
       )
     }
     rmSync(newDir, { recursive: true }) // empty: a stray mkdir, not state
   }
+  // Written before the rename so the rename makes it take effect atomically.
+  const marker = path.join(oldDir, CUTOVER_MARKER)
+  writeFileSync(marker, 'cutover to .overwatch complete\n')
   try {
     rename(oldDir, newDir)
   } catch (err) {
+    rmSync(marker, { force: true })
     return fail(`could not rename ${OLD_STATE_DIR_NAME}; it was left in place: ${err.message}`)
   }
   const linkErr = makeLink()
@@ -580,9 +585,10 @@ export function cutoverState(main, { rename = renameSync, link = defaultLink } =
   }
   try {
     rename(newDir, oldDir)
+    rmSync(path.join(oldDir, CUTOVER_MARKER), { force: true })
   } catch {
     return fail(
-      `moved to ${STATE_DIR_NAME}, but the link failed (${linkErr.message}) and so did restoring the old name; re-run cutover-state to finish the link`,
+      `moved to ${STATE_DIR_NAME}, but the link failed (${linkErr.message}) and so did restoring the old name; re-run cutover-state to finish the link (if a real ${OLD_STATE_DIR_NAME} has appeared meanwhile it refuses; see "Recovery" in docs/runbooks/state-cutover.md)`,
     )
   }
   return fail(`could not link ${OLD_STATE_DIR_NAME}; rename undone: ${linkErr.message}`)

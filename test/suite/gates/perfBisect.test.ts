@@ -7,7 +7,16 @@
  */
 import { describe, it, expect } from 'vitest'
 import { join, resolve, sep } from 'node:path'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import {
   defaultTaskDir,
@@ -53,6 +62,27 @@ describe('mainRepoRoot: resolves through a linked worktree', () => {
     const exec = () => `${join(repo, '.git')}\n`
     expect(mainRepoRoot(exec as never)).toBe(repo)
   })
+
+  it('real git: from inside a linked worktree it lands at the main repo, not the worktree', () => {
+    const main = realpathSync(mkdtempSync(join(tmpdir(), 'bisect-root-')))
+    try {
+      const git = (cwd: string, ...a: string[]) =>
+        execFileSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], {
+          stdio: 'pipe',
+        })
+      git(main, 'init', '-q')
+      git(main, 'commit', '-q', '--allow-empty', '-m', 'root')
+      const linked = join(main, '.worktrees', 'task')
+      mkdirSync(join(main, '.worktrees'))
+      git(main, 'worktree', 'add', '-q', linked, '-b', 'feature/x')
+      // Real execFileSync, run from the linked worktree.
+      const fromLinked = (cmd: string, args: string[], opts: object) =>
+        execFileSync(cmd, args, { ...opts, cwd: linked })
+      expect(realpathSync(mainRepoRoot(fromLinked as never))).toBe(main)
+    } finally {
+      rmSync(main, { recursive: true, force: true })
+    }
+  }, 30000)
 })
 
 describe('runStep, exec mocked', () => {
