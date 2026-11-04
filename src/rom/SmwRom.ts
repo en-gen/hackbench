@@ -41,7 +41,6 @@ import {
   readBossModes,
   readSpritePointerSite,
   readVerticalTable,
-  SpritePointerSite,
   VerticalTableSite,
 } from './LevelTableGate'
 
@@ -284,12 +283,6 @@ export class SmwRom {
    *  read that names it is not present or not recognized on this ROM. */
   getVerticalTable(): VerticalTableSite {
     return readVerticalTable(this.rom)
-  }
-
-  /** The sprite pointer table and bank source, carrying a reason when the
-   *  read that names them is not present or not recognized on this ROM. */
-  getSpritePointerSite(): SpritePointerSite {
-    return readSpritePointerSite(this.rom)
   }
 
   /** `getVerticalTable`, thrown as the gate's own reason for a caller that
