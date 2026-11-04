@@ -140,12 +140,12 @@ describe('computeL3ScrollRange', () => {
     expect(r.yMax).toBe((lastRow + 1) * 8)
   })
 
-  it('returns kind=fixed (NOT tide) for settings byte $02 (Tide_Stationary)', () => {
+  it('returns kind=tide with static Y (no sweep lines) for settings byte $02 (Tide_Stationary; #808)', () => {
     // Per CODE_05C494 (bank_05.asm:5576-5578): DEC A; BNE CODE_05C4EC means
     // only Layer3TideSetting === 1 takes the Y-animation path. Byte $02
     // (Tide_Stationary) jumps to CODE_05C4EC which only updates Layer3XPos,
     // so the L3 band is Y-static at the initial Layer3YPos ($40 from
-    // l3InitialYPx). Overlay should not draw Min/Max sweep lines.
+    // l3InitialYPx) and still a tide in X. Overlay should not draw Min/Max sweep lines.
     const firstRow = L3_HUD_ROW_CUTOFF
     const lastRow = L3_HUD_ROW_CUTOFF + 15
     const initialCameraYPx = 0
@@ -158,7 +158,7 @@ describe('computeL3ScrollRange', () => {
       tileset: 8,
     })
 
-    expect(r.kind).toBe('fixed')
+    expect(r.kind).toBe('tide')
     expect(r.yMin).toBe(firstRow * 8 - 0x40 + initialCameraYPx)
     expect(r.yMax).toBe((lastRow + 1) * 8 - 0x40 + initialCameraYPx)
     // Tide-only fields should be absent.
