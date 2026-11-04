@@ -2,8 +2,9 @@
 # commit, no mention of electron anywhere in the diff. Fails closed: any doubt
 # disarms the PR and leaves it for a human. Stays manual: majors, github-actions
 # updates (they would change CI), anything touching electron, and any PR with
-# a human commit. This job holds a write token, so it never checks out,
-# installs or runs PR code; it only reads metadata and the diff text.
+# a human commit, and any PR labeled no-auto-merge. This job holds a write
+# token, so it never checks out, installs or runs PR code; it only reads
+# metadata and the diff text.
 # --auto waits for the required checks (Build & Test, Theia type-check).
 name: Dependabot auto-merge
 
@@ -49,9 +50,14 @@ jobs:
           if grep -Eiq '^[+-].*electron' <<<"$stripped"; then touched=true; else touched=false; fi
           echo "touched=$touched" >> "$GITHUB_OUTPUT"
 
+      # The sender check catches a signed amend that keeps one commit and the
+      # author. The label check lets a human hold survive the next rebase,
+      # which would otherwise re-arm.
       - id: arm
         if: >-
           github.event.pull_request.commits == 1 &&
+          github.event.sender.login == 'dependabot[bot]' &&
+          !contains(github.event.pull_request.labels.*.name, 'no-auto-merge') &&
           steps.metadata.outputs.package-ecosystem == 'npm_and_yarn' &&
           (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
           steps.metadata.outputs.update-type == 'version-update:semver-minor') &&
