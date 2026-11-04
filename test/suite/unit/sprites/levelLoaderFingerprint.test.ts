@@ -21,12 +21,16 @@ import { freshRom, hasRom, TOOLS_ROOT, VANILLA } from '../../support/corpus'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
 /**
- * SHA-256 over every level number's (steps, WRAM). WRAM alone is 46135805aad6cc6af578d77c8f9e169b767fba2b3caf37ef858e07977da9c4bb,
+ * SHA-256 over every level number's (steps, WRAM). Re-pinned for #842: the loader now also runs the Layer 3 reset and
+ * handler (measured on the merge of develop a9de2145 and #842, one machine, 2026-10-28), so the cells they write
+ * ($24/$25, $5B bit 7, the interaction buffer) differ from the digests below, which were 0346ff5b... (steps+WRAM) and
+ * 46135805... (WRAM alone) before it. WRAM alone was, until then,
+ * 46135805aad6cc6af578d77c8f9e169b767fba2b3caf37ef858e07977da9c4bb,
  * measured on the loader without the prologue run (156dfff9) and with it (this value's version), one machine, 2026-10-19:
  * the prologue run adds 11 steps per level and changes no cell. Before that, 4b36f5fe... on the byte-literal loader at develop 7848539b.
  */
-const VANILLA_ALL_LEVELS = '0346ff5b7acd6e432b040061dec17df4b7a79a49fe2850131e07409d03108a9c'
-const VANILLA_ALL_WRAM = '46135805aad6cc6af578d77c8f9e169b767fba2b3caf37ef858e07977da9c4bb'
+const VANILLA_ALL_LEVELS = '004fb8a1c4b28eca538b7acc25a0016b2dd3be0ed819e28c5f0a6f7dca5509e8'
+const VANILLA_ALL_WRAM = '16d611a0d475ba3ebe684337a7bf29f36537a1269c483d866773addd5a07060d'
 
 /**
  * The store hacks (hackbench-tools/hacks/roms, 146 on 2026-10-19) whose loader develop a990aaac accepted by
@@ -112,7 +116,12 @@ function expectSitesGuarded(make: () => RomFile): void {
       )
     }
     // A call or jump whose operand is followed, not compared: changing it moves the entry, which is refused.
-    if (s.operand === undefined && !s.bankExact && [0x20, 0x22, 0x4c].includes(s.op)) {
+    if (
+      s.operand === undefined &&
+      !s.bankExact &&
+      !s.targetFree &&
+      [0x20, 0x22, 0x4c].includes(s.op)
+    ) {
       const rom = make()
       rom.writeAt(s.at + 1, [rom.readAt(s.at + 1, 1)![0]! ^ 0x01])
       expect(loaderShapeProblem(rom), `${s.name} operand`).not.toBeNull()
@@ -249,7 +258,7 @@ describe('synthetic: the loader runs hand-written code under its structural chec
     rom.writeAt(0x05e000, [...header])
     rom.writeAt(0x05e000 + 27, [0x03, 0xe2]) // its overworld JMP now lands on $E203, just past a sublevel jump at $E200
     rom.writeAt(0x05e200, [0x4c, 0x00, 0xe1]) // JMP $E100: the moved pointer loader
-    rom.writeAt(0x05e100, [...rom.readAt(0x05d8b7, 18)!])
+    rom.writeAt(0x05e100, [...rom.readAt(0x05d8b7, 22)!])
     rom.writeAt(0x05d8b7, [0xea]) // the stock pointer loader no longer opens with REP
     rom.writeAt(0x0096f5, [0x00, 0xe0]) // JSL $05:E000
     expect(loaderShapeProblem(rom)).toBeNull()

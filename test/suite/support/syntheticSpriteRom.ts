@@ -17,13 +17,15 @@
  * loader entries ($05:D8B7, $00:A635, $05:801E and the rest) are small routines of our own,
  * with the few single instructions the loader checks (LevelLoader.ts SITES) at their offsets. Ids 20, 21 and 22 draw like id 0 and set one CGRAM color
  * in INIT: 20 through the NMI upload list ($0681/$0682), 21 through a MainPalette list
- * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move. Options plant a defect for the oracle tests.
+ * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 34 draws, moves X by +4, then draws again; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move. Options plant a defect for the oracle tests.
  */
 import { RomFile } from '../../../src/rom/RomFile'
 import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
 
 import { putGm11Spans } from './syntheticGm11Spans'
+import { putDrawPosProbes } from './syntheticDrawProbes'
 import { EERIE_HANDLER, putEeries } from './syntheticEeries'
+import { putLoaderStandIns } from './syntheticLoaderStandIns'
 import { putGrinderRoutines } from './syntheticGrinder'
 
 export interface SyntheticOptions {
@@ -68,6 +70,11 @@ export interface SyntheticOptions {
     | 'scrollRtl'
     | 'updateRts'
     | 'scrollPop'
+    | 'layer3'
+    | 'gm12'
+    | 'gm12Bpl'
+    | 'gm12Jsr'
+    | 'reset'
   /**
    * UpdateScreenPosition carries a JML at $00:F6E4 (86 of 107 corpus ROMs do) to $05:F000, which
    * does the rest of its work: 'jml' ends in RTL, 'loop' never returns, 'rts' ends in the wrong return.
@@ -91,6 +98,8 @@ export interface SyntheticOptions {
   grinderDrawsOnPass1?: boolean
   /** Id 103 draws from its second MAIN onward (already on its track at the first draw). */
   grinderDrawsFromPass1?: boolean
+  /** The value the header-loader stand-in leaves in $0D9B IRQNMICommand (default 0); bit 7 = a boss room. */
+  irqCommand?: number
   /** Id 31's MAIN pointer is id 103's handler: the shape matches, the id does not. */
   id31IsGrinder?: boolean
   /**
@@ -197,15 +206,10 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // BNE past the JMP $D83E at +26), so it narrows the registers, tests the flag and branches over the jump; NOPs between.
   put(0x05d796, [bad('lead', 0x8b), 0xe2, 0x30, 0xea, 0xea, 0x9c, 0x55, 0x15, ...Array(13).fill(0xea), 0xad, 0x3c, 0x15, 0xd0, 0x03, 0x4c, 0x3e, 0xd8, 0xea]) // prettier-ignore
   put(0x05d83b, [bad('jump', 0x4c), 0xb7, 0xd8])
-  // Pointer loader: REP #$20 / LDA $10 (the level number cell, not the game's) / NOP / CLC / TAY, then SEP #$30 / LDA #7 / STA $1692 / STA $1A / PLB / RTL
-  put(0x05d8b7, [bad('pointers', 0xc2), 0x20, 0xa5, 0x10, 0xea, 0x18, 0xa8, 0xe2, 0x30, 0xa9, 0x07, 0x8d, 0x92, 0x16, 0x85, 0x1a, 0xab, 0x6b]) // prettier-ignore
   putGm11Spans(put, o)
+  putLoaderStandIns(put, o)
   // Entrance setup: LDA abs (the checked opening load) / SEP #$20 / STZ / NOP / BNE to the next load (the checked branch lands on a load) / LDA / STZ / LDA #6 / STA $71 / RTS
   put(0x00a6a0, [bad('entrance', 0xad), 0x41, 0x15, 0xe2, 0x20, 0x9c, 0x55, 0x15, 0xea, 0xd0, 0x00, 0xad, 0x56, 0x15, 0x9c, 0x56, 0x15, 0xa9, 0x06, 0x85, 0x71, 0x60]) // prettier-ignore
-  // Data loader: PHP / REP #$10 / SEP #$20 / LDA #$25 / LDX #0 / STA $7EC800,X / LDA #$77 / STA $62
-  // (the screen setup stub stores $21 to $62, so only a data loader run AFTER the screen setup
-  // leaves $77), then PLP RTL (or COP)
-  put(0x05801e, [bad('data', 0x08), 0xc2, 0x10, 0xe2, 0x20, 0xa9, 0x25, 0xa2, 0x00, 0x00, 0x9f, 0x00, 0xc8, 0x7e, 0xa9, 0x77, 0x85, 0x62, ...(o.loaderCop ? [0x02, 0x00] : [0x28, 0x6b])]) // prettier-ignore
   // $01:808C sprite loop: PHB PHK PLB, X = $0B..0 { STX $15E9; JSR setup; JSR handle }
   put(0x01808b, [0xea]) // a NOP before the loop: the zero fill then PHB PHK is itself a window of the game's
   put(0x01808c, [
@@ -270,8 +274,11 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[27] = 0x8e40
   mainTable[31] = 0x9300
   mainTable[32] = 0x92a0
+  mainTable[34] = 0x9780
   mainTable[103] = 0x9200
   mainTable[33] = 0x8a80
+  mainTable[35] = 0x9700
+  mainTable[36] = 0x9740
   if (o.eeries) mainTable[57] = EERIE_HANDLER
   if (o.id31IsGrinder) mainTable[31] = 0x9500
   for (const id of [20, 21, 22, 23, 24, 25]) mainTable[id] = 0x8640
@@ -396,6 +403,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // id 33: draws one piece whose OAM X low byte is $0E and whose size byte ($0460 + index) is $0F, both
   // planted through the seed, so a test can set any 9-bit X. Y follows the sprite as in the others.
   put(0x018a80, [0xbc, 0xea, 0x15, 0xa5, 0x0e, 0x99, 0x00, 0x03, 0x38, 0xb5, 0xd8, 0xe5, 0x1c, 0x99, 0x01, 0x03, 0xa9, 0x24, 0x99, 0x02, 0x03, 0xa9, 0x0a, 0x99, 0x03, 0x03, 0xda, 0x98, 0x4a, 0x4a, 0xaa, 0xa5, 0x0f, 0x9d, 0x60, 0x04, 0xfa, 0x60]) // prettier-ignore
+  putDrawPosProbes(put)
   // id 11: JML $7E0000, execution leaves ROM.
   put(0x018a00, [0x5c, 0x00, 0x00, 0x7e])
   // id 12: draws into the $0200 OAM page, entry 3 ($020C..), tile $33, size byte $0423 = 2.
