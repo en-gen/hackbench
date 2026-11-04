@@ -471,7 +471,7 @@ test('after the start is placed, a user scroll and a refit are not overridden', 
   expect((await scrollState(page, 0x109)).top).toBe(0)
 })
 
-/** No readable entrance: the view stays at 0. The "start unavailable" note went with the strip (#1008). */
+/** No readable entrance: the view stays at 0 and says nothing about it (D121). */
 test('an unavailable start leaves the view at 0 and shows no note', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await page.evaluate(async mp => {
@@ -1732,8 +1732,8 @@ test('a map no overworld route reaches opens at screen 0 and shows the route not
   await expect(notes.filter({ hasText: /No route from the overworld/ })).toHaveCount(1)
   await expect(notes.filter({ hasText: /^No route from the overworld reaches this map, so it opens at the first screen\.$/ })).toHaveCount(1) // prettier-ignore
   await expect(notes.filter({ hasText: /unverified: No route/ })).toHaveCount(0)
-  // The behaviour behind the note: the view stays at screen 0 (no start to scroll to), not a
-  // guessed entrance. The start refusal itself has no line of its own (#1008).
+  // The view stays at screen 0 (no start to scroll to), not a guessed entrance. The refusal
+  // has no line of its own (D121).
   await expect(scrollerOf(page, 0x100)).toHaveAttribute('data-start', 'unavailable', { timeout: 30000 }) // prettier-ignore
   expect(await scrollState(page, 0x100)).toMatchObject({ top: 0, left: 0 })
   await expect(page.locator(`${root(0x100)} [data-control="map-start-note"]`)).toHaveCount(0)
@@ -2197,20 +2197,6 @@ const layoutOf = (page, index) =>
     }
   }, root(index))
 
-/** A note is in the notes row: a direct child of the tab, below the toolbar and above the map. */
-async function expectInNotesRow(page, index, note) {
-  await expect(note).toBeVisible()
-  const l = await layoutOf(page, index)
-  const n = await note.evaluate(el => ({
-    box: el.getBoundingClientRect().toJSON(),
-    direct: el.parentElement.classList.contains('hb-map-view-main'),
-  }))
-  expect(n.direct).toBe(true)
-  expect(n.box.top).toBeGreaterThanOrEqual(l.toolbar.bottom - 1)
-  // An error tab may have no map under it yet.
-  if (l.scroller) expect(n.box.bottom).toBeLessThanOrEqual(l.scroller.top + 1)
-}
-
 test('the facts strip and the Header panel are gone, and the map keeps its layout (#1008)', async ({
   page,
 }) => {
@@ -2302,9 +2288,9 @@ const settled = (page, index) =>
   page.evaluate(
     sel =>
       new Promise(resolve => {
-        // The details arrive by RPC after the strip first lays out, and a note line they add
-        // above it can refit it; the layout is final only once the view says they are in.
-        const factsIn = () => !!document.querySelector(`${sel} .hb-map-view-main[data-details="done"]`) // prettier-ignore
+        // The details arrive by RPC after the strip first lays out, and the view can refit on
+        // them; the layout is final only once the view says they are in.
+        const detailsIn = () => !!document.querySelector(`${sel} .hb-map-view-main[data-details="done"]`) // prettier-ignore
         const read = () => {
           const c = document.querySelector(`${sel} canvas[data-plane="l1Low"]`)
           return c.getBoundingClientRect().width / c.width
@@ -2315,7 +2301,7 @@ const settled = (page, index) =>
           const z = read()
           same = Math.abs(z - last) < 1e-9 ? same + 1 : 0
           last = z
-          if (same >= 5 && factsIn()) resolve(z)
+          if (same >= 5 && detailsIn()) resolve(z)
           else requestAnimationFrame(tick)
         }
         requestAnimationFrame(tick)
@@ -2480,12 +2466,11 @@ for (const index of [0x105, 0x109]) {
     { control: 'zoom-out', scroll: 0.6 },
     { control: 'zoom-out', scroll: 0.97, clamped: true },
   ]
-  // The clamped case needs the anchored scroll to land short of the new range's end, or it
-  // clamps to the same value as the unanchored one and the case cannot fail. The margin is
-  // cw * (r / 2 + 1 / 2 - f * r) - (1 - f) * strip * z1 (r = z1 / z2, f = the scroll fraction):
-  // at 0.97 on the 7-screen vertical $109 it is a few pixels either side of zero and flips
-  // when the scroller grows by the strip's height (#1008). 0.8 leaves hundreds of pixels at
-  // every zoom pair this strip can reach, at any plausible scroller height.
+  // The clamped case needs the anchored scroll to stay short of the new range's end, or it clamps
+  // to the unanchored value and cannot fail. That slack is
+  // (1 - f) * strip * zNew - cw * (r / 2 + 1 / 2 - f * r), r = zNew / zOld, f = the scroll fraction.
+  // At f = 0.97 on vertical $109 it sits near zero and flips with the scroller's height; 0.8
+  // keeps it clearly positive for the zoom pairs below.
   const clampedScroll = index === 0x109 ? 0.8 : 0.97
   for (const a of ANCHORS) {
     test(`$${index.toString(16)}: ${a.control} keeps the view centre${a.clamped ? ' (strip end, clamped)' : ''}`, async ({
@@ -3293,18 +3278,26 @@ async function expectPlain(page, plain) {
   return err
 }
 
-test('a rejected mapDetails shows plain words and keeps the exception in the tooltip', async ({
+test('a rejected mapDetails shows nothing for it, the map still draws, the reason goes to the console (D121)', async ({
   page,
 }) => {
+  const logged = []
+  page.on('console', m => logged.push(m.text()))
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openRejecting(page, project.manifestPath, 'mapDetails')
-  const err = await expectPlain(
-    page,
-    "This map's details could not be read. Open the map again to try again.",
-  )
-  // Kept from develop, and now in the notes row above the map rather than a strip (#1008).
-  await expect(err).toHaveAttribute('data-note', 'details')
-  await expectInNotesRow(page, 0x105, err)
+  await expect(page.locator(`${root(0x105)} .hb-map-view-main`)).toHaveAttribute('data-details', 'done') // prettier-ignore
+  // Accepted gap: no line, no tooltip, no error element, until the Properties panel (#1023).
+  await expect(page.locator(`${root(0x105)} .hb-map-view-error`)).toHaveCount(0)
+  await expect(page.locator(`${root(0x105)} [data-note="details"]`)).toHaveCount(0)
+  const tab = await page.locator(root(0x105)).innerText()
+  expect(tab).not.toMatch(/details could not be read|planted-786/)
+  expect(await page.locator(`${root(0x105)} [title*="planted-786"]`).count()).toBe(0)
+  // The map is not blanked by it.
+  await expect(
+    page.locator(`${root(0x105)} canvas[data-plane="l1Low"][data-drawn]`).first(),
+  ).toHaveAttribute('data-drawn', /^\d+:\d{4}:\d{3}:\d+$/, { timeout: 30000 })
+  // The reason is reported, not swallowed.
+  await expect.poll(() => logged.some(t => t.includes('details failed') || t.includes('planted-786'))).toBe(true) // prettier-ignore
 })
 
 test('a rejected mapScreen shows plain words and keeps the exception in the tooltip', async ({
@@ -3357,19 +3350,19 @@ async function openResolving(page, manifestPath, method, reply) {
   opened.push('hackbench.map-view:261')
 }
 
-test('a mapDetails answer of rom-not-located names the missing ROM in plain words', async ({
+test('a missing base ROM shows through the map error once, and not as a details note (D121)', async ({
   page,
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
-  await openResolving(page, project.manifestPath, 'mapDetails', {
-    status: 'rom-not-located',
-    baseRom: { title: 'X' },
-  })
-  const note = page.locator(`${root(0x105)} [data-note="details"]`)
-  await expect(note).toHaveText(
-    'The base ROM X is not on this machine. Choose File > Project Properties... and locate it again.',
-  )
-  await expectInNotesRow(page, 0x105, note)
+  const gone = { status: 'rom-not-located', baseRom: { title: 'X' } }
+  const sentence =
+    'The base ROM X is not on this machine. Choose File > Project Properties... and locate it again.'
+  await openStubbed(page, project.manifestPath, { mapDetails: gone, mapScreen: gone })
+  const err = page.locator(`${root(0x105)} [data-control="map-error"]`)
+  await expect(err).toHaveText(sentence)
+  await expect(page.locator(`${root(0x105)} [data-note="details"]`)).toHaveCount(0)
+  const tab = await page.locator(root(0x105)).innerText()
+  expect(tab.split(sentence).length - 1).toBe(1)
 })
 
 test('an unavailable screen shows its reason, with the detail only in the tooltip', async ({
@@ -3587,9 +3580,8 @@ async function openStubbed(page, manifestPath, replies) {
 /**
  * #1008, ruling D121: the warnings only the facts strip and the Header panel carried are not
  * shown anywhere until the map Properties panel (#1023) returns them. A details reply that
- * still carries any of these fields (an older backend, or this stub) must paint none of them,
- * and no note row either. The stub is the only way to force them: no corpus ROM fails these
- * reads, and the unit tests pin that the backend no longer sends them.
+ * still carries any of these fields (an older backend, or this stub) must paint none of them.
+ * The backend no longer sends them (the unit tests pin that), so the stub is what forces them.
  */
 test('the warnings the strip carried show nowhere, even when the reply still holds them (#1008)', async ({
   page,
@@ -3610,7 +3602,7 @@ test('the warnings the strip carried show nowhere, even when the reply still hol
   })
   const words = await shownWords(page, root(0x105))
   expect(words).not.toMatch(
-    /name unavailable|level data unavailable|orientation unavailable|objects unavailable|sprites unavailable|start unavailable|graphics files per level|planted/i,
+    /name unavailable|level data unavailable|orientation unavailable|objects unavailable|start unavailable|graphics files per level|planted/i,
   )
   for (const n of [
     'name',
@@ -3626,4 +3618,56 @@ test('the warnings the strip carried show nowhere, even when the reply still hol
   // Nothing hangs a hover on the tab for them either.
   const titles = await page.locator(`${root(0x105)} .hb-map-view-main [title*="planted"]`).count()
   expect(titles).toBe(0)
+})
+
+/**
+ * `data-details` is what the absence specs wait on, so it must be able to read `pending`: a
+ * held details reply keeps it pending, releasing it makes it `done`, and a refresh (an edit
+ * landing) or a reopen of the same tab goes back to pending with a new `data-generation`.
+ */
+test('data-details is pending while the reply is held, done after, and pending again on refresh and reopen', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await page.evaluate(async mp => {
+    window.hbHeld = []
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+      index: 0x105,
+    })
+    const real = w.projects
+    w.projects = new Proxy(real, {
+      get: (t, k) => k === 'mapDetails' ? (...a) => new Promise(res => window.hbHeld.push(() => res(t[k](...a)))) : typeof t[k] === 'function' ? t[k].bind(t) : t[k], // prettier-ignore
+    })
+    await w.open({ manifestPath: mp, index: 0x105, label: '105', iconClass: '' })
+    const shell = getSvc('ApplicationShell')
+    await shell.addWidget(w, { area: 'main' })
+    await shell.activateWidget(w.id)
+  }, project.manifestPath)
+  opened.push('hackbench.map-view:261')
+  const main = page.locator(`${root(0x105)} .hb-map-view-main`)
+  const release = () => page.evaluate(() => window.hbHeld.splice(0).forEach(f => f()))
+  const generation = () => main.getAttribute('data-generation')
+
+  await expect(main).toHaveAttribute('data-details', 'pending')
+  const first = await generation()
+  await release()
+  await expect(main).toHaveAttribute('data-details', 'done')
+  expect(await generation()).toBe(first)
+
+  // An edit landing refreshes the map: the old reply no longer counts.
+  await page.evaluate(() => getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261').refresh()) // prettier-ignore
+  await expect(main).toHaveAttribute('data-details', 'pending')
+  const second = await generation()
+  expect(second).not.toBe(first)
+  await release()
+  await expect(main).toHaveAttribute('data-details', 'done')
+
+  // Reopening the same tab for the same map starts over too.
+  await page.evaluate(async mp => {
+    await getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261').open({ manifestPath: mp, index: 0x105, label: '105', iconClass: '' }) // prettier-ignore
+  }, project.manifestPath)
+  await expect(main).toHaveAttribute('data-details', 'pending')
+  expect(await generation()).not.toBe(second)
+  await release()
+  await expect(main).toHaveAttribute('data-details', 'done')
 })

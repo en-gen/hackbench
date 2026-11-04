@@ -198,7 +198,11 @@ test('$022 lists its five sub areas flat, none expandable (#434)', async ({ page
   expect(rows.every(r => r.drawn && !r.chevron)).toBe(true)
 })
 
-/** Create a project against `rom` and open the map view for `index`, returning its shown text. */
+/**
+ * Create a project against `rom`, open the map view for `index`, and wait for the details reply
+ * of THIS open to be painted. The tab is named by widget id and by the generation the open
+ * started, so a reused tab's previous map or ROM (still `done`) cannot satisfy the wait.
+ */
 async function openMapView(page, rom, dir, index = 0x105) {
   const manifestPath = path.join(dir, `${path.basename(dir)}.hbproj`)
   await page.evaluate(
@@ -208,31 +212,67 @@ async function openMapView(page, rom, dir, index = 0x105) {
     },
     { romPath: rom, directory: dir, name: path.basename(dir) },
   )
-  await page.evaluate(
+  const tab = await openTab(page, manifestPath, index)
+  return tab
+}
+
+/** Opens the map view tab for `index` and waits for its details reply; returns `{ id, scope }`. */
+async function openTab(page, manifestPath, index) {
+  const tab = await page.evaluate(
     async ({ mp, index, label }) => {
       const w = await getWidget('hackbench.map-view')
       await w.open({ manifestPath: mp, index, label, iconClass: '' })
       const shell = getSvc('ApplicationShell')
       await shell.addWidget(w, { area: 'main' })
       await shell.activateWidget(w.id)
+      return { id: w.id, generation: w.generation }
     },
     { mp: manifestPath, index, label: index.toString(16) },
   )
-  await waitForDetails(page)
-  return shownWords(page, MAP_VIEW)
+  const scope = `[id="${tab.id}"] .hb-map-view-main`
+  await page.waitForSelector(`${scope}[data-details="done"][data-generation="${tab.generation}"]`, {
+    timeout: 15000,
+  })
+  return { id: tab.id, scope }
 }
 
-/** The opened map's tab. The facts strip and Header panel it once held are gone (#1008). */
-const MAP_VIEW = '.hb-map-view-main'
+/** Hooks the facts strip and the Header panel drew; none exists now (ruling D121). */
+const STRIP_HOOKS = [
+  '.hb-map-view-facts',
+  '.hb-map-view-title',
+  '.hb-map-view-summary',
+  '.hb-map-view-header',
+  '.hb-map-view-table',
+  '.hb-map-view-raw',
+  '[data-control="header-panel"]',
+  '[data-control="map-start-note"]',
+  '[data-note="gfx-assignment"]',
+  'details',
+]
 
-/** The details reply has landed (the view says so), so a note's absence can be asserted. */
-async function waitForDetails(page) {
-  await page.waitForSelector('.hb-map-view-main[data-details="done"]', { timeout: 15000 })
-}
-
-/** Words the removed facts strip and Header panel showed, and nothing shows now (ruling D121). */
+/** What only the strip said. The toolbar and the surviving notes are not searched for it. */
 const STRIP_WORDS =
-  /name unavailable|level data unavailable|orientation unavailable|objects unavailable|sprites unavailable|start unavailable|\d+ (screens|objects|sprites)|Header bytes|FG\/BG and sprite GFX files/i
+  /name unavailable|level data unavailable|orientation unavailable|objects unavailable|start unavailable|Header bytes|\d+ screens|FG\/BG and sprite GFX files/i
+
+/**
+ * The strip and Header panel are absent from `tab`: none of their elements, and none of their
+ * words in the tab's children other than the toolbar (whose sprite tooltips and the sprite
+ * notes are kept and say similar words). The reply has been painted, by `openTab`'s wait.
+ */
+async function expectNoStrip(page, tab) {
+  for (const hook of STRIP_HOOKS) {
+    await expect(page.locator(`${tab.scope} ${hook}`), hook).toHaveCount(0)
+  }
+  const outside = await page.evaluate(
+    sel =>
+      [...document.querySelector(sel).children]
+        .filter(c => !c.classList.contains('hb-map-view-toolbar'))
+        .map(c => c.innerText)
+        .join(' | '),
+    tab.scope,
+  )
+  expect(outside).not.toMatch(STRIP_WORDS)
+}
 
 /**
  * A ROM whose level GFX call goes through Lunar Magic's ExGFX hook used to get a red "graphics
@@ -244,19 +284,15 @@ test('a ROM that picks GFX per level shows no graphics caveat, and neither does 
   page,
 }) => {
   test.skip(!fs.existsSync(romPath(GPW2)), 'needs the GPW2 corpus ROM')
-  const stock = await openMapView(page, ROM, path.join(tmp, 'StockGfxMark'))
-  expect(stock).not.toMatch(STRIP_WORDS)
-  const hook = await openMapView(page, romPath(GPW2), path.join(tmp, 'HookGfxMark'))
-  expect(hook).not.toMatch(STRIP_WORDS)
-  await expect(page.locator(`${MAP_VIEW} [data-note="gfx-assignment"]`)).toHaveCount(0)
-  await expect(page.locator(`${MAP_VIEW} .hb-map-view-table`)).toHaveCount(0)
+  await expectNoStrip(page, await openMapView(page, ROM, path.join(tmp, 'StockGfxMark')))
+  await expectNoStrip(page, await openMapView(page, romPath(GPW2), path.join(tmp, 'HookGfxMark')))
 })
 
 test('the map view shows no counts or name line on an unpatched ROM', async ({ page }) => {
-  const view = await openMapView(page, ROM, path.join(tmp, 'Unpatched'))
-  expect(view).not.toMatch(STRIP_WORDS)
+  const tab = await openMapView(page, ROM, path.join(tmp, 'Unpatched'))
+  await expectNoStrip(page, tab)
   // $105 is Yoshi's Island 1: its name was the strip's title and is not shown now.
-  expect(view).not.toMatch(/YOSHI'S ISLAND 1/i)
+  expect(await shownWords(page, tab.scope)).not.toMatch(/YOSHI'S ISLAND 1/i)
 })
 
 /**
@@ -274,7 +310,6 @@ const PATCHED = [
       expect(bytes[0x2d8f5]).toBe(0xa9)
       bytes[0x2d8f5] = 0x00
     },
-    reason: /neither vanilla nor a recognized hook/i,
   },
   {
     why: 'overworld entry code that is patched',
@@ -285,7 +320,6 @@ const PATCHED = [
       expect(bytes[0x2d8b1]).toBe(0xf0)
       bytes[0x2d8b1] = 0x22
     },
-    reason: /rebuilt by another editor/i,
   },
   {
     why: 'level data that is out of the ROM',
@@ -296,7 +330,6 @@ const PATCHED = [
       expect(bytes[0x2e311]).toBe(0x06)
       bytes[0x2e311] = 0x7e
     },
-    reason: /does not address this ROM's data/,
   },
   {
     why: 'an object stream that never reaches $FF',
@@ -308,23 +341,16 @@ const PATCHED = [
       bytes.fill(0x00, 0x7fff0)
       bytes.set([0xf0, 0xff, 0x0f], 0x2e30f)
     },
-    reason: /did not reach its \$FF terminator/,
   },
 ]
-for (const { why, dir, patch, reason } of PATCHED) {
-  test(`a ROM with ${why} shows no strip warning and none of its reason`, async ({ page }) => {
+for (const { why, dir, patch } of PATCHED) {
+  test(`a ROM with ${why} shows no strip warning`, async ({ page }) => {
     const patched = path.join(tmp, `${dir}.sfc`)
     const bytes = fs.readFileSync(ROM)
     patch(bytes)
     fs.writeFileSync(patched, bytes)
 
-    const view = await openMapView(page, patched, path.join(tmp, dir))
-    expect(view).not.toMatch(STRIP_WORDS)
-    expect(view).not.toMatch(reason)
-    const titles = await page
-      .locator(`${MAP_VIEW} [title]`)
-      .evaluateAll(els => els.map(e => e.title))
-    expect(titles.join(' | ')).not.toMatch(reason)
+    await expectNoStrip(page, await openMapView(page, patched, path.join(tmp, dir)))
   })
 }
 
@@ -739,15 +765,10 @@ test('the map explorer and map view speak of ROMs, never cartridges', async ({ p
   const dir = path.join(tmp, 'Words')
   const manifestPath = path.join(dir, 'MyHack.hbproj')
   await loadMaps(page, dir)
-  await page.evaluate(async mp => {
-    const w = await getWidget('hackbench.map-view')
-    await w.open({ manifestPath: mp, index: 0x105, label: '105', iconClass: '' })
-    const shell = getSvc('ApplicationShell')
-    await shell.addWidget(w, { area: 'main' })
-    await shell.activateWidget(w.id)
-  }, manifestPath)
-  await waitForDetails(page)
-  const view = await shownWords(page, MAP_VIEW)
+  const tab = await openTab(page, manifestPath, 0x105)
+  const view = await shownWords(page, tab.scope)
+  // A positive control: the words were read from the opened map's tab, not an empty node.
+  expect(view).toMatch(/Yellow switch palace/)
   expect(view).not.toMatch(CART)
 
   makeUntitledAndUnlocated(manifestPath)

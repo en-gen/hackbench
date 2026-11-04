@@ -65,24 +65,26 @@ test('mode 1E shows the warning, with an explanatory tooltip', async ({ page }) 
   expect(await w.getAttribute('title')).not.toMatch(/github/i)
 })
 
-/** The widget holds the details reply with this mode: the DOM now reflects it, absence included. */
-async function expectDetailsLanded(page, index, levelMode) {
-  await expect
-    .poll(() =>
-      page.evaluate(
-        ({ id, levelMode }) =>
-          getSvc('ApplicationShell').getWidgetById(`hackbench.map-view:${id}`).details
-            ?.levelMode === levelMode,
-        { id: index, levelMode },
-      ),
-    )
-    .toBe(true)
+/**
+ * The details reply for the tab's current open has been painted: the view says `done` for the
+ * generation the open started, so an absence checked after it is not the previous open's DOM.
+ */
+async function expectDetailsLanded(page, index) {
+  const generation = await page.evaluate(
+    id => getSvc('ApplicationShell').getWidgetById(`hackbench.map-view:${id}`).generation,
+    index,
+  )
+  await expect(
+    page.locator(
+      `${root(index)} .hb-map-view-main[data-details="done"][data-generation="${generation}"]`,
+    ),
+  ).toBeAttached()
 }
 
 test('another mode shows no warning', async ({ page }) => {
   await openSynthetic(page, 0x1e1, 0x0e)
-  // The details reply has landed once the widget holds it, so absence is checked after it.
-  await expectDetailsLanded(page, 0x1e1, 0x0e)
+  // The details reply has been painted, so absence is checked after it.
+  await expectDetailsLanded(page, 0x1e1)
   await expect(page.locator(warning(0x1e1))).toHaveCount(0)
 })
 
@@ -103,6 +105,6 @@ test('reusing one tab for a 1E level, then a normal one, hides the warning', asy
     )
     await w.open({ manifestPath: 'synthetic.hbproj', index: 0x1e2, label: 'n', iconClass: '' })
   })
-  await expectDetailsLanded(page, 0x1e2, 0x01)
+  await expectDetailsLanded(page, 0x1e2)
   await expect(page.locator(warning(0x1e2))).toHaveCount(0)
 })

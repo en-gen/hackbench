@@ -187,9 +187,7 @@ export interface MapDetailsNotLocated {
 }
 
 /**
- * What the map view reads of one map's header (#1008). The facts strip and the
- * Header panel that used the name, counts, orientation, decoded header and
- * GFX-assignment note are gone, and so are those fields. Nothing is inferred:
+ * What the map view reads of one map's header. Nothing is inferred:
  * `levelMode` is absent when the level data cannot be read.
  */
 export interface MapDetailsDto {
@@ -589,7 +587,7 @@ export interface ProjectService {
    * Read one map out of the project's working copy.
    *
    * Answers `rom-not-located` when the base ROM is not on this machine. A slot
-   * with no readable level data is a field on the result, not a failure; a
+   * with no readable level data answers its index alone, not a failure; a
    * throw means an unexpected failure.
    */
   mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto | MapDetailsNotLocated>

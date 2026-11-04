@@ -8,8 +8,7 @@
  * open maps never share toggles. A working-copy push drops the cache and
  * re-fetches, so an edit in any view repaints the map.
  *
- * There is no facts strip and no Header panel (#1008); they return as the map Properties panel
- * (#1023). The only header fact read here is the level mode, for the unverified-mode warning.
+ * The only header fact read here is the level mode, for the unverified-mode warning (#618).
  */
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
@@ -177,9 +176,6 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return this.options?.manifestPath
   }
   protected details: MapDetailsDto | undefined
-  protected error: string | undefined
-  /** The exception text behind `error`: a tooltip and the console, never the visible words (#786). */
-  protected errorDetail: string | undefined
   protected mapLayout: Layout | undefined
   /** The canvas for sprites the data places off the map, in its pad (#1004). */
   protected offMapCanvas: HTMLCanvasElement | null = null
@@ -270,10 +266,12 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected readonly composites = new Map<number, HTMLCanvasElement>()
   protected readonly compositeRefs = new Map<number, (el: HTMLCanvasElement | null) => void>()
   protected scroller: HTMLDivElement | null = null
-  /** Refits when the strip's box changes, e.g. when the facts line arrives above it. */
+  /** Refits when the strip's box changes, e.g. when a note line arrives above it. */
   protected readonly resizes = new ResizeObserver(() => this.fitStrip())
   /** Bumped on every invalidation, so a reply to an older request is dropped. */
   protected generation = 0
+  /** The generation whose details reply has landed; `data-details` is `done` while it is current. */
+  protected detailsGeneration = -1
   /** Bumped only by `open`, so the start reply of an earlier map is dropped; an edit's refresh leaves it (#339). */
   protected startSeq = 0
   /** Where the player first enters this map, until the view has been scrolled to it once. */
@@ -364,7 +362,6 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.title.caption = `${options.label} (${slotLabel(options.index)})`
     this.title.iconClass = options.iconClass ?? 'codicon codicon-map'
     this.details = undefined
-    this.error = undefined
     this.mapLayout = undefined
     this.sprites = undefined
     this.setHoverSprite(undefined)
@@ -463,6 +460,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** Drops every cached screen and reads the map again from the working copy. */
   protected refresh(): void {
     this.generation++
+    this.update()
     this.pendingRestore = undefined
     this.setHoverSprite(undefined)
     this.screens.clear()
@@ -654,27 +652,27 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.sync()
   }
 
+  /**
+   * Reads the header facts the view still uses (the level mode). A map whose details cannot be
+   * read, or whose base ROM is missing, shows nothing of its own for it (D121; the Properties
+   * panel, #1023, returns it): the exception goes to the console, and the missing ROM already
+   * shows through the screen error. Either way the reply has landed, which `data-details` says.
+   */
   protected async loadDetails(): Promise<void> {
     const o = this.options
     if (!o) return
     const generation = this.generation
     let details: MapDetailsDto | undefined
-    let error: string | undefined
-    let detail: string | undefined
     try {
       const r = await this.projects.mapDetails(o.manifestPath, o.index)
-      if ('status' in r) error = romMissingMessage(r.baseRom.title)
-      else details = r
+      if (!('status' in r)) details = r
     } catch (err) {
-      detail = rawText(err)
       console.error(`Map ${o.index.toString(16)} details failed:`, err)
-      error = "This map's details could not be read. Open the map again to try again."
     }
     // An older map's or edit's reply must not land over a newer one.
     if (generation !== this.generation) return
     this.details = details
-    this.error = error
-    this.errorDetail = detail
+    this.detailsGeneration = generation
     this.update()
   }
 
@@ -1420,7 +1418,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return (
       <div
         className="hb-map-view-main"
-        data-details={this.details || this.error ? 'done' : 'pending'}
+        data-details={this.detailsGeneration === this.generation ? 'done' : 'pending'}
+        data-generation={this.generation}
       >
         <div className="hb-map-view-toolbar">
           <LayerToggle
@@ -1500,7 +1499,6 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           <GridToggleButton on={this.showGrid} onToggle={() => this.toggleGrid()} />
           <ZoomStepper controller={this.zoomController} fitControls />
         </div>
-        {this.renderDetailsError()}
         {this.mapLayout?.note && (
           <div className="hb-map-view-note" data-control="map-note">
             {this.mapLayout.note}
@@ -1760,23 +1758,5 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected layerShown(plane: LayerKey): boolean {
     if (plane === SPRITES) return this.showSprites
     return plane.startsWith('l2') ? this.showL2 : plane.startsWith('l3') ? this.showL3 : this.showL1
-  }
-
-  /**
-   * The note for a map whose details could not be read, or whose base ROM is not on this machine:
-   * the words are plain, the exception only in the tooltip (#786). Nothing else the old facts
-   * strip said is shown (#1008).
-   */
-  protected renderDetailsError(): React.ReactNode {
-    if (!this.error) return null
-    return (
-      <div
-        className="hb-map-view-note hb-map-view-error"
-        data-note="details"
-        title={this.errorDetail}
-      >
-        {this.error}
-      </div>
-    )
   }
 }

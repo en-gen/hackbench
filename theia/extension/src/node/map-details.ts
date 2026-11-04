@@ -13,10 +13,8 @@ import { parseLevelHeader } from '../../../../src/rom/LevelParser'
 import type { MapDetailsDto } from '../common/project-protocol'
 
 /**
- * Read what the map view still needs of one map: its level mode. A slot
- * whose level data cannot be read answers the index alone, never a guess
- * (see MapDetailsDto). The strip's name, counts and decoded header went with
- * the strip (#1008).
+ * Read what the map view uses of one map: its level mode. A slot whose level data cannot be read
+ * answers the index alone, never a guess (see MapDetailsDto).
  */
 export function buildMapDetails(rom: SmwRom, index: number): MapDetailsDto {
   const raw = rom.getLevelRawData(index)
