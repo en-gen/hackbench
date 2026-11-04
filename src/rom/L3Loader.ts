@@ -421,7 +421,7 @@ export function classifyL3Routine(input: ClassifyL3Input): L3RoutineSummary {
   }
   // Only byte $01 reaches the Y-animating path. Byte $00 short-circuits at
   // CODE_05C40C; byte $02..$7F takes CODE_05C4EC which only scrolls X (a tide
-  // too, see docs/rom/level-rendering.md "Tide X").
+  // too).
   if (settingsByte === 0x01) {
     return { layer3Setting, settingsByte, kind: 'tide', initialYPx: 0x70, isTideUpAndDown: true }
   }
@@ -595,12 +595,8 @@ function findLastDataRow(tilemap: Uint16Array, dataEndRow: number): number {
  *       Layer3YPos = Layer1YPos every frame → pixelY = row*8 in level coords.
  *   - None (settings byte $C0+, or no gameplay content): no overlay.
  *
- * X span is the full level width for every kind: the span the band can be
- * seen over. A tide's BG3 X is world-locked 1:1 with the camera (+Layer1DXPos)
- * plus a 1 px per frame drift, mod 256, while Layer3ScrollType is 0 and the
- * game is not paused (CODE_05C4EC, bank_05.asm:5624-5629), so the span is
- * where it is visible, not a camera-locked position. Bytes $02-$7F share that X
- * path with $01 but keep Y static (#808).
+ * X is the full level width for every kind: a tide covers the whole map width,
+ * and a tide's real BG3 X is a phase, see docs/rom/level-rendering.md "Tide X".
  */
 export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
   const { tilemap, initialYPx, initialCameraYPx, levelPixelW, settingsByte, tileset } = input

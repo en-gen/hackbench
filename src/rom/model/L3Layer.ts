@@ -207,9 +207,8 @@ export class L3TilemapLayer extends L3Layer {
     )
 
     // Tide overlays (initialYPx $40/$70) differ from cage/windows ($D0):
-    //   - Tide: BG3HOFS is world-locked (Layer3XPos += Layer1DXPos, bank_05.asm
-    //     CODE_05C4EC) plus a 1 px per frame drift, mod 256, so the wave pattern
-    //     at cols 0-31 tiles at 256px instead of 512px.
+    //   - Tide: the wave pattern at cols 0-31 tiles at 256px instead of 512px
+    //     (docs/rom/level-rendering.md "Tide X").
     //   - Non-tide: BG3 stays fixed relative to the screen, so the full 512px
     //     tilemap renders once per 512px.
     const isTide = this.initialYPx > 0 && this.initialYPx < 0xc0
