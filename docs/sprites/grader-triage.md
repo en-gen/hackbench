@@ -146,7 +146,8 @@ $006 and $126 for the claim, synthetic cart for the rest, one machine.
 **S, floating-platform sink (9).** $A4 on map 102 only. INIT runs the sink loop (`bank_01.asm:6815-6837`):
 ours ends 32 px below the list y (anchor y 432 for a list y of 400) while the capture's first draw is at
 the list y within 16 px, so the lower two parts are off screen in ours (2 parts against 4). The inputs that
-stop the sink (liquid contact) were not found; water flag in the loaded image is 0. Assert: anchor
+stop the sink were found in #842: the loader skipped the Layer 3 handler, see
+[sprite-a4-floating-spike-ball.md](sprite-a4-floating-spike-ball.md). Assert: anchor
 y of $A4 at 912,400 on map 102 is within 16 px of 400.
 
 **U, one-pose differences (8).** $16 x2, $37 x2, $30, $28, $93, $26: same part count (or close) but one
