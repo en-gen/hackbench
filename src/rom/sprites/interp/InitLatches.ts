@@ -3,7 +3,7 @@
  * when the map view re-runs that INIT (#998). The loader image is the state AFTER the placed sprite's INIT ran once;
  * to run the INIT again from the state BEFORE it, the cell is put back to its value from before. Data with
  * citations, keyed by sprite number. A row applies only when the cart's INIT pointer for that id is the vanilla one
- * AND the INIT's guard and latch-set bytes are fingerprint-identical (#1082), so a hack that repoints or edits the
+ * AND the whole INIT is fingerprint-identical (#1082), so a hack that repoints or edits the
  * handler keeps the loader image as it is (D51).
  */
 import { fingerprint } from '../../Fingerprint'
@@ -24,14 +24,14 @@ export interface InitLatch {
   /** WRAM offset of the latch and the value it holds before the INIT runs. */
   cell: number
   before: number
-  /** SHA-256 of `length` bytes read at `initPointer + at`: the latch's guard and its set. */
+  /** SHA-256 of `length` bytes read at `initPointer + at`; the vanilla row hashes the whole INIT, so an edit anywhere in it drops the row. */
   code: readonly CodeFingerprint[]
   /**
    * The INIT places its own sprites at fixed positions of the map and ignores where the list put the sprite, so the
    * map view must not re-base the picture onto the placed spot (D134/D139-D) or move it with a drag.
    */
   absolute: boolean
-  /** SMWDisX citation for the cell and the INIT that sets it. */
+  /** SMWDisX citation for the cell, the INIT's guard, its spawn loop and the latch set. */
   why: string
 }
 
@@ -113,5 +113,7 @@ export function placedSlot(
   const operand = bytesAt(rom, loadNormal.at + loadNormal.length, 2)
   if (!operand) return null
   const slot = bytesAt(rom, 0x020000 | (operand[0]! | (operand[1]! << 8)), 0x13)?.[loaded[0x1692]!]
-  return slot === undefined || slot > 11 ? null : slot
+  // The INIT writes slots 9..1 only (bank_01.asm:12681-12707); any other table value is a slot it never overwrites, so the
+  // placed spot would stay and the picture would be wrong: refuse (D51).
+  return slot === undefined || slot < 1 || slot > 9 ? null : slot
 }

@@ -139,6 +139,19 @@ describe('placedSlot (no ROM)', () => {
     w[0x9e] = 0x82
     expect(placedSlot(loader(0xb123, [9]), w, spec)).toBeNull()
   })
+  it('accepts only the slots the INIT overwrites, 1 to 9: table values 0 to 12 swept', () => {
+    for (let v = 0; v <= 12; v++)
+      expect(placedSlot(loader(0xb123, [v]), img(0), spec), `table value ${v}`).toBe(v >= 1 && v <= 9 ? v : null) // prettier-ignore
+  })
+  it('refuses only a live $82 in slot 0: a dead slot 0 or another live sprite there is not a gate', () => {
+    const w = img(0)
+    w[0x9e] = 0x82
+    w[0x14c8] = 0
+    expect(placedSlot(loader(0xb123, [9]), w, spec)).toBe(9)
+    w[0x9e] = 0x04
+    w[0x14c8] = 8
+    expect(placedSlot(loader(0xb123, [9]), w, spec)).toBe(9)
+  })
   it('is null when the loader is not the fingerprinted one, the entry is out of range or no image is given', () => {
     expect(placedSlot(loader(0xb123, [9]), img(0), { ...spec, sha256: 'x' })).toBeNull()
     expect(placedSlot(loader(0xb123, [12]), img(0), spec)).toBeNull()
@@ -171,6 +184,10 @@ describe('the at-rest re-base exemption (synthetic cart, no ROM)', () => {
     )
     expect(m.initLatched).toBe(true)
     expect(loaded[LATCH]).toBe(1)
+    // A row whose latch is already clear puts nothing back, and says so.
+    loaded[LATCH] = 0
+    expect(runOnce(rom, 0, { ...SPRITE_SEED, loaded }, { atRest: true, latches: { 0: initRow(false) } }).initLatched).toBeFalsy() // prettier-ignore
+    loaded[LATCH] = 1
     expect(
       runOnce(rom, 0, { ...SPRITE_SEED, loaded }, { atRest: true, latches: {} }).initLatched,
     ).toBeUndefined()
@@ -312,6 +329,45 @@ describe.skipIf(!hasRom(VANILLA))('bonus game blocks, vanilla ROM', () => {
         expect(d, `col ${col} row ${row}`).toEqual({ ...ref, xy: [col * 16, row * 16] })
       }
   }, 120_000)
+  const cellsOf = (m: ReturnType<typeof runOnce>) => interpParts(m.passes[m.chosen!]!.parts)
+  const boxOf = (m: ReturnType<typeof runOnce>) => {
+    const c = cellsOf(m)
+    const [ax, ay] = [m.anchor!.x, m.anchor!.y]
+    return { x0: ax + Math.min(...c.map(p => p.dx)), y0: ay + Math.min(...c.map(p => p.dy)), x1: ax + Math.max(...c.map(p => p.dx)) + 8, y1: ay + Math.max(...c.map(p => p.dy)) + 8 } // prettier-ignore
+  }
+  it('not at rest, with the capture-style camera at (0,0): the same 72 cells (the camera is set from the grid)', () => {
+    const rom = freshRom()
+    const base = levelSeed(rom, 0)
+    const m = runOnce(
+      rom,
+      0x82,
+      withSeed({ sprite: { x: 80, y: 112 }, camera: { x: 0, y: 0 } }, base),
+    )
+    expect(cellsOf(m)).toHaveLength(72)
+    expect(boxOf(m)).toEqual({ x0: 80, y0: 240, x1: 176, y1: 336 })
+  })
+  it('every sprite memory setting 0 to 18: a refusal, or a picture inside the grid box that is exact when all 72 cells draw', () => {
+    const rom = freshRom()
+    const base = levelSeed(rom, 0)
+    let full = 0
+    for (let k = 0; k < 0x13; k++) {
+      const loaded = Uint8Array.from(base.loaded!)
+      loaded[0x1692] = k
+      const m = runOnce(rom, 0x82, withSeed({ sprite: { x: 80, y: 112 }, camera: { x: 0, y: 0 } }, { ...base, loaded }), { atRest: true }) // prettier-ignore
+      if (m.refusal) continue
+      // Settings other than the vanilla one lose cells (35 to 72 drawn, not traced); what draws never leaves the box.
+      const b = boxOf(m)
+      expect(b.x0, `memory setting ${k}`).toBeGreaterThanOrEqual(80)
+      expect(b.y0, `memory setting ${k}`).toBeGreaterThanOrEqual(240)
+      expect(b.x1, `memory setting ${k}`).toBeLessThanOrEqual(176)
+      expect(b.y1, `memory setting ${k}`).toBeLessThanOrEqual(336)
+      if (cellsOf(m).length === 72) {
+        full++
+        expect(b, `memory setting ${k}`).toEqual({ x0: 80, y0: 240, x1: 176, y1: 336 })
+      }
+    }
+    expect(full).toBeGreaterThan(0)
+  })
   it('without the latch row the sprite is erased, as before the fix', () => {
     const rom = freshRom()
     const seed = withSeed({ sprite: { x: 80, y: 112 } }, levelSeed(rom, 0))

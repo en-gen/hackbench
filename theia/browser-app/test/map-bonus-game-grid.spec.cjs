@@ -97,7 +97,7 @@ const planeAlpha = (page, slot, x, y) =>
   page.evaluate(
     ({ root, x, y }) => {
       const c = document.querySelector(`${root} canvas[data-screen="0"][data-plane="sprites"]`)
-      if (!c || !c.width) return -1
+      if (!c) return -1
       return c.getContext('2d').getImageData(x, y, 1, 1).data[3]
     },
     { root: rootOf(slot), x, y },
@@ -157,7 +157,13 @@ for (const [label, slot] of [
     await page.mouse.move(p.x, p.y)
     await expect
       .poll(
-        () => page.evaluate(() => document.querySelector('.theia-hover')?.textContent ?? null),
+        () =>
+          page.evaluate(() =>
+            (() => {
+              const h = document.querySelector('.theia-hover')
+              return h && h.isConnected && h.matches(':popover-open') ? h.textContent : null
+            })(),
+          ),
         { timeout: 30000 },
       )
       .toBe(map.sprite.name)

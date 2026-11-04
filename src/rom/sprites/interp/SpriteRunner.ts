@@ -746,17 +746,15 @@ function runCore(
   if (!rand.ok) return { ...model, refusal: rand.reason }
   // A sprite whose INIT is guarded by a latch the loader image already set runs it from the state before (InitLatches.ts).
   // A shell never runs INIT (`inits` undefined) and a spawn runs no INIT of its own, so neither has a latch to put back.
-  // A generic seed has no loader image and so no latch to put back: it takes today's path.
+  // The row's effects (the latch copy, the slot) need the loader image, so a generic seed is left as it is.
   const latch =
-    opts.spawn || !inits || !seed.loaded
-      ? undefined
-      : latchFor(rom, num, inits.handler.pointer, opts.latches)
+    opts.spawn || !inits ? undefined : latchFor(rom, num, inits.handler.pointer, opts.latches)
   let latched = withoutInitLatches(seed, latch)
   // The latch was really put back (the image the run starts from is a copy), as opposed to a row that found it already clear.
   if (latched.loaded !== seed.loaded) model.initLatched = true
   // A row with `absolute` is the game's own layout (D158 / Decision 124 A). The game puts the placed sprite in the loader's
   // top slot, which the INIT then overwrites with a block, so the run uses that slot; the slot search not being the
-  // recognized one, or the sprite sitting in slot 0, is a refusal (D51).
+  // recognized one, the sprite sitting in slot 0, or a table slot outside 1..9, is a refusal (D51).
   if (latch?.absolute && latched.loaded) {
     const slot = placedSlot(rom, latched.loaded, opts.slotSearch)
     if (slot === null) return { ...model, refusal: 'the loader is not the recognized slot search, or the sprite sits in slot 0, so the slot the game puts this sprite in is unknown' } // prettier-ignore
@@ -857,7 +855,7 @@ function runCore(
     if (model.absolutePlacement) {
       // The camera comes from the grid itself, never from the placed spot: the game draws these blocks with 8-bit OAM
       // coordinates (SMWDisX bank_01.asm:12866-12869, 12934-12940), so a camera that moved with the list entry wrapped or
-      // culled blocks. The slot's post-INIT spot is the middle block, a fixed point, so the screen is fixed too.
+      // culled blocks. The slot's post-INIT spot is the block the INIT wrote there: fixed for a given memory setting (the slot differs by setting), so the screen is fixed too.
       m.recentre(anchor.x - 128 - m.seed.camera.x, anchor.y - 112 - m.seed.camera.y)
     } else if (atRest) m.recentre(anchor.x - placed.x, anchor.y - placed.y)
     // D158 / Decision 124 (A; B, the D137-A reading that it follows the placed spot and a drag, was rejected): a sprite whose
