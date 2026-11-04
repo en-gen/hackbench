@@ -331,8 +331,8 @@ export const TEAM_NAME = /^[a-z][a-z0-9-]{0,31}$/
 export { mainCheckoutDir, resolveStateDir, STATE_DIR_NAME, OLD_STATE_DIR_NAME }
 const LEGACY_STATE_DIR = path.join('.claude', 'state')
 
-export function stateDirFor(cwd) {
-  return resolveStateDir(mainCheckoutDir(cwd))
+export function stateDirFor(cwd, env = process.env) {
+  return resolveStateDir(mainCheckoutDir(cwd), env)
 }
 
 export function protocolsDirFor(cwd) {
@@ -520,46 +520,71 @@ const defaultLink = (oldDir, newDir) =>
 
 // #1202: .hackbench-state becomes .overwatch, and the old name stays as a link
 // so a session still running old-path code reads and writes the same files.
-// Refuses while a run-lock slot is held: a rename under a live holder would
-// strand its release. Check-then-rename is not atomic; run it when no
-// session is mid-acquire. A failed rename leaves the original untouched.
+// Refuses while a run-lock slot is held (any slot): a process with a file open
+// in the folder can also make the rename fail on Windows. Check-then-rename is
+// not atomic; run it when no session is mid-acquire. Re-runnable: a run that
+// stopped after the rename finishes by creating the link. An EMPTY .overwatch
+// (a stray mkdir) counts as absent; a non-empty one is never touched.
 export function cutoverState(main, { rename = renameSync, link = defaultLink } = {}) {
   const oldDir = path.join(main, OLD_STATE_DIR_NAME)
   const newDir = path.join(main, STATE_DIR_NAME)
   const fail = message => ({ ok: false, message })
-  if (isLink(oldDir) && existsSync(newDir)) {
-    return {
-      ok: true,
-      message: `already cut over: ${OLD_STATE_DIR_NAME} links to ${STATE_DIR_NAME}`,
+  const done = message => ({ ok: true, message })
+  const makeLink = () => {
+    try {
+      link(oldDir, newDir)
+      return null
+    } catch (err) {
+      return err
     }
   }
-  if (existsSync(newDir)) return fail(`${STATE_DIR_NAME} already exists; nothing moved`)
-  if (!existsSync(oldDir)) return fail(`no ${OLD_STATE_DIR_NAME} in ${main}; nothing to cut over`)
+  if (isLink(oldDir)) {
+    let same = false
+    try {
+      same = realpathSync(oldDir) === realpathSync(newDir)
+    } catch {
+      same = false // dangling, or no .overwatch to compare with
+    }
+    return same
+      ? done(`already cut over: ${OLD_STATE_DIR_NAME} links to ${STATE_DIR_NAME}`)
+      : fail(`${OLD_STATE_DIR_NAME} is a link, but not to ${newDir}; fix or remove it by hand`)
+  }
+  if (!existsSync(oldDir)) {
+    if (!existsSync(newDir)) return fail(`no ${OLD_STATE_DIR_NAME} in ${main}; nothing to cut over`)
+    const err = makeLink() // an interrupted run: the folder moved, the link did not
+    return err
+      ? fail(`${STATE_DIR_NAME} exists but the link could not be made: ${err.message}`)
+      : done(`finished: left a link at ${OLD_STATE_DIR_NAME} pointing to ${STATE_DIR_NAME}`)
+  }
   const lock = runLockStatus(oldDir)
   if (lock.held) {
     return fail(`a run-lock slot is held; release it first: ${lock.lines.join(' ')}`)
+  }
+  if (existsSync(newDir)) {
+    if (readdirSync(newDir).length) {
+      return fail(
+        `both ${OLD_STATE_DIR_NAME} and a non-empty ${STATE_DIR_NAME} exist; merge them by hand, nothing moved`,
+      )
+    }
+    rmSync(newDir, { recursive: true }) // empty: a stray mkdir, not state
   }
   try {
     rename(oldDir, newDir)
   } catch (err) {
     return fail(`could not rename ${OLD_STATE_DIR_NAME}; it was left in place: ${err.message}`)
   }
+  const linkErr = makeLink()
+  if (!linkErr) {
+    return done(`moved ${OLD_STATE_DIR_NAME} to ${STATE_DIR_NAME}, left a link at the old name`)
+  }
   try {
-    link(oldDir, newDir)
-  } catch (err) {
-    try {
-      rename(newDir, oldDir)
-    } catch {
-      return fail(
-        `renamed, then link failed (${err.message}) and the undo failed too; move ${newDir} back to ${oldDir}`,
-      )
-    }
-    return fail(`could not link ${OLD_STATE_DIR_NAME}; rename undone: ${err.message}`)
+    rename(newDir, oldDir)
+  } catch {
+    return fail(
+      `moved to ${STATE_DIR_NAME}, but the link failed (${linkErr.message}) and so did restoring the old name; re-run cutover-state to finish the link`,
+    )
   }
-  return {
-    ok: true,
-    message: `moved ${OLD_STATE_DIR_NAME} to ${STATE_DIR_NAME}, left a link at the old name`,
-  }
+  return fail(`could not link ${OLD_STATE_DIR_NAME}; rename undone: ${linkErr.message}`)
 }
 
 function cli(argv, cwd) {

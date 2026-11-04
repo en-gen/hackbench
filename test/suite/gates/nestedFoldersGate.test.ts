@@ -27,6 +27,8 @@ const PLANT_TEST = 'test/suite/unit/plant.test.ts'
 const PLANT_TS = 'src/plant.ts'
 const PLANT_MJS = 'tools/plant.mjs'
 
+const existed = FOLDERS.map(f => fs.existsSync(path.join(repoRoot, f)))
+
 beforeAll(() => {
   for (const dir of planted) {
     for (const rel of [PLANT_TEST, PLANT_TS, PLANT_MJS]) {
@@ -45,6 +47,17 @@ beforeAll(() => {
 })
 afterAll(() => {
   for (const dir of planted) fs.rmSync(path.join(repoRoot, dir), { recursive: true, force: true })
+  // Leave no folder behind that this test created: an empty .overwatch beside a live
+  // .hackbench-state once flipped sessions to it. rmdir, not rm -r, so another
+  // process's files in a pre-existing folder can never be deleted.
+  FOLDERS.forEach((f, i) => {
+    if (existed[i]) return
+    try {
+      fs.rmdirSync(path.join(repoRoot, f))
+    } catch {
+      // not empty or already gone: not ours to remove
+    }
+  })
 })
 
 const run = (cmd: string, args: string[]) =>

@@ -1,6 +1,6 @@
 // #1202: the state folder moves from .hackbench-state to .overwatch. Every
 // fixture is a temp dir; the real folder is never touched.
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -12,7 +12,7 @@ import {
   stateDirFor,
 } from '../../../tools/scripts/protocol.mjs'
 import { resolveStateDir } from '../../../tools/scripts/state-dir.mjs'
-import { acquire, release, status } from '../../../tools/scripts/run-lock.mjs'
+import { acquire, defaultStateDir, release, status } from '../../../tools/scripts/run-lock.mjs'
 
 const made: string[] = []
 function tempMain(): string {
@@ -55,9 +55,31 @@ describe('resolveStateDir', () => {
     expect(resolveStateDir(main, {})).toBe(old)
   })
 
-  it('.overwatch wins once it exists', () => {
-    const { main, neu } = withOldState()
+  it('a stray EMPTY .overwatch beside a real .hackbench-state does not take over (protocol and run-lock)', () => {
+    const { main, old, neu } = withOldState()
     fs.mkdirSync(neu)
+    expect(resolveStateDir(main, {})).toBe(old)
+    expect(stateDirFor(main, {})).toBe(old)
+    // run-lock resolves from its script's location, so give the fixture a repo and a scripts dir.
+    execFileSync('git', ['init', '-q', main])
+    const scripts = path.join(main, 'tools', 'scripts')
+    fs.mkdirSync(scripts, { recursive: true })
+    expect(fs.realpathSync(defaultStateDir(scripts, {}))).toBe(fs.realpathSync(old))
+  })
+
+  it('a run-lock slot taken on the old folder is seen by both resolvers while .overwatch is empty', () => {
+    const { main, old, neu } = withOldState()
+    fs.mkdirSync(neu)
+    acquire(resolveStateDir(main, {}), { owner: 'alpha wt-a', purpose: 't', slots: 1 })
+    expect(status(old, { slots: 1 }).held).toBe(true)
+    expect(fs.readdirSync(neu)).toEqual([])
+  })
+
+  it('.overwatch is the answer when the old name is absent or a link', () => {
+    const { main, neu } = withOldState()
+    cutoverState(main)
+    expect(resolveStateDir(main, {})).toBe(neu)
+    fs.rmdirSync(path.join(main, OLD)) // removes the link only
     expect(resolveStateDir(main, {})).toBe(neu)
   })
 })
@@ -100,13 +122,74 @@ describe('cutoverState', () => {
     expect(cutoverState(main).ok).toBe(true)
   })
 
-  it('refuses when .overwatch already exists as a real folder', () => {
+  it('treats an empty .overwatch as absent and goes ahead', () => {
     const { main, old, neu } = withOldState()
     fs.mkdirSync(neu)
+    expect(cutoverState(main).ok).toBe(true)
+    expect(fs.existsSync(path.join(neu, 'ba.md'))).toBe(true)
+    expect(fs.lstatSync(old).isSymbolicLink()).toBe(true)
+  })
+
+  it('refuses when a NON-empty .overwatch exists beside a real .hackbench-state', () => {
+    const { main, old, neu } = withOldState()
+    fs.mkdirSync(neu)
+    fs.writeFileSync(path.join(neu, 'keep.txt'), 'x')
     const r = cutoverState(main)
     expect(r.ok).toBe(false)
-    expect(r.message).toMatch(/already exists/)
+    expect(r.message).toMatch(/non-empty/)
     expect(fs.existsSync(path.join(old, 'ba.md'))).toBe(true)
+    expect(fs.existsSync(path.join(neu, 'keep.txt'))).toBe(true)
+  })
+
+  it.each([1, 2, 3])('refuses while lock slot %i is held (any slot, not just the first)', n => {
+    const { main, old } = withOldState()
+    const slot = path.join(old, 'locks', n === 1 ? 'run' : `run-${n}`)
+    fs.mkdirSync(slot, { recursive: true })
+    fs.writeFileSync(
+      path.join(slot, 'owner.txt'),
+      'owner: alpha wt-a\nstarted: 2026-11-03T00:00:00Z\n',
+    )
+    const r = cutoverState(main)
+    expect(r.ok).toBe(false)
+    expect(r.message).toMatch(/run-lock slot is held/)
+    expect(fs.lstatSync(old).isDirectory()).toBe(true)
+  })
+
+  it('a re-run after an interrupted cutover (.overwatch, no old name) finishes the link', () => {
+    const { main, old, neu } = withOldState()
+    fs.renameSync(old, neu) // the state a crash between rename and link leaves
+    const r = cutoverState(main)
+    expect(r.ok).toBe(true)
+    expect(r.message).toMatch(/finished/)
+    expect(fs.realpathSync(old)).toBe(fs.realpathSync(neu))
+    expect(cutoverState(main).message).toMatch(/already cut over/)
+  })
+
+  it('does not call it done when the old name links somewhere else', () => {
+    const { main, old, neu } = withOldState()
+    const other = tempMain()
+    fs.rmSync(old, { recursive: true })
+    fs.mkdirSync(neu)
+    fs.symlinkSync(other, old, 'junction')
+    const r = cutoverState(main)
+    expect(r.ok).toBe(false)
+    expect(r.message).toMatch(/not to/)
+  })
+
+  it('when the link fails and the undo fails too, says to re-run', () => {
+    const { main } = withOldState()
+    let calls = 0
+    const r = cutoverState(main, {
+      rename: (a: string, b: string) => {
+        if (calls++ === 0) fs.renameSync(a, b)
+        else throw new Error('EBUSY')
+      },
+      link: () => {
+        throw new Error('EPERM')
+      },
+    })
+    expect(r.ok).toBe(false)
+    expect(r.message).toMatch(/re-run cutover-state/)
   })
 
   it('says so when there is nothing to cut over', () => {
@@ -145,6 +228,23 @@ describe('cutoverState', () => {
 // Acceptance 4: a session still running old-path code (it reads .hackbench-state)
 // and one running new code (it reads whatever the resolver says) share files.
 describe('after cutover, the old path and the new path are one folder', () => {
+  it('git status stays clean and both names are ignored, with the repo .gitignore', () => {
+    const { main, old, neu } = withOldState()
+    const git = (...args: string[]) =>
+      spawnSync('git', ['-C', main, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+        encoding: 'utf8',
+      })
+    git('init', '-q')
+    fs.copyFileSync(path.resolve(__dirname, '../../../.gitignore'), path.join(main, '.gitignore'))
+    git('add', '.gitignore')
+    git('commit', '-q', '-m', 'root')
+    expect(git('status', '--porcelain').stdout).toBe('') // before: the old folder is ignored
+    cutoverState(main)
+    expect(git('status', '--porcelain').stdout).toBe('') // after: the folder and the link are
+    for (const p of [path.basename(old), path.basename(neu) + '/sessions.json'])
+      expect(git('check-ignore', '-q', p).status, p).toBe(0)
+  })
+
   it('a session registered through either name is read through the other', () => {
     const { main, old, neu } = withOldState()
     cutoverState(main)
@@ -217,11 +317,6 @@ describe('protocol.mjs cutover-state (CLI)', () => {
     expect(r.stdout).toMatch(/main checkout/)
     expect(fs.lstatSync(old).isDirectory()).toBe(true)
     // A worktree resolves to the main checkout's folder, not its own.
-    vi.stubEnv('HACKBENCH_STATE_DIR', '') // empty is falsy, so the resolver ignores it
-    try {
-      expect(fs.realpathSync(stateDirFor(wt))).toBe(fs.realpathSync(old))
-    } finally {
-      vi.unstubAllEnvs()
-    }
+    expect(fs.realpathSync(stateDirFor(wt, {}))).toBe(fs.realpathSync(old))
   }, 30000)
 })
