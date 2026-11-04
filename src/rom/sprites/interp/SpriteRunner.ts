@@ -757,7 +757,7 @@ function runCore(
   // recognized one, the sprite sitting in slot 0, or a table slot outside 1..9, is a refusal (D51).
   if (latch?.absolute && latched.loaded) {
     const slot = placedSlot(rom, latched.loaded, opts.slotSearch)
-    if (slot === null) return { ...model, refusal: 'the loader is not the recognized slot search, or the sprite sits in slot 0, so the slot the game puts this sprite in is unknown' } // prettier-ignore
+    if (slot === null) return { ...model, refusal: 'the loader is not the recognized slot search, the sprite sits in slot 0, or the slot table gives a slot other than 1 to 9, so the slot the game puts this sprite in is unknown' } // prettier-ignore
     latched = { ...latched, slot }
     model.absolutePlacement = true
   }

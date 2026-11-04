@@ -140,6 +140,8 @@ describe('placedSlot (no ROM)', () => {
     expect(placedSlot(loader(0xb123, [9]), w, spec)).toBeNull()
   })
   it('accepts only the slots the INIT overwrites, 1 to 9: table values 0 to 12 swept', () => {
+    // $1692 = $13 reads past the 19-entry table: null as well.
+    expect(placedSlot(loader(0xb123, [9]), img(0x13), spec)).toBeNull()
     for (let v = 0; v <= 12; v++)
       expect(placedSlot(loader(0xb123, [v]), img(0), spec), `table value ${v}`).toBe(v >= 1 && v <= 9 ? v : null) // prettier-ignore
   })
@@ -211,8 +213,8 @@ describe('the at-rest re-base exemption (synthetic cart, no ROM)', () => {
     r.buffer.set([...HEAD, 0x23, 0xb1], o)
     r.buffer[2 * 0x8000 + (0xb123 & 0x7fff)] = 3
     const loaded = new Uint8Array(WRAM)
-    const go = (sprite: { x: number; y: number }) =>
-      runOnce(r, 0, withSeed({ sprite, loaded }), { atRest: true, latches: { 0: initRow(true) }, slotSearch }) // prettier-ignore
+    const go = (sprite: { x: number; y: number }, atRest = true) =>
+      runOnce(r, 0, withSeed({ sprite, loaded }), { atRest, latches: { 0: initRow(true) }, slotSearch }) // prettier-ignore
     const a = go({ x: 0x80, y: 0x80 })
     expect(a.refusal).toBeUndefined()
     // Slot 3: its own OAM entries, not slot 0's (the synthetic draw writes entry 4 * slot).
@@ -226,6 +228,9 @@ describe('the at-rest re-base exemption (synthetic cart, no ROM)', () => {
       const m = go(sp)
       expect([m.passes[0]!.parts[0]!.ox, m.passes[0]!.parts[0]!.oy]).toEqual([128, 112])
       expect(m.anchor).toMatchObject({ x: sp.x + 8, y: sp.y })
+      // Not at rest the camera is set from the grid too (the report's runs).
+      const n = go(sp, false)
+      expect([n.passes[0]!.parts[0]!.ox, n.passes[0]!.parts[0]!.oy]).toEqual([128, 112])
     }
   })
   it('a spawn run of the same sprite keeps the seed as it is: no row, no slot, no exemption', () => {
