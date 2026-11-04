@@ -199,13 +199,13 @@ describe('classifyL3Routine', () => {
     expect(r.initialYPx).toBe(0x70)
   })
 
-  it('byte $02..$7F → fixed at $40 (no Y animation)', () => {
+  it('byte $02..$7F → tide at $40 (no Y animation; #808)', () => {
     expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x40, tileset: 0 })).toMatchObject({
-      kind: 'fixed',
+      kind: 'tide',
       initialYPx: 0x40,
     })
     expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x7f, tileset: 0 })).toMatchObject({
-      kind: 'fixed',
+      kind: 'tide',
       initialYPx: 0x40,
     })
   })

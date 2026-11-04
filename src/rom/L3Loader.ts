@@ -46,6 +46,7 @@
 import type { RomFile } from './RomFile'
 import type { MapEntrances } from './SmwRom'
 import { readLayer3Setting } from './ObjectExpander'
+import { tideBgX } from './L3TideX'
 
 // ── VRAM / table addresses ────────────────────────────────────────────────────
 
@@ -397,8 +398,9 @@ export interface ClassifyL3Input {
  *                            CODE_05C494 falls through when TideSetting-1 == 0)
  *   - byte === $00        → 'fixed' (CODE_05C40C BEQ skips JMP CODE_05C494, so
  *                            no animation; init Y = $70 per ASM)
- *   - byte $02..$7F       → 'fixed' (Tide_Stationary; CODE_05C494 BNE jumps to
- *                            CODE_05C4EC which only updates Layer3XPos, not Y)
+ *   - byte $02..$7F       → 'tide' (Tide_Stationary; CODE_05C494 BNE jumps to
+ *                            CODE_05C4EC, the same X path as $01, but Y stays
+ *                            static, so isTideUpAndDown is false; #808)
  *   - byte === $80        → 'fixed' (static at $D0)
  *   - byte === $81 + tileset 1 (Castle1) or 3 (Underground1) → 'fixed' (static at $C0)
  *   - byte === $81 + other tileset → 'camera-tracked' (Layer3YPos = Layer1YPos)
@@ -419,12 +421,22 @@ export function classifyL3Routine(input: ClassifyL3Input): L3RoutineSummary {
     }
   }
   // Only byte $01 reaches the Y-animating path. Byte $00 short-circuits at
-  // CODE_05C40C; byte $02..$7F takes CODE_05C4EC which only scrolls X.
+  // CODE_05C40C; byte $02..$7F takes CODE_05C4EC which only scrolls X (a tide
+  // too: BG3 X is $100-$1FF, see L3TideX.ts).
   if (settingsByte === 0x01) {
     return { layer3Setting, settingsByte, kind: 'tide', initialYPx: 0x70, isTideUpAndDown: true }
   }
+  if (settingsByte >= 0x02 && settingsByte < 0x80) {
+    return {
+      layer3Setting,
+      settingsByte,
+      kind: 'tide',
+      initialYPx: l3InitialYPx(settingsByte),
+      isTideUpAndDown: false,
+    }
+  }
   if (settingsByte < 0x80) {
-    // Byte $00 or $02..$7F - no Y animation. Treat as fixed.
+    // Byte $00: CODE_05C40C skips the tide handler. Treat as fixed.
     return {
       layer3Setting,
       settingsByte,
@@ -503,6 +515,12 @@ export interface L3ScrollRange {
    */
   yHighTide?: number
   yLowTide?: number
+  /**
+   * For `kind: 'tide'` - BG3 X is always in this range (high byte 1, low byte a
+   * phase of frames plus camera movement, see tideBgX). xMin/xMax are only the
+   * level span the band can be seen over, not a camera-locked X.
+   */
+  xPhase?: { min: number; max: number }
 }
 
 export interface L3ScrollRangeInput {
@@ -584,8 +602,11 @@ function findLastDataRow(tilemap: Uint16Array, dataEndRow: number): number {
  *       Layer3YPos = Layer1YPos every frame → pixelY = row*8 in level coords.
  *   - None (settings byte $C0+, or no gameplay content): no overlay.
  *
- * X is full level width: tide scrolls 1:1 with camera (Layer3XPos +=
- * Layer1DXPos, CODE_05C4EC), fixed/camera-tracked tile across the level.
+ * X span is the full level width for every kind, as the span the band can be
+ * seen over. A tide does NOT scroll 1:1 with the camera: CODE_05C4EC adds one
+ * per frame plus Layer1DXPos and sets the high byte to 1, so BG3 X is a
+ * mod-256 phase in $100-$1FF (`xPhase`, tideBgX). Bytes $02-$7F share that X
+ * path with $01 but keep Y static (#808).
  */
 export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
   const { tilemap, initialYPx, initialCameraYPx, levelPixelW, settingsByte, tileset } = input
@@ -611,10 +632,12 @@ export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
 
   const xMin = 0
   const xMax = levelPixelW
+  const xPhase = { min: tideBgX(0, 0, 0), max: tideBgX(0xff, 0, 0) }
 
   if (isAnimatedTide) {
     return {
       kind: 'tide',
+      xPhase,
       xMin,
       xMax,
       yMin: firstDataRow * 8 - L3_TIDE_YPOS_MAX + initialCameraYPx,
@@ -626,7 +649,19 @@ export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
     }
   }
 
-  // settingsByte in [$80, $C0)
+  if (settingsByte !== 0 && settingsByte < 0x80) {
+    // Tide_Stationary: tide X, static Y, so no high/low lines.
+    return {
+      kind: 'tide',
+      xPhase,
+      xMin,
+      xMax,
+      yMin: firstDataRow * 8 - initialYPx + initialCameraYPx,
+      yMax: (lastDataRow + 1) * 8 - initialYPx + initialCameraYPx,
+    }
+  }
+
+  // settingsByte in [$80, $C0), or $00
   const isCameraTracked = settingsByte === 0x81 && tileset !== 1 && tileset !== 3
   if (isCameraTracked) {
     return {

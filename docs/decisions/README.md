@@ -32,3 +32,4 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 | [2026-10-16-third-party-code.md](2026-10-16-third-party-code.md) | Ruled | reuse open-source code with a fitting licence and visible credit; no strong GPL; agents never contact outside maintainers |
 | [2026-10-16-side-quest.md](2026-10-16-side-quest.md) | Ruled | side quest is a per-session mode, not a protocol: one session works one problem with no orchestration |
 | [2026-10-19-map-view-gutter-details.md](2026-10-19-map-view-gutter-details.md) | Proposed | map view gutter and badge details: solid content bands, fade to panel, grid across gutters, edge line, drawn-box growth, issue count meaning |
+| [2026-11-03-tide-l3-load-x.md](2026-11-03-tide-l3-load-x.md) | Proposed | tide layer 3 loads at X 0; the capture's 271 is a capture artifact; bytes $02-$7F are tides in the core |

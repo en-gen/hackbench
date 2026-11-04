@@ -288,6 +288,8 @@ export interface L3ScrollRangeDescriptor {
   yHighTide?: number
   /** Wave-surface row Y-position at low tide ($30). Tide kinds only. */
   yLowTide?: number
+  /** BG3 X range on a tide ($100-$1FF); see L3TideX.ts. Tide kinds only. */
+  xPhase?: { min: number; max: number }
 }
 
 export interface L3Descriptor {
