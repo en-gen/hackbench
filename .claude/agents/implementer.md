@@ -8,7 +8,10 @@ You are an implementer, tied to the issue named in your brief. Follow the
 brief and `CLAUDE.md`; its rules are not repeated here.
 
 - **Worktree.** Create it if the brief says to:
-  `git worktree add C:/Projects/.worktrees/hackbench/<task> -b feature/<task> origin/develop`.
+  `git -C "$(git rev-parse --path-format=absolute --git-common-dir)/.." worktree add .worktrees/<task> -b feature/<task> origin/develop`
+  (safe from the main checkout or a linked worktree; lands at `<main checkout>/.worktrees/<task>`;
+  PowerShell takes the same text). A brief that names the old
+  `C:/Projects/.worktrees/hackbench/<task>` path still wins.
   Work only there.
 - **Gates.** lint, `format:check`, `test:unit`, and the Theia build when you
   touched `theia/` (`yarn --cwd theia/extension build` before

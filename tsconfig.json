@@ -18,5 +18,5 @@
     "resolveJsonModule": true
   },
   "include": ["src/**/*"],
-  "exclude": ["src/test/**/*", "src/webview/**/*", "node_modules"]
+  "exclude": ["src/test/**/*", "src/webview/**/*", "node_modules", ".worktrees", ".overwatch"]
 }
