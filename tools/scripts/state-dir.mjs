@@ -1,5 +1,6 @@
 // Where the shared session state lives (#1202). A leaf module so protocol.mjs
-// and run-lock.mjs, which import each other's neighbors, share ONE resolver.
+// and run-lock.mjs share ONE resolver; it imports neither, so protocol.mjs can
+// import run-lock.mjs (for cutover-state) without a cycle.
 //
 // The desktop app guards .claude/ against session writes from a worktree, so
 // shared state lives in a folder of its own in the main checkout. It was
