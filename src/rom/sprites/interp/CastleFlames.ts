@@ -80,7 +80,7 @@ export function clusterPath(
   ]
 }
 
-const PATH = clusterPath([FLAME_ID], SPAWN, FLAME_TYPE, DRAW, {
+export const FLAME_PATH = clusterPath([FLAME_ID], SPAWN, FLAME_TYPE, DRAW, {
   dispatch: 'the $E6 branch to the flame spawn',
   loop: 'the cluster loop for type 5',
 })
@@ -179,7 +179,7 @@ export function castleFlames(
   routines: FlameRoutines = VANILLA_FLAME_ROUTINES,
 ): FlamesResult {
   if (!seed.loaded) return { ok: false, reason: seed.loadRefusal ?? 'no level image' }
-  const unverified = pathMismatches(rom, PATH)
+  const unverified = pathMismatches(rom, FLAME_PATH)
   const callee = bytesAt(rom, 0x02f822, 3)
   if (!callee || !checkExecutePtr(rom, [callee]).ok) unverified.push('the cluster dispatch call target') // prettier-ignore
   const sha = (at: number, n: number) => spanFingerprint(Uint8Array.from(bytesAt(rom, at, n) ?? []))

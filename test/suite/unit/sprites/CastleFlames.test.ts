@@ -112,7 +112,7 @@ function flameRom(
 
 /** The fingerprints of this cart's own routines (the vanilla ones are for the vanilla bytes). */
 const routinesOf = (rom: RomFile): FlameRoutines => {
-  spanFingerprint(Uint8Array.from(bytesAt(rom, at, n)!), mask)!
+  const sha = (at: number, n: number) => spanFingerprint(Uint8Array.from(bytesAt(rom, at, n)!))!
   return {
     spawn: sha(0x02aa6c, 33),
     draw: sha(0x02fa16, 110),
