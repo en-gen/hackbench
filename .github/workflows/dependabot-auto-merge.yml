@@ -8,7 +8,11 @@
 # --auto waits for the required checks (Build & Test, Theia type-check).
 name: Dependabot auto-merge
 
-on: pull_request
+# labeled lets a no-auto-merge label disarm at once. Any label a human adds
+# also disarms, because the sender check then fails; that is fail-closed.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
 
 permissions: {}
 

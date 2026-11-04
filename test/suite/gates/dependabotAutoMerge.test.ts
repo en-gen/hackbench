@@ -1,6 +1,5 @@
 // The Dependabot auto-merge job holds a write token and arms merges, so this
-// pins the committed workflow exactly: changing it should mean changing this
-// test. No YAML parser is a dependency, so the checks are exact text.
+// pins the committed workflow as exact text (no YAML parser is a dependency).
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
@@ -33,7 +32,12 @@ describe('electron screen', () => {
 
 describe('workflow shape', () => {
   it('triggers on pull_request only, with no token permissions', () => {
-    has('\non: pull_request\n\npermissions: {}\n')
+    has(
+      '\non:\n  pull_request:\n    types: [opened, synchronize, reopened, labeled]\n\npermissions: {}\n',
+    )
+    has(
+      'concurrency:\n  group: dependabot-auto-merge-${{ github.event.pull_request.number }}\n  cancel-in-progress: true\n',
+    )
     expect(wf).not.toContain('pull_request_target')
     has('    permissions:\n      contents: write\n      pull-requests: write\n    env:')
   })
@@ -54,6 +58,14 @@ describe('workflow shape', () => {
         "          steps.electron.outputs.touched == 'false'\n",
     )
     has('        run: gh pr merge --auto --squash --match-head-commit "$HEAD_SHA" "$PR_URL"\n')
+  })
+  it('arms once, on the head sha, and disarms with the exact lines', () => {
+    expect(wf.split('gh pr merge --auto').length).toBe(2)
+    has('HEAD_SHA: ${{ github.event.pull_request.head.sha }}\n')
+    has(
+      `armed="$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')"\n`,
+    )
+    has('if [ "$armed" = true ]; then gh pr merge --disable-auto "$PR_URL"; fi\n')
   })
   it('disarms last, on anything but a successful arm', () => {
     const steps = wf.split('\n      - ')
