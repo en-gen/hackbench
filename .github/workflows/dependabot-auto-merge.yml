@@ -1,20 +1,24 @@
-# Approves and arms auto-merge on safe Dependabot PRs (npm patch and minor
-# bumps that do not touch Electron). Fails closed: any doubt leaves the PR
-# for a human. This job holds a write token, so it never checks out, installs
-# or runs PR code; it only reads metadata and the diff text.
-# Required checks (Build & Test, Theia type-check) still gate the merge,
-# because --auto waits for them. The ruleset dismisses stale reviews on push,
-# so each Dependabot rebase is re-approved here and a human push loses it.
-# github-actions updates are excluded: auto-merging them would change CI.
+# Arms auto-merge on safe Dependabot PRs: npm patch and minor bumps, one
+# commit, no mention of electron anywhere in the diff. Fails closed: any doubt
+# disarms the PR and leaves it for a human. Stays manual: majors, github-actions
+# updates (they would change CI), anything touching electron, and any PR with
+# a human commit. This job holds a write token, so it never checks out,
+# installs or runs PR code; it only reads metadata and the diff text.
+# --auto waits for the required checks (Build & Test, Theia type-check).
 name: Dependabot auto-merge
 
 on: pull_request
 
 permissions: {}
 
+# A newer push must replace the run for the old head, not race it.
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   auto-merge:
-    name: Approve and arm
+    name: Arm auto-merge
     runs-on: ubuntu-latest
     if: >-
       github.event.pull_request.user.login == 'dependabot[bot]' &&
@@ -22,38 +26,43 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    env:
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      # Default commit verification stays on: it rejects a human commit on a
-      # Dependabot branch, so such a PR is never approved.
+      # Commit verification stays on, but it checks only the first commit, so
+      # the arm condition also requires exactly one commit.
       - id: metadata
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Metadata cannot say this: body-parser, multer and fast-uri PRs also
-      # carry an electron hunk in theia/yarn.lock that dependency-names omits.
-      # The diff is captured first so a gh failure aborts instead of reading
-      # as "no match" (which `gh pr diff | grep` under `if` would).
+      # Metadata cannot say this: body-parser, multer and fast-uri PRs carry an
+      # electron hunk in theia/yarn.lock that dependency-names omits. Broad on
+      # purpose; electron-to-chromium churns with browserslist and is exempt.
+      # The diff goes to a variable, not a pipe: a gh failure must abort, and
+      # grep -q closing a pipe would make sed die and a match read as none.
       - id: electron
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           diff="$(gh pr diff "$PR_URL")"
           [ -n "$diff" ]
-          if grep -Eq '^[+-](.*, )?"?electron@|^[+-] *"([^"]*/)?node_modules/electron":|^[+-] *"electron":' <<<"$diff"; then touched=true; else touched=false; fi
+          stripped="$(sed 's/electron-to-chromium//g' <<<"$diff")"
+          if grep -Eiq '^[+-].*electron' <<<"$stripped"; then touched=true; else touched=false; fi
           echo "touched=$touched" >> "$GITHUB_OUTPUT"
 
-      - name: approve and arm
+      - id: arm
         if: >-
+          github.event.pull_request.commits == 1 &&
           steps.metadata.outputs.package-ecosystem == 'npm_and_yarn' &&
           (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
           steps.metadata.outputs.update-type == 'version-update:semver-minor') &&
           steps.electron.outputs.touched == 'false'
         env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: gh pr merge --auto --squash --match-head-commit "$HEAD_SHA" "$PR_URL"
+
+      # A PR armed on a patch can be re-pushed with a major or an electron
+      # hunk; nothing else would stop it. A failed disarm must show red.
+      - if: ${{ !cancelled() && steps.arm.outcome != 'success' }}
         run: |
-          gh pr review --approve "$PR_URL"
-          gh pr merge --auto --squash "$PR_URL"
+          armed="$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')"
+          if [ "$armed" = true ]; then gh pr merge --disable-auto "$PR_URL"; fi
