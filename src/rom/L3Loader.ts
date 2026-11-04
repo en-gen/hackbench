@@ -620,9 +620,9 @@ export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
     return { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 }
   }
 
-  // Y animation only happens for byte $01 (Tide_UpAndDown). Bytes $00 and
-  // $02..$7F look superficially "tide-like" (byte < $80) but don't update
-  // Layer3YPos at runtime - see classifyL3Routine for the ASM trace.
+  // Y animation only happens for byte $01 (Tide_UpAndDown). Byte $00 skips the
+  // tide handler; $02..$7F scroll X like a tide but never update Layer3YPos
+  // at runtime - see classifyL3Routine for the ASM trace.
   const isAnimatedTide = settingsByte === 0x01
   const dataEndRow = isAnimatedTide ? findTideDataEndRow(tilemap, firstDataRow) : L3_TILEMAP_ROWS
   const lastDataRow = findLastDataRow(tilemap, dataEndRow)
