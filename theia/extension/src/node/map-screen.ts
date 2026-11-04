@@ -230,8 +230,8 @@ export type L3Planes = Record<'l3Low' | 'l3High', Plane>
 /**
  * L3 of one screen as [low, high] planes by each tile's priority bit: tile row
  * R (gameplay rows only; the first 8 are the status bar) at level Y
- * R*8 - Layer3YPos + Layer1YPos, x repeating every 512 px (a tide, whose BG3
- * scrolls with the camera, every 256 px over the first 32 columns, and its
+ * R*8 - Layer3YPos + Layer1YPos, x repeating every 512 px (a tide every 256 px
+ * over the first 32 columns, see docs/rom/level-rendering.md "Tide X", and its
  * second copy of the tilemap is not drawn). A layer that follows the camera (a loaded smash
  * sprite, #997) is drawn as ONE copy of the 512 px tilemap, at world x = column*8 - Layer3XPos,
  * with no repeat. A world-locked layer (settings byte $81-$BF, #563) puts column 0 at the entrance camera X

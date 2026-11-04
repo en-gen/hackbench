@@ -4,19 +4,25 @@ import {
   computeL3ScrollRange,
   L3_TILEMAP_COLS,
   L3_TILEMAP_ROWS,
+  L3_TIDE_YPOS_MAX,
+  L3_TIDE_YPOS_MIN,
 } from '../../../src/rom/L3Loader'
 
 // All synthetic, no ROM needed (#808). Settings bytes $01-$7F all run the tide
 // X path (CODE_05C4EC, bank_05.asm:5624-5629); only $01 also moves Y.
 const LEVEL_W = 1024
 
-const rangeFor = (settingsByte: number) => {
+const CAM_Y = 192
+const ROW = 20
+
+/** One cell on gameplay row ROW; `initialYPx` is free so a hardcoded $40 cannot pass. */
+const rangeFor = (settingsByte: number, initialYPx = 0x40, cam = CAM_Y) => {
   const tilemap = new Uint16Array(L3_TILEMAP_COLS * L3_TILEMAP_ROWS)
-  tilemap[20 * L3_TILEMAP_COLS + 3] = 0x0123 // one gameplay-row cell
+  tilemap[ROW * L3_TILEMAP_COLS + 3] = 0x0123
   return computeL3ScrollRange({
     tilemap,
-    initialYPx: settingsByte === 1 ? 0x70 : 0x40,
-    initialCameraYPx: 0,
+    initialYPx,
+    initialCameraYPx: cam,
     levelPixelW: LEVEL_W,
     settingsByte,
     tileset: 8,
@@ -26,12 +32,14 @@ const rangeFor = (settingsByte: number) => {
 const classify = (b: number) => classifyL3Routine({ layer3Setting: 1, settingsByte: b, tileset: 0 })
 
 const tideBytes = Array.from({ length: 0x7f }, (_, i) => i + 1) // $01..$7F
+/** [hex label, byte] rows, so a case title reads as the byte the ROM holds. */
+const rows = (bytes: number[]) => bytes.map(b => [b.toString(16).padStart(2, '0'), b] as const)
 
 describe('classifyL3Routine tide bytes', () => {
   it('$01 is tide up/down at Y $70', () => {
     expect(classify(0x01)).toMatchObject({ kind: 'tide', isTideUpAndDown: true, initialYPx: 0x70 })
   })
-  it.each(tideBytes.slice(1))('byte $%i (2..127) is a tide with static Y $40', b => {
+  it.each(rows(tideBytes.slice(1)))('byte 0x%s is a tide with static Y $40', (_h, b) => {
     expect(classify(b)).toMatchObject({ kind: 'tide', isTideUpAndDown: false, initialYPx: 0x40 })
   })
   it('$00 and $80 stay fixed (no tide X path)', () => {
@@ -41,21 +49,34 @@ describe('classifyL3Routine tide bytes', () => {
 })
 
 describe('computeL3ScrollRange on a tide', () => {
-  it.each(tideBytes)('byte %i: kind tide, span stays the full level width', b => {
+  it.each(rows(tideBytes))('byte 0x%s: kind tide, span stays the full level width', (_h, b) => {
     const r = rangeFor(b)
     expect(r.kind).toBe('tide')
     expect(r.xMin).toBe(0)
     expect(r.xMax).toBe(LEVEL_W)
-    expect(r.yMax).toBeGreaterThan(r.yMin)
   })
-  it('byte $01 has the Y sweep lines; $02-$7F have none (Y is static)', () => {
-    expect(rangeFor(0x01).yHighTide).toBeDefined()
-    for (const b of tideBytes.slice(1)) {
-      expect(rangeFor(b).yHighTide).toBeUndefined()
-      expect(rangeFor(b).yLowTide).toBeUndefined()
+  it.each(rows(tideBytes.slice(1)))(
+    'byte 0x%s: static Y, exact bounds, no sweep lines',
+    (_h, b) => {
+      const initialYPx = 0x38 + (b % 5) // never the real $40 on every byte
+      const r = rangeFor(b, initialYPx)
+      expect(r.yMin).toBe(ROW * 8 - initialYPx + CAM_Y)
+      expect(r.yMax).toBe((ROW + 1) * 8 - initialYPx + CAM_Y)
+      expect(r.yHighTide).toBeUndefined()
+      expect(r.yLowTide).toBeUndefined()
+    },
+  )
+  it('byte $01 sweeps: the Y bounds come from the sweep limits, with lines', () => {
+    const r = rangeFor(0x01, 0x70)
+    expect(r.yHighTide).toBe(ROW * 8 - L3_TIDE_YPOS_MAX + CAM_Y)
+    expect(r.yLowTide).toBe(ROW * 8 - L3_TIDE_YPOS_MIN + CAM_Y)
+  })
+  it('$00 and $80 are fixed, not tides, with the same static-Y arithmetic', () => {
+    for (const b of [0x00, 0x80]) {
+      const r = rangeFor(b, 0x44)
+      expect(r.kind).toBe('fixed')
+      expect(r.yMin).toBe(ROW * 8 - 0x44 + CAM_Y)
+      expect(r.yMax).toBe((ROW + 1) * 8 - 0x44 + CAM_Y)
     }
-  })
-  it('$00 and $80 are not tides', () => {
-    expect(rangeFor(0x80).kind).toBe('fixed')
   })
 })

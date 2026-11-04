@@ -29,8 +29,9 @@
  *
  * Layer3TilemapSettings (3 bytes per tileset × 16 tilesets at $009F8D):
  *   Each byte encodes the tide behaviour / initial Y position.
- *   If bit 7 = 0: !Tide_UpAndDown ($01) or !Tide_Stationary ($00) → tide effect.
- *     Layer3YPos = $70 (up-and-down) or $40 (stationary).
+ *   If bit 7 = 0: $01 is !Tide_UpAndDown (Layer3YPos = $70, sweeps); $02-$7F are
+ *     stationary tides (Layer3YPos = $40, static); $00 skips the tide handler
+ *     (CODE_05C40C), so it is not a tide (Layer3YPos = $70 at load).
  *   If bit 7 = 1 and bit 6 = 0 ($80/$81): non-tide overlay.
  *     $80 / $C0: Layer3YPos = $D0 (fixed, scroll type incremented).
  *     $81 Castle1/Underground1: Layer3YPos = $C0 (fixed via CODE_009FFA).
@@ -375,7 +376,7 @@ export interface L3RoutineSummary {
    * concrete static initial value.
    */
   initialYPx: number | null
-  /** True when the byte is < $80 with bit 0 set (Tide_UpAndDown). */
+  /** True only for byte $01 (Tide_UpAndDown), the one tide byte that sweeps Y. */
   isTideUpAndDown: boolean
 }
 
@@ -492,8 +493,10 @@ export const L3_TIDE_YPOS_MAX = 0xa0
 export interface L3ScrollRange {
   /**
    * Animation kind:
-   *   - tide:           Layer3YPos sweeps L3_TIDE_YPOS_MIN..MAX every frame.
-   *   - fixed:          Layer3YPos stays at initialYPx (no animation).
+   *   - tide:           byte $01 sweeps Layer3YPos L3_TIDE_YPOS_MIN..MAX every
+   *                     frame; bytes $02-$7F keep it at initialYPx (static Y).
+   *   - fixed:          byte $00, $80, or $81 on tileset 1/3: Layer3YPos stays
+   *                     at initialYPx (no animation).
    *   - camera-tracked: Layer3YPos = Layer1YPos every frame; cells sit at
    *                     fixed level Y = row*8.
    *   - none:           no L3 background or no gameplay-area content.
@@ -505,7 +508,7 @@ export interface L3ScrollRange {
   yMin: number
   yMax: number
   /**
-   * For `kind: 'tide'` - Y-coordinate of the wave-surface row (top of band)
+   * For byte $01 (the sweeping tide) - Y-coordinate of the wave-surface row (top of band)
    * at the extremes of the BG3VOFS sweep. Designers see the wave-surface
    * position at high tide (Layer3YPos = L3_TIDE_YPOS_MAX) and low tide
    * (Layer3YPos = L3_TIDE_YPOS_MIN). Equal to yMin / (yMin + sweep) when
@@ -584,13 +587,14 @@ function findLastDataRow(tilemap: Uint16Array, dataEndRow: number): number {
  * so the designer can see where BG3 will be visible during play.
  *
  * Animation rules (from CODE_05C40C / CODE_05C494, bank_05.asm:5504-5630):
- *   - Tide (settings byte < $80):
+ *   - Tide, byte $01:
  *       Layer3YPos oscillates [L3_TIDE_YPOS_MIN..MAX].
  *       pixelY = row*8 - liveYPos + initialCamY for liveYPos ∈ [MIN..MAX].
  *       So yMin = firstRow*8 - YPOS_MAX + initialCamY
  *          yMax = (lastRow+1)*8 - YPOS_MIN + initialCamY
- *   - Fixed (settings byte $80, or $81 with tileset 1/3):
- *       pixelY = row*8 - initialYPx + initialCamY (no animation).
+ *   - Tide, bytes $02-$7F, and Fixed (byte $00, $80, or $81 with tileset 1/3):
+ *       pixelY = row*8 - initialYPx + initialCamY (static Y; the tide kind
+ *       draws no HIGH/LOW lines).
  *   - Camera-tracked (settings byte $81 with tileset != 1, 3):
  *       Layer3YPos = Layer1YPos every frame → pixelY = row*8 in level coords.
  *   - None (settings byte $C0+, or no gameplay content): no overlay.
@@ -637,18 +641,7 @@ export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
     }
   }
 
-  if (settingsByte !== 0 && settingsByte < 0x80) {
-    // Tide_Stationary: tide X, static Y, so no high/low lines.
-    return {
-      kind: 'tide',
-      xMin,
-      xMax,
-      yMin: firstDataRow * 8 - initialYPx + initialCameraYPx,
-      yMax: (lastDataRow + 1) * 8 - initialYPx + initialCameraYPx,
-    }
-  }
-
-  // settingsByte in [$80, $C0), or $00
+  // settingsByte in [$80, $C0), $00, or a stationary tide ($02..$7F)
   const isCameraTracked = settingsByte === 0x81 && tileset !== 1 && tileset !== 3
   if (isCameraTracked) {
     return {
@@ -661,7 +654,7 @@ export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
   }
 
   return {
-    kind: 'fixed',
+    kind: settingsByte !== 0 && settingsByte < 0x80 ? 'tide' : 'fixed',
     xMin,
     xMax,
     yMin: firstDataRow * 8 - initialYPx + initialCameraYPx,
