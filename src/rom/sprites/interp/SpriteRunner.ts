@@ -11,6 +11,7 @@ import type { Cpu65816 } from '../../cpu/Cpu65816'
 import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
+import { type InitLatch, latchFor, placedSlot, withoutInitLatches } from './InitLatches'
 import { type DispatchShape, grinderDrawsBeforeSnap } from './LineGuided'
 import { smwMachine } from './Machine'
 import { type ShellLoad, shellLoad } from '../ShellSprites'
@@ -154,6 +155,10 @@ export interface SpriteModel {
    * caller that shows sprites should mark generic-seeded ones unverified.
    */
   seedSource?: 'rom-level-load' | 'generic'
+  /** The run began from the loader image with this sprite's INIT latch put back (InitLatches.ts). */
+  initLatched?: boolean
+  /** The sprite's INIT places its own sprites at fixed level positions: drawn there, not re-based onto the placed spot (InitLatches.ts). */
+  absolutePlacement?: boolean
   seedReason?: string
   /** Frames INIT took: 1 unless it left status 1 and was re-run; 0 when INIT did not run (a shell, which the loader leaves past INIT). */
   initFrames?: number
@@ -238,6 +243,8 @@ export interface RunOptions {
    * kept, as the game and the graders do.
    */
   atRest?: boolean
+  /** The INIT-latch rows to apply; a test hook so a synthetic cart brings its own (default: INIT_LATCHES). */
+  latches?: Readonly<Record<number, InitLatch>>
 }
 
 export { Refusal }
@@ -704,9 +711,23 @@ function runCore(
   if (!init.ok) return { ...model, refusal: init.reason }
   const rand = checkGetRand(rom)
   if (!rand.ok) return { ...model, refusal: rand.reason }
+  // A sprite whose INIT is guarded by a latch the loader image already set runs it from the state before (InitLatches.ts).
+  // A shell never runs INIT (`inits` undefined) and a spawn runs no INIT of its own, so neither has a latch to put back.
+  const latch =
+    opts.spawn || !inits ? undefined : latchFor(rom, num, inits.handler.pointer, opts.latches)
+  let latched = withoutInitLatches(seed, latch)
+  // A row with `absolute` is the game's own layout (D158 / Decision 124 A). The game puts the placed sprite in the loader's top slot, which the INIT then
+  // overwrites with a block, so the run uses that slot (a refusal when the loader is not the recognised one).
+  if (latch?.absolute && latched.loaded) {
+    const slot = placedSlot(rom, latched.loaded)
+    if (slot === null) return { ...model, absolutePlacement: true, refusal: 'the loader is not the recognised slot search, so the slot the game puts this sprite in is unknown' } // prettier-ignore
+    latched = { ...latched, slot }
+  }
+  if (latched !== seed) model.initLatched = true
+  if (latch?.absolute) model.absolutePlacement = true
   // A spawn finds its own slot, so the machine owns a copy of the seed whose slot it may update.
   try {
-    const m = new Machine(rom, opts.spawn ? { ...seed } : seed, id, shell, neighbourRun)
+    const m = new Machine(rom, opts.spawn ? { ...seed } : latched, id, shell, neighbourRun)
     if (opts.trackInputs) m.bus.inputs = new Set()
     // RNGCalc ($148B/C) is zero until the game first calls GetRand, its only
     // writer (CODE_01AD07, bank_01.asm:6101-6121); one call from zero is what
@@ -796,7 +817,14 @@ function runCore(
     // and GetDrawInfo then culls it. The camera only picks which screen the picture is taken on: centre it on the
     // post-INIT spot; the drawing is re-based onto the placed spot below (D139 D, D134).
     if (atRest) m.recentre(anchor.x - placed.x, anchor.y - placed.y)
-    model.anchor = { ...(atRest ? placed : anchor), rawX: placed.x, rawY: placed.y }
+    // D158 / Decision 124 (A; B, the D137-A reading that it follows the placed spot and a drag, was rejected): a sprite whose
+    // INIT lays out its own sprites at fixed level positions (absolutePlacement) is drawn where the INIT put them, so the
+    // D134 / D139-D re-base onto the placed spot is skipped for it and for no other sprite.
+    model.anchor = {
+      ...(atRest && !model.absolutePlacement ? placed : anchor),
+      rawX: placed.x,
+      rawY: placed.y,
+    }
     if (snaps) model.snaps = true
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)

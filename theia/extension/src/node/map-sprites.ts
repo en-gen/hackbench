@@ -153,6 +153,8 @@ export type SpriteDrawResult =
   | (Omit<Extract<EngineResult, { ok: true }>, 'parts'> & {
       parts: DrawPart[]
       anchor?: { x: number; y: number }
+      /** The list spot the DTO reports (hover, selection, drag) when the picture stands elsewhere: the game lays it out itself (D158 / Decision 124, InitLatches.ts). */
+      listPos?: { x: number; y: number }
       /** CGRAM colors the sprite's own code set by its drawn frame (interpreter only). */
       runtimePalette?: PaletteWrite[]
       /** The player-buffer slots the drawn frame's run pointed Mario's tile DMA at (interpreter only; #980). */
@@ -295,8 +297,8 @@ export function drawSprites(
     return {
       index: s.index,
       id: s.spriteId,
-      x: ax,
-      y: ay,
+      x: 'listPos' in res && res.listPos ? res.listPos.x : ax,
+      y: 'listPos' in res && res.listPos ? res.listPos.y : ay,
       box,
       rgba: base64(out),
       parts: res.parts.map(p => ({ char: p.charNum, palette: p.palette, flipX: p.flipX, flipY: p.flipY, dx: p.dx, dy: p.dy })), // prettier-ignore
@@ -421,6 +423,12 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     ok: true,
     parts: interpParts(pass.parts),
     anchor: { x: m.anchor.x, y: m.anchor.y },
+    ...(m.absolutePlacement
+      ? {
+          listPos: { x: m.anchor.rawX, y: m.anchor.rawY },
+          note: 'The game lays this sprite out itself, at fixed spots of the level; it does not follow where the list places it.',
+        }
+      : {}),
     runtimePalette: pass.palette,
     ...(pass.drew
       ? { children: pass.drew.children.map(c => ({ index: c.index, parts: interpParts(pass.parts.filter(p => c.oam.includes(p.oam))) })) } // prettier-ignore
