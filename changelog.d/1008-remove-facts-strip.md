@@ -1,0 +1,3 @@
+### Removed
+
+- Maps view (#1008): the facts strip (title, screens, orientation, object and sprite counts) and the folded Header panel are removed, with the warnings they carried ("Name unavailable", "Level data unavailable", "Orientation unavailable", "Objects unavailable", "Sprites unavailable", "Start unavailable" and the graphics-assignment caveat). Those warnings are not shown until the map Properties panel (#1023) returns them. A failed read of the map's details and a missing base ROM still show as a line above the map. The backend no longer decodes the name, counts, header or graphics-assignment note for the view.

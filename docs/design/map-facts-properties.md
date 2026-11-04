@@ -37,7 +37,7 @@ Cost: the panel takes a column of width from the map while open. The map name an
 
 ## Where each piece of old information goes
 
-The old facts strip is `renderFacts` and the Header panel is `renderDecode` in `theia/extension/src/browser/map-view-widget.tsx`. The 13 header fields come from the `header` list in `theia/extension/src/node/map-details.ts`. The label column is what the user sees.
+The old facts strip was `renderFacts` and the Header panel was `renderDecode` in `theia/extension/src/browser/map-view-widget.tsx`; the 13 header fields came from the `header` list in `theia/extension/src/node/map-details.ts`. #1008 deleted all of it, with the warnings it showed (ruling D121: they are not moved to the notes row, and return only in the Properties panel, #1023). `MapDetailsDto` now holds only `index` and `levelMode`, so #1023 re-adds the fields it needs; the old code is in git history before #1008. The label column is what the user sees.
 
 | Old piece | New home | Label |
 | --- | --- | --- |
