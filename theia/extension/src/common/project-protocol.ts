@@ -187,42 +187,15 @@ export interface MapDetailsNotLocated {
 }
 
 /**
- * What one map holds, read from the cartridge.
- *
- * Every field is decoded from the level header, whose bit layout and ASM
- * citations live in src/rom/LevelParser.ts. Nothing here is inferred: a field
- * this build cannot read is absent rather than defaulted.
+ * What the map view reads of one map's header (#1008). The facts strip and the
+ * Header panel that used the name, counts, orientation, decoded header and
+ * GFX-assignment note are gone, and so are those fields. Nothing is inferred:
+ * `levelMode` is absent when the level data cannot be read.
  */
 export interface MapDetailsDto {
   index: number
-  name: string | null
-  /** Why `name` is null when the translevel mapping itself is unreadable,
-   *  rather than the slot simply having no name. */
-  nameUnavailable?: string
-  /** Why the slot's level data could not be read. When set, every field
-   *  below it is absent, and nothing past the name is claimed. */
-  levelDataUnavailable?: string
-  /** The five header bytes, so the user can check the decode themselves. */
-  headerBytes?: number[]
-  screens?: number
-  /** Absent when the object walk did not end on $FF; see `objectsUnavailable`. */
-  objectCount?: number
-  /** Why `objectCount` is absent when level data was read. */
-  objectsUnavailable?: string
-  /** Absent when VerticalTable could not be read; see `orientationUnavailable`. */
-  isVertical?: boolean
-  /** Why `isVertical` is absent. Set only when it is. */
-  orientationUnavailable?: string
-  /** Absent when the sprite stream could not be read; see `spriteUnavailable`. */
-  spriteCount?: number
-  /** Why `spriteCount` is absent. Set only when it is. */
-  spriteUnavailable?: string
   /** The header's level mode, for the unverified-mode warning (#618). */
   levelMode?: number
-  /** Decoded header fields, label and value, in header-byte order. */
-  header?: Array<{ label: string; value: string }>
-  /** Why the GFX files the tileset and sprite set name may not be what loads. */
-  gfxAssignmentNote?: string
 }
 
 /**
