@@ -138,7 +138,8 @@ The ROM corpus is **outside the repo**, beside the clone:
 
 ```
 <projects>/
-  hackbench/              the clone (and <projects>/.worktrees/hackbench/* )
+  hackbench/              the clone (and hackbench/.worktrees/*; older worktrees
+                          may still sit in <projects>/.worktrees/hackbench/*)
   hackbench-tools/
     roms/                 the cartridges
     mesen/                Mesen.exe, Saves/, Debugger/, GameConfig/
@@ -557,8 +558,8 @@ sides drew only parked pieces, at matching positions: agreement), late (the
 model had not drawn yet at the target pass, the capture had), lagged (target
 pass past the pass count, drew or not) and refused, per sprite and per id
 (`SPRITE_POSITION_OUT=<file>` dumps the records), and holds a bound per verdict
-with 1% headroom (vanilla, one machine, 2026-10-10 measured: 1366 exact, 469
-off, 23 missing, 18 parked, 1 late, 80 lagged, 0 refused of 1957). All 80
+with 1% headroom (vanilla, one machine, 2026-10-17 measured on the #842 head: 1396 exact, 461
+off, 1 missing, 18 parked, 1 late, 80 lagged, 0 refused of 1957; 1366, 469 and 23 before #842). All 80
 lagged records are captures whose first draw came 31 to 89 frames after the
 first MAIN (likely the level fade-in, not traced); it is not re-aligned to the
 first draw.
@@ -920,12 +921,53 @@ finder. The assembled-ROM tests (`SyntheticEeriesNoVanilla` and the like) and
 `test/suite/support/romWindows.ts` can adopt it; that is a follow-up for their
 owners.
 
+## Nested folders and `git clean` (#1202)
+
+Task worktrees live in `<repo>/.worktrees/<task>` and session state in
+`<repo>/.overwatch`; both are gitignored. `test/suite/gates/nestedFoldersGate.test.ts`
+plants a file in each and goes red if vitest, ESLint, Prettier, tsc (`tsconfig.json` and
+`tsconfig.test.json`; `tsconfig.webview.json` is not checked), the content gate's inputs or GitNexus's ignore rules pick it up. Each
+assertion was proven able to fail by removing its own ignore (smoke, one run
+each, 2026-11-03): the vitest include and excludes, the ESLint `ignores`, the
+`.gitignore` lines (turns Prettier, content and GitNexus red together), and the
+tsconfig excludes (with an explicit include of the folders; tsc's `**` skips dot
+folders on its own). GitNexus is checked through the `ignore` rules it loads
+(1.6.9 source), not by running its indexer. The ROM corpus resolver still finds
+`hackbench-tools` from `<repo>/.worktrees/<task>` (a case in `corpusResolver.test.ts`).
+
+`git clean -x` deletes ignored files, which is why the corpus left the repo. What
+it does to the two folders, run on a scratch repo with a real clean worktree and a
+real worktree holding a modified file, an untracked file and ignored files
+(`node_modules/`, `*.log`), plus a `.overwatch` holding a session file and a lock
+slot. Git 2.54.0.windows.1, Windows 11 (Git Bash), one machine, 2026-11-03. Nothing
+here ran in a real checkout.
+
+| Command | `.overwatch/` | `.worktrees/<task>` (clean and dirty alike) |
+| --- | --- | --- |
+| `git clean -nx` | not listed (no `-d`) | not listed |
+| `git clean -ndx` | "Would remove .overwatch/" | "Would skip repository" for each |
+| `git clean -fdx` | **deleted**, sessions, handoffs and lock slots with it | skipped, untouched |
+| `git clean -ffdx` | deleted | **deleted whole**, uncommitted and ignored files included; branches survive, `git worktree list` then shows each as prunable |
+
+A `.hackbench-state` junction to `.overwatch` (the layout after `cutover-state`)
+behaves the same: `-ndx` lists it, `-fdx` removes the link and the folder, and no
+file outside the repo was touched. So: `-fdx` costs the state folder (`sessions.json`, `protocols.json`,
+`protocols.log`, the handoffs and any held lock slots all go; the registry rebuilds on the next
+session start, the handoffs and the protocol history do not), and only the double `-ff` reaches a
+worktree, where it destroys uncommitted work. Do not run `git clean -x` in the main
+checkout.
+
+A nested worktree that has no `node_modules` of its own resolves packages upward to the
+main checkout's, because Node walks parent folders. A forgotten install in a new worktree
+no longer fails loudly; run the install, or `npm run lint` will use main's tools against
+the worktree's files. (Without `-x`, ignored files are not candidates; that case was not run.)
+
 ## Run lock
 
 Full unit runs, Theia builds and Playwright runs share a counting semaphore
 of 3 lock slots, so at most 3 overlap (timeouts in #485, #771). ("Slot" in
 the glossary is a ROM pointer-table index; a lock slot is a different thing.) A lock slot is
-a directory under `<main checkout>/.hackbench-state/locks/`: `run` (lock
+a directory under `<main checkout>/.overwatch/locks/` (or `.hackbench-state/locks/` until `protocol.mjs cutover-state` runs, #1202): `run` (lock
 slot 1, the original single lock, so an older script's lock is slot 1),
 `run-2` and `run-3`. Worktrees resolve the main checkout through git, and
 `HACKBENCH_STATE_DIR` overrides it. `HACKBENCH_RUN_SLOTS` sets how many lock

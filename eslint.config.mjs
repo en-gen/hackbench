@@ -12,6 +12,9 @@ export default [
       'build/**',
       'node_modules/**',
       '.gitnexus/**',
+      // Nested task worktrees and session state (#1202): each worktree lints itself.
+      '.worktrees/**',
+      '.overwatch/**',
       // Throwaway probe code, labelled as such in spikes/libretro-view-engine/FINDINGS.md.
       'spikes/**',
       // Vendored stand-ins for native modules; kept byte-for-byte.

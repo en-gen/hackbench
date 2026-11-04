@@ -19,7 +19,7 @@ import {
 } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { STATE_DIR_NAME, mainCheckoutDir } from './protocol.mjs'
+import { mainCheckoutDir, resolveStateDir } from './state-dir.mjs'
 import { slotCount, vitestWorkers } from './run-slots.mjs'
 
 export { slotCount, vitestWorkers }
@@ -211,12 +211,12 @@ export function status(stateDir, { now = new Date(), slots = slotCount() } = {})
 // The script's own location, not cwd: from outside a repo cwd would fail open.
 const here = path.dirname(fileURLToPath(import.meta.url))
 export function defaultStateDir(scriptDir = here, env = process.env) {
-  if (env.HACKBENCH_STATE_DIR) return env.HACKBENCH_STATE_DIR
+  if (env.HACKBENCH_STATE_DIR) return env.HACKBENCH_STATE_DIR // also resolveStateDir's first rule
   const main = mainCheckoutDir(scriptDir)
   if (main === scriptDir) {
     throw new Error('git cannot resolve the main checkout; set HACKBENCH_STATE_DIR')
   }
-  return path.join(main, STATE_DIR_NAME)
+  return resolveStateDir(main, env)
 }
 
 export function cli(argv, stateDir, env = process.env) {

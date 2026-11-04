@@ -11,6 +11,13 @@ import type { Cpu65816 } from '../../cpu/Cpu65816'
 import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
+import {
+  type CodeFingerprint,
+  type InitLatch,
+  latchFor,
+  placedSlot,
+  withoutInitLatches,
+} from './InitLatches'
 import { type DispatchShape, grinderDrawsBeforeSnap } from './LineGuided'
 import { smwMachine } from './Machine'
 import { type ShellLoad, shellLoad } from '../ShellSprites'
@@ -118,6 +125,12 @@ export interface PassResult {
   pass: number
   /** Level position of the sprite at the end of this pass. */
   pos: { x: number; y: number }
+  /**
+   * Level position at the pass's first OAM write: the position the capture records (headless_capture.lua
+   * "read at the first OAM write by this slot that frame"). Differs from `pos` for a sprite that draws, then
+   * moves (DolphinMain, SMWDisX bank_02.asm:7896-7901). Absent when the pass wrote no OAM.
+   */
+  drawPos?: { x: number; y: number }
   /** Where this pass's parts are measured from: `SpriteModel.anchor` when INIT's moves are kept; the end-of-pass `pos` at rest; the pass before's `pos` for $67 on a vanilla-shaped handler (where the pass before left it). */
   origin: { x: number; y: number }
   parts: SpritePart[]
@@ -154,6 +167,12 @@ export interface SpriteModel {
    * caller that shows sprites should mark generic-seeded ones unverified.
    */
   seedSource?: 'rom-level-load' | 'generic'
+  /** The run began from the loader image with this sprite's INIT latch put back (InitLatches.ts). */
+  initLatched?: boolean
+  /** The sprite's INIT places its own sprites at fixed map positions: drawn there, not re-based onto the placed spot (InitLatches.ts). */
+  absolutePlacement?: boolean
+  /** Plain words for why an absolute-placement picture is not the traced one (InitLatches.ts `tracedSetting`); the view marks the sprite unverified. */
+  unverifiedReason?: string
   seedReason?: string
   /** Frames INIT took: 1 unless it left status 1 and was re-run; 0 when INIT did not run (a shell, which the loader leaves past INIT). */
   initFrames?: number
@@ -238,6 +257,10 @@ export interface RunOptions {
    * kept, as the game and the graders do.
    */
   atRest?: boolean
+  /** The INIT-latch rows to apply; a test hook so a synthetic cart brings its own (default: INIT_LATCHES). */
+  latches?: Readonly<Record<number, InitLatch>>
+  /** The loader's slot-search fingerprint; a test hook for the same reason (default: the vanilla loader's). */
+  slotSearch?: CodeFingerprint
 }
 
 export { Refusal }
@@ -247,6 +270,8 @@ export class Machine {
   readonly bus: SpriteBus
   readonly cpu: Cpu65816
   private touched = new Set<number>()
+  /** The sprite's position at the first OAM write since `clearOamWrites` (the capture's sampling moment). */
+  private drawAt: { x: number; y: number } | null = null
   /** Colors set so far, in the order they took effect (cumulative; see `nmi`). */
   private applied: PaletteWrite[] = []
   /** The run itself wrote $0680 PaletteIndexTable since the last NMI (a loaded image's value is not the sprite's). */
@@ -285,6 +310,17 @@ export class Machine {
     this.cpu = m.cpu
     this.bus.onWramWrite = off => {
       this.touched.add(off)
+      // The capture's own filter (headless_capture.lua:1270-1290): $0200-$049F minus the $0400-$041F gap,
+      // and only while $15E9 (the current sprite) is the slot, so a write by another routine does not count.
+      if (
+        !this.drawAt &&
+        off >= RAM.oam &&
+        off < 0x4a0 &&
+        (off < 0x400 || off >= 0x420) &&
+        this.bus.wram[RAM.curSprite] === this.seed.slot
+      )
+        // prettier-ignore
+        this.drawAt = this.pos()
       if (this.bus.wram[RAM.curSprite] === this.seed.slot) {
         this.own.add(off)
         if (this.drawingFor !== undefined) {
@@ -530,6 +566,7 @@ export class Machine {
 
   clearOamWrites(): void {
     this.touched.clear()
+    this.drawAt = null
     this.own.clear()
     this.drewSlots.clear()
     this.childTiles.clear()
@@ -550,6 +587,11 @@ export class Machine {
     })
     if (!this.drewAt || !children.length) return undefined
     return { children, shift: { x: this.drewAt.x - origin.x, y: this.drewAt.y - origin.y } }
+  }
+
+  /** Where the sprite stood when it first wrote OAM since the last clear; null when it wrote none. */
+  drawPos(): { x: number; y: number } | null {
+    return this.drawAt
   }
 
   /** OAM mirror indices whose tile byte this pass wrote. */
@@ -704,9 +746,34 @@ function runCore(
   if (!init.ok) return { ...model, refusal: init.reason }
   const rand = checkGetRand(rom)
   if (!rand.ok) return { ...model, refusal: rand.reason }
+  // A sprite whose INIT is guarded by a latch the loader image already set runs it from the state before (InitLatches.ts).
+  // A shell never runs INIT (`inits` undefined) and a spawn runs no INIT of its own, so neither has a latch to put back.
+  // The map view's at-rest run only: a caller that is not at rest (the spawn grader runs in slot 0, the report with the
+  // capture's camera) keeps its own slot, camera and loader image, which the recordings it compares against were made with.
+  // The row's effects (the latch copy, the slot) also need the loader image, so a generic seed is left as it is.
+  const latch =
+    opts.spawn || !inits || !atRest
+      ? undefined
+      : latchFor(rom, num, inits.handler.pointer, opts.latches)
+  let latched = withoutInitLatches(seed, latch)
+  // The latch was really put back (the image the run starts from is a copy), as opposed to a row that found it already clear.
+  if (latched.loaded !== seed.loaded) model.initLatched = true
+  // A row with `absolute` is the game's own layout (D158 / Decision 124 A). The game puts the placed sprite in the loader's
+  // top slot, which the INIT then overwrites with a block, so the run uses that slot; the slot search not being the
+  // recognized one, the sprite sitting in slot 0, or a table slot outside 1..9, is a refusal (D51).
+  const image = latched.loaded
+  if (latch?.absolute && image) {
+    const slot = placedSlot(rom, image, opts.slotSearch)
+    if (slot === null) return { ...model, refusal: 'the loader is not the recognized slot search, the sprite sits in slot 0, or the slot table gives a slot other than 1 to 9, so the slot the game puts this sprite in is unknown' } // prettier-ignore
+    latched = { ...latched, slot }
+    model.absolutePlacement = true
+    const setting = image[0x1692]!
+    if (latch.tracedSetting !== undefined && setting !== latch.tracedSetting)
+      model.unverifiedReason = `this map uses sprite memory setting ${setting}; the bonus game blocks were only checked for setting ${latch.tracedSetting}, so some may be missing`
+  }
   // A spawn finds its own slot, so the machine owns a copy of the seed whose slot it may update.
   try {
-    const m = new Machine(rom, opts.spawn ? { ...seed } : seed, id, shell, neighbourRun)
+    const m = new Machine(rom, opts.spawn ? { ...seed } : latched, id, shell, neighbourRun)
     if (opts.trackInputs) m.bus.inputs = new Set()
     // RNGCalc ($148B/C) is zero until the game first calls GetRand, its only
     // writer (CODE_01AD07, bank_01.asm:6101-6121); one call from zero is what
@@ -795,8 +862,20 @@ function runCore(
     // INIT can move a sprite off the screen the run was centred on (the grinders' -$140, the Podoboo's drop),
     // and GetDrawInfo then culls it. The camera only picks which screen the picture is taken on: centre it on the
     // post-INIT spot; the drawing is re-based onto the placed spot below (D139 D, D134).
-    if (atRest) m.recentre(anchor.x - placed.x, anchor.y - placed.y)
-    model.anchor = { ...(atRest ? placed : anchor), rawX: placed.x, rawY: placed.y }
+    if (model.absolutePlacement) {
+      // The camera comes from the grid itself, never from the placed spot: the game draws these blocks with 8-bit OAM
+      // coordinates (SMWDisX bank_01.asm:12866-12869, 12934-12940), so a camera that moved with the list entry wrapped or
+      // culled blocks. The slot's post-INIT spot is the block the INIT wrote there: fixed for a given memory setting (the slot differs by setting), so the screen is fixed too.
+      m.recentre(anchor.x - 128 - m.seed.camera.x, anchor.y - 112 - m.seed.camera.y)
+    } else if (atRest) m.recentre(anchor.x - placed.x, anchor.y - placed.y)
+    // D158 / Decision 124 (A; B, the D137-A reading that it follows the placed spot and a drag, was rejected): a sprite whose
+    // INIT lays out its own sprites at fixed map positions (absolutePlacement) is drawn where the INIT put them, so the
+    // D134 / D139-D re-base onto the placed spot is skipped for it and for no other sprite.
+    model.anchor = {
+      ...(atRest && !model.absolutePlacement ? placed : anchor),
+      rawX: placed.x,
+      rawY: placed.y,
+    }
     if (snaps) model.snaps = true
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
     probe?.(-1, w)
@@ -814,11 +893,17 @@ function runCore(
       // At rest the parts are measured from where the pass ended, so MAIN's own few pixels of motion do not
       // leak into the picture (the Podoboo's jump). A handler that draws and then moves is measured from its
       // end too: measuring from the draw changed 12 vanilla rows ($05, $06) from same to differ against the table engine.
-      const origin = snaps ? (model.passes[p - 1]?.pos ?? anchor) : atRest ? m.pos() : anchor
+      const origin = snaps
+        ? (model.passes[p - 1]?.pos ?? anchor)
+        : atRest && !model.absolutePlacement
+          ? m.pos()
+          : anchor
       const drew = neighbourRun ? m.drew(origin) : undefined
+      const drawPos = m.drawPos()
       model.passes.push({
         pass: p,
         pos: m.pos(),
+        ...(drawPos ? { drawPos } : {}),
         origin: { x: origin.x, y: origin.y },
         parts: readParts(m, origin),
         uploads: uploadsOf(m, hw),
