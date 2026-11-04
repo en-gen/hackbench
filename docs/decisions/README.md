@@ -6,6 +6,7 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 
 | File | State | Decides |
 | --- | --- | --- |
+| [2026-11-04-state-inside-repo-cutover.md](2026-11-04-state-inside-repo-cutover.md) | Proposed | hooks and settings stay unchanged and the cutover leaves a junction at the old state folder name |
 | [2026-11-03-gm12-gate-window-hooks.md](2026-11-03-gm12-gate-window-hooks.md) | Ruled | a hook in GM12PrepLevel before the $0D9B test is an accepted limit, no guard; the warn path is follow-up #1205 (D159) |
 | [2026-10-29-keep-staged-check-scripts.md](2026-10-29-keep-staged-check-scripts.md) | Proposed | keep the staged-check scripts and their gate test as tooling for #1163 |
 | [2026-10-17-map-notes-rom-scope.md](2026-10-17-map-notes-rom-scope.md) | Proposed | whole-ROM map notes are shown once under This ROM, never on each map |
