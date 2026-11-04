@@ -11,6 +11,8 @@ call.
   plus the active protocols every turn. An unregistered session gets only a
   registration block naming both manuals; register from your title, then read
   yours before anything else.
+- **Coordinating sessions** (Planning, Decisions, Overwatch, Testing): start
+  with `claude --agent <name>`; the role file in `.claude/agents/` is yours.
 - **Role agents:** your role file in `.claude/agents/` plus this file.
 - **Side quest:** when the owner says side quest in your chat, you work that
   one problem yourself: no registration, team or hand-offs, questions to the
@@ -234,7 +236,16 @@ unapproved phases.
 
 Every agent follows these. Role-specific rules are in `.claude/agents/`.
 
+- Start from files, not memory: read your state file and `git log --oneline -20`
+  first; end with work committed and the state file current.
 - Test first: see it fail on the old code before the fix lands.
+- **Done contract.** The plan pairs each acceptance criterion with the test or
+  command that proves it. Reviewers and the verifier grade every criterion pass
+  or fail; nobody relaxes or rewords one.
+- Never delete, skip or weaken a failing test to get green; fix the test or the
+  code. A test that is no longer valid may go, with the test and the reason in
+  the PR description; the adversarial reviewer and the verifier each grade the
+  reason, and a disagreement fails the item.
 - Report exact test counts, passed and skipped. A mutation sweep you design is
   a smoke test, not coverage evidence; never write "all killed".
 - Batches (captures, sweeps, bulk generation): deliver ONE sample and stop
@@ -259,6 +270,11 @@ Every agent follows these. Role-specific rules are in `.claude/agents/`.
   explicit `model`.
 - `npm run gitnexus` refreshes the index after a commit. `.gitnexusrc` and the
   script both stop analyze rewriting the marked region below (#644).
+- Add a Mermaid diagram to an authored doc where it makes a flow, sequence or
+  structure clearer (no blank lines inside the block).
+- Every harness part (a role agent, a review pass, a gate) assumes the model
+  cannot manage alone. When one stops catching anything, propose removing it
+  to the BA rather than keeping it by habit.
 - Reusing other authors' code, and never contacting outside maintainers:
   [docs/decisions/2026-10-16-third-party-code.md](docs/decisions/2026-10-16-third-party-code.md).
 

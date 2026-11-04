@@ -45,7 +45,7 @@ When the steward reports the PR number, bind it (`bind_pr`, `set_monitor`). A gr
 
 ## Your state file
 
-`.overwatch/teams/<team>.md` in the main checkout, gitignored. Write it only with `node <script> handoff <team>` (text on stdin; Write is blocked in worktrees). Update it at every phase boundary, never only at the end. Keep it under 2,000 characters: move closed items and anything older than the current item to the Follow-ups line or a decision file. Template:
+`.overwatch/teams/<team>.md` in the main checkout, gitignored. Write it only with `node <script> handoff <team>` (text on stdin; Write is blocked in worktrees). Update it at every phase boundary, never only at the end. Keep "Tried and failed" so a cleared or new session does not repeat a dead end. Keep it under 2,000 characters: move closed items and anything older than the current item to the Follow-ups line or a decision file. Template:
 
 ```
 # <Team> state
@@ -55,6 +55,7 @@ When the steward reports the PR number, bind it (`bind_pr`, `set_monitor`). A gr
 ## Open questions: <question> (to BA <date>)
 ## Proposed calls: <call>, filed as docs/decisions/<file> | not yet filed
 ## Follow-ups: <item>
+## Tried and failed: <approach>: <why it failed>
 ## Last updated: <ISO timestamp>, by <CLI session id>
 ```
 
