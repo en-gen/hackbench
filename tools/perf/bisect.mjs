@@ -6,9 +6,8 @@
 //   node tools/perf/bisect.mjs --id <id> --good <sha> --bad <sha>
 //        [--dir <taskDir>] [--rounds N]
 //
-// Builds two git worktrees under <parent-of-repo>/.worktrees/hackbench/
-// perf-bisect-<id>-<good7> (design D5, CLAUDE.md's worktree-placement
-// convention), removed in a finally, then runs `git bisect run` against
+// Builds two git worktrees under <repo>/.worktrees/perf-bisect-<id>-<good7>
+// (design D5, CLAUDE.md's worktree-placement convention, #1202), removed in a finally, then runs `git bisect run` against
 // `node tools/perf/bisect.mjs --step`, this file's own second mode: no
 // generated source file, so the step logic is covered by ordinary imports
 // and unit tests instead of a string template.
@@ -16,7 +15,7 @@
 import { parseArgs } from 'node:util'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, rmSync } from 'node:fs'
-import { dirname, basename, join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MIN_ROUNDS } from './paired.mjs'
 
@@ -35,14 +34,9 @@ export function mainRepoRoot(exec = execFileSync) {
   return dirname(gitCommonDir)
 }
 
-/** <parent-of-repo>/.worktrees/<repo-name>/perf-bisect-<id>-<good7> (design D5). */
+/** <repo>/.worktrees/perf-bisect-<id>-<good7> (design D5, #1202). */
 export function defaultTaskDir(repoRoot, id, good) {
-  return join(
-    dirname(repoRoot),
-    '.worktrees',
-    basename(repoRoot),
-    `perf-bisect-${id}-${good.slice(0, 7)}`,
-  )
+  return join(repoRoot, '.worktrees', `perf-bisect-${id}-${good.slice(0, 7)}`)
 }
 
 /** Maps compare.mjs's own exit code to what `git bisect run` expects: 0

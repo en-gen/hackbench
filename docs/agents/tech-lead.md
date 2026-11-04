@@ -45,12 +45,12 @@ When the steward reports the PR number, bind it (`bind_pr`, `set_monitor`). A gr
 
 ## Your state file
 
-`.hackbench-state/teams/<team>.md` in the main checkout, gitignored. Write it only with `node <script> handoff <team>` (text on stdin; Write is blocked in worktrees). Update it at every phase boundary, never only at the end. Keep it under 2,000 characters: move closed items and anything older than the current item to the Follow-ups line or a decision file. Template:
+`.overwatch/teams/<team>.md` in the main checkout, gitignored. Write it only with `node <script> handoff <team>` (text on stdin; Write is blocked in worktrees). Update it at every phase boundary, never only at the end. Keep it under 2,000 characters: move closed items and anything older than the current item to the Follow-ups line or a decision file. Template:
 
 ```
 # <Team> state
 ## Item: #<issue> <title>
-## Branch and worktree: feature/<name> at C:/Projects/.worktrees/hackbench/<name>
+## Branch and worktree: feature/<name> at <repo>/.worktrees/<name>
 ## Phase: design | plan-gate | delegate | review | verify | ship | closed | stopped: <reason>
 ## Open questions: <question> (to BA <date>)
 ## Proposed calls: <call>, filed as docs/decisions/<file> | not yet filed

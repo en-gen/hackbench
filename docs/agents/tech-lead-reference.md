@@ -39,7 +39,7 @@ This file wins on:
 
 - Dispatch by `subagent_type`, run in the background, and send independent
   tasks in parallel. One agent per worktree at
-  `C:/Projects/.worktrees/hackbench/<task>`, on `feature/<name>` off `develop`.
+  `<repo>/.worktrees/<task>` (older ones may still sit at `C:/Projects/.worktrees/hackbench/<task>`), on `feature/<name>` off `develop`.
 - **Always pass `model` explicitly**, matching the table. A per-call `model`
   beats the role's frontmatter, so passing the same value costs nothing and
   guards against silent inheritance (Sep 24-25: 22 of 24 spawns passed no

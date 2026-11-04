@@ -1,16 +1,20 @@
 # Cut over the session state folder
 
-Use once, when the PR that moves state from `.claude/state/` to `.hackbench-state/` has merged. `[PROP]` from #725, not yet run; the first run confirms or corrects it.
+Use once, after the PR that introduces `.overwatch` (#1202) has merged and the main checkout has synced to develop. The earlier cutover, from `.claude/state/` to `.hackbench-state/` (#725), is done; `migrate-state` still exists for that history.
 
-Every worktree session's hook runs from the main checkout, so the switch happens when the main checkout syncs, not when a worktree does.
+Until this runs, nothing changes: the shared resolver (`tools/scripts/state-dir.mjs`) answers `<main>/.overwatch` if it exists, else `<main>/.hackbench-state`, so a merged-but-not-cut-over checkout keeps using `.hackbench-state`. `HACKBENCH_STATE_DIR` overrides both.
 
-1. Merge the PR.
-2. Delete the stray `<main>/.hackbench-state/` if it holds only an empty registry (`{}`) and no team files. Otherwise stop and ask the owner.
-3. Sync the main checkout to develop and, in the same turn, with `HACKBENCH_STATE_DIR` unset (it would redirect the target), run `node <main>/tools/scripts/protocol.mjs migrate-state` from it. No session may start or clear between the two. It copies `sessions.json` (re-keyed by desktop id), `protocols.json`, `protocols.log`, `ba.md` and `teams/*.md`; it never deletes the source. If it reports `sessions.json` under skipped, stop.
-4. Confirm with `node <main>/tools/scripts/protocol.mjs status`: it prints the absolute state folder it reads, which must be `<main>/.hackbench-state`, and the registered sessions.
-5. Sync the team worktrees whenever convenient. Their own copies matter only for commands run by a relative path, and the manuals use the absolute path.
-6. Enact protocols only after step 4.
+1. Make sure no run-lock slot is held: `node <main>/tools/scripts/run-lock.mjs status`. The command checks too and refuses if one is.
+2. From the MAIN checkout (not a worktree), with `HACKBENCH_STATE_DIR` unset, run `node tools/scripts/protocol.mjs cutover-state`. It renames `.hackbench-state` to `.overwatch` and leaves a directory junction (symlink off Windows) at the old name pointing to it.
+3. Confirm with `node tools/scripts/protocol.mjs status`: `stateDir` must be `<main>/.overwatch`, with the same registered sessions as before.
+4. Running it again prints `already cut over` and changes nothing.
 
-Why: nothing may write state between the sync and step 4. A registration or protocol change made in that window lands in only one of the two folders, and the hook does not read the old folder as a fallback.
+What it refuses, and what it leaves behind:
 
-Delete the old `.claude/state/` only after every session has synced, and only on the owner's go.
+- A held run-lock slot, an existing `.overwatch`, or a worktree as the working directory: nothing is moved.
+- A failed rename (a process holding a file in the folder, say): the original stays in place and the message says so. A failed link after the rename undoes the rename.
+- Check-then-rename is not atomic. Run it when no session is starting, as with the earlier cutover.
+
+Sessions still on old-path code (reading `.hackbench-state`) and new code (reading `.overwatch`) see the same files through the link, including run-lock slots; `stateCutover.test.ts` proves both directions on temp folders. Keep the link until every session has synced, then delete it by hand (`rmdir .hackbench-state` removes the junction only).
+
+`git clean -x` deletes both folders; see "Nested folders and `git clean`" in docs/testing.md.

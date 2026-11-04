@@ -38,11 +38,11 @@ describe('exitCodeForStep: the git bisect run mapping', () => {
 })
 
 describe('defaultTaskDir: CLAUDE.md worktree placement', () => {
-  it('is <parent-of-repo>/.worktrees/<repo-name>/perf-bisect-<id>-<good7>', () => {
+  it('is <repo>/.worktrees/perf-bisect-<id>-<good7>', () => {
     // Built with node:path so the case holds on the Linux CI runner and on Windows.
     const dir = defaultTaskDir(join(sep, 'Projects', 'hackbench'), 'core.x.y', 'abcdef1234567')
     expect(dir).toBe(
-      join(sep, 'Projects', '.worktrees', 'hackbench', 'perf-bisect-core.x.y-abcdef1'),
+      join(sep, 'Projects', 'hackbench', '.worktrees', 'perf-bisect-core.x.y-abcdef1'),
     )
   })
 })

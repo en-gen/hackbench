@@ -8,7 +8,9 @@ You are an implementer, tied to the issue named in your brief. Follow the
 brief and `CLAUDE.md`; its rules are not repeated here.
 
 - **Worktree.** Create it if the brief says to:
-  `git worktree add C:/Projects/.worktrees/hackbench/<task> -b feature/<task> origin/develop`.
+  `git worktree add .worktrees/<task> -b feature/<task> origin/develop` from the main
+  checkout, which lands at `<repo>/.worktrees/<task>`. A brief that names the old
+  `C:/Projects/.worktrees/hackbench/<task>` path still wins.
   Work only there.
 - **Gates.** lint, `format:check`, `test:unit`, and the Theia build when you
   touched `theia/` (`yarn --cwd theia/extension build` before
