@@ -31,11 +31,22 @@ How the map view draws them, and what each step rests on.
   (owner ruling D52, option B; `rom-interpretation.md` "Viewers draw, they do not blank").
   The ROM's own code is still run, at the vanilla entries, and the result is marked
   unverified with a map note naming each part that differs: the spawn and draw routines
-  (SHA-256 of each), the loader route (`bank_02.asm:5348-5355`), the `CODE_02AAC0` entry
-  and its `$E6` branch (`5631-5637`), the cluster loop and its `JSR CODE_02F821`
-  (`15942-15958`), the `JSL ExecutePtr` and its target (`15962-15963`), and the type-5
-  dispatch entry. A hacked call path is NOT followed (that would be an emulator): the flames
-  come from the routines as they stand, and the note says the path to them is unverified.
+  (SHA-256 of each), and the call path, which is RUN on the core, not matched
+  (`ClusterPath.ts`, D126). The loader route (`bank_02.asm:5348-5355`) is run with the sprite
+  id, a stream offset and a hand-off in `_0.._2` and must reach `CODE_02AAC0` (`5631-5637`),
+  the spawn (with the activate flag stored and the id still in A) and `LoadNextSprite` (with
+  the stack, X and Y restored), over three WRAM states. The cluster loop (`15942-15958`),
+  entered with DB wrong, must reach the draw for type 5 from slot 0 and slot 19 through the
+  dispatch block and ExecutePtr (`15962-15972`), with DB 2, X and `CurSpriteProcess` the slot,
+  and must return when no cluster sprite exists. Every fetch on the way must lie in the
+  expected code (the route, dispatcher, spawn, loop, dispatch block, ExecutePtr); a fetch
+  elsewhere (a hook or wrapper) flags the stage and names the address. A hacked call path is
+  not followed past that point (that would be an emulator): the flames come from the routines
+  as they stand, and the note says the path to them is unverified. Evidence scope: the
+  vanilla USA ROM passes, and Grand Poo World 2 1.1, Grand Poo World 1.2 and Invictus 1.0
+  are flagged for the loop at a foreign address (one machine, 2026-11-03,
+  `ClusterPathGate.corpus.test.ts`). The cart's `ExecutePtr` shape is checked on its own
+  (`the cluster dispatch call target`).
   The data tables the routines read are not part of any check.
 - What still refuses, with the reason in the map note: no level image, a run that does not
   return or executes BRK/COP/WDM/WAI/STP or leaves ROM, and a `GetRand` that is not the

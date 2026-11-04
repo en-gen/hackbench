@@ -18,11 +18,12 @@
  * Evidence scope: vanilla USA ROM, map $01F and the other maps with $E6, one run
  * each (docs/sprites/sprite-e6-castle-flames.md).
  *
- * Viewers draw, they do not blank (rom-interpretation.md, owner ruling D52, option B): a routine
- * or call-path byte that is not the vanilla one does NOT stop the run. The ROM's own code is still
- * run, at the vanilla entries, and the result carries `unverified` naming each part that differs.
- * We do not follow a hacked call path (that would be an emulator, out of scope); the note says the
- * flames come from the routines as they stand, not from a verified path to them. What still
+ * Viewers draw, they do not blank (rom-interpretation.md, owner ruling D52, option B): a changed
+ * routine or call path does NOT stop the run. The ROM's own code is still run, at the vanilla
+ * entries, and the result carries `unverified` naming each part that differs. The call path is
+ * checked by running it (ClusterPath.ts), not by matching bytes; a hook or wrapper on it is
+ * flagged by address and not followed (that would be an emulator, out of scope): the note says
+ * the flames come from the routines as they stand, not from a verified path to them. What still
  * refuses is what cannot draw: no level image, a run that does not return, and a GetRand that is
  * not the known shape but is actually executed (below).
  */
