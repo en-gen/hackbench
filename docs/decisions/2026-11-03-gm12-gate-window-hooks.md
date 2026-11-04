@@ -1,8 +1,8 @@
-Proposed 2026-11-03 (Overwatch, #842) D159
+Ruled 2026-11-03 (Brian) D159
 
 # A hook in GM12PrepLevel before the $0D9B test is not checked
 
-D159, `[PROP]`, for Brian to confirm or course-correct after the merge of #1050.
+D159, raised on #1050.
 
 ## Question
 
@@ -10,14 +10,18 @@ The level loader reads IRQNMICommand ($0D9B) bit 7 after the level data loader a
 
 ## Options considered
 
-1. Do nothing for this window: no site checks, no warning. Vanilla and every store hack in the corpus agree. `[PROP]` (proposed, not ruled)
+1. Do nothing for this window: no site checks, no warning. Vanilla and every store hack in the corpus agree.
 2. Add single-instruction sites for the window and refuse the load when it is not vanilla-shaped. It newly refuses 9 of the 22 store hacks the loader accepts today, which then lose their level state.
 3. Warn and still load: a hook in the window is reported as unverified on the map view and the sprite report, and the load goes ahead. It needs a warn path the loader does not have; proposed as a follow-up for Planning to file if the owner agrees.
 4. Follow or run the hook. Out of scope for #1050 (a scope change, #1182).
 
 ## Ruling
 
-Pending the owner's ruling. Nothing is decided. Overwatch proposes option 1 for #1050 (no code change meanwhile) and option 3 as a follow-up. `[PROP]`
+2026-11-03, relayed by Overwatch (the owner's words, wording otherwise not recorded):
+
+> "125A"
+
+Accepted limit, no guard: no code change in #1050, and a hook in this window is not checked. The follow-up (the warn path of option 3) is tracked as issue #1205.
 
 ## Why
 
