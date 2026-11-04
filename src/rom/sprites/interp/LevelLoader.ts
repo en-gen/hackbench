@@ -220,9 +220,9 @@ export function loaderSites(rom: RomFile): Site[] {
     // The reset opens with PHB (bank_05.asm:4784); its PLB pairs with it inside the routine, which is run.
     { name: 'Layer 3 reset at $05:BE8A', at: L3_RESET, op: PHB },
     // GM12PrepLevel's test of IRQNMICommand ($0D9B) and the two calls the loader mirrors (bank_00.asm:4861-4870):
-    // BPL runs them when bit 7 is clear (its distance lands on a JSR), the JSL is the reset call, the JSR goes to the handler.
+    // BPL runs them when bit 7 is clear (its distance is 5, past the JSR and BRA that skip them, onto a JSR), the JSL is the reset call, the JSR goes to the handler.
     { name: GM12_NAME, at: GM12_LDA, op: LDA_ABS, operand: { value: 0x0d9b, size: 2 } },
-    { name: GM12_NAME, at: GM12_BPL, op: BPL, lands: JSR },
+    { name: GM12_NAME, at: GM12_BPL, op: BPL, operand: { value: 5, size: 1 }, lands: JSR }, // distance 0 would land on the JSR before the skip
     // The JSL's target is NOT compared: 19 of the 22 store hacks the loader accepts route it through a hook (a JSL into bank $0E),
     // and the loader runs the reset itself. Comparing it would refuse them (levelLoaderFingerprint.test.ts parity).
     { name: GM12_NAME, at: GM12_RESET_CALL, op: JSL, targetFree: true },

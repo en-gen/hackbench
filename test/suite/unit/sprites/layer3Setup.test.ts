@@ -197,6 +197,11 @@ describe('GM12PrepLevel call site: each instruction the loader mirrors is checke
   it.each([
     ['the BPL opcode at $00:A5B2 (skip polarity)', 0x00a5b2, 0x30],
     ['the BPL distance at $00:A5B3 (it must land on the JSR)', 0x00a5b3, 0x06],
+    [
+      'the BPL distance at $00:A5B3 set to 0 (it reaches the JSR before the BRA that skips both calls, not the one after)',
+      0x00a5b3,
+      0x00,
+    ],
     ['the LDA operand at $00:A5B0 (IRQNMICommand)', 0x00a5b0, 0x9c],
     ['the JSL opcode at $00:A5BF', 0x00a5bf, 0x20],
     ['the JSR opcode at $00:A5C3', 0x00a5c3, 0x22],
