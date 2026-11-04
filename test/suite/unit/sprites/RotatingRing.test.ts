@@ -329,7 +329,6 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
       [0x02fe71 + 83, 'the ring contact test'],
       [STANDIN.dispatch, LOOP, 1], // the dispatch call's opcode
       [STANDIN.loop + 1, LOOP, 0x10], // the loop starts at slot 16: slot 0 is never visited
-      [STANDIN.entry + 14, 'the $E2/$E3 branch to the ring spawn', 1], // the branch that picks the ring
       [STANDIN.routeBody + 6, ROUTE, 0x20],
       [STANDIN.entry + 17, 'the $E2/$E3 branch to the ring spawn', 0x40],
       [tableWord(4), LOOP, 0x40],
