@@ -104,8 +104,9 @@ export function pathMismatches(rom: RomFile, checks: readonly PathCheck[]): stri
     bus.wram.fill(0)
     for (const [at, v] of c.cells ?? []) bus.wram[at] = v
     bus.onInstruction = (addr, op) => {
-      guard?.(addr, op)
+      // Before the guard: arriving at the target is the verdict, whatever the target's first byte is.
       if (mirror(addr) === mirror(c.reaches)) throw new Refusal(REACHED)
+      guard?.(addr, op)
     }
     const r = callSubroutine(cpu, c.entry, { kind: c.kind, maxSteps: 2000, regs: { db: 2, ...(c.a === undefined ? {} : { a: c.a }) } }) // prettier-ignore
     if (!(r.kind === 'refused' && r.reason === REACHED)) bad.add(c.what)
