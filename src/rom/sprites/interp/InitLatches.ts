@@ -11,6 +11,13 @@ import type { RomFile } from '../../RomFile'
 import { bytesAt } from './Guards'
 import type { SpriteSeed } from './SpriteSeed'
 
+/** SHA-256 of `length` bytes read at `at`. */
+export interface CodeFingerprint {
+  at: number
+  length: number
+  sha256: string
+}
+
 export interface InitLatch {
   /** Low 16 bits of the vanilla INIT handler (bank $01), the key on the resolved pointer. */
   initPointer: number
@@ -18,7 +25,7 @@ export interface InitLatch {
   cell: number
   before: number
   /** SHA-256 of `length` bytes read at `initPointer + at`: the latch's guard and its set. */
-  code: readonly { at: number; length: number; sha256: string }[]
+  code: readonly CodeFingerprint[]
   /**
    * The INIT places its own sprites at fixed positions of the level and ignores where the list put the sprite, so the
    * map view must not re-base the picture onto the placed spot (D134/D139-D) or move it with a drag.
@@ -86,7 +93,7 @@ export function withoutInitLatches(seed: SpriteSeed, row: InitLatch | undefined)
  * LoadNormalSprite up to the table read (bank_02.asm:5370-5377): `LDY SpriteMemorySetting`, then `LDX table,Y` whose
  * 2-byte operand follows. SHA-256 of those 11 bytes (#1082).
  */
-const LOAD_NORMAL = { at: 0x02a8dd, length: 11, sha256: 'de8308c357547354403b9adaa3c54f8a045c865c7392d33697d0eeb72ca5ce1e' } // prettier-ignore
+const LOAD_NORMAL: CodeFingerprint = { at: 0x02a8dd, length: 11, sha256: 'de8308c357547354403b9adaa3c54f8a045c865c7392d33697d0eeb72ca5ce1e' } // prettier-ignore
 
 /**
  * The slot the level loader puts a placed sprite in: `SpriteSlotMax[SpriteMemorySetting]`, the top of the downward
@@ -99,7 +106,7 @@ const LOAD_NORMAL = { at: 0x02a8dd, length: 11, sha256: 'de8308c357547354403b9ad
 export function placedSlot(
   rom: RomFile,
   loaded: Uint8Array | undefined,
-  loadNormal: { at: number; length: number; sha256: string } = LOAD_NORMAL,
+  loadNormal: CodeFingerprint = LOAD_NORMAL,
 ): number | null {
   // The INIT's spawn loop fills slots 9..1 and never slot 0 (bank_01.asm:12681-12707), so a live $82 in slot 0 is a
   // sprite the downward search placed there after earlier sprites took 9..1.

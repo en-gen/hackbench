@@ -294,11 +294,12 @@ export function drawSprites(
       }
       blit(out, prio, width, p, [ax + p.dx - box.x0, ay + p.dy - box.y0], pixels[i]!, row)
     })
+    const at = ('listPos' in res && res.listPos) || { x: ax, y: ay }
     return {
       index: s.index,
       id: s.spriteId,
-      x: 'listPos' in res && res.listPos ? res.listPos.x : ax,
-      y: 'listPos' in res && res.listPos ? res.listPos.y : ay,
+      x: at.x,
+      y: at.y,
       box,
       rgba: base64(out),
       parts: res.parts.map(p => ({ char: p.charNum, palette: p.palette, flipX: p.flipX, flipY: p.flipY, dx: p.dx, dy: p.dy })), // prettier-ignore
