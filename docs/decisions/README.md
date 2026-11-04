@@ -33,3 +33,4 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 | [2026-10-16-side-quest.md](2026-10-16-side-quest.md) | Ruled | side quest is a per-session mode, not a protocol: one session works one problem with no orchestration |
 | [2026-10-19-map-view-gutter-details.md](2026-10-19-map-view-gutter-details.md) | Proposed | map view gutter and badge details: solid content bands, fade to panel, grid across gutters, edge line, drawn-box growth, issue count meaning |
 | [2026-11-03-tide-l3-load-x.md](2026-11-03-tide-l3-load-x.md) | Proposed | no load step sets tide X; HackBench draws phase 0; the capture's 271 is leftover phase; bytes $02-$7F are tides in the core |
+| [2026-10-17-pr-before-locked-test-run.md](2026-10-17-pr-before-locked-test-run.md) | Proposed | open the PR before the locked test run when the lock queue is long; arm auto-merge only after it passes |
