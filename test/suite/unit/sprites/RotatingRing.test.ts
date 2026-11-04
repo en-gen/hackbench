@@ -299,13 +299,18 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
     const changed = (at: number, to: number) => ringRom(b => (b[off(at)] = to))
     it('an untouched cart has no flags', () => expect(ringGate(ringRom(), clean)).toEqual([]))
     it.each([
-      [0x02ab11, 0x42, 'the ring spawn routine'], // first byte of the span
-      [0x02ab11 + 102, 0x42, 'the ring spawn routine'], // last byte of the span
       [0x02fa98, 0x42, 'the ring draw routine'],
       [0x02fa98 + 290, 0x42, 'the ring draw routine'],
     ])('a changed byte at $%s names %s, and only it', (at, to, what) => {
       expect(ringGate(changed(at, to), clean)).toEqual([what])
     })
+    // The spawn is RUN by the route check, so a WDM in it (a run the core refuses) also fails the route's return.
+    it.each([0x02ab11, 0x02ab11 + 102])(
+      'a refused opcode at $%s names the spawn and the route that cannot return',
+      at => {
+        expect(names(ringGate(changed(at, 0x42), clean))).toEqual([ROUTE, 'the ring spawn routine'])
+      },
+    )
     it.each([
       [0x02ab11 + 50, 'the ring spawn routine'],
       [0x02fa98 + 200, 'the ring draw routine'],
@@ -331,10 +336,13 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
       expect(names(ringGate(rom, clean))).toEqual([what])
     })
     const STAGE = { route: ROUTE, dispatch: 'the $E2/$E3 branch to the ring spawn', loop: LOOP }
-    it.each(PATH_HACKS.map(h => [h.name, h] as const))('a hacked path (%s) is flagged by its stage', (_, h) => {
-      const rom = ringRom(b => h.edits(false).forEach(([at, v]) => b.set(v, off(at))))
-      expect(names(ringGate(rom, clean))).toEqual([STAGE[h.stage]])
-    })
+    it.each(PATH_HACKS.map(h => [h.name, h] as const))(
+      'a hacked path (%s) is flagged by its stage',
+      (_, h) => {
+        const rom = ringRom(b => h.edits(false).forEach(([at, v]) => b.set(v, off(at))))
+        expect(names(ringGate(rom, clean))).toEqual([STAGE[h.stage]])
+      },
+    )
     it('a span that cannot be read is named as unreadable, not hashed from what did read', () => {
       // $02:0000 is below the LoROM window (lo < $8000): no cart byte, so bytesAt gives null for that span.
       const spans = { ...RING_SPANS, helpers: [RING_SPANS.helpers[0], [0x020000, 4]] } as never
@@ -343,7 +351,7 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
       expect(ringGate(ringRom(), clean, spans)).not.toContain('the ring draw helpers')
     })
     it('a changed dispatch call target is named', () => {
-      const rom = changed(0x02f822, 0x00)
+      const rom = changed(STANDIN.dispatch + 1, 0x00)
       expect(ringGate(rom, clean)).toContain('the cluster dispatch call target')
     })
   })
@@ -369,10 +377,10 @@ describe('the rotating ring: edges the gate and the seed can hit (synthetic cart
     // Out-of-range reads mirror (SpriteBus.romOffset), so only a zero-size ROM gives bytesAt null.
     const flags = ringGate(RomFile.fromBytes('empty.sfc', new Uint8Array(0)), routinesOf(ringRom()))
     // The complete ordered list: every path run, the call target, then the four routine spans.
-    expect(flags).toEqual([
+    // (An empty ROM stops the route at its first fetch, so only the route and the loop are named.)
+    expect(names(flags)).toEqual([
       'the loader route to the sprite spawn',
-      'the $E2/$E3 branch to the ring spawn',
-      'the cluster loop for type 4',
+      'the cluster loop',
       'the cluster dispatch call target',
       'the ring spawn routine (unreadable)',
       'the ring draw routine (unreadable)',

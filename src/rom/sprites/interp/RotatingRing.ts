@@ -31,23 +31,28 @@ import { checkExecutePtr } from './SpriteDispatch'
 import {
   CLUSTER_NUMBER,
   clusterPath,
+  pathMismatches,
   VANILLA_LAYOUT,
   type ClusterLayout,
-  pathMismatches,
-  SPRITE_LOCK,
-  touchedOamParts,
-  type PathCheck,
-} from './CastleFlames'
+  type ClusterPath,
+} from './ClusterPath'
+import { SPRITE_LOCK, touchedOamParts } from './CastleFlames'
 import type { SpritePart } from './SpriteRunner'
 import type { SpriteSeed } from './SpriteSeed'
 
 const SPAWN = 0x02ab11
 const DRAW = 0x02fa98
-/** The path from the sprite list to the spawn ($E2 and $E3 both) and to the type 4 draw, run on the core (CastleFlames.ts, PathCheck). */
-const PATH: PathCheck[] = clusterPath([0xe2, 0xe3], SPAWN, 4, DRAW, {
-  dispatch: 'the $E2/$E3 branch to the ring spawn',
-  loop: 'the cluster loop for type 4',
-})
+/** The path from the sprite list to the spawn ($E2 and $E3 both) and to the type 4 draw, run on the core (ClusterPath.ts). */
+const ringPath = (layout?: ClusterLayout): ClusterPath =>
+  clusterPath({
+    ids: [0xe2, 0xe3],
+    spawn: SPAWN,
+    spawnLength: 103,
+    type: 4,
+    draw: DRAW,
+    dispatchWhat: 'the $E2/$E3 branch to the ring spawn',
+    layout,
+  })
 
 /** SHA-256 of the spawn (103 bytes), the draw (291), the two draw helpers (85 + 112) and the contact test the draw calls (84), each span ending in RTS; data tables are not part. */
 export interface RingRoutines {
@@ -99,7 +104,7 @@ export function ringGate(
   routines: RingRoutines = VANILLA_RING_ROUTINES,
   spans: typeof RING_SPANS = RING_SPANS,
 ): string[] {
-  const out = pathMismatches(rom, PATH)
+  const out = pathMismatches(rom, ringPath(routines.layout))
   const callee = bytesAt(rom, (routines.layout ?? VANILLA_LAYOUT).dispatch + 1, 3)
   if (!callee || !checkExecutePtr(rom, [callee]).ok) out.push('the cluster dispatch call target')
   // A span that will not read is "unreadable", not a changed routine: hashing the spans that did read would blur the two.

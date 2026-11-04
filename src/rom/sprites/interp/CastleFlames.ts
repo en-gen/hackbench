@@ -31,112 +31,45 @@ import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import { spanFingerprint } from '../../SubmapFlagGate'
 import type { RomFile } from '../../RomFile'
 import { bytesAt } from './Guards'
+import {
+  CLUSTER_NUMBER,
+  clusterPath,
+  pathMismatches,
+  VANILLA_LAYOUT,
+  type ClusterLayout,
+  type ClusterPath,
+} from './ClusterPath'
 import { smwMachine } from './Machine'
 import { checkExecutePtr, checkGetRand, ENTRY } from './SpriteDispatch'
 import { RAM, type SpritePart } from './SpriteRunner'
 import { levelSeed } from './LevelLoader'
 import type { SpriteSeed } from './SpriteSeed'
 
-export const CLUSTER_NUMBER = 0x1892
 const SPAWN = 0x02aa6c
 const DRAW = 0x02fa16
-/** The loader's route to the cluster spawns (bank_02.asm:5348-5355), the spawn dispatcher (:5631-5641) and the cluster loop (:15942-15958). */
-const ROUTE = 0x02a8c0
-const SPAWN_ENTRY = 0x02aac0
-const CLUSTER_LOOP = 0x02f808
-/** The sprite id $E6 and the cluster type 5 the flames use. */
+/** The sprite id $E6 and the cluster type 5 the flames use; the spawn is 33 bytes (bank_02.asm:5582-5598). */
 const FLAME_ID = 0xe6
 const FLAME_TYPE = 5
 
-/**
- * One step of the path from the level's sprite list to a draw, CHECKED BY RUNNING THE ROM'S OWN CODE on the core
- * (D126: no code bytes, no fingerprint under 24 unknown bytes): `entry` is run with the sprite id in A and the
- * listed WRAM cells set, and the check holds when execution reaches `reaches`. A call site or table entry a hack
- * diverts therefore fails here while the routines stay byte-identical (rom-interpretation.md, "Existing is not
- * the same as reached"), and a hack that only relocates a routine still passes.
- */
-export interface PathCheck {
-  what: string
-  entry: number
-  kind: 'jsr' | 'jsl'
-  a?: number
-  cells?: readonly (readonly [number, number])[]
-  reaches: number
-}
+export { CLUSTER_NUMBER, pathMismatches }
+export type { ClusterLayout }
 
-/** The route, spawn dispatch and cluster loop for sprite `ids`, whose spawn is `spawn` and whose cluster `type` draws at `draw`. */
-export function clusterPath(
-  ids: readonly number[],
-  spawn: number,
-  type: number,
-  draw: number,
-  what: { dispatch: string; loop: string },
-): PathCheck[] {
-  const slot = 3 // any slot: the loop visits all 20
-  return [
-    { what: 'the loader route to the sprite spawn', entry: ROUTE, kind: 'jsr', a: ids[0], reaches: SPAWN_ENTRY }, // prettier-ignore
-    ...ids.map((a): PathCheck => ({ what: what.dispatch, entry: SPAWN_ENTRY, kind: 'jsr', a, reaches: spawn })), // prettier-ignore
-    { what: what.loop, entry: CLUSTER_LOOP, kind: 'jsl', cells: [[CLUSTER_NUMBER + slot, type]], reaches: draw }, // prettier-ignore
-  ]
-}
-
-export const FLAME_PATH = clusterPath([FLAME_ID], SPAWN, FLAME_TYPE, DRAW, {
-  dispatch: 'the $E6 branch to the flame spawn',
-  loop: 'the cluster loop for type 5',
-})
-
-/** Stops a path run the moment it fetches its target; a distinct message tells it from a refusal. */
-const REACHED = 'path target reached'
-
-/** What of `checks` is not the expected path: the entry is run and must reach its target within a small step budget. */
-export function pathMismatches(rom: RomFile, checks: readonly PathCheck[]): string[] {
-  const bad = new Set<string>()
-  let machine: ReturnType<typeof smwMachine>
-  try {
-    machine = smwMachine(rom)
-  } catch (e) {
-    if (e instanceof Refusal) return [...new Set(checks.map(c => c.what))]
-    throw e
-  }
-  const { bus, cpu } = machine
-  const guard = bus.onInstruction
-  for (const c of checks) {
-    bus.wram.fill(0)
-    for (const [at, v] of c.cells ?? []) bus.wram[at] = v
-    bus.onInstruction = (addr, op) => {
-      // Before the guard: arriving at the target is the verdict, whatever the target's first byte is.
-      if (mirror(addr) === mirror(c.reaches)) throw new Refusal(REACHED)
-      guard?.(addr, op)
-    }
-    const r = callSubroutine(cpu, c.entry, { kind: c.kind, maxSteps: 2000, regs: { db: 2, ...(c.a === undefined ? {} : { a: c.a }) } }) // prettier-ignore
-    if (!(r.kind === 'refused' && r.reason === REACHED)) bad.add(c.what)
-  }
-  return [...bad]
-}
+export const flamePath = (layout?: ClusterLayout): ClusterPath =>
+  clusterPath({
+    ids: [FLAME_ID],
+    spawn: SPAWN,
+    spawnLength: 33,
+    type: FLAME_TYPE,
+    draw: DRAW,
+    dispatchWhat: 'the $E6 branch to the flame spawn',
+    layout,
+  })
+export const FLAME_PATH = flamePath()
 
 /**
  * SHA-256 of the whole routine (33 and 110 bytes, ending in RTS); the data tables they read are NOT part of it.
- * Evidence scope: the vanilla USA ROM, one read.
+ * Evidence scope: the vanilla USA ROM, one read. `layout` is where a test cart keeps its path code.
  */
-/**
- * Where a cart keeps the path code the gate lets a run fetch from: the loader route (the spans before and
- * after its hand-off to the spawn dispatcher), the dispatcher, the cluster loop, and the dispatch block (a
- * long call to ExecutePtr, then the word table). Addresses, not bytes; a test cart supplies its own.
- */
-export type Span = readonly [from: number, to: number]
-export interface ClusterLayout {
-  route: readonly Span[]
-  entry: Span
-  loop: Span
-  dispatch: number
-}
-export const VANILLA_LAYOUT: ClusterLayout = {
-  route: [[0x02a8c0, 0x02a8d0]],
-  entry: [0x02aac0, 0x02aad5],
-  loop: [0x02f808, 0x02f821],
-  dispatch: 0x02f821,
-}
-
 export interface FlameRoutines {
   spawn: string
   draw: string
@@ -199,7 +132,7 @@ export function castleFlames(
   routines: FlameRoutines = VANILLA_FLAME_ROUTINES,
 ): FlamesResult {
   if (!seed.loaded) return { ok: false, reason: seed.loadRefusal ?? 'no level image' }
-  const unverified = pathMismatches(rom, FLAME_PATH)
+  const unverified = pathMismatches(rom, flamePath(routines.layout))
   const callee = bytesAt(rom, (routines.layout ?? VANILLA_LAYOUT).dispatch + 1, 3)
   if (!callee || !checkExecutePtr(rom, [callee]).ok) unverified.push('the cluster dispatch call target') // prettier-ignore
   const sha = (at: number, n: number) => spanFingerprint(Uint8Array.from(bytesAt(rom, at, n) ?? []))

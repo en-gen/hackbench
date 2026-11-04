@@ -230,11 +230,14 @@ describe('castle flames from the routines (synthetic cart)', () => {
   // hacked path of PATH_HACKS must be flagged by the stage it breaks and by no other, and the flames still draw.
   const names = (xs: string[]) => xs.map(x => x.replace(/ \(.*\)$/, ''))
   const STAGE = { route: ROUTE, dispatch: 'the $E6 branch to the flame spawn', loop: LOOP }
-  it.each(PATH_HACKS.map(h => [h.name, h] as const))('a hacked path (%s) is flagged and still draws', (_, h) => {
-    const dirty = flameRom(DATA, b => h.edits(true).forEach(([at, v]) => b.set(v, off(at))))
-    expect(names(unverifiedOf(dirty, routinesOf(flameRom())))).toEqual([STAGE[h.stage]])
-    expect(key(dirty)).toEqual(key(flameRom()))
-  })
+  it.each(PATH_HACKS.map(h => [h.name, h] as const))(
+    'a hacked path (%s) is flagged and still draws',
+    (_, h) => {
+      const dirty = flameRom(DATA, b => h.edits(true).forEach(([at, v]) => b.set(v, off(at))))
+      expect(names(unverifiedOf(dirty, routinesOf(flameRom())))).toEqual([STAGE[h.stage]])
+      expect(key(dirty)).toEqual(key(flameRom()))
+    },
+  )
 
   // One operand each: the route's JSR, the jump to the flame spawn, the type 5 word, the dispatch's JSL.
   it.each([
