@@ -1,0 +1,59 @@
+# Approves and arms auto-merge on safe Dependabot PRs (npm patch and minor
+# bumps that do not touch Electron). Fails closed: any doubt leaves the PR
+# for a human. This job holds a write token, so it never checks out, installs
+# or runs PR code; it only reads metadata and the diff text.
+# Required checks (Build & Test, Theia type-check) still gate the merge,
+# because --auto waits for them. The ruleset dismisses stale reviews on push,
+# so each Dependabot rebase is re-approved here and a human push loses it.
+# github-actions updates are excluded: auto-merging them would change CI.
+name: Dependabot auto-merge
+
+on: pull_request
+
+permissions: {}
+
+jobs:
+  auto-merge:
+    name: Approve and arm
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # Default commit verification stays on: it rejects a human commit on a
+      # Dependabot branch, so such a PR is never approved.
+      - id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Metadata cannot say this: body-parser, multer and fast-uri PRs also
+      # carry an electron hunk in theia/yarn.lock that dependency-names omits.
+      # The diff is captured first so a gh failure aborts instead of reading
+      # as "no match" (which `gh pr diff | grep` under `if` would).
+      - id: electron
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          diff="$(gh pr diff "$PR_URL")"
+          [ -n "$diff" ]
+          if grep -Eq '^[+-](.*, )?"?electron@|^[+-] *"([^"]*/)?node_modules/electron":|^[+-] *"electron":' <<<"$diff"; then touched=true; else touched=false; fi
+          echo "touched=$touched" >> "$GITHUB_OUTPUT"
+
+      - name: approve and arm
+        if: >-
+          steps.metadata.outputs.package-ecosystem == 'npm_and_yarn' &&
+          (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor') &&
+          steps.electron.outputs.touched == 'false'
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr review --approve "$PR_URL"
+          gh pr merge --auto --squash "$PR_URL"
