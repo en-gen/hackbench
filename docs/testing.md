@@ -644,7 +644,7 @@ directly.
 ## Sweeping the hack store
 
 `tools/scripts/hack-sweep.ts` runs the readers behind each view (map tree,
-map details for every real map (the level mode, plus the object parser, name lookup and graphics notes behind the future Properties panel, and the sprite parser on maps whose sprite pointer reads), overworld, graphics, Map16, palettes, music,
+map details for every real map (the level mode, plus the object parser, name lookup and graphics notes behind the future Properties panel, and the sprite parser on maps with readable level data and a readable sprite pointer), overworld, graphics, Map16, palettes, music,
 SFX) over every patched ROM in the hack store, and records `ok`, `unavailable`
 with every failing gate it can see, or `crash` with the error and its top
 frame. The summary ranks each gate by how many hacks it alone blocks. It also

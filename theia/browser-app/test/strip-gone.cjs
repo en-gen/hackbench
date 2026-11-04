@@ -6,7 +6,7 @@
 /**
  * Waits until the map view tab `widgetId` has reached its end state for the current open, and
  * held it for 5 animation frames: the details, layout (or its screen error), sprites, block
- * contents and start have all answered and no screen request is in flight. An absence read
+ * contents and, when there is a layout, the start have all answered and no screen request is in flight. An absence read
  * before this could pass only because a late note had not been drawn yet.
  */
 async function viewSettled(page, widgetId) {
@@ -20,8 +20,8 @@ async function viewSettled(page, widgetId) {
         !!w &&
         w.detailsGeneration === w.generation &&
         w.pending.size === 0 &&
-        w.startState !== 'pending' &&
-        !!(w.mapLayout || w.screenError) &&
+        // The start is only placed once a layout exists; a screen error leaves it pending for good.
+        (w.mapLayout ? w.startState !== 'pending' : !!w.screenError) &&
         !!(w.sprites || w.spritesWhy) &&
         !!(w.blocks || w.blocksWhy)
       window.hbSettleStreak = done ? window.hbSettleStreak + 1 : 0

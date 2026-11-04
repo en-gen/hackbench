@@ -3645,7 +3645,15 @@ test('data-details is pending while the reply is held, done after, and pending a
     })
     const real = w.projects
     w.projects = new Proxy(real, {
-      get: (t, k) => k === 'mapDetails' ? (...a) => new Promise(res => window.hbHeld.push(() => res(t[k](...a)))) : typeof t[k] === 'function' ? t[k].bind(t) : t[k], // prettier-ignore
+      get: (t, k) => k === 'mapDetails' ? (...a) => {
+        // Each held reply: a release, and `delivered` once the widget's own await has resumed
+        // (the widget awaits this promise first, so a later .then runs after its continuation).
+        const entry = { delivered: false }
+        const p = new Promise(res => { entry.release = () => res(t[k](...a)) })
+        p.then(() => { entry.delivered = true })
+        window.hbHeld.push(entry)
+        return p
+      } : typeof t[k] === 'function' ? t[k].bind(t) : t[k], // prettier-ignore
     })
     await w.open({ manifestPath: mp, index: 0x105, label: '105', iconClass: '' })
     const shell = getSvc('ApplicationShell')
@@ -3654,7 +3662,7 @@ test('data-details is pending while the reply is held, done after, and pending a
   }, project.manifestPath)
   opened.push('hackbench.map-view:261')
   const main = page.locator(`${root(0x105)} .hb-map-view-main`)
-  const release = () => page.evaluate(() => window.hbHeld.splice(0).forEach(f => f()))
+  const release = () => page.evaluate(() => window.hbHeld.splice(0).forEach(e => e.release()))
   const generation = () => main.getAttribute('data-generation')
 
   await expect(main).toHaveAttribute('data-details', 'pending')
@@ -3680,11 +3688,20 @@ test('data-details is pending while the reply is held, done after, and pending a
   })
   await expect.poll(() => page.evaluate(() => window.hbHeld.length)).toBe(2)
   await expect(main).toHaveAttribute('data-details', 'pending')
-  await page.evaluate(() => window.hbHeld[0]())
-  // Let the stale reply's continuation run and a frame paint before asserting it changed nothing.
+  await page.evaluate(() => window.hbHeld[0].release())
+  // Bound to the stale reply having landed in the widget, not to time: wait for its delivery,
+  // then check the widget did not take it as current (a guard-less assignment would), then let
+  // a render pass and check the DOM.
+  await expect.poll(() => page.evaluate(() => window.hbHeld[0].delivered)).toBe(true)
+  expect(
+    await page.evaluate(() => {
+      const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261')
+      return w.detailsGeneration === w.generation
+    }),
+  ).toBe(false)
   await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
   await expect(main).toHaveAttribute('data-details', 'pending')
-  await page.evaluate(() => window.hbHeld[1]())
+  await page.evaluate(() => window.hbHeld[1].release())
   await expect(main).toHaveAttribute('data-details', 'done')
   await page.evaluate(() => window.hbHeld.splice(0))
 

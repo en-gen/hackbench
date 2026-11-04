@@ -80,7 +80,9 @@ export function readers(smw: SmwRom): Record<string, () => ReaderOutcome> {
       // The app reads only the level mode per map (buildMapDetails). The object parser, the name
       // lookup and the GFX notes are called directly too, because the map Properties panel (#1023)
       // shows what they decode and a throw in any of them is a defect. The sprite parser runs only
-      // for a map with a readable sprite pointer; a hooked hack without one skips it. As before,
+      // for a map with readable level data and a readable sprite pointer (as the pre-#1008
+      // buildMapDetails did, returning before the sprites without level data); a hooked hack
+      // without a pointer skips it. As before,
       // a sprite stream that will not parse is caught and stays ok: it is an unavailable fact,
       // not a crash.
       const real = buildLevelCatalog(smw).entries.filter(e => e.isReal)
