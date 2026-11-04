@@ -118,9 +118,11 @@ describe.skipIf(!existsSync(join(TRACE_DIR, SPRITE_TRACE_SET)) || !hasRom(VANILL
 
     // The level state the runner seeds from the ROM's own loader (LevelLoader.ts) against
     // what Mesen held when the level's sprites ran. Measured 2026-10-09, vanilla, one
-    // machine: both Map16 tables byte-identical on 131 of 154 maps. The other 23 are pinned in
-    // levelStateVsMesen.test.ts: 5 differ only past the map's end, 18 are boss arenas (the
-    // capture holds the game's arena fill, which the loader does not run). The 63 in-level
+    // machine: both Map16 tables byte-identical on 131 of 154 maps; re-measured 2026-10-16 after the
+    // loader ran the Layer 3 handler (#842): 136 of 154. The other 18 are pinned in
+    // levelStateVsMesen.test.ts, all boss arenas (the capture holds the game's arena fill, which the
+    // loader does not run). The 5 tide levels that differed past the map's end now match: CODE_00A045
+    // clears that buffer on a tide level (bank_00.asm:4219-4235). The 63 in-level
     // differences of 2026-10-05 were the harness reading Map16 in the castle-entry scene (#649).
     // Every header and Mario-entrance cell is equal on every map whose WRAM image was recorded.
     // The counts are checked non-empty so a comparison of nothing cannot pass.
@@ -152,7 +154,7 @@ describe.skipIf(!existsSync(join(TRACE_DIR, SPRITE_TRACE_SET)) || !hasRom(VANILL
       }
       expect(maps).toBeGreaterThan(100)
       expect(withWram).toBeGreaterThan(50)
-      expect(identical).toBe(131)
+      expect(identical).toBe(136)
       // The Iggy/Larry rooms (levels $096 $097 $196 $197) hold $FF90 in NextLayer1YPos
       // ($1464/$1465) in Mesen: GM12PrepLevel reaches CODE_0097BC (bank_00.asm:4854 -> 4863, IRQNMICommand
       // bit 7) -> 2763 (BVC .IggyLarry) -> 2793-2795, which stores -112. GM12 is part of level load
@@ -161,7 +163,19 @@ describe.skipIf(!existsSync(join(TRACE_DIR, SPRITE_TRACE_SET)) || !hasRom(VANILL
       // change in WHICH cells miss, or in the value, is red. Measured 2026-10-07, vanilla, one machine;
       // before the GM11 spans were run the same comparison missed 307 cells over 98 maps.
       const boss = ['096', '097', '196', '197']
-      expect(badCells).toEqual(boss.flatMap(m => [`${m} cell 1464`, `${m} cell 1465`]))
+      // $5B on the five tide levels (002 0be 0c1 102 127): the loader now runs the Layer 3 handler
+      // (#842), which sets ScreenMode bit 7; this set's wram.bin is the first traced call's snapshot,
+      // taken during level load before GM12 reaches the handler, so it holds 0. The level-load capture
+      // set holds bit 7 set on all five (layer3Setup.test.ts). $24/$28/$29 are not compared here:
+      // this snapshot differs from the loader in them on dozens of maps (the camera is not the hardware one, S5 in the doc), so it cannot
+      // vouch for the handler's output. Measured 2026-10-16, vanilla, one machine.
+      const tide = ['002', '0be', '0c1', '102', '127']
+      expect(badCells.sort()).toEqual(
+        [
+          ...tide.map(m => `${m} cell 5b`),
+          ...boss.flatMap(m => [`${m} cell 1464`, `${m} cell 1465`]),
+        ].sort(),
+      )
       for (const m of boss) {
         const w = readFileSync(join(root, m, 'wram.bin'))
         expect([w[0x1464], w[0x1465]]).toEqual([0x90, 0xff])

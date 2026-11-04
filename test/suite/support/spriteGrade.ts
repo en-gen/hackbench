@@ -65,6 +65,8 @@ export const wrap8 = (v: number): number => {
 /** The model's parts for one pass, as the recorded shape, offsets from the pass's own position. */
 export function passPieces(m: SpriteModel, pass: number): RecordedPiece[] {
   const p = m.passes[pass]
+  // The capture measures from the sprite at its first OAM write (headless_capture.lua:1285, note at 1455).
+  const at = p.drawPos ?? p.pos
   // Only Y $F0 (parked) is absent from a recorded frame: the capture keeps a frame only when no
   // written entry has it (hackbench-validation headless_capture.lua:1352, gate at 1371-1372).
   // readParts already skips $F0 (SpriteRunner.ts:404), so this is a guard that should not fire.
@@ -75,8 +77,8 @@ export function passPieces(m: SpriteModel, pass: number): RecordedPiece[] {
       // the capture's offset is the 9-bit one from the sprite (#869: 160 + 112 is 272 here, -240 recorded).
       // OAM X is 9 bits: SMWDisX bank_01.asm:7634-7642 (high X bit set), compare in CODE_01B844 7668-7675.
       // Y is 8 bits, folded into -128..127 by the capture (headless_capture.lua:1389).
-      dx: wrap9(q.dx + (p.origin.x - p.pos.x)),
-      dy: wrap8(q.dy + (p.origin.y - p.pos.y)),
+      dx: wrap9(q.dx + (p.origin.x - at.x)),
+      dy: wrap8(q.dy + (p.origin.y - at.y)),
       tile: q.char & 0xff,
       attr: q.attr,
       large: q.size === 16,

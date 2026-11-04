@@ -135,7 +135,8 @@ function ringRom(tweak: (bytes: Uint8Array) => void = () => {}, cart: SyntheticO
   put(0x02fa98, pad(draw, 291))
   for (const [at, b] of PATH_BYTES) put(at, b)
   tweak(bytes)
-  return RomFile.fromBytes('ring.sfc', bytes)
+  const rom = RomFile.fromBytes('ring.sfc', bytes)
+  return rom
 }
 
 /** The fingerprints of this cart's own routines (the vanilla ones are for the vanilla bytes). */
