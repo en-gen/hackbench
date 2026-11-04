@@ -245,8 +245,10 @@ Every agent follows these. Role-specific rules are in `.claude/agents/`.
 - ROM and disassembly questions go to `smw-mcp` before raw ASM reads or
   ad-hoc ROM scripts; log hand-answered ones in `smw-mcp/docs/query-log.md`.
 - One agent per worktree, at `<repo>/.worktrees/<task>` (gitignored), made
-  from the main checkout with
-  `git worktree add .worktrees/<task> -b feature/<task> origin/develop`.
+  with this form, which is safe from the main checkout or any linked worktree
+  (a bare relative `git worktree add .worktrees/...` run inside a linked
+  worktree nests the new one in it, and removing the parent deletes the child):
+  `git -C "$(git rev-parse --path-format=absolute --git-common-dir)/.." worktree add .worktrees/<task> -b feature/<task> origin/develop`.
   Worktrees still on the old `C:/Projects/.worktrees/hackbench/<task>` path
   finish where they are. Session state is `<repo>/.overwatch` (#1202).
 - Never certify your own work. Never merge, rebase a pushed branch, or

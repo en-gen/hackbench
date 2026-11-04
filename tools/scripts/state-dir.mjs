@@ -8,7 +8,7 @@
 // cutover-state` turns it into a link, so merging this change moves nothing
 // and a stray empty .overwatch cannot take over.
 
-import { existsSync, lstatSync } from 'node:fs'
+import { lstatSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 

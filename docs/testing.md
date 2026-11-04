@@ -925,8 +925,8 @@ owners.
 
 Task worktrees live in `<repo>/.worktrees/<task>` and session state in
 `<repo>/.overwatch`; both are gitignored. `test/suite/gates/nestedFoldersGate.test.ts`
-plants a file in each and goes red if vitest, ESLint, Prettier, tsc (both root
-configs), the content gate's inputs or GitNexus's ignore rules pick it up. Each
+plants a file in each and goes red if vitest, ESLint, Prettier, tsc (`tsconfig.json` and
+`tsconfig.test.json`; `tsconfig.webview.json` is not checked), the content gate's inputs or GitNexus's ignore rules pick it up. Each
 assertion was proven able to fail by removing its own ignore (smoke, one run
 each, 2026-11-03): the vitest include and excludes, the ESLint `ignores`, the
 `.gitignore` lines (turns Prettier, content and GitNexus red together), and the
@@ -951,10 +951,16 @@ here ran in a real checkout.
 
 A `.hackbench-state` junction to `.overwatch` (the layout after `cutover-state`)
 behaves the same: `-ndx` lists it, `-fdx` removes the link and the folder, and no
-file outside the repo was touched. So: `-fdx` costs the state folder (the handoffs
-are the loss; the registry and locks rebuild), and only the double `-ff` reaches a
+file outside the repo was touched. So: `-fdx` costs the state folder (`sessions.json`, `protocols.json`,
+`protocols.log`, the handoffs and any held lock slots all go; the registry rebuilds on the next
+session start, the handoffs and the protocol history do not), and only the double `-ff` reaches a
 worktree, where it destroys uncommitted work. Do not run `git clean -x` in the main
-checkout. (Without `-x`, ignored files are not candidates; that case was not run.)
+checkout.
+
+A nested worktree that has no `node_modules` of its own resolves packages upward to the
+main checkout's, because Node walks parent folders. A forgotten install in a new worktree
+no longer fails loudly; run the install, or `npm run lint` will use main's tools against
+the worktree's files. (Without `-x`, ignored files are not candidates; that case was not run.)
 
 ## Run lock
 

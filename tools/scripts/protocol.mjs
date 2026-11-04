@@ -539,12 +539,13 @@ export function cutoverState(main, { rename = renameSync, link = defaultLink } =
     }
   }
   if (isLink(oldDir)) {
-    let same = false
-    try {
-      same = realpathSync(oldDir) === realpathSync(newDir)
-    } catch {
-      same = false // dangling, or no .overwatch to compare with
-    }
+    const same = (() => {
+      try {
+        return realpathSync(oldDir) === realpathSync(newDir)
+      } catch {
+        return false // dangling, or no .overwatch to compare with
+      }
+    })()
     return same
       ? done(`already cut over: ${OLD_STATE_DIR_NAME} links to ${STATE_DIR_NAME}`)
       : fail(`${OLD_STATE_DIR_NAME} is a link, but not to ${newDir}; fix or remove it by hand`)
