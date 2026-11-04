@@ -30,80 +30,102 @@ import { mirror } from '../../addressing'
 import { callSubroutine, describe, Refusal } from '../../cpu/call'
 import { spanFingerprint } from '../../SubmapFlagGate'
 import type { RomFile } from '../../RomFile'
-import { bytesAt, shapeMatches } from './Guards'
+import { bytesAt } from './Guards'
 import { smwMachine } from './Machine'
 import { checkExecutePtr, checkGetRand, ENTRY } from './SpriteDispatch'
 import { RAM, type SpritePart } from './SpriteRunner'
 import { levelSeed } from './LevelLoader'
 import type { SpriteSeed } from './SpriteSeed'
 
+export const CLUSTER_NUMBER = 0x1892
 const SPAWN = 0x02aa6c
 const DRAW = 0x02fa16
-/** The cluster dispatch's type-5 entry (6th dw of the table at $02:F825) and the $E6 branch to the spawn. */
-const DISPATCH_TYPE5 = { at: 0x02f82f, want: [0x16, 0xfa] }
-const E6_BRANCH = { at: 0x02aac9, want: [0xc9, 0xe6, 0xf0, 0x9f] } // CMP #$E6 / BEQ CODE_02AA6C
-/**
- * The path from the level's sprite list to the draw, read as bytes (a null matches any byte: an operand
- * that names a RAM cell or a table the run does not depend on). Each is a call site or entry a hack can
- * divert while the routines stay byte-identical (rom-interpretation.md, "Existing is not the same as reached").
- */
-export type PathCheck =
-  | { what: string; at: number; want: (number | null)[] }
-  /** A run too long to commit as bytes (rom-interpretation.md): recognized by `routines[print]`, `mask` offsets zeroed first. */
-  | { what: string; at: number; length: number; mask?: number[]; print: 'route' | 'loop' }
-const PATH: PathCheck[] = [
-  // CODE_02A8C0 (bank_02.asm:5348-5355): the entry compare and its call of CODE_02AAC0, 12 bytes
-  { what: 'the loader route to the sprite spawn', at: 0x02a8c0, length: 12, print: 'route' },
-  // CODE_02AAC0 (bank_02.asm:5631-5635): LDY #1 / STY ActivateClusterSprite / CMP #$E4 / BEQ
-  { what: 'the $E6 spawn entry', at: 0x02aac0, want: [0xa0, 0x01, 0x8c, null, null, 0xc9, 0xe4, 0xf0, null] }, // prettier-ignore
-  { what: 'the $E6 branch to the flame spawn', ...E6_BRANCH },
-  // CODE_02F808 and CODE_02F810 (bank_02.asm:15942-15958): the bank switch around the cluster countdown over 20 slots, which
-  // calls CODE_02F821 for a non-zero ClusterSpriteNumber ($1892). The bank switch is why the draw runs with DB = 2. 24 bytes;
-  // offsets 11-12 are the countdown's RAM operand, which the run does not depend on.
-  { what: 'the cluster loop', at: 0x02f808, length: 24, mask: [11, 12], print: 'loop' },
-  // CODE_02F821 (bank_02.asm:15962-15963): JSL ExecutePtr; its target is checked to be the 16-bit ExecutePtr below.
-  { what: 'the cluster dispatch call', at: 0x02f821, want: [0x22, null, null, null] },
-  { what: 'the cluster dispatch entry for type 5', ...DISPATCH_TYPE5 },
-]
+/** The loader's route to the cluster spawns (bank_02.asm:5348-5355), the spawn dispatcher (:5631-5641) and the cluster loop (:15942-15958). */
+const ROUTE = 0x02a8c0
+const SPAWN_ENTRY = 0x02aac0
+const CLUSTER_LOOP = 0x02f808
+/** The sprite id $E6 and the cluster type 5 the flames use. */
+const FLAME_ID = 0xe6
+const FLAME_TYPE = 5
 
-/** The path entries every cluster type shares (loader route, spawn entry, cluster loop, dispatch call): the ring reuses them (#983). */
-/** What of `checks` is not the expected code: literal shapes by bytes, the long runs by `routines.route` / `routines.loop`. */
-export function pathMismatches(
-  rom: RomFile,
-  checks: readonly PathCheck[],
-  routines: Pick<FlameRoutines, 'route' | 'loop'>,
-): string[] {
-  return checks
-    .filter(c =>
-      'want' in c
-        ? !shapeMatches(bytesAt(rom, c.at, c.want.length), c.want)
-        : spanFingerprint(Uint8Array.from(bytesAt(rom, c.at, c.length) ?? []), c.mask) !==
-          routines[c.print],
-    )
-    .map(c => c.what)
+/**
+ * One step of the path from the level's sprite list to a draw, CHECKED BY RUNNING THE ROM'S OWN CODE on the core
+ * (D126: no code bytes, no fingerprint under 24 unknown bytes): `entry` is run with the sprite id in A and the
+ * listed WRAM cells set, and the check holds when execution reaches `reaches`. A call site or table entry a hack
+ * diverts therefore fails here while the routines stay byte-identical (rom-interpretation.md, "Existing is not
+ * the same as reached"), and a hack that only relocates a routine still passes.
+ */
+export interface PathCheck {
+  what: string
+  entry: number
+  kind: 'jsr' | 'jsl'
+  a?: number
+  cells?: readonly (readonly [number, number])[]
+  reaches: number
 }
 
-export const CLUSTER_PATH = [PATH[0]!, PATH[1]!, PATH[3]!, PATH[4]!]
+/** The route, spawn dispatch and cluster loop for sprite `ids`, whose spawn is `spawn` and whose cluster `type` draws at `draw`. */
+export function clusterPath(
+  ids: readonly number[],
+  spawn: number,
+  type: number,
+  draw: number,
+  what: { dispatch: string; loop: string },
+): PathCheck[] {
+  const slot = 3 // any slot: the loop visits all 20
+  return [
+    { what: 'the loader route to the sprite spawn', entry: ROUTE, kind: 'jsr', a: ids[0], reaches: SPAWN_ENTRY }, // prettier-ignore
+    ...ids.map((a): PathCheck => ({ what: what.dispatch, entry: SPAWN_ENTRY, kind: 'jsr', a, reaches: spawn })), // prettier-ignore
+    { what: what.loop, entry: CLUSTER_LOOP, kind: 'jsl', cells: [[CLUSTER_NUMBER + slot, type]], reaches: draw }, // prettier-ignore
+  ]
+}
+
+const PATH = clusterPath([FLAME_ID], SPAWN, FLAME_TYPE, DRAW, {
+  dispatch: 'the $E6 branch to the flame spawn',
+  loop: 'the cluster loop for type 5',
+})
+
+/** Stops a path run the moment it fetches its target; a distinct message tells it from a refusal. */
+const REACHED = 'path target reached'
+
+/** What of `checks` is not the expected path: the entry is run and must reach its target within a small step budget. */
+export function pathMismatches(rom: RomFile, checks: readonly PathCheck[]): string[] {
+  const bad = new Set<string>()
+  let machine: ReturnType<typeof smwMachine>
+  try {
+    machine = smwMachine(rom)
+  } catch (e) {
+    if (e instanceof Refusal) return [...new Set(checks.map(c => c.what))]
+    throw e
+  }
+  const { bus, cpu } = machine
+  const guard = bus.onInstruction
+  for (const c of checks) {
+    bus.wram.fill(0)
+    for (const [at, v] of c.cells ?? []) bus.wram[at] = v
+    bus.onInstruction = (addr, op) => {
+      guard?.(addr, op)
+      if (mirror(addr) === mirror(c.reaches)) throw new Refusal(REACHED)
+    }
+    const r = callSubroutine(cpu, c.entry, { kind: c.kind, maxSteps: 2000, regs: { db: 2, ...(c.a === undefined ? {} : { a: c.a }) } }) // prettier-ignore
+    if (!(r.kind === 'refused' && r.reason === REACHED)) bad.add(c.what)
+  }
+  return [...bad]
+}
 
 /**
  * SHA-256 of the whole routine (33 and 110 bytes, ending in RTS); the data tables they read are NOT part of it.
- * `route` and `loop` are the two long call-path runs of PATH (12 bytes at $02:A8C0; 24 bytes at $02:F808 with the
- * operand at offsets 11-12 zeroed). Evidence scope: the vanilla USA ROM, one read.
+ * Evidence scope: the vanilla USA ROM, one read.
  */
 export interface FlameRoutines {
   spawn: string
   draw: string
-  route: string
-  loop: string
 }
 export const VANILLA_FLAME_ROUTINES: FlameRoutines = {
   spawn: '53bb50d4f6e9d3227864671530ed91f48d30d45cf86ca293fe26db047437fc36',
   draw: 'ac4cb045da54628d8e0bae9ea55d73d460b18c8514dba7ba6c4028c320bfe6b8',
-  route: 'fc445f4c9774ea4158d44a4ea8ce197072a3bb2ae6b1bc7719242e543ddf01d0',
-  loop: '9b39e68dd7d99e77464b21dca0b068bc0142fb4fc8a5f566f04931c8aa4aed50',
 }
 
-export const CLUSTER_NUMBER = 0x1892
 const CLUSTER_SLOTS = 4
 const LAYER2_POS = 0x1e
 export const SPRITE_LOCK = 0x9d
@@ -156,7 +178,7 @@ export function castleFlames(
   routines: FlameRoutines = VANILLA_FLAME_ROUTINES,
 ): FlamesResult {
   if (!seed.loaded) return { ok: false, reason: seed.loadRefusal ?? 'no level image' }
-  const unverified = pathMismatches(rom, PATH, routines)
+  const unverified = pathMismatches(rom, PATH)
   const callee = bytesAt(rom, 0x02f822, 3)
   if (!callee || !checkExecutePtr(rom, [callee]).ok) unverified.push('the cluster dispatch call target') // prettier-ignore
   const sha = (at: number, n: number) => spanFingerprint(Uint8Array.from(bytesAt(rom, at, n) ?? []))

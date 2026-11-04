@@ -37,6 +37,7 @@ import {
   windowSet,
 } from '../../support/vanillaWindows'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
+import { clusterPathStandIn, STANDIN } from '../../support/clusterPathStandIn'
 
 const LEVEL = 0x105
 const off = (snes: number) => (snes >>> 16) * 0x8000 + ((snes & 0xffff) - 0x8000)
@@ -89,18 +90,6 @@ const draw = [
   ...[0xa0, 0x03, 0x8c, 0x9b, 0x04, 0x60], // LDY #3 / STY $049B / RTS
 ]
 
-/** The call path to the draw, hand-written with the vanilla shape (see PATH in CastleFlames.ts); operands that do not matter are made up. */
-// prettier-ignore
-const PATH_BYTES: [number, number[]][] = [
-  [0x02a8c0, [0xc9, 0xe1, 0x90, 0x0c, 0x5a, 0xda, 0x85, 0x04, 0x20, 0xc0, 0xaa, 0xea]], // loader route: CMP #$E1 / BCC / PHY / PHX / STA $04 / JSR $AAC0 / NOP
-  [0x02aac0, [0xa0, 0x01, 0x8c, 0x34, 0x12, 0xc9, 0xe4, 0xf0, 0x7f]], // spawn entry
-  [0x02aac9, [0xc9, 0xe6, 0xf0, 0x9f]], // $E6 branch
-  // cluster loop, our own: PHB / LDA #2 / PHA / PLB (DB = 2) / LDX #$13 / loop: LDA $1892,X / TAY / BEQ next / JSR $F821 / next: DEX / BPL loop / PLB / RTL, padded to the 24 bytes the check hashes; offsets 11-12 are the BEQ and are not checked
-  [0x02f808, [0x8b, 0xa9, 0x02, 0x48, 0xab, 0xa2, 0x13, 0xbd, 0x92, 0x18, 0xa8, 0xf0, 0x03, 0x20, 0x21, 0xf8, 0xca, 0x10, 0xf4, 0xab, 0x6b, 0xea, 0xea, 0xea]],
-  [0x02f821, [0x22, 0xfa, 0x86, 0x00]], // JSL ExecutePtr (the synthetic cart's, $00:86FA)
-  [0x02f82f, [0x16, 0xfa]], // type 5 entry
-]
-
 function flameRom(
   d: Data = DATA,
   tweak: (bytes: Uint8Array) => void = () => {},
@@ -116,7 +105,7 @@ function flameRom(
   put(XS_AT, d.xs)
   put(0x02fa16, draw)
   put(TABLES_AT, [0x1f, 0x0f, 0x0f, 0x1f, 0x03, 0x03, 0x1f, 0x07, 0xf0, 0xf4, 0xf8, 0xfc, ...d.tiles, ...d.props]) // prettier-ignore
-  for (const [at, b] of PATH_BYTES) put(at, b)
+  for (const [at, b] of clusterPathStandIn()) put(at, b)
   tweak(bytes)
   return RomFile.fromBytes('flames.sfc', bytes)
 }
@@ -129,8 +118,6 @@ const routinesOf = (rom: RomFile): FlameRoutines => {
   return {
     spawn: sha(0x02aa6c, 33),
     draw: sha(0x02fa16, 110),
-    route: sha(0x02a8c0, 12),
-    loop: masked(0x02f808, 24, [11, 12]),
   }
 }
 
@@ -232,36 +219,20 @@ describe('castle flames from the routines (synthetic cart)', () => {
     },
   )
 
-  // Each call-path check goes red on its own when deleted: the one changed byte is the ONLY thing reported.
+  // Each call-path check goes red on its own when its code is diverted: the names listed are the ONLY ones reported.
+  // [what, address, xor]: the xor sends the run elsewhere (the route's JSR operand, the JMP to the spawn, the loop's
+  // first slot, the dispatch's JSL operand, the type-5 table word).
   it.each([
-    ['the loader route to the sprite spawn', 0x02a8c0 + 3],
-    ['the $E6 spawn entry', 0x02aac0 + 6],
-    ['the $E6 branch to the flame spawn', 0x02aac9 + 1],
-    ['the cluster loop', 0x02f808 + 23],
-    ['the cluster dispatch call', 0x02f821],
-    ['the cluster dispatch call target', 0x02f822],
-    ['the cluster dispatch entry for type 5', 0x02f82f],
-  ])('a hacked call path (%s) still draws, unverified, naming it', (what, at) => {
-    const dirty = flameRom(DATA, b => void (b[off(at)]! ^= 1))
-    // Against the clean cart's fingerprints: the two long runs are recognized by hash, not by bytes.
-    expect(unverifiedOf(dirty, routinesOf(flameRom()))).toEqual([what])
+    [['the loader route to the sprite spawn'], STANDIN.route + 8, 1],
+    [['the $E6 branch to the flame spawn'], STANDIN.entry + 15, 1],
+    [['the cluster loop for type 5'], STANDIN.loop + 1, 0x10],
+    [['the cluster loop for type 5', 'the cluster dispatch call target'], STANDIN.dispatchCall + 1, 1], // prettier-ignore
+    [['the cluster loop for type 5'], STANDIN.typeTable + 10, 1],
+  ])('a hacked call path (%j) still draws, unverified, naming it', (what, at, xor) => {
+    const dirty = flameRom(DATA, b => void (b[off(at)]! ^= xor))
+    expect(unverifiedOf(dirty, routinesOf(flameRom())).sort()).toEqual([...what].sort())
     // Run as it stands: the flames are the base cart's, not blanked, not a vanilla table.
     expect(key(dirty)).toEqual(key(flameRom()))
-  })
-
-  // Every byte of the two fingerprinted runs is checked except the loop's offsets 11-12 (zeroed before hashing; in
-  // this cart they are the BEQ's opcode and operand, in the ROM a RAM operand the run does not depend on).
-  const flagged = (at: number, i: number) =>
-    unverifiedOf(
-      flameRom(DATA, b => void (b[off(at + i)]! ^= 1)),
-      routinesOf(flameRom()),
-    )
-  it('each byte of the loader route flags it, one byte at a time', () => {
-    for (let i = 0; i < 12; i++) expect(flagged(0x02a8c0, i), `offset ${i}`).toEqual(['the loader route to the sprite spawn']) // prettier-ignore
-  })
-  it('each unmasked byte of the cluster loop flags it; the masked offsets 11 and 12 do not', () => {
-    for (let i = 0; i < 24; i++)
-      expect(flagged(0x02f808, i), `offset ${i}`).toEqual(i === 11 || i === 12 ? [] : ['the cluster loop']) // prettier-ignore
   })
 
   describe('GetRand', () => {
@@ -508,11 +479,11 @@ describe('castle flames on the map (synthetic cart)', () => {
   })
 
   it('a hacked call path is flagged the same way', () => {
-    const hacked = flameRom(DATA, b => void (b[off(0x02f82f)]! ^= 1))
+    const hacked = flameRom(DATA, b => void (b[off(STANDIN.typeTable + 10)]! ^= 1))
     const r = draw(stream(0xe6), 16, hacked)
     expect(r.sprites.length).toBe(16)
     expect(r.note).not.toContain('vanilla shape')
-    expect(r.noteDetail).toContain('the cluster dispatch entry for type 5 is not the vanilla shape')
+    expect(r.noteDetail).toContain('the cluster loop for type 5 is not the vanilla shape')
   })
 
   describe('through mapSprites', () => {
