@@ -46,7 +46,6 @@
 import type { RomFile } from './RomFile'
 import type { MapEntrances } from './SmwRom'
 import { readLayer3Setting } from './ObjectExpander'
-import { tideBgX } from './L3TideX'
 
 // ── VRAM / table addresses ────────────────────────────────────────────────────
 
@@ -422,7 +421,7 @@ export function classifyL3Routine(input: ClassifyL3Input): L3RoutineSummary {
   }
   // Only byte $01 reaches the Y-animating path. Byte $00 short-circuits at
   // CODE_05C40C; byte $02..$7F takes CODE_05C4EC which only scrolls X (a tide
-  // too: BG3 X is $100-$1FF, see L3TideX.ts).
+  // too).
   if (settingsByte === 0x01) {
     return { layer3Setting, settingsByte, kind: 'tide', initialYPx: 0x70, isTideUpAndDown: true }
   }
@@ -515,12 +514,6 @@ export interface L3ScrollRange {
    */
   yHighTide?: number
   yLowTide?: number
-  /**
-   * For `kind: 'tide'` - BG3 X is always in this range (high byte 1, low byte a
-   * phase of frames plus camera movement, see tideBgX). xMin/xMax are only the
-   * level span the band can be seen over, not a camera-locked X.
-   */
-  xPhase?: { min: number; max: number }
 }
 
 export interface L3ScrollRangeInput {
@@ -605,7 +598,7 @@ function findLastDataRow(tilemap: Uint16Array, dataEndRow: number): number {
  * X span is the full level width for every kind, as the span the band can be
  * seen over. A tide does NOT scroll 1:1 with the camera: CODE_05C4EC adds one
  * per frame plus Layer1DXPos and sets the high byte to 1, so BG3 X is a
- * mod-256 phase in $100-$1FF (`xPhase`, tideBgX). Bytes $02-$7F share that X
+ * mod-256 phase in $100-$1FF. Bytes $02-$7F share that X
  * path with $01 but keep Y static (#808).
  */
 export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
@@ -632,12 +625,10 @@ export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
 
   const xMin = 0
   const xMax = levelPixelW
-  const xPhase = { min: tideBgX(0, 0, 0), max: tideBgX(0xff, 0, 0) }
 
   if (isAnimatedTide) {
     return {
       kind: 'tide',
-      xPhase,
       xMin,
       xMax,
       yMin: firstDataRow * 8 - L3_TIDE_YPOS_MAX + initialCameraYPx,
@@ -653,7 +644,6 @@ export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
     // Tide_Stationary: tide X, static Y, so no high/low lines.
     return {
       kind: 'tide',
-      xPhase,
       xMin,
       xMax,
       yMin: firstDataRow * 8 - initialYPx + initialCameraYPx,
