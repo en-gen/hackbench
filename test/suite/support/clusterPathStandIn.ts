@@ -11,7 +11,7 @@ import type { ClusterLayout } from '../../../src/rom/sprites/interp/CastleFlames
 
 const lo = (a: number): number => a & 0xff
 const hi = (a: number): number => (a >> 8) & 0xff
-const jsl = (to: number): number[] => [0x22, lo(to), hi(to), to >> 16]
+const jsl = (to: number): number[] => [0x22, lo(to), hi(to), (to >> 16) & 0xff]
 const jmp = (to: number): number[] => [0x4c, lo(to), hi(to)]
 const jsr = (to: number): number[] => [0x20, lo(to), hi(to)]
 

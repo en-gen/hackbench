@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { FLAME_PATH, pathMismatches } from '../../../../src/rom/sprites/interp/CastleFlames'
+import { VANILLA_LAYOUT } from '../../../../src/rom/sprites/interp/ClusterPath'
 import { ringGate } from '../../../../src/rom/sprites/interp/RotatingRing'
 import { CORPUS, hasRom, romPath } from '../../support/corpus'
 
@@ -39,4 +40,27 @@ describe.each(CORPUS)('%s', name => {
       }
     },
   )
+})
+
+describe.skipIf(!hasRom(CORPUS[0]!))('a one-byte change in the vanilla dispatch table', () => {
+  // The table sits after the dispatch block's long call (VANILLA_LAYOUT.dispatch + 4), two bytes a type.
+  const planted = (type: number) => {
+    const bytes = new Uint8Array(RomFile.load(romPath(CORPUS[0]!)).buffer)
+    const at = VANILLA_LAYOUT.dispatch + 4 + 2 * type
+    const file = ((at >> 16) << 15) | (at & 0x7fff)
+    bytes[file + (bytes.length % 1024 === 512 ? 512 : 0)]! ^= 0x40
+    return RomFile.fromBytes('v.sfc', bytes)
+  }
+  it('is flagged for the flames (type 5) and for the ring (type 4), naming the fetch', () => {
+    expect(names(pathMismatches(planted(5), FLAME_PATH))).toEqual(['the cluster loop'])
+    expect(
+      names(ringGate(planted(4)).filter(x => !/ring (spawn|draw|contact)|helpers/.test(x))),
+    ).toEqual(['the cluster loop'])
+  })
+  it('leaves the other sprite alone', () => {
+    expect(pathMismatches(planted(4), FLAME_PATH)).toEqual([])
+    expect(ringGate(planted(5)).filter(x => !/ring (spawn|draw|contact)|helpers/.test(x))).toEqual(
+      [],
+    )
+  })
 })
