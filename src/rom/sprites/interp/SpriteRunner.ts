@@ -761,12 +761,13 @@ function runCore(
   // A row with `absolute` is the game's own layout (D158 / Decision 124 A). The game puts the placed sprite in the loader's
   // top slot, which the INIT then overwrites with a block, so the run uses that slot; the slot search not being the
   // recognized one, the sprite sitting in slot 0, or a table slot outside 1..9, is a refusal (D51).
-  if (latch?.absolute && latched.loaded) {
-    const slot = placedSlot(rom, latched.loaded, opts.slotSearch)
+  const image = latched.loaded
+  if (latch?.absolute && image) {
+    const slot = placedSlot(rom, image, opts.slotSearch)
     if (slot === null) return { ...model, refusal: 'the loader is not the recognized slot search, the sprite sits in slot 0, or the slot table gives a slot other than 1 to 9, so the slot the game puts this sprite in is unknown' } // prettier-ignore
     latched = { ...latched, slot }
     model.absolutePlacement = true
-    const setting = latched.loaded[0x1692]!
+    const setting = image[0x1692]!
     if (latch.tracedSetting !== undefined && setting !== latch.tracedSetting)
       model.unverifiedReason = `this map uses sprite memory setting ${setting}; the bonus game blocks were only checked for setting ${latch.tracedSetting}, so some may be missing`
   }
