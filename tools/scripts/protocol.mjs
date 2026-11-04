@@ -557,6 +557,16 @@ export function cutoverState(main, { rename = renameSync, link = defaultLink } =
       ? fail(`${STATE_DIR_NAME} exists but the link could not be made: ${err.message}`)
       : done(`finished: left a link at ${OLD_STATE_DIR_NAME} pointing to ${STATE_DIR_NAME}`)
   }
+  // (A live .overwatch beside it gets the reconcile message below instead.)
+  if (
+    !existsSync(path.join(oldDir, SESSIONS_FILE)) &&
+    !existsSync(path.join(newDir, SESSIONS_FILE))
+  ) {
+    // The resolvers treat sessions.json as the sign of a live folder; moving one without it can orphan state after a crash.
+    return fail(
+      `${OLD_STATE_DIR_NAME} has no ${SESSIONS_FILE}, so it is not a live state folder; nothing moved (docs/runbooks/state-cutover.md, "What it refuses")`,
+    )
+  }
   const lock = runLockStatus(oldDir)
   if (lock.held) {
     return fail(`a run-lock slot is held; release it first: ${lock.lines.join(' ')}`)

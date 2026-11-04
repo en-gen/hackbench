@@ -286,6 +286,17 @@ describe('cutoverState', () => {
     expect(r.message).toMatch(/nothing to cut over/)
   })
 
+  it('a real .hackbench-state without sessions.json is not a live folder: refuses, moves nothing', () => {
+    const { main, old } = withOldState()
+    fs.rmSync(path.join(old, 'sessions.json'))
+    const r = cutoverState(main)
+    expect(r.ok).toBe(false)
+    expect(r.message).toMatch(/no sessions\.json/)
+    expect(fs.lstatSync(old).isDirectory()).toBe(true)
+    expect(fs.existsSync(path.join(old, 'ba.md'))).toBe(true)
+    expect(fs.existsSync(path.join(main, NEW))).toBe(false)
+  })
+
   it('a failed rename leaves the original in place and says so', () => {
     const { main, old } = withOldState()
     const r = cutoverState(main, {

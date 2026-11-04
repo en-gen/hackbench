@@ -54,6 +54,7 @@ Every command below is given for PowerShell and for a POSIX shell (Git Bash, mac
 ## What it refuses (nothing is moved)
 
 - A held run-lock slot (slot 1, 2 or 3, any that exist).
+- A real `.hackbench-state` with no `sessions.json`: the resolvers use that file as the sign of a live folder, so it is not one. Find out why it is missing before anything else.
 - A real `.hackbench-state` beside a non-empty `.overwatch`. Two messages, by whether `.overwatch` holds `sessions.json`; see Recovery. An EMPTY `.overwatch` counts as absent and is removed first.
 - `.hackbench-state` already a link, but not to this repo's `.overwatch`.
 - `HACKBENCH_STATE_DIR` set, or a worktree as the working directory.
@@ -64,9 +65,9 @@ Find the entry by the message you got. For the two refusals, run the check that 
 
 - **"`.hackbench-state` is the live state and `.overwatch` is a stray".** Check: `.overwatch/sessions.json` does NOT exist (PowerShell `Test-Path .overwatch/sessions.json`; POSIX `[ -f .overwatch/sessions.json ] && echo yes || echo no`). Nothing moved. Look inside `.overwatch` (`Get-ChildItem -Force .overwatch` / `ls -A .overwatch`): it should be leftovers, such as a killed gate run's plants. Remove it (`Remove-Item -Recurse -Force .overwatch` / `rm -r .overwatch`), then run `cutover-state` again. If `sessions.json` exists, this is the other entry; do not remove anything.
 - **"`.overwatch` is the live state and a real `.hackbench-state` was recreated".** Check: `.overwatch/sessions.json` DOES exist, and `.hackbench-state` is a real folder, not a link (PowerShell `(Get-Item .hackbench-state -Force).LinkType` prints nothing for a real folder; POSIX `[ -L .hackbench-state ] && echo link || echo "real folder"`). Pre-#1202 code recreated the old name after cutover, or a cutover crashed between the rename and the link. Nothing moved. Reconcile by hand with no session mid-command:
-  1. Read the recreated folder's `sessions.json`. It is one map keyed by desktop id, so merge by key: add the keys `.overwatch/sessions.json` lacks. Never copy the file over `.overwatch`'s. Copy any other wanted file (handoffs, protocol history) only where `.overwatch` lacks it.
+  1. For each file the recreated folder holds, compare it with the same-named file in `.overwatch` and keep the newer one. `sessions.json` and `protocols.json` are maps keyed by id: merge by key, add the keys `.overwatch` lacks, and on a clash keep the newer entry. Never copy either file wholesale over `.overwatch`'s. Copy files `.overwatch` lacks (handoffs, protocol history) as they are.
   2. Check the recreated folder for a held run-lock slot: list its `locks/` (`Get-ChildItem -Recurse .hackbench-state/locks` / `ls -R .hackbench-state/locks`). `run-lock status` from new code reads `.overwatch` and will not show it. A `run`, `run-2` or `run-3` folder there with an `owner.txt` is a held slot; wait for that session or ask its owner.
-  3. Remove the recreated real `.hackbench-state` and nothing else (`Remove-Item -Recurse -Force .hackbench-state` / `rm -r .hackbench-state`; never `.overwatch`). Re-check first that it is a real folder, not a link.
+  3. Only after step 1 is done, remove the recreated real `.hackbench-state` and nothing else (`Remove-Item -Recurse -Force .hackbench-state` / `rm -r .hackbench-state`; never `.overwatch`). Re-check first that it is a real folder, not a link.
   4. Run `cutover-state`; with `.overwatch` present and no `.hackbench-state` it creates the link.
 - **Rename fails** (a process holds a file in the folder): the message says the original was left in place. Close the holder, run again.
 - **Link fails after the rename:** the message says the rename was undone. Fix the cause and run again.
@@ -78,7 +79,7 @@ Find the entry by the message you got. For the two refusals, run the check that 
 With no lock slot held and no session mid-command (a hook-driven session registration counts as a command, so no session may be starting). Do not delete `.overwatch` first.
 
 1. Check what the old name is. PowerShell: `(Get-Item .hackbench-state -Force).LinkType` prints `Junction` or `SymbolicLink` for a link, nothing for a real folder, and an error when there is no folder (`Test-Path .hackbench-state` is False). POSIX: `[ -L .hackbench-state ] && echo link || { [ -e .hackbench-state ] && echo "real folder" || echo none; }`.
-2. If it is a link, remove the link only; if there is none, go on. If it is a REAL folder, reconcile first (Recovery, second entry, steps 1 to 3 on that folder) and remove it: `mv` onto an existing folder nests `.overwatch` inside it instead of renaming it.
+2. If `.overwatch/sessions.json` is absent, stop: you are already on the old folder and there is nothing to roll back (going on would delete the only copy). Otherwise, if it is a link, remove the link only; if there is none, go on. If it is a REAL folder, reconcile first (Recovery, second entry, steps 1 to 3 on that folder) and remove it: `mv` onto an existing folder nests `.overwatch` inside it instead of renaming it.
 
    ```powershell
    [System.IO.Directory]::Delete((Join-Path $PWD '.hackbench-state'))
