@@ -7,6 +7,7 @@
  * and rebuild: the 1E assertions fail.
  */
 const { test, expect } = require('@playwright/test')
+const { viewSettled } = require('./strip-gone.cjs')
 
 const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const WARNING = 'Level mode 1E: sprite layering not verified'
@@ -79,6 +80,7 @@ async function expectDetailsLanded(page, index) {
       `${root(index)} .hb-map-view-main[data-details="done"][data-generation="${generation}"]`,
     ),
   ).toBeAttached()
+  await viewSettled(page, `hackbench.map-view:${index}`)
 }
 
 test('another mode shows no warning', async ({ page }) => {

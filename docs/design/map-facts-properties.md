@@ -66,7 +66,7 @@ The old facts strip was `renderFacts` and the Header panel was `renderDecode` in
 
 Every value reads in words first (for example "Underground", "Palette 3", "No"). Hex appears only behind Show header bytes.
 
-## Where today's notes go
+## Where the notes go
 
 Rule: notes about how the map is drawn stay as lines above the map and are also listed. Nothing is left only in a tooltip or hover. Whole-ROM notes are shown once. Facts that cannot be read show "Can't be read" with a warning icon and the reason in their row.
 

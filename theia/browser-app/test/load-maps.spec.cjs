@@ -8,6 +8,7 @@
  */
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords, makeUntitledAndUnlocated } = require('./rom-words.cjs')
+const { viewSettled, STRIP_WORDS } = require('./strip-gone.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -216,7 +217,7 @@ async function openMapView(page, rom, dir, index = 0x105) {
   return tab
 }
 
-/** Opens the map view tab for `index` and waits for its details reply; returns `{ id, scope }`. */
+/** Opens the map view tab for `index` and waits until the view has settled; returns `{ id, scope }`. */
 async function openTab(page, manifestPath, index) {
   const tab = await page.evaluate(
     async ({ mp, index, label }) => {
@@ -233,6 +234,7 @@ async function openTab(page, manifestPath, index) {
   await page.waitForSelector(`${scope}[data-details="done"][data-generation="${tab.generation}"]`, {
     timeout: 15000,
   })
+  await viewSettled(page, tab.id)
   return { id: tab.id, scope }
 }
 
@@ -249,10 +251,6 @@ const STRIP_HOOKS = [
   '[data-note="gfx-assignment"]',
   'details',
 ]
-
-/** What only the strip said. The toolbar and the surviving notes are not searched for it. */
-const STRIP_WORDS =
-  /name unavailable|level data unavailable|orientation unavailable|objects unavailable|start unavailable|Header bytes|\d+ screens|FG\/BG and sprite GFX files/i
 
 /**
  * The strip and Header panel are absent from `tab`: none of their elements, and none of their

@@ -19,6 +19,7 @@
  */
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords } = require('./rom-words.cjs')
+const { viewSettled, STRIP_WORDS } = require('./strip-gone.cjs')
 const { expectCheckerboard, PAGE_COMPOSE } = require('./pixel-canvas.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -122,6 +123,9 @@ async function openMap(page, manifestPath, index) {
 }
 
 /** The map tab's scroller. */
+/** The view of map `index` has reached its end state (see strip-gone.cjs); absences are read after. */
+const viewSettledOf = (page, index) => viewSettled(page, `hackbench.map-view:${index}`)
+
 const scrollerOf = (page, index) => page.locator(`${root(index)} [data-control="map-scroller"]`)
 
 /** Waits until this open's start has been scrolled to, skipped or refused (`data-start`). */
@@ -490,6 +494,7 @@ test('an unavailable start leaves the view at 0 and shows no note', async ({ pag
   opened.push('hackbench.map-view:265')
   await expect(scrollerOf(page, 0x109)).toHaveAttribute('data-start', 'unavailable') // prettier-ignore
   expect((await scrollState(page, 0x109)).top).toBe(0)
+  await viewSettledOf(page, 0x109)
   await expect(page.locator(`${root(0x109)} [data-control="map-start-note"]`)).toHaveCount(0)
   expect(await shownWords(page, root(0x109))).not.toMatch(/start unavailable/i)
 })
@@ -1736,6 +1741,7 @@ test('a map no overworld route reaches opens at screen 0 and shows the route not
   // has no line of its own (D121).
   await expect(scrollerOf(page, 0x100)).toHaveAttribute('data-start', 'unavailable', { timeout: 30000 }) // prettier-ignore
   expect(await scrollState(page, 0x100)).toMatchObject({ top: 0, left: 0 })
+  await viewSettledOf(page, 0x100)
   await expect(page.locator(`${root(0x100)} [data-control="map-start-note"]`)).toHaveCount(0)
   await expect(page.locator(`${root(0x100)} [data-note="layers"]`).filter({ hasText: /guess/i })).toHaveCount(0) // prettier-ignore
 })
@@ -2203,6 +2209,7 @@ test('the facts strip and the Header panel are gone, and the map keeps its layou
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x105)
   await expect(page.locator(`${root(0x105)} .hb-map-view-main`)).toHaveAttribute('data-details', 'done') // prettier-ignore
+  await viewSettledOf(page, 0x105)
 
   // Neither element exists, by any hook either ever had.
   for (const gone of [
@@ -2220,7 +2227,7 @@ test('the facts strip and the Header panel are gone, and the map keeps its layou
   }
   // Nor their words, which a restyled element would still carry.
   const words = await shownWords(page, root(0x105))
-  expect(words).not.toMatch(/Header bytes|\d+ screens|\d+ objects|\d+ sprites/)
+  expect(words).not.toMatch(STRIP_WORDS)
 
   // The toolbar sits on the map, which fills the tab to its bottom edge (the folded panel
   // used to take a strip there), and a clean map has no note between them.
@@ -2469,8 +2476,8 @@ for (const index of [0x105, 0x109]) {
   // The clamped case needs the anchored scroll to stay short of the new range's end, or it clamps
   // to the unanchored value and cannot fail. That slack is
   // (1 - f) * strip * zNew - cw * (r / 2 + 1 / 2 - f * r), r = zNew / zOld, f = the scroll fraction.
-  // At f = 0.97 on vertical $109 it sits near zero and flips with the scroller's height; 0.8
-  // keeps it clearly positive for the zoom pairs below.
+  // At f = 0.97 on vertical $109 it is small enough to change sign with the scroller's height
+  // (a hand calculation, not measured); 0.8 is chosen to keep it positive for the pairs below.
   const clampedScroll = index === 0x109 ? 0.8 : 0.97
   for (const a of ANCHORS) {
     test(`$${index.toString(16)}: ${a.control} keeps the view centre${a.clamped ? ' (strip end, clamped)' : ''}`, async ({
@@ -3286,6 +3293,7 @@ test('a rejected mapDetails shows nothing for it, the map still draws, the reaso
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openRejecting(page, project.manifestPath, 'mapDetails')
   await expect(page.locator(`${root(0x105)} .hb-map-view-main`)).toHaveAttribute('data-details', 'done') // prettier-ignore
+  await viewSettledOf(page, 0x105)
   // Accepted gap: no line, no tooltip, no error element, until the Properties panel (#1023).
   await expect(page.locator(`${root(0x105)} .hb-map-view-error`)).toHaveCount(0)
   await expect(page.locator(`${root(0x105)} [data-note="details"]`)).toHaveCount(0)
@@ -3350,7 +3358,7 @@ async function openResolving(page, manifestPath, method, reply) {
   opened.push('hackbench.map-view:261')
 }
 
-test('a missing base ROM shows through the map error once, and not as a details note (D121)', async ({
+test('a missing base ROM, with mapDetails and mapScreen both answering so, shows the map error once and no details note (D121)', async ({
   page,
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
@@ -3518,6 +3526,7 @@ test('a start position that cannot be worked out shows no note (#1008)', async (
   })
   // The view settled on "unavailable" (the signal), so the note's absence is meaningful.
   await expect(scrollerOf(page, 0x105)).toHaveAttribute('data-start', 'unavailable')
+  await viewSettledOf(page, 0x105)
   await expect(page.locator(`${root(0x105)} [data-control="map-start-note"]`)).toHaveCount(0)
   const words = await shownWords(page, root(0x105))
   expect(words).not.toMatch(/start unavailable/i)
@@ -3575,6 +3584,7 @@ async function openStubbed(page, manifestPath, replies) {
   )
   opened.push('hackbench.map-view:261')
   await expect(page.locator(`${root(0x105)} .hb-map-view-main`)).toHaveAttribute('data-details', 'done') // prettier-ignore
+  await viewSettledOf(page, 0x105)
 }
 
 /**
@@ -3601,9 +3611,8 @@ test('the warnings the strip carried show nowhere, even when the reply still hol
     mapStart: { status: 'unavailable', reason: 'No start.' },
   })
   const words = await shownWords(page, root(0x105))
-  expect(words).not.toMatch(
-    /name unavailable|level data unavailable|orientation unavailable|objects unavailable|start unavailable|graphics files per level|planted/i,
-  )
+  expect(words).not.toMatch(STRIP_WORDS)
+  expect(words).not.toMatch(/graphics files per level|planted/i)
   for (const n of [
     'name',
     'level-data',
@@ -3661,6 +3670,23 @@ test('data-details is pending while the reply is held, done after, and pending a
   expect(second).not.toBe(first)
   await release()
   await expect(main).toHaveAttribute('data-details', 'done')
+
+  // A stale reply cannot mark done: two refreshes hold two replies; releasing the older one
+  // (held first) leaves the view pending, and only the newest reply makes it done.
+  await page.evaluate(() => {
+    const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261')
+    w.refresh()
+    w.refresh()
+  })
+  await expect.poll(() => page.evaluate(() => window.hbHeld.length)).toBe(2)
+  await expect(main).toHaveAttribute('data-details', 'pending')
+  await page.evaluate(() => window.hbHeld[0]())
+  // Let the stale reply's continuation run and a frame paint before asserting it changed nothing.
+  await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
+  await expect(main).toHaveAttribute('data-details', 'pending')
+  await page.evaluate(() => window.hbHeld[1]())
+  await expect(main).toHaveAttribute('data-details', 'done')
+  await page.evaluate(() => window.hbHeld.splice(0))
 
   // Reopening the same tab for the same map starts over too.
   await page.evaluate(async mp => {
