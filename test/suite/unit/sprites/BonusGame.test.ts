@@ -213,8 +213,8 @@ describe('the at-rest re-base exemption (synthetic cart, no ROM)', () => {
     r.buffer.set([...HEAD, 0x23, 0xb1], o)
     r.buffer[2 * 0x8000 + (0xb123 & 0x7fff)] = 3
     const loaded = new Uint8Array(WRAM)
-    const go = (sprite: { x: number; y: number }, atRest = true) =>
-      runOnce(r, 0, withSeed({ sprite, loaded }), { atRest, latches: { 0: initRow(true) }, slotSearch }) // prettier-ignore
+    const go = (sprite: { x: number; y: number }) =>
+      runOnce(r, 0, withSeed({ sprite, loaded }), { atRest: true, latches: { 0: initRow(true) }, slotSearch }) // prettier-ignore
     const a = go({ x: 0x80, y: 0x80 })
     expect(a.refusal).toBeUndefined()
     // Slot 3: its own OAM entries, not slot 0's (the synthetic draw writes entry 4 * slot).
@@ -228,10 +228,21 @@ describe('the at-rest re-base exemption (synthetic cart, no ROM)', () => {
       const m = go(sp)
       expect([m.passes[0]!.parts[0]!.ox, m.passes[0]!.parts[0]!.oy]).toEqual([128, 112])
       expect(m.anchor).toMatchObject({ x: sp.x + 8, y: sp.y })
-      // Not at rest the camera is set from the grid too (the report's runs).
-      const n = go(sp, false)
-      expect([n.passes[0]!.parts[0]!.ox, n.passes[0]!.parts[0]!.oy]).toEqual([128, 112])
     }
+  })
+  it('a not-at-rest run (the spawn grader, the report) keeps the caller slot and camera, and the latch row does not apply', () => {
+    const r = buildSyntheticRom()
+    r.buffer.set([...HEAD, 0x23, 0xb1], 2 * 0x8000 + (LOAD & 0x7fff))
+    r.buffer[2 * 0x8000 + (0xb123 & 0x7fff)] = 3
+    const loaded = new Uint8Array(WRAM)
+    loaded[LATCH] = 1
+    const seed = () => withSeed({ sprite: { x: 0x80, y: 0x80 }, loaded })
+    const row = runOnce(r, 0, seed(), { latches: { 0: initRow(true) }, slotSearch })
+    const none = runOnce(r, 0, seed(), { latches: {} })
+    const [a, b] = [row.passes[0]!.parts[0]!, none.passes[0]!.parts[0]!]
+    expect([a.oam, a.ox, a.oy]).toEqual([b.oam, b.ox, b.oy])
+    expect(row.absolutePlacement).toBeUndefined()
+    expect(row.initLatched).toBeUndefined()
   })
   it('a spawn run of the same sprite keeps the seed as it is: no row, no slot, no exemption', () => {
     const loaded = new Uint8Array(WRAM)
@@ -340,17 +351,6 @@ describe.skipIf(!hasRom(VANILLA))('bonus game blocks, vanilla ROM', () => {
     const [ax, ay] = [m.anchor!.x, m.anchor!.y]
     return { x0: ax + Math.min(...c.map(p => p.dx)), y0: ay + Math.min(...c.map(p => p.dy)), x1: ax + Math.max(...c.map(p => p.dx)) + 8, y1: ay + Math.max(...c.map(p => p.dy)) + 8 } // prettier-ignore
   }
-  it('not at rest, with the capture-style camera at (0,0): the same 72 cells (the camera is set from the grid)', () => {
-    const rom = freshRom()
-    const base = levelSeed(rom, 0)
-    const m = runOnce(
-      rom,
-      0x82,
-      withSeed({ sprite: { x: 80, y: 112 }, camera: { x: 0, y: 0 } }, base),
-    )
-    expect(cellsOf(m)).toHaveLength(72)
-    expect(boxOf(m)).toEqual({ x0: 80, y0: 240, x1: 176, y1: 336 })
-  })
   it('every sprite memory setting 0 to 18: a refusal, or a picture inside the grid box that is exact when all 72 cells draw', () => {
     const rom = freshRom()
     const base = levelSeed(rom, 0)

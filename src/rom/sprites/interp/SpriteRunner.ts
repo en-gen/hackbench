@@ -746,9 +746,13 @@ function runCore(
   if (!rand.ok) return { ...model, refusal: rand.reason }
   // A sprite whose INIT is guarded by a latch the loader image already set runs it from the state before (InitLatches.ts).
   // A shell never runs INIT (`inits` undefined) and a spawn runs no INIT of its own, so neither has a latch to put back.
-  // The row's effects (the latch copy, the slot) need the loader image, so a generic seed is left as it is.
+  // The map view's at-rest run only: a caller that is not at rest (the spawn grader runs in slot 0, the report with the
+  // capture's camera) keeps its own slot, camera and loader image, which the recordings it compares against were made with.
+  // The row's effects (the latch copy, the slot) also need the loader image, so a generic seed is left as it is.
   const latch =
-    opts.spawn || !inits ? undefined : latchFor(rom, num, inits.handler.pointer, opts.latches)
+    opts.spawn || !inits || !atRest
+      ? undefined
+      : latchFor(rom, num, inits.handler.pointer, opts.latches)
   let latched = withoutInitLatches(seed, latch)
   // The latch was really put back (the image the run starts from is a copy), as opposed to a row that found it already clear.
   if (latched.loaded !== seed.loaded) model.initLatched = true
