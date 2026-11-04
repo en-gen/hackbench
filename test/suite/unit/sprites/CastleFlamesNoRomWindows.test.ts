@@ -58,7 +58,7 @@ describe.skipIf(!hasRom(VANILLA))('castle flames and ring sources hold no vanill
     const off = (snes: number) => ((snes >> 16) << 15) | (snes & 0x7fff)
     const withByte = (snes: number, xor: number) => {
       const b = bytes()
-      b[off(snes) + (bytes().length % 1024 === 512 ? 512 : 0)]! ^= xor
+      b[off(snes) + (b.length % 1024 === 512 ? 512 : 0)]! ^= xor
       return RomFile.fromBytes('v.sfc', b)
     }
     const vanillaRom = () => RomFile.fromBytes('v.sfc', bytes())
