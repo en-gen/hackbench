@@ -403,7 +403,10 @@ describe('defaultStateDir', () => {
       cwd: scriptsDir,
       encoding: 'utf8',
     }).stdout.trim()
-    return path.join(path.dirname(path.resolve(scriptsDir, out)), '.hackbench-state')
+    const main = path.dirname(path.resolve(scriptsDir, out))
+    // Mirrors the resolver's order: a checkout that has not cut over yet still answers .hackbench-state.
+    const live = ['.overwatch', '.hackbench-state'].find(n => fs.existsSync(path.join(main, n)))
+    return path.join(main, live ?? '.overwatch')
   }
   const noEnv = () => {
     const env = { ...process.env }
@@ -415,7 +418,7 @@ describe('defaultStateDir', () => {
     expect(defaultStateDir(scriptsDir, { HACKBENCH_STATE_DIR: 'C:/x/state' })).toBe('C:/x/state')
   })
 
-  it('without the env var it is <main checkout>/.hackbench-state', () => {
+  it('without the env var it is the main checkout state folder (.overwatch, or the old name until cutover)', () => {
     expect(defaultStateDir(scriptsDir, {})).toBe(expectedMain())
   })
 
@@ -442,7 +445,7 @@ describe('defaultStateDir', () => {
 
   it('CLI exits 1 with the error instead of failing open', () => {
     const copy = mkState()
-    for (const f of ['run-lock.mjs', 'protocol.mjs', 'run-slots.mjs'])
+    for (const f of ['run-lock.mjs', 'protocol.mjs', 'run-slots.mjs', 'state-dir.mjs'])
       fs.copyFileSync(path.join(scriptsDir, f), path.join(copy, f))
     const r = spawnSync(process.execPath, [path.join(copy, 'run-lock.mjs'), 'status'], {
       encoding: 'utf8',

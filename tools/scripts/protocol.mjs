@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Protocol state for the agentic workflow: parse docs/protocols/*.md, keep
-// .hackbench-state/protocols.json and protocols.log in the main checkout, and
+// .overwatch/protocols.json and protocols.log in the main checkout, and
 // register sessions. Pure functions are exported for tests; the CLI is at
 // the bottom. Spec: docs/superpowers/specs/2026-10-07-agentic-protocols-design.md
 // section 3. Why a script rather than prose: the group invariant (exactly one
@@ -13,15 +13,24 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  lstatSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { status as runLockStatus } from './run-lock.mjs'
+import {
+  OLD_STATE_DIR_NAME,
+  STATE_DIR_NAME,
+  mainCheckoutDir,
+  resolveStateDir,
+} from './state-dir.mjs'
 
 export const HEADINGS = ['Purpose', 'Group', 'Activation', 'Changes', 'Unchanged', 'Exit']
 export const MAX_CHANGES_LINES = 15
@@ -319,19 +328,11 @@ const ROLES = new Set(['ba', 'tech-lead', 'both'])
 const DESKTOP_ID = /^local_[0-9a-f-]{36}$/
 export const TEAM_NAME = /^[a-z][a-z0-9-]{0,31}$/
 
-export function mainCheckoutDir(cwd) {
-  const r = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd, encoding: 'utf8' })
-  if (r.status !== 0 || !r.stdout.trim()) return cwd
-  return path.dirname(path.resolve(cwd, r.stdout.trim()))
-}
-
-// The desktop app guards .claude/ against session writes from a worktree, so
-// shared state lives in a folder of its own in the main checkout.
-export const STATE_DIR_NAME = '.hackbench-state'
+export { mainCheckoutDir, resolveStateDir, STATE_DIR_NAME, OLD_STATE_DIR_NAME }
 const LEGACY_STATE_DIR = path.join('.claude', 'state')
 
 export function stateDirFor(cwd) {
-  return process.env.HACKBENCH_STATE_DIR || path.join(mainCheckoutDir(cwd), STATE_DIR_NAME)
+  return resolveStateDir(mainCheckoutDir(cwd))
 }
 
 export function protocolsDirFor(cwd) {
@@ -502,7 +503,64 @@ export function unregisterSession(stateDir, desktopId, { rename = renameSync, lo
 const BY = /^(owner|schedule|session:local_[0-9a-f-]{36})$/
 const BY_MESSAGE = '--by must be owner, schedule or session:<desktop id>'
 const USAGE =
-  'usage: protocol.mjs <name> on|off --by <owner|schedule|session:<desktop id>> | status | register <desktopId> <role> [team] | handoff <team|ba> (file text on stdin) | migrate-state | unregister <desktopId>'
+  'usage: protocol.mjs <name> on|off --by <owner|schedule|session:<desktop id>> | status | register <desktopId> <role> [team] | handoff <team|ba> (file text on stdin) | migrate-state | cutover-state | unregister <desktopId>'
+
+const isLink = p => {
+  try {
+    return lstatSync(p).isSymbolicLink() // a Windows junction reports true too
+  } catch {
+    return false
+  }
+}
+// A junction on Windows (no privilege needed), a relative symlink elsewhere.
+const defaultLink = (oldDir, newDir) =>
+  process.platform === 'win32'
+    ? symlinkSync(newDir, oldDir, 'junction')
+    : symlinkSync(STATE_DIR_NAME, oldDir, 'dir')
+
+// #1202: .hackbench-state becomes .overwatch, and the old name stays as a link
+// so a session still running old-path code reads and writes the same files.
+// Refuses while a run-lock slot is held: a rename under a live holder would
+// strand its release. Check-then-rename is not atomic; run it when no
+// session is mid-acquire. A failed rename leaves the original untouched.
+export function cutoverState(main, { rename = renameSync, link = defaultLink } = {}) {
+  const oldDir = path.join(main, OLD_STATE_DIR_NAME)
+  const newDir = path.join(main, STATE_DIR_NAME)
+  const fail = message => ({ ok: false, message })
+  if (isLink(oldDir) && existsSync(newDir)) {
+    return {
+      ok: true,
+      message: `already cut over: ${OLD_STATE_DIR_NAME} links to ${STATE_DIR_NAME}`,
+    }
+  }
+  if (existsSync(newDir)) return fail(`${STATE_DIR_NAME} already exists; nothing moved`)
+  if (!existsSync(oldDir)) return fail(`no ${OLD_STATE_DIR_NAME} in ${main}; nothing to cut over`)
+  const lock = runLockStatus(oldDir)
+  if (lock.held) {
+    return fail(`a run-lock slot is held; release it first: ${lock.lines.join(' ')}`)
+  }
+  try {
+    rename(oldDir, newDir)
+  } catch (err) {
+    return fail(`could not rename ${OLD_STATE_DIR_NAME}; it was left in place: ${err.message}`)
+  }
+  try {
+    link(oldDir, newDir)
+  } catch (err) {
+    try {
+      rename(newDir, oldDir)
+    } catch {
+      return fail(
+        `renamed, then link failed (${err.message}) and the undo failed too; move ${newDir} back to ${oldDir}`,
+      )
+    }
+    return fail(`could not link ${OLD_STATE_DIR_NAME}; rename undone: ${err.message}`)
+  }
+  return {
+    ok: true,
+    message: `moved ${OLD_STATE_DIR_NAME} to ${STATE_DIR_NAME}, left a link at the old name`,
+  }
+}
 
 function cli(argv, cwd) {
   const stateDir = stateDirFor(cwd)
@@ -524,6 +582,17 @@ function cli(argv, cwd) {
   if (a === 'migrate-state') {
     const from = path.join(mainCheckoutDir(cwd), LEGACY_STATE_DIR)
     return { code: 0, out: migrateState(from, stateDir) }
+  }
+  if (a === 'cutover-state') {
+    const main = mainCheckoutDir(cwd)
+    if (process.env.HACKBENCH_STATE_DIR) {
+      return { code: 1, out: 'HACKBENCH_STATE_DIR is set; cutover moves the in-repo folder only' }
+    }
+    if (realpathSync(main) !== realpathSync(cwd)) {
+      return { code: 1, out: `run cutover-state from the main checkout (${main}), not a worktree` }
+    }
+    const r = cutoverState(main)
+    return { code: r.ok ? 0 : 1, out: r.message }
   }
   if (a === 'handoff') {
     if (!b) return { code: 1, out: USAGE }
