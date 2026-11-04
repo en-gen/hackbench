@@ -171,6 +171,8 @@ export interface SpriteModel {
   initLatched?: boolean
   /** The sprite's INIT places its own sprites at fixed map positions: drawn there, not re-based onto the placed spot (InitLatches.ts). */
   absolutePlacement?: boolean
+  /** Plain words for why an absolute-placement picture is not the traced one (InitLatches.ts `tracedSetting`); the view marks the sprite unverified. */
+  unverifiedReason?: string
   seedReason?: string
   /** Frames INIT took: 1 unless it left status 1 and was re-run; 0 when INIT did not run (a shell, which the loader leaves past INIT). */
   initFrames?: number
@@ -764,6 +766,9 @@ function runCore(
     if (slot === null) return { ...model, refusal: 'the loader is not the recognized slot search, the sprite sits in slot 0, or the slot table gives a slot other than 1 to 9, so the slot the game puts this sprite in is unknown' } // prettier-ignore
     latched = { ...latched, slot }
     model.absolutePlacement = true
+    const setting = latched.loaded[0x1692]!
+    if (latch.tracedSetting !== undefined && setting !== latch.tracedSetting)
+      model.unverifiedReason = `this map uses sprite memory setting ${setting}; the bonus game blocks were only checked for setting ${latch.tracedSetting}, so some may be missing`
   }
   // A spawn finds its own slot, so the machine owns a copy of the seed whose slot it may update.
   try {

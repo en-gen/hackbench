@@ -22,7 +22,7 @@ A (Brian, 2026-11-03, "D124 A"). B is rejected: it would show a layout the game 
 
 ## Scope note
 
-The grid stays put when the list spot changes: proved by a sweep over 28 list spots of map $000 (same parts and box at every one; `BonusGame.test.ts`). The picture is the same 72 cells at every list spot for the vanilla memory setting (0) of map $000; other sprite memory settings put the placed sprite in another slot, and their cell counts range from 35 to 72 with the same box: not traced. The slot and camera rule applies to the map view's at-rest run only; a caller that is not at rest (the spawn grader, the sprite report) keeps its own. The "does not follow a drag" half of the ruling is future behavior: no sprite drag exists in the map view yet, so nothing tests it.
+The grid stays put when the list spot changes: proved by a sweep over 28 list spots of map $000 (same parts and box at every one; `BonusGame.test.ts`). The picture is the same 72 cells at every list spot for the vanilla memory setting (0) of map $000; other sprite memory settings put the placed sprite in another slot, and their cell counts range from 35 to 72 with the same box: not traced, so those draw marked unverified ("this map uses sprite memory setting N; the bonus game blocks were only checked for setting 0, so some may be missing"; D57). The slot and camera rule applies to the map view's at-rest run only; a caller that is not at rest (the spawn grader, the sprite report) keeps its own. The "does not follow a drag" half of the ruling is future behavior: no sprite drag exists in the map view yet, so nothing tests it.
 
 ## Applies to
 

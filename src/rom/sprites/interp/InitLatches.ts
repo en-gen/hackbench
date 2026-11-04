@@ -31,6 +31,8 @@ export interface InitLatch {
    * map view must not re-base the picture onto the placed spot (D134/D139-D) or move it with a drag.
    */
   absolute: boolean
+  /** With `absolute`: the sprite memory setting ($1692) the picture was traced for; any other draws with an `unverified` reason. */
+  tracedSetting?: number
   /** SMWDisX citation for the cell, the INIT's guard, its spawn loop and the latch set. */
   why: string
 }
@@ -53,6 +55,8 @@ export const INIT_LATCHES: Readonly<Record<number, InitLatch>> = {
       },
     ],
     absolute: true,
+    // Vanilla $000 and $100 use setting 0. Other settings put the sprite in another slot and drew 35 to 72 cells (not traced).
+    tracedSetting: 0,
     why: 'bank_01.asm:12676-12679, 12681-12707, 12719',
   },
 }

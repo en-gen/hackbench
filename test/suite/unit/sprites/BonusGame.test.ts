@@ -171,6 +171,7 @@ describe('the at-rest re-base exemption (synthetic cart, no ROM)', () => {
     before: 0,
     code: [{ at: 0, length: 7, sha256: hash(bytesAt(rom, 0x010000 | ptr, 7)) }],
     absolute,
+    tracedSetting: 0,
     why: 'synthetic',
   })
   const run = (id: number, latches: Record<number, InitLatch>, cartRom = rom) =>
@@ -228,6 +229,22 @@ describe('the at-rest re-base exemption (synthetic cart, no ROM)', () => {
       const m = go(sp)
       expect([m.passes[0]!.parts[0]!.ox, m.passes[0]!.parts[0]!.oy]).toEqual([128, 112])
       expect(m.anchor).toMatchObject({ x: sp.x + 8, y: sp.y })
+    }
+  })
+  it('a sprite memory setting other than the traced one 0 is marked unverified, in plain words; setting 0 is not (sweep 0..18)', () => {
+    const r = buildSyntheticRom()
+    r.buffer.set([...HEAD, 0x23, 0xb1], 2 * 0x8000 + (LOAD & 0x7fff))
+    r.buffer.set(Array(0x13).fill(3), 2 * 0x8000 + (0xb123 & 0x7fff))
+    for (let k = 0; k < 0x13; k++) {
+      const loaded = new Uint8Array(WRAM)
+      loaded[0x1692] = k
+      const m = runOnce(r, 0, withSeed({ sprite: { x: 0x80, y: 0x80 }, loaded }), { atRest: true, latches: { 0: initRow(true) }, slotSearch }) // prettier-ignore
+      expect(m.refusal).toBeUndefined()
+      if (k === 0) expect(m.unverifiedReason).toBeUndefined()
+      else
+        expect(m.unverifiedReason, `setting ${k}`).toMatch(
+          new RegExp(`setting ${k};.*only checked for setting 0`),
+        )
     }
   })
   it('a not-at-rest run (the spawn grader, the report) keeps the caller slot and camera, and the latch row does not apply', () => {
@@ -294,6 +311,7 @@ describe.skipIf(!hasRom(VANILLA))('bonus game blocks, vanilla ROM', () => {
       expect(all).toHaveLength(1)
       const s = all[0]!
       expect(s.status).toBe('drawn')
+      expect(s.unverified, 'the vanilla setting 0 is the traced one').toBeUndefined()
       expect(s.parts).toHaveLength(72)
       expect(s.box.x0).toBeGreaterThanOrEqual(78)
       expect(s.box.x1).toBeLessThanOrEqual(178)
@@ -404,6 +422,17 @@ describe('how the grid reaches the view (no ROM)', () => {
     const other = modelResult(model(false)) as Record<string, unknown>
     expect(other.listPos).toBeUndefined()
     expect(other.note).toBeUndefined()
+  })
+  it('an unverifiedReason reaches the reply as `unverified`, with the generic-seed reason kept', () => {
+    const m = {
+      ...(model(true) as object),
+      unverifiedReason: 'why one',
+      seedSource: 'generic',
+      seedReason: 'no loader',
+    } as never
+    expect((modelResult(m) as { unverified: string }).unverified).toBe('level loader refused (no loader); drawn from a placement-only seed; why one') // prettier-ignore
+    expect((modelResult({ ...(model(true) as object), unverifiedReason: 'why one' } as never) as { unverified: string }).unverified).toBe('why one') // prettier-ignore
+    expect((modelResult(model(true)) as Record<string, unknown>).unverified).toBeUndefined()
   })
   it('the view sprite reports the list spot while its picture stands at the anchor (hover, selection, drag)', () => {
     const sp1 = [new Uint8Array(64).fill(3)]
