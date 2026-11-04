@@ -29,6 +29,7 @@ const rangeFor = (settingsByte: number, initialYPx = 0x40, cam = CAM_Y) => {
   })
 }
 
+/** The routine summary for settings byte `b` on tileset 0, as the editor classifies it. */
 const classify = (b: number) => classifyL3Routine({ layer3Setting: 1, settingsByte: b, tileset: 0 })
 
 const tideBytes = Array.from({ length: 0x7f }, (_, i) => i + 1) // $01..$7F
