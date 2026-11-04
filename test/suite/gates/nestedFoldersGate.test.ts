@@ -5,13 +5,11 @@
  * picked it up would lint, format, type-check or run every file twice, or let
  * a worktree's files into a commit.
  *
- * One assertion per tool. The plants are named __plant-<pid> and are removed in
- * `finally`. They are ignored by git, ESLint and Prettier, so a concurrent
- * `npm run lint` or `format:check` (which walk `**`) skips them by rule, not by
- * the timing of this test. Evidence scope: vitest 5, ESLint 10, Prettier 3.9,
- * tsc 6, git 2.54, one machine; GitNexus 1.6.9 is read through the same
- * `ignore` rules it loads, not by running its indexer (it is not installed in
- * CI and an index run takes minutes), see the last case.
+ * One assertion per tool. The plants (__plant-<pid>) are ignored by git, ESLint
+ * and Prettier, so a concurrent `npm run lint` or `format:check` skips them by
+ * rule, not by the timing of this test. Evidence scope: vitest 5, ESLint 10,
+ * Prettier 3.9, tsc 6, git 2.54, one machine; GitNexus 1.6.9 is read through
+ * the `ignore` rules it loads, not by running its indexer (see the last case).
  */
 
 import { describe, it, expect, afterAll, beforeAll } from 'vitest'
@@ -25,7 +23,6 @@ const FOLDERS = ['.worktrees', '.overwatch'] as const
 const planted = FOLDERS.map(f => `${f}/__plant-${process.pid}`)
 const bin = (rel: string) => path.join(repoRoot, 'node_modules', rel)
 
-/** Paths of the plants, relative to the repo root with forward slashes. */
 const PLANT_TEST = 'test/suite/unit/plant.test.ts'
 const PLANT_TS = 'src/plant.ts'
 const PLANT_MJS = 'tools/plant.mjs'

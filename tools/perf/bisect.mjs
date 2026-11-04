@@ -7,7 +7,8 @@
 //        [--dir <taskDir>] [--rounds N]
 //
 // Builds two git worktrees under <repo>/.worktrees/perf-bisect-<id>-<good7>
-// (design D5, CLAUDE.md's worktree-placement convention, #1202), removed in a finally, then runs `git bisect run` against
+// (design D5, CLAUDE.md's worktree-placement convention, #1202), removed in a
+// finally, then runs `git bisect run` against
 // `node tools/perf/bisect.mjs --step`, this file's own second mode: no
 // generated source file, so the step logic is covered by ordinary imports
 // and unit tests instead of a string template.

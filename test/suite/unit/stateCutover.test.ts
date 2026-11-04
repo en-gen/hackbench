@@ -1,6 +1,6 @@
 // #1202: the state folder moves from .hackbench-state to .overwatch. Every
 // fixture is a temp dir; the real folder is never touched.
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -217,12 +217,11 @@ describe('protocol.mjs cutover-state (CLI)', () => {
     expect(r.stdout).toMatch(/main checkout/)
     expect(fs.lstatSync(old).isDirectory()).toBe(true)
     // A worktree resolves to the main checkout's folder, not its own.
-    const saved = process.env.HACKBENCH_STATE_DIR
-    delete process.env.HACKBENCH_STATE_DIR
+    vi.stubEnv('HACKBENCH_STATE_DIR', '') // empty is falsy, so the resolver ignores it
     try {
       expect(fs.realpathSync(stateDirFor(wt))).toBe(fs.realpathSync(old))
     } finally {
-      if (saved !== undefined) process.env.HACKBENCH_STATE_DIR = saved
+      vi.unstubAllEnvs()
     }
   }, 30000)
 })
