@@ -17,7 +17,7 @@ import { execFileSync, spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 import { createRequire } from 'module'
-import { cleanupNested } from '../support/nestedFolders'
+import { cleanupNested, holdsSessionsFile } from '../support/nestedFolders'
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const FOLDERS = ['.worktrees', '.overwatch'] as const
@@ -55,6 +55,10 @@ const run = (cmd: string, args: string[]) =>
 const mentions = (text: string) => planted.filter(p => text.replace(/\\/g, '/').includes(p))
 
 describe('nested .worktrees/ and .overwatch/ stay out of every tool (#1202)', () => {
+  it('the plants never create sessions.json, which would make a stray .overwatch the live state', () => {
+    for (const dir of planted) expect(holdsSessionsFile(path.join(repoRoot, dir)), dir).toBe(false)
+  })
+
   it('vitest does not collect a test file planted in either folder', () => {
     const r = run(bin('vitest/vitest.mjs'), ['list', '--filesOnly'])
     expect(r.status, r.stderr).toBe(0)

@@ -26,8 +26,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { status as runLockStatus } from './run-lock.mjs'
 import {
-  CUTOVER_MARKER,
   OLD_STATE_DIR_NAME,
+  SESSIONS_FILE,
   STATE_DIR_NAME,
   mainCheckoutDir,
   resolveStateDir,
@@ -324,7 +324,6 @@ export function writeState(stateDir, state, logLine, { rename = renameSync } = {
   appendFileSync(path.join(stateDir, LOG_FILE), logLine + '\n')
 }
 
-const SESSIONS_FILE = 'sessions.json'
 const ROLES = new Set(['ba', 'tech-lead', 'both'])
 const DESKTOP_ID = /^local_[0-9a-f-]{36}$/
 export const TEAM_NAME = /^[a-z][a-z0-9-]{0,31}$/
@@ -563,20 +562,21 @@ export function cutoverState(main, { rename = renameSync, link = defaultLink } =
     return fail(`a run-lock slot is held; release it first: ${lock.lines.join(' ')}`)
   }
   if (existsSync(newDir)) {
+    if (existsSync(path.join(newDir, SESSIONS_FILE))) {
+      return fail(
+        `${STATE_DIR_NAME} is the live state (it holds ${SESSIONS_FILE}) and a real ${OLD_STATE_DIR_NAME} was recreated; nothing moved; reconcile by hand (docs/runbooks/state-cutover.md, "Recovery")`,
+      )
+    }
     if (readdirSync(newDir).length) {
       return fail(
-        `both ${OLD_STATE_DIR_NAME} and a non-empty ${STATE_DIR_NAME} exist; reconcile them by hand (docs/runbooks/state-cutover.md, "Recovery"), nothing moved`,
+        `${OLD_STATE_DIR_NAME} is the live state and ${STATE_DIR_NAME} is a stray (no ${SESSIONS_FILE}); nothing moved. Look inside ${STATE_DIR_NAME}, remove it, re-run cutover-state (docs/runbooks/state-cutover.md, "Recovery")`,
       )
     }
     rmSync(newDir, { recursive: true }) // empty: a stray mkdir, not state
   }
-  // Written before the rename so the rename makes it take effect atomically.
-  const marker = path.join(oldDir, CUTOVER_MARKER)
-  writeFileSync(marker, 'cutover to .overwatch complete\n')
   try {
     rename(oldDir, newDir)
   } catch (err) {
-    rmSync(marker, { force: true })
     return fail(`could not rename ${OLD_STATE_DIR_NAME}; it was left in place: ${err.message}`)
   }
   const linkErr = makeLink()
@@ -585,7 +585,6 @@ export function cutoverState(main, { rename = renameSync, link = defaultLink } =
   }
   try {
     rename(newDir, oldDir)
-    rmSync(path.join(oldDir, CUTOVER_MARKER), { force: true })
   } catch {
     return fail(
       `moved to ${STATE_DIR_NAME}, but the link failed (${linkErr.message}) and so did restoring the old name; re-run cutover-state to finish the link (if a real ${OLD_STATE_DIR_NAME} has appeared meanwhile it refuses; see "Recovery" in docs/runbooks/state-cutover.md)`,

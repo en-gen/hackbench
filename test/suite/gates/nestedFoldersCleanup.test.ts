@@ -8,7 +8,7 @@ import { describe, it, expect, afterAll } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { cleanupNested } from '../support/nestedFolders'
+import { cleanupNested, holdsSessionsFile } from '../support/nestedFolders'
 
 const FOLDERS = ['.worktrees', '.overwatch'] as const
 const made: string[] = []
@@ -26,6 +26,8 @@ function scratch(pre: string[]) {
   }
   return { root, planted, existed: FOLDERS.map(f => pre.includes(f)) }
 }
+
+const wiring = /afterAll\(\(\) => \{\s*cleanupNested\(repoRoot, FOLDERS, existed, planted\)/
 
 describe('nestedFoldersGate cleanup (#1202)', () => {
   it('leaves neither folder behind in a run where neither existed', () => {
@@ -52,6 +54,14 @@ describe('nestedFoldersGate cleanup (#1202)', () => {
 
   it('the gate wires its afterAll to this cleanup (the helper alone proves nothing if unused)', () => {
     const src = fs.readFileSync(path.join(__dirname, 'nestedFoldersGate.test.ts'), 'utf8')
-    expect(src).toMatch(/afterAll\(\(\) => \{\s*cleanupNested\(/)
+    expect(src).toMatch(wiring)
+  })
+
+  it('oracle: the wiring match rejects a call with other arguments, and a plant tree with sessions.json is seen', () => {
+    expect('afterAll(() => { cleanupNested(repoRoot, [], [], []) })').not.toMatch(wiring)
+    const { root } = scratch([])
+    expect(holdsSessionsFile(root)).toBe(false)
+    fs.writeFileSync(path.join(root, '.overwatch', '__plant-1', 'sessions.json'), '{}')
+    expect(holdsSessionsFile(path.join(root, '.overwatch'))).toBe(true)
   })
 })

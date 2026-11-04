@@ -69,16 +69,18 @@ describe('the documented worktree command (#1202)', () => {
     expect(fs.existsSync(path.join(main, '.worktrees', 'b'))).toBe(false)
   }, 30000)
 
-  it('the docs carry exactly this form', () => {
+  it('the docs carry exactly this form, and name the main checkout, not "<repo>"', () => {
     for (const f of ['CLAUDE.md', '.claude/agents/implementer.md']) {
       const text = fs.readFileSync(path.join(root, f), 'utf8').replace(/\s+/g, ' ')
       expect(text, f).toContain(FORM)
+      expect(text, f).not.toContain('<repo>/.worktrees')
     }
   })
 })
 
 // A bare `git worktree add` (no -C to the main checkout) nests when typed from a linked worktree.
-const bareForms = (text: string) => text.match(/git worktree add(?!\w)/g) ?? []
+// Whitespace is collapsed first so a wrapped or double-spaced form is still seen.
+const bareForms = (text: string) => text.replace(/\s+/g, ' ').match(/git worktree add(?!\w)/g) ?? []
 
 describe('tech-lead docs give the safe worktree form only (#1202)', () => {
   const read = (f: string) => fs.readFileSync(path.join(root, f), 'utf8')
@@ -95,10 +97,12 @@ describe('tech-lead docs give the safe worktree form only (#1202)', () => {
     expect(text).not.toContain('<repo>/.worktrees')
   })
 
-  it('oracle: the scan goes red on a planted bare relative form', () => {
+  it('oracle: the scan goes red on a planted bare relative form, wrapped or double-spaced too', () => {
     expect(
       bareForms('run `git worktree add .worktrees/x -b feature/x origin/develop`'),
     ).toHaveLength(1)
+    expect(bareForms('run `git\n  worktree add .worktrees/x`')).toHaveLength(1)
+    expect(bareForms('run `git  worktree   add .worktrees/x`')).toHaveLength(1)
     expect(bareForms(FORM)).toEqual([])
   })
 })

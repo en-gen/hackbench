@@ -1,6 +1,15 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
+/** True when any file under `dir` is named sessions.json (the file that makes .overwatch live). */
+export function holdsSessionsFile(dir: string): boolean {
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .some(e =>
+      e.isDirectory() ? holdsSessionsFile(path.join(dir, e.name)) : e.name === 'sessions.json',
+    )
+}
+
 /**
  * Cleanup for nestedFoldersGate: removes the plants, then removes each folder
  * the run created (existed[i] false). An empty .overwatch left beside a live
