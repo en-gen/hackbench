@@ -5,6 +5,7 @@ Design for how the map view presents a map's facts, decoded header and warnings.
 ## Ruling
 
 - D80 call 2, owner, 2026-10-17: "remove both 1 and 2 / this isn't how I'd want to present this information. file an issue to design this screen for presentation of this information". #1008 removed the facts strip and the folded Header panel. `[EST]`
+- D121, owner: #1008 removes the facts strip and the Header panel AND their warnings, and does not move the warnings into the notes row. The removed warnings are "name unavailable", "level data unavailable", "orientation unavailable", "objects unavailable", "sprites unavailable", "start unavailable", the graphics-assignment caveat, "This map's details could not be read" and the base-ROM-missing line from the details read. They are not shown anywhere between #1008 merging and #1023. A missing base ROM still shows through the map's own screen error. `[EST]`
 - D111, owner, 2026-10-17: picked Option A from a three-option mockup round (A: Properties side panel, B: hover card, C: notes bar with a settings tab). `[EST]`
 - The mockup is the design of record: https://claude.ai/artifact/GoZ2RRUnDGq4uBkwem6RuE (private to the owner; not copied into the repository). Every value on it is a made-up example.
 - The five calls under "Provisional calls" are Proposed, not ruled. `[PROP]`
@@ -69,10 +70,10 @@ Every value reads in words first (for example "Underground", "Palette 3", "No").
 
 Rule: notes about how the map is drawn stay as lines above the map and are also listed. Nothing is left only in a tooltip or hover. Whole-ROM notes are shown once. Facts that cannot be read show "Can't be read" with a warning icon and the reason in their row.
 
-| Note | Today | Option A (chosen) |
+| Note | Before #1008 | Option A (chosen) |
 | --- | --- | --- |
-| Start position can't be shown or read | Plain text "start unavailable" at the end of the facts line; reason only in a tooltip; no icon | Notes list (This ROM, or This map if it failed just now) and a warning on the Start row |
-| Graphics may not match the game | A full sentence in a red note line under the facts line | Notes list (This ROM) and a warning beside the graphics rows |
+| Start position can't be shown or read | (Shown in the facts strip, since removed; shown nowhere until #1023.) Plain text "start unavailable" at the end of the facts line; reason only in a tooltip; no icon | Notes list (This ROM, or This map if it failed just now) and a warning on the Start row |
+| Graphics may not match the game | (Shown in the facts strip, since removed; shown nowhere until #1023.) A full sentence in a red note line under the facts line | Notes list (This ROM) and a warning beside the graphics rows |
 | Sprite layering not checked for this kind of map | Toolbar warning: icon plus "Level mode NN: sprite layering not verified", reason in a tooltip | Stays as the toolbar warning, and is also listed under This map |
 | Objects couldn't be drawn | Red dashed cells marked !, reason in each cell's tooltip; no text line | Marks stay (always shown); also in the notes list; picking the note flashes them |
 | Layer drawing notes (background not drawn, positions unverified, layer order) | A note line above the map | Stays as a line above the map, and is also listed in Notes and Problems |
@@ -80,8 +81,8 @@ Rule: notes about how the map is drawn stay as lines above the map and are also 
 | Block contents not drawn | A note line above the map | Stays as a line above the map, and is also listed in Notes and Problems |
 | General map note (unverified drawing, layer 2, animation) | A note line above the map | Stays as a line above the map, and is also listed in Notes and Problems |
 | Part of the map couldn't be drawn | Red note line above the map, detail in a tooltip | Stays as a line above the map, and is also listed in Notes and Problems |
-| Facts that couldn't be read (name, orientation, objects, sprites, map data) | "... unavailable" in the facts line, reason in a tooltip | That Properties row reads "Can't be read" with a warning icon and the reason as its detail |
-| The map couldn't load | Red error text in place of the facts line | Error text in the map area (no facts to show), also in Problems |
+| Facts that couldn't be read (name, orientation, objects, sprites, map data) | (Shown in the facts strip, since removed; shown nowhere until #1023.) "... unavailable" in the facts line, reason in a tooltip | That Properties row reads "Can't be read" with a warning icon and the reason as its detail |
+| The map couldn't load | (Shown in the facts strip, since removed; shown nowhere until #1023.) Red error text in place of the facts line | Error text in the map area (no facts to show), also in Problems |
 
 A missing base ROM is a project problem, not a map note, so it is in none of these rows.
 
