@@ -9,7 +9,7 @@
  *   hand-off kept and `_3` set; the dispatcher must reach the spawn with the activate flag stored and the id
  *   still in A; the spawn must return into the route, which must hand back to LoadNextSprite (:5267) with
  *   the stack, X and Y as it found them. Every id of the cart is run.
- * - the cluster loop (CODE_02F808, :15942-15958), entered with DB wrong, must reach the draw of the type for
+ * - the cluster loop (CODE_02F808, :15942-15958), entered with DB and X wrong, must reach the draw of the type for
  *   a sprite in slot 0 and in slot 19, with DB = 2, X = the slot and CurSpriteProcess = the slot.
  * - the same loop with no cluster sprite must return and restore DB.
  *
@@ -23,6 +23,7 @@ import { formatAddr, mirror } from '../../addressing'
 import { callSubroutine, nativeReset, Refusal, runUntil, type Regs } from '../../cpu/call'
 import type { Cpu65816 } from '../../cpu/Cpu65816'
 import type { RomFile } from '../../RomFile'
+import { mapperProblem } from './Guards'
 import { RunCache, smwMachine } from './Machine'
 import type { SpriteBus } from './SpriteBus'
 
@@ -239,7 +240,7 @@ function loopRun(
       bus,
       cpu,
       l.loop[0],
-      { a: 0, x: 0, y: 0, db: 0 },
+      { a: 0, x: 0x0b, y: 0x0c, db: 0 },
       [{ at: p.draw, what: LOOP_WHAT, check }],
       spans,
     )
@@ -268,17 +269,12 @@ const cache = new RunCache<string[]>()
 
 /** What of the path `p` is not the expected code, as stage names with the reason in parentheses; empty when it holds. */
 export function pathMismatches(rom: RomFile, p: ClusterPath): string[] {
+  // The mapper byte is not a ROM read of the run, so a cached verdict must not stand in for it.
+  if (mapperProblem(rom)) return [ROUTE_WHAT, p.dispatchWhat, LOOP_WHAT]
   const key = JSON.stringify(p)
   const hit = cache.lookup(rom, key)
   if (hit) return [...hit]
-  let machine: ReturnType<typeof smwMachine>
-  try {
-    machine = smwMachine(rom)
-  } catch (e) {
-    if (e instanceof Refusal) return [ROUTE_WHAT, p.dispatchWhat, LOOP_WHAT]
-    throw e
-  }
-  const { bus, cpu } = machine
+  const { bus, cpu } = smwMachine(rom)
   cache.track(bus, rom)
   const bad = new Map<string, string>()
   const note = (f: Failure | null): void => {

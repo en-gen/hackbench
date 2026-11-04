@@ -234,7 +234,9 @@ describe('castle flames from the routines (synthetic cart)', () => {
     'a hacked path (%s) is flagged and still draws',
     (_, h) => {
       const dirty = flameRom(DATA, b => h.edits(true).forEach(([at, v]) => b.set(v, off(at))))
-      expect(names(unverifiedOf(dirty, routinesOf(flameRom())))).toEqual([STAGE[h.stage]])
+      const got = unverifiedOf(dirty, routinesOf(flameRom()))
+      expect(names(got)).toEqual([STAGE[h.stage]])
+      expect(got[0]).toMatch(h.why)
       expect(key(dirty)).toEqual(key(flameRom()))
     },
   )

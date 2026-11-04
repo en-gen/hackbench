@@ -327,6 +327,9 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
       [0x02fd48 + 111, 'the ring draw helpers'],
       [0x02fe71, 'the ring contact test'],
       [0x02fe71 + 83, 'the ring contact test'],
+      [STANDIN.dispatch, LOOP, 1], // the dispatch call's opcode
+      [STANDIN.loop + 1, LOOP, 0x10], // the loop starts at slot 16: slot 0 is never visited
+      [STANDIN.entry + 14, 'the $E2/$E3 branch to the ring spawn', 1], // the branch that picks the ring
       [STANDIN.routeBody + 6, ROUTE, 0x20],
       [STANDIN.entry + 17, 'the $E2/$E3 branch to the ring spawn', 0x40],
       [tableWord(4), LOOP, 0x40],
@@ -340,7 +343,9 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
       'a hacked path (%s) is flagged by its stage',
       (_, h) => {
         const rom = ringRom(b => h.edits(false).forEach(([at, v]) => b.set(v, off(at))))
-        expect(names(ringGate(rom, clean))).toEqual([STAGE[h.stage]])
+        const got = ringGate(rom, clean)
+        expect(names(got)).toEqual([STAGE[h.stage]])
+        expect(got[0]).toMatch(h.why)
       },
     )
     it('a span that cannot be read is named as unreadable, not hashed from what did read', () => {
@@ -378,7 +383,7 @@ describe('the rotating ring: edges the gate and the seed can hit (synthetic cart
     const flags = ringGate(RomFile.fromBytes('empty.sfc', new Uint8Array(0)), routinesOf(ringRom()))
     // The complete ordered list: every path run, the call target, then the four routine spans.
     // (An empty ROM stops the route at its first fetch, so only the route and the loop are named.)
-    expect(names(flags)).toEqual([
+    expect(flags.map(f => f.replace(/ \((?!unreadable).*\)$/, ''))).toEqual([
       'the loader route to the sprite spawn',
       'the cluster loop',
       'the cluster dispatch call target',

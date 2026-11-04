@@ -38,7 +38,7 @@ export const tableWord = (type: number, dispatch: number = STANDIN.dispatch): nu
 /** Layout facts the gate reads: the stand-in's code spans, in the form `ClusterLayout` takes. */
 export const STANDIN_LAYOUT: ClusterLayout = {
   route: [
-    [STANDIN.route, STANDIN.route + 7],
+    [STANDIN.route, STANDIN.route + 16],
     [STANDIN.routeBody, STANDIN.routeBody + 16],
   ],
   entry: [STANDIN.entry, STANDIN.entry + 29],
@@ -138,6 +138,8 @@ export interface PathHack {
   edits: (flame: boolean) => [number, number[]][]
   /** The names the gate must report, per cart: `dispatch` is the branch-to-the-spawn stage of that cart. */
   stage: 'route' | 'dispatch' | 'loop'
+  /** The reason the gate gives: pins that the hack is caught for the right cause. */
+  why: RegExp
 }
 
 const nop = (n: number): number[] => Array<number>(n).fill(0xea)
@@ -151,18 +153,31 @@ export const PATH_HACKS: readonly PathHack[] = [
   {
     name: 'activate flag store removed',
     stage: 'dispatch',
+    why: /activate flag is not stored/,
     edits: () => [[STANDIN.entry + 3, nop(3)]],
   },
-  { name: 'loop skips slot 0', stage: 'loop', edits: () => [[STANDIN.loop + 6, [1]]] },
-  { name: 'loop visits only 4 slots', stage: 'loop', edits: () => [[STANDIN.loop + 17, [4]]] },
+  {
+    name: 'loop skips slot 0',
+    stage: 'loop',
+    why: /runs code at \$000001/,
+    edits: () => [[STANDIN.loop + 6, [1]]],
+  },
+  {
+    name: 'loop visits only 4 slots',
+    stage: 'loop',
+    why: /runs code at \$000001/,
+    edits: () => [[STANDIN.loop + 17, [4]]],
+  },
   {
     name: 'CurSpriteProcess store dropped',
     stage: 'loop',
+    why: /slot 0 is not the slot drawn/,
     edits: () => [[STANDIN.loop + 7, nop(3)]],
   },
   {
     name: 'dispatch words reach a wrapper that writes a cell',
     stage: 'loop',
+    why: /runs code at \$02F980/,
     edits: flame => {
       const draw = flame ? STANDIN.flameDraw : STANDIN.ringDraw
       return [
@@ -175,6 +190,7 @@ export const PATH_HACKS: readonly PathHack[] = [
   {
     name: 'route stub excludes the last id',
     stage: 'route',
+    why: /runs code at \$0[02]/,
     edits: flame => [
       [STANDIN.route + 4, [0xc9, flame ? 0xe6 : 0xe3, 0xd0, 0x01, 0x60, ...jmp(STANDIN.routeBody)]],
     ],
@@ -182,16 +198,19 @@ export const PATH_HACKS: readonly PathHack[] = [
   {
     name: 'route drops the _3 hand-off',
     stage: 'route',
+    why: /hand-off cell _3/,
     edits: () => [[STANDIN.routeBody + 3, nop(2)]],
   },
   {
     name: 'route returns early after the call',
     stage: 'route',
+    why: /runs code at \$0[02]/,
     edits: () => [[STANDIN.routeBody + 8, [0x60]]],
   },
   {
     name: 'route stub depends on the level number',
     stage: 'route',
+    why: /runs code at/,
     edits: () => [
       [
         STANDIN.route + 4,
@@ -202,12 +221,19 @@ export const PATH_HACKS: readonly PathHack[] = [
   {
     name: 'PHK/PLB removed from the loop wrapper',
     stage: 'loop',
+    why: /DB is \$0, not 2/,
     edits: () => [[STANDIN.loop, nop(5)]],
   },
-  { name: 'route spins', stage: 'route', edits: () => [[STANDIN.routeBody + 13, [0x80, 0xfe]]] },
+  {
+    name: 'route spins',
+    stage: 'route',
+    why: /did not reach \$02A846 in 3000 steps/,
+    edits: () => [[STANDIN.routeBody + 13, [0x80, 0xfe]]],
+  },
   {
     name: 'a hook in the loop runs foreign code, then reaches the draw',
     stage: 'loop',
+    why: /runs code at \$03A000/,
     edits: () => [
       [STANDIN.loop + 15, [0x22, lo(FOREIGN), hi(FOREIGN), FOREIGN >> 16]],
       [
