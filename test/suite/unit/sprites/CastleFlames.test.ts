@@ -37,7 +37,15 @@ import {
   windowSet,
 } from '../../support/vanillaWindows'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
-import { clusterPathStandIn, STANDIN } from '../../support/clusterPathStandIn'
+import {
+  clusterPathStandIn,
+  LOOP,
+  PATH_HACKS,
+  ROUTE,
+  STANDIN,
+  STANDIN_LAYOUT,
+  tableWord,
+} from '../../support/clusterPathStandIn'
 
 const LEVEL = 0x105
 const off = (snes: number) => (snes >>> 16) * 0x8000 + ((snes & 0xffff) - 0x8000)
@@ -116,6 +124,7 @@ const routinesOf = (rom: RomFile): FlameRoutines => {
   return {
     spawn: sha(0x02aa6c, 33),
     draw: sha(0x02fa16, 110),
+    layout: STANDIN_LAYOUT,
   }
 }
 
@@ -217,20 +226,25 @@ describe('castle flames from the routines (synthetic cart)', () => {
     },
   )
 
-  // Each call-path check goes red on its own when its code is diverted: the names listed are the ONLY ones reported.
-  // [what, address, xor]: the xor sends the run elsewhere (the route's JSR operand, the JMP to the spawn, the loop's
-  // first slot, the dispatch's JSL operand, the type-5 table word).
-  it.each([
-    [['the loader route to the sprite spawn'], STANDIN.route + 8, 1],
-    [['the $E6 branch to the flame spawn'], STANDIN.entry + 15, 1],
-    [['the cluster loop for type 5'], STANDIN.loop + 1, 0x10],
-    [['the cluster loop for type 5', 'the cluster dispatch call target'], STANDIN.dispatchCall + 1, 1], // prettier-ignore
-    [['the cluster loop for type 5'], STANDIN.typeTable + 10, 1],
-  ])('a hacked call path (%j) still draws, unverified, naming it', (what, at, xor) => {
-    const dirty = flameRom(DATA, b => void (b[off(at)]! ^= xor))
-    expect(unverifiedOf(dirty, routinesOf(flameRom())).sort()).toEqual([...what].sort())
-    // Run as it stands: the flames are the base cart's, not blanked, not a vanilla table.
+  // The call-path gate runs the stand-in's route, entry, loop and dispatch (CastleFlames.ts, pathMismatches). Every
+  // hacked path of PATH_HACKS must be flagged by the stage it breaks and by no other, and the flames still draw.
+  const names = (xs: string[]) => xs.map(x => x.replace(/ \(.*\)$/, ''))
+  const STAGE = { route: ROUTE, dispatch: 'the $E6 branch to the flame spawn', loop: LOOP }
+  it.each(PATH_HACKS.map(h => [h.name, h] as const))('a hacked path (%s) is flagged and still draws', (_, h) => {
+    const dirty = flameRom(DATA, b => h.edits(true).forEach(([at, v]) => b.set(v, off(at))))
+    expect(names(unverifiedOf(dirty, routinesOf(flameRom())))).toEqual([STAGE[h.stage]])
     expect(key(dirty)).toEqual(key(flameRom()))
+  })
+
+  // One operand each: the route's JSR, the jump to the flame spawn, the type 5 word, the dispatch's JSL.
+  it.each([
+    [[ROUTE], STANDIN.routeBody + 6, 0x20],
+    [[STAGE.dispatch], STANDIN.entry + 25, 0x40],
+    [[LOOP], tableWord(5), 0x40],
+    [[LOOP, 'the cluster dispatch call target'], STANDIN.dispatch + 1, 1],
+  ])('a changed operand (%j) is flagged by name', (what, at, xor) => {
+    const dirty = flameRom(DATA, b => void (b[off(at)]! ^= xor))
+    expect(names(unverifiedOf(dirty, routinesOf(flameRom()))).sort()).toEqual([...what].sort())
   })
 
   describe('GetRand', () => {
@@ -477,11 +491,11 @@ describe('castle flames on the map (synthetic cart)', () => {
   })
 
   it('a hacked call path is flagged the same way', () => {
-    const hacked = flameRom(DATA, b => void (b[off(STANDIN.typeTable + 10)]! ^= 1))
+    const hacked = flameRom(DATA, b => void (b[off(tableWord(5))]! ^= 0x40))
     const r = draw(stream(0xe6), 16, hacked)
     expect(r.sprites.length).toBe(16)
     expect(r.note).not.toContain('vanilla shape')
-    expect(r.noteDetail).toContain('the cluster loop for type 5 is not the vanilla shape')
+    expect(r.noteDetail).toContain('the cluster loop')
   })
 
   describe('through mapSprites', () => {

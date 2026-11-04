@@ -31,6 +31,8 @@ import { checkExecutePtr } from './SpriteDispatch'
 import {
   CLUSTER_NUMBER,
   clusterPath,
+  VANILLA_LAYOUT,
+  type ClusterLayout,
   pathMismatches,
   SPRITE_LOCK,
   touchedOamParts,
@@ -53,6 +55,7 @@ export interface RingRoutines {
   draw: string
   helpers: string
   contact: string
+  layout?: ClusterLayout
 }
 export const VANILLA_RING_ROUTINES: RingRoutines = {
   spawn: '6c4c591c502ae9ebb9e48d14a6d6583f75069c2001a8aa6c1a3683e5504c9540',
@@ -97,7 +100,7 @@ export function ringGate(
   spans: typeof RING_SPANS = RING_SPANS,
 ): string[] {
   const out = pathMismatches(rom, PATH)
-  const callee = bytesAt(rom, 0x02f822, 3)
+  const callee = bytesAt(rom, (routines.layout ?? VANILLA_LAYOUT).dispatch + 1, 3)
   if (!callee || !checkExecutePtr(rom, [callee]).ok) out.push('the cluster dispatch call target')
   // A span that will not read is "unreadable", not a changed routine: hashing the spans that did read would blur the two.
   const check = (name: string, parts: readonly (readonly [number, number])[], want: string) => {

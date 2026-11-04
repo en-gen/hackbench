@@ -118,9 +118,29 @@ export function pathMismatches(rom: RomFile, checks: readonly PathCheck[]): stri
  * SHA-256 of the whole routine (33 and 110 bytes, ending in RTS); the data tables they read are NOT part of it.
  * Evidence scope: the vanilla USA ROM, one read.
  */
+/**
+ * Where a cart keeps the path code the gate lets a run fetch from: the loader route (the spans before and
+ * after its hand-off to the spawn dispatcher), the dispatcher, the cluster loop, and the dispatch block (a
+ * long call to ExecutePtr, then the word table). Addresses, not bytes; a test cart supplies its own.
+ */
+export type Span = readonly [from: number, to: number]
+export interface ClusterLayout {
+  route: readonly Span[]
+  entry: Span
+  loop: Span
+  dispatch: number
+}
+export const VANILLA_LAYOUT: ClusterLayout = {
+  route: [[0x02a8c0, 0x02a8d0]],
+  entry: [0x02aac0, 0x02aad5],
+  loop: [0x02f808, 0x02f821],
+  dispatch: 0x02f821,
+}
+
 export interface FlameRoutines {
   spawn: string
   draw: string
+  layout?: ClusterLayout
 }
 export const VANILLA_FLAME_ROUTINES: FlameRoutines = {
   spawn: '53bb50d4f6e9d3227864671530ed91f48d30d45cf86ca293fe26db047437fc36',
@@ -180,7 +200,7 @@ export function castleFlames(
 ): FlamesResult {
   if (!seed.loaded) return { ok: false, reason: seed.loadRefusal ?? 'no level image' }
   const unverified = pathMismatches(rom, FLAME_PATH)
-  const callee = bytesAt(rom, 0x02f822, 3)
+  const callee = bytesAt(rom, (routines.layout ?? VANILLA_LAYOUT).dispatch + 1, 3)
   if (!callee || !checkExecutePtr(rom, [callee]).ok) unverified.push('the cluster dispatch call target') // prettier-ignore
   const sha = (at: number, n: number) => spanFingerprint(Uint8Array.from(bytesAt(rom, at, n) ?? []))
   if (sha(SPAWN, 33) !== routines.spawn) unverified.push('the flame spawn routine')

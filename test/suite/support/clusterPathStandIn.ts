@@ -1,56 +1,165 @@
 /**
  * The call path from a level's sprite list to the cluster spawns and draws (castle flames $E6, rotating
  * ring $E2/$E3), written for a synthetic cart: INVENTED code that is not the game's. It differs in
- * instruction choice, order and operands from the ROM's (counting up, a subtract-and-compare dispatch), so no
- * vanilla code is committed (D126, FINGERPRINT MINIMUM rule 9). The gate in CastleFlames.ts runs this code
- * on the core and asks only whether it reaches the spawn and the draw, which it does for the ids it is given.
+ * instruction choice, order, operands and addresses from the ROM's (a subtract-and-compare dispatch, a
+ * counting-up loop, scratch cells instead of the stack, the dispatch block and the route body moved to other
+ * addresses), so no vanilla code or table position is committed (D126, FINGERPRINT MINIMUM rule 9). The gate
+ * in CastleFlames.ts runs this code on the core; `STANDIN_LAYOUT` tells it where this cart keeps it.
  * Evidence scope: synthetic bytes; the vanilla ROM's own path is proven in the corpus blocks.
  */
+import type { ClusterLayout } from '../../../src/rom/sprites/interp/CastleFlames'
 
-/** JSL to the cart's ExecutePtr slot (syntheticSpriteRom.ts) from an address, not a spelled-out operand. */
-const jsl = (to: number): number[] => [0x22, to & 0xff, (to >> 8) & 0xff, to >> 16]
-const jmp = (to: number): number[] => [0x4c, to & 0xff, (to >> 8) & 0xff]
+const lo = (a: number): number => a & 0xff
+const hi = (a: number): number => (a >> 8) & 0xff
+const jsl = (to: number): number[] => [0x22, lo(to), hi(to), to >> 16]
+const jmp = (to: number): number[] => [0x4c, lo(to), hi(to)]
+const jsr = (to: number): number[] => [0x20, lo(to), hi(to)]
 
 export const STANDIN = {
+  /** The cart's shell loader site (syntheticSpriteRom.ts) holds the route's first four bytes. */
   route: 0x02a8c0,
+  routeBody: 0x02f8a0,
   entry: 0x02aac0,
   loop: 0x02f808,
-  dispatchCall: 0x02f821,
+  /** The dispatch block (a JSL to the cart's ExecutePtr, then the word table): NOT at the game's address. */
+  dispatch: 0x02f900,
   flameSpawn: 0x02aa6c,
   ringSpawn: 0x02ab11,
   flameDraw: 0x02fa16,
   ringDraw: 0x02fa98,
   execPtr: 0x0086fa,
-  /** The dw table after the dispatch call: type 4 is the 5th word, type 5 the 6th. */
-  typeTable: 0x02f825,
+  loadNext: 0x02a846,
 } as const
 
+/** Where a word of the dispatch table sits: after the 4-byte JSL, two bytes per cluster type. */
+export const tableWord = (type: number, dispatch: number = STANDIN.dispatch): number =>
+  dispatch + 4 + 2 * type
+
+/** Layout facts the gate reads: the stand-in's code spans, in the form `ClusterLayout` takes. */
+export const STANDIN_LAYOUT: ClusterLayout = {
+  route: [
+    [STANDIN.route, STANDIN.route + 7],
+    [STANDIN.routeBody, STANDIN.routeBody + 16],
+  ],
+  entry: [STANDIN.entry, STANDIN.entry + 29],
+  loop: [STANDIN.loop, STANDIN.loop + 28],
+  dispatch: STANDIN.dispatch,
+}
+
+export interface StandInOptions {
+  /** The loop calls the dispatch block by a long call through the FastROM mirror of its bank. */
+  fastRom?: boolean
+}
+
 /** Everything to write, as [address, bytes]. */
-export function clusterPathStandIn(): [number, number[]][] {
+export function clusterPathStandIn(o: StandInOptions = {}): [number, number[]][] {
   const s = STANDIN
+  // The loop's call: a near call, or a long one through $82 for the mirror case (one byte longer).
+  const call = o.fastRom ? jsl(s.dispatch | 0x820000) : jsr(s.dispatch)
+  // prettier-ignore
+  const loop = [
+    0x8b, 0xa9, 0x02, 0x48, 0xab,               // PHB / LDA #2 / PHA / PLB: DB = 2
+    0xa2, 0x00,                                 // LDX #0
+    0x8e, 0xe9, 0x15,                           // lp: STX CurSpriteProcess
+    0xbd, 0x92, 0x18,                           // LDA ClusterSpriteNumber,X
+    0xd0, 0x07,                                 // BNE call
+    0xe8, 0xe0, 0x14,                           // nx: INX / CPX #$14
+    0x90, 0xf3,                                 // BCC lp
+    0xab, 0x6b,                                 // PLB / RTL
+    ...call,                                    // call:
+    0x80, o.fastRom ? 0xf3 : 0xf4,              // BRA nx
+  ]
   return [
-    // route: the cart's shell loader site already holds the first four bytes (an id compare and branch); the rest stores the id and calls the entry
-    [s.route + 4, [0x85, 0x0a, 0x20, s.entry & 0xff, s.entry >> 8, 0x60]],
-    // entry: id less $E2 is 0 or 1 for the ring, 4 for the flames
+    // route: the shell's head sits at s.route; a jump to the body, which keeps X in a scratch cell, hands
+    // Y less one to the spawn in $03, and restores both
+    [s.route + 4, jmp(s.routeBody)],
+    [
+      s.routeBody,
+      [
+        0x86, 0x0c, 0x88, 0x84, 0x03, ...jsr(s.entry), 0xa6, 0x0c, 0xa4, 0x03, 0xc8,
+        ...jmp(s.loadNext),
+      ],
+    ],
+    // entry: store the activate flag, then pick the spawn by the id less $E2 (0 or 1 ring, 4 flames), id kept in A
     [
       s.entry,
       [
-        0x38, 0xe9, 0xe2, 0xc9, 0x02, 0xb0, 0x03,
-        ...jmp(s.ringSpawn),
-        0xc9, 0x04, 0xd0, 0x03,
-        ...jmp(s.flameSpawn),
-        0x60,
-      ], // prettier-ignore
+        0x48, 0xa9, 0x01, 0x8d, 0xb8, 0x18, 0x68, 0x48, 0x38, 0xe9, 0xe2, 0xc9, 0x02, 0xb0, 0x04,
+        0x68, ...jmp(s.ringSpawn),
+        0xc9, 0x04, 0xd0, 0x04, 0x68, ...jmp(s.flameSpawn),
+        0x68, 0x60,
+      ],
     ],
-    // loop: count slots up from 0; a non-empty slot branches out to the dispatcher call and back
-    [
-      s.loop,
-      [
-        0xa2, 0x00, 0xbd, 0x92, 0x18, 0xd0, 0x06, 0xe8, 0xe0, 0x14, 0x90, 0xf6, 0x6b,
-        0x20, s.dispatchCall & 0xff, s.dispatchCall >> 8, 0x80, 0xf5,
-      ], // prettier-ignore
-    ],
-    [s.dispatchCall, jsl(s.execPtr)],
-    [s.typeTable + 8, [s.ringDraw & 0xff, s.ringDraw >> 8, s.flameDraw & 0xff, s.flameDraw >> 8]],
+    [s.loop, loop],
+    [s.dispatch, jsl(s.execPtr)],
+    [tableWord(4), [lo(s.ringDraw), hi(s.ringDraw)]],
+    [tableWord(5), [lo(s.flameDraw), hi(s.flameDraw)]],
   ]
 }
+
+export const ROUTE = 'the loader route to the sprite spawn'
+export const LOOP = 'the cluster loop'
+
+/** A hacked call path: what to overwrite in the stand-in, and the stage the gate must name (null: this cart is not affected). */
+export interface PathHack {
+  name: string
+  /** `flame` picks the flames ($E6, type 5) over the ring ($E2/$E3, type 4). */
+  edits: (flame: boolean) => [number, number[]][]
+  /** The names the gate must report, per cart: `dispatch` is the branch-to-the-spawn stage of that cart. */
+  stage: 'route' | 'dispatch' | 'loop'
+}
+
+const nop = (n: number): number[] => Array<number>(n).fill(0xea)
+const WRAPPER = 0x02f980
+const FOREIGN = 0x03a000
+const LP = STANDIN.loop + 7
+const END = STANDIN.loop + 20
+
+/** The hacked paths a run-to-the-target gate lets through (adversarial review of #1061): each must be flagged. */
+export const PATH_HACKS: readonly PathHack[] = [
+  { name: 'activate flag store removed', stage: 'dispatch', edits: () => [[STANDIN.entry + 3, nop(3)]] },
+  { name: 'loop skips slot 0', stage: 'loop', edits: () => [[STANDIN.loop + 6, [1]]] },
+  { name: 'loop visits only 4 slots', stage: 'loop', edits: () => [[STANDIN.loop + 17, [4]]] },
+  { name: 'CurSpriteProcess store dropped', stage: 'loop', edits: () => [[STANDIN.loop + 7, nop(3)]] },
+  {
+    name: 'dispatch words reach a wrapper that writes a cell',
+    stage: 'loop',
+    edits: flame => {
+      const draw = flame ? STANDIN.flameDraw : STANDIN.ringDraw
+      return [
+        [WRAPPER, [0xa9, 0x55, 0x8d, 0xf0, 0x0f, ...jmp(draw)]],
+        [tableWord(4), [lo(WRAPPER), hi(WRAPPER)]],
+        [tableWord(5), [lo(WRAPPER), hi(WRAPPER)]],
+      ]
+    },
+  },
+  {
+    name: 'route stub excludes the last id',
+    stage: 'route',
+    edits: flame => [
+      [STANDIN.route + 4, [0xc9, flame ? 0xe6 : 0xe3, 0xd0, 0x01, 0x60, ...jmp(STANDIN.routeBody)]],
+    ],
+  },
+  { name: 'route drops the _3 hand-off', stage: 'route', edits: () => [[STANDIN.routeBody + 3, nop(2)]] },
+  { name: 'route returns early after the call', stage: 'route', edits: () => [[STANDIN.routeBody + 8, [0x60]]] },
+  {
+    name: 'route stub depends on the level number',
+    stage: 'route',
+    edits: () => [
+      [STANDIN.route + 4, [0x48, 0xad, 0xbf, 0x13, 0xd0, 0x04, 0x68, ...jmp(STANDIN.routeBody), 0x68, 0x60]],
+    ],
+  },
+  { name: 'PHK/PLB removed from the loop wrapper', stage: 'loop', edits: () => [[STANDIN.loop, nop(5)]] },
+  { name: 'route spins', stage: 'route', edits: () => [[STANDIN.routeBody + 13, [0x80, 0xfe]]] },
+  {
+    name: 'a hook in the loop runs foreign code, then reaches the draw',
+    stage: 'loop',
+    edits: () => [
+      [STANDIN.loop + 15, [0x22, lo(FOREIGN), hi(FOREIGN), FOREIGN >> 16]],
+      [
+        FOREIGN,
+        [0x7a, 0x7a, 0x7a, 0xe8, 0xe0, 0x14, 0xb0, 0x04, 0x5c, lo(LP), hi(LP), 0x02, 0x5c, lo(END), hi(END), 0x02],
+      ],
+    ],
+  },
+]

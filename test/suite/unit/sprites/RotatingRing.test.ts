@@ -45,7 +45,15 @@ import {
 } from '../../support/vanillaWindows'
 import { CAPTURE_DIR, freshRom, hasRom, romPath, VANILLA } from '../../support/corpus'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
-import { clusterPathStandIn, STANDIN } from '../../support/clusterPathStandIn'
+import {
+  clusterPathStandIn,
+  LOOP,
+  PATH_HACKS,
+  ROUTE,
+  STANDIN,
+  STANDIN_LAYOUT,
+  tableWord,
+} from '../../support/clusterPathStandIn'
 
 const LEVEL = 0x105
 const off = (snes: number) => (snes >>> 16) * 0x8000 + ((snes & 0xffff) - 0x8000)
@@ -118,8 +126,12 @@ const routinesOf = (rom: RomFile): RingRoutines => {
     draw: sha(RING_SPANS.draw),
     helpers: sha(RING_SPANS.helpers),
     contact: sha(RING_SPANS.contact),
+    layout: STANDIN_LAYOUT,
   }
 }
+
+/** A gate verdict without the detail the path stages append in parentheses. */
+const names = (xs: string[]) => xs.map(x => x.replace(/ \(.*\)$/, ''))
 
 /** WRAM offset of the synthetic stream: byte i holds $40 + i, except offset 7 (the ENTRY's), which holds 5. */
 const STREAM_AT = 0xf000
@@ -310,15 +322,18 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
       [0x02fd48 + 111, 'the ring draw helpers'],
       [0x02fe71, 'the ring contact test'],
       [0x02fe71 + 83, 'the ring contact test'],
-      [STANDIN.dispatchCall, 'the cluster loop for type 4'],
-      [STANDIN.route + 7, 'the loader route to the sprite spawn'],
-      [STANDIN.entry + 8, 'the $E2/$E3 branch to the ring spawn'],
-      [STANDIN.loop + 1, 'the cluster loop for type 4', 0x10], // starts at slot 16: the type in slot 3 is never reached
-      [STANDIN.typeTable + 8, 'the cluster loop for type 4'],
-      [STANDIN.typeTable + 9, 'the cluster loop for type 4'],
+      [STANDIN.routeBody + 6, ROUTE, 0x20],
+      [STANDIN.entry + 17, 'the $E2/$E3 branch to the ring spawn', 0x40],
+      [tableWord(4), LOOP, 0x40],
+      [tableWord(4) + 1, LOOP, 0x40],
     ])('a changed byte at $%s names %s', (at, what, delta = 1) => {
       const rom = ringRom(b => (b[off(at)] = (b[off(at)]! + delta) & 0xff))
-      expect(ringGate(rom, clean)).toEqual([what])
+      expect(names(ringGate(rom, clean))).toEqual([what])
+    })
+    const STAGE = { route: ROUTE, dispatch: 'the $E2/$E3 branch to the ring spawn', loop: LOOP }
+    it.each(PATH_HACKS.map(h => [h.name, h] as const))('a hacked path (%s) is flagged by its stage', (_, h) => {
+      const rom = ringRom(b => h.edits(false).forEach(([at, v]) => b.set(v, off(at))))
+      expect(names(ringGate(rom, clean))).toEqual([STAGE[h.stage]])
     })
     it('a span that cannot be read is named as unreadable, not hashed from what did read', () => {
       // $02:0000 is below the LoROM window (lo < $8000): no cart byte, so bytesAt gives null for that span.
