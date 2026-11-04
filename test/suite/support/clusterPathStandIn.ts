@@ -1,10 +1,9 @@
 /**
  * The call path from a level's sprite list to the cluster spawns and draws (castle flames $E6, rotating
- * ring $E2/$E3), written for a synthetic cart: INVENTED code that is not the game's. It differs in
- * instruction choice, order, operands and addresses from the ROM's (a subtract-and-compare dispatch, a
- * counting-up loop, scratch cells instead of the stack, the dispatch block and the route body moved to other
- * addresses), so no vanilla code or table position is committed (D126, FINGERPRINT MINIMUM rule 9). The gate
- * in CastleFlames.ts runs this code on the core; `STANDIN_LAYOUT` tells it where this cart keeps it.
+ * ring $E2/$E3), written for a synthetic cart: INVENTED code that is not the game's, at addresses that are
+ * not the game's (D126, FINGERPRINT MINIMUM rule 9). A byte-for-byte match with the ROM at 5 or more bytes
+ * is checked by ClusterPathStandInNoVanilla.test.ts against the vanilla ROM (one machine, one image). The
+ * gate in ClusterPath.ts runs this code on the core; `STANDIN_LAYOUT` tells it where this cart keeps it.
  * Evidence scope: synthetic bytes; the vanilla ROM's own path is proven in the corpus blocks.
  */
 import type { ClusterLayout } from '../../../src/rom/sprites/interp/CastleFlames'
@@ -16,8 +15,8 @@ const jmp = (to: number): number[] => [0x4c, lo(to), hi(to)]
 const jsr = (to: number): number[] => [0x20, lo(to), hi(to)]
 
 export const STANDIN = {
-  /** The cart's shell loader site (syntheticSpriteRom.ts) holds the route's first four bytes. */
-  route: 0x02a8c0,
+  /** The route's head: a free address, not the shell loader site the synthetic cart keeps at $02A8C0. */
+  route: 0x02f860,
   routeBody: 0x02f8a0,
   entry: 0x02aac0,
   loop: 0x02f808,
@@ -39,7 +38,7 @@ export const tableWord = (type: number, dispatch: number = STANDIN.dispatch): nu
 export const STANDIN_LAYOUT: ClusterLayout = {
   route: [
     [STANDIN.route, STANDIN.route + 16],
-    [STANDIN.routeBody, STANDIN.routeBody + 16],
+    [STANDIN.routeBody, STANDIN.routeBody + 17],
   ],
   entry: [STANDIN.entry, STANDIN.entry + 29],
   loop: [STANDIN.loop, STANDIN.loop + 28],
@@ -58,28 +57,29 @@ export function clusterPathStandIn(o: StandInOptions = {}): [number, number[]][]
   const call = o.fastRom ? jsl(s.dispatch | 0x820000) : jsr(s.dispatch)
   // prettier-ignore
   const loop = [
-    0x8b, 0xa9, 0x02, 0x48, 0xab,               // PHB / LDA #2 / PHA / PLB: DB = 2
+    0x8b, 0xa2, 0x02, 0xda, 0xab,               // PHB / LDX #2 / PHX / PLB: DB = 2
     0xa2, 0x00,                                 // LDX #0
-    0x8e, 0xe9, 0x15,                           // lp: STX CurSpriteProcess
-    0xbd, 0x92, 0x18,                           // LDA ClusterSpriteNumber,X
+    0xbd, 0x92, 0x18,                           // lp: LDA ClusterSpriteNumber,X
     0xd0, 0x07,                                 // BNE call
     0xe8, 0xe0, 0x14,                           // nx: INX / CPX #$14
-    0x90, 0xf3,                                 // BCC lp
+    0x90, 0xf6,                                 // BCC lp
     0xab, 0x6b,                                 // PLB / RTL
-    ...call,                                    // call:
-    0x80, o.fastRom ? 0xf3 : 0xf4,              // BRA nx
+    0x8e, 0xe9, 0x15,                           // call: STX CurSpriteProcess
+    ...call,
+    0x80, o.fastRom ? 0xf0 : 0xf1,              // BRA nx
   ]
   return [
-    // route: the shell's head sits at s.route; a jump to the body, which keeps X in a scratch cell, hands
-    // Y less one to the spawn in $03, and restores both
-    [s.route + 4, jmp(s.routeBody)],
+    // route: four NOPs, then a jump to the body, which keeps X in a scratch cell, hands Y less one to the
+    // spawn in $03, and restores both
+    [s.route, [0xea, 0xea, 0xea, 0xea, ...jmp(s.routeBody)]],
     [
       s.routeBody,
       [
         0x86,
         0x0c,
-        0x88,
         0x84,
+        0x03,
+        0xc6,
         0x03,
         ...jsr(s.entry),
         0xa6,
@@ -95,9 +95,9 @@ export function clusterPathStandIn(o: StandInOptions = {}): [number, number[]][]
       s.entry,
       [
         0x48,
-        0xa9,
+        0xa2,
         0x01,
-        0x8d,
+        0x8e,
         0xb8,
         0x18,
         0x68,
@@ -146,7 +146,7 @@ const nop = (n: number): number[] => Array<number>(n).fill(0xea)
 const WRAPPER = 0x02f980
 const FOREIGN = 0x03a000
 const LP = STANDIN.loop + 7
-const END = STANDIN.loop + 20
+const END = STANDIN.loop + 17
 
 /** The hacked paths a run-to-the-target gate lets through (adversarial review of #1061): each must be flagged. */
 export const PATH_HACKS: readonly PathHack[] = [
@@ -166,13 +166,13 @@ export const PATH_HACKS: readonly PathHack[] = [
     name: 'loop visits only 4 slots',
     stage: 'loop',
     why: /runs code at \$000001/,
-    edits: () => [[STANDIN.loop + 17, [4]]],
+    edits: () => [[STANDIN.loop + 14, [4]]],
   },
   {
     name: 'CurSpriteProcess store dropped',
     stage: 'loop',
     why: /slot 0 is not the slot drawn/,
-    edits: () => [[STANDIN.loop + 7, nop(3)]],
+    edits: () => [[STANDIN.loop + 19, nop(3)]],
   },
   {
     name: 'dispatch words reach a wrapper that writes a cell',
@@ -199,13 +199,13 @@ export const PATH_HACKS: readonly PathHack[] = [
     name: 'route drops the _3 hand-off',
     stage: 'route',
     why: /hand-off cell _3/,
-    edits: () => [[STANDIN.routeBody + 3, nop(2)]],
+    edits: () => [[STANDIN.routeBody + 2, nop(2)]],
   },
   {
     name: 'route returns early after the call',
     stage: 'route',
     why: /runs code at \$0[02]/,
-    edits: () => [[STANDIN.routeBody + 8, [0x60]]],
+    edits: () => [[STANDIN.routeBody + 9, [0x60]]],
   },
   {
     name: 'route stub depends on the level number',
@@ -228,14 +228,14 @@ export const PATH_HACKS: readonly PathHack[] = [
     name: 'route spins',
     stage: 'route',
     why: /did not reach \$02A846 in 3000 steps/,
-    edits: () => [[STANDIN.routeBody + 13, [0x80, 0xfe]]],
+    edits: () => [[STANDIN.routeBody + 14, [0x80, 0xfe]]],
   },
   {
     name: 'a hook in the loop runs foreign code, then reaches the draw',
     stage: 'loop',
     why: /runs code at \$03A000/,
     edits: () => [
-      [STANDIN.loop + 15, [0x22, lo(FOREIGN), hi(FOREIGN), FOREIGN >> 16]],
+      [STANDIN.loop + 12, [0x22, lo(FOREIGN), hi(FOREIGN), FOREIGN >> 16]],
       [
         FOREIGN,
         [

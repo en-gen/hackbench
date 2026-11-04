@@ -181,9 +181,8 @@ describe('every byte of the stand-in path', () => {
 })
 
 // Bytes whose flip (xor $40) leaves both paths clean, measured on one machine over the stand-in as committed.
-// Each is an equivalent change or code the gate never reaches: the entry's SEC (the route's own compare leaves
-// carry set), the BNE after the compare for $04 and its operand (never taken for $E2/$E6), the two bytes of the
+// Each is an equivalent change or code the gate never reaches: the BNE after the compare for $04 and its operand (never taken for $E2/$E6), the two bytes of the
 // entry's final PLA/RTS (only reached for an id the cart does not name), the loop's BCC (BNE acts the same on
 // the counter's last step), the loop's BRA after the dispatch call (the draw is not run, so it never returns),
 // and the dispatch JSL's bank byte (a mirror of the same bank).
-const QUIET = '2aac8 2aad5 2aad6 2aadb 2aadc 2f81a 2f821 2f822 2f903'
+const QUIET = '2aad5 2aad6 2aadb 2aadc 2f817 2f821 2f822 2f903'

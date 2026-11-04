@@ -37,6 +37,7 @@ const FILES = [
   'test/suite/unit/sprites/ClusterPathGate.corpus.test.ts',
   'test/suite/unit/sprites/RotatingRing.test.ts',
   'test/suite/unit/sprites/CastleFlamesNoRomWindows.test.ts',
+  'test/suite/unit/sprites/ClusterPathStandInNoVanilla.test.ts',
 ]
 
 describe.skipIf(!hasRom(VANILLA))(

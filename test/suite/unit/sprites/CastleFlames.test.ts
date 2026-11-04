@@ -105,7 +105,7 @@ function flameRom(
 ) {
   const bytes = new Uint8Array(buildSyntheticRom(cart).buffer)
   const put = (snes: number, b: number[]) => {
-    // Empty, or already these bytes: the synthetic cart's shell-loader site at $02A8C0 (#837) shares the route's first four.
+    // Empty, or already these bytes (a stand-in span never overlaps another write).
     expect(bytes.subarray(off(snes), off(snes) + b.length).every((v, i) => v === 0 || v === b[i])).toBe(true) // prettier-ignore
     bytes.set(b, off(snes))
   }
@@ -244,7 +244,7 @@ describe('castle flames from the routines (synthetic cart)', () => {
 
   // One operand each: the route's JSR, the jump to the flame spawn, the type 5 word, the dispatch's JSL.
   it.each([
-    [[ROUTE], STANDIN.routeBody + 6, 0x20],
+    [[ROUTE], STANDIN.routeBody + 7, 0x20],
     [[STAGE.dispatch], STANDIN.entry + 25, 0x40],
     [[LOOP], tableWord(5), 0x40],
     [[LOOP, 'the cluster dispatch call target'], STANDIN.dispatch + 1, 1],

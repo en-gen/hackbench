@@ -1,5 +1,5 @@
 /**
- * #1061: the call-path gate (CastleFlames.ts pathMismatches) on the six corpus ROMs. Develop's byte checks flagged
+ * #1061: the call-path gate (ClusterPath.ts pathMismatches) on the six corpus ROMs. Develop's byte checks flagged
  * "the cluster loop" on the three hacks that hook the loop with foreign code (one machine, 2026-11-03); a
  * run that merely reaches the draw let all three pass, so the gate now flags every fetch outside the expected
  * path. The synthetic equivalent, with no ROM, is the "a hook in the loop" row of PATH_HACKS.
