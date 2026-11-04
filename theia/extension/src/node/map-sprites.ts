@@ -427,7 +427,7 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     ...(m.absolutePlacement
       ? {
           listPos: { x: m.anchor.rawX, y: m.anchor.rawY },
-          note: 'The game lays this sprite out itself, at fixed spots of the level; it does not follow where the list places it.',
+          note: 'The game lays this sprite out itself, at fixed spots of the map; it does not follow where the list places it.',
         }
       : {}),
     runtimePalette: pass.palette,
@@ -673,6 +673,8 @@ export function interpRunner(
     // A sprite with its own gate on the camera ($8D draws only while low byte of Layer1XPos < $46, bank_02.asm:15670-15673)
     // may draw nothing there: the shift is tried the other way, and if that draws nothing too the probe
     // proves nothing and the run stands (no position is invented).
+    // A sprite drawn at fixed map positions (InitLatches.ts) has no screen-fixed parts, and its camera is not the loader's.
+    if (m.absolutePlacement) return { m, fixed: false }
     const dir = [x - camera.x < 128 ? -13 : 13, y - camera.y < 112 ? -11 : 11]
     for (const k of [1, -1]) {
       const shifted = { x: camera.x + dir[0]! * k, y: camera.y + dir[1]! * k }

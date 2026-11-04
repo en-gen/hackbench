@@ -27,7 +27,7 @@ export interface InitLatch {
   /** SHA-256 of `length` bytes read at `initPointer + at`: the latch's guard and its set. */
   code: readonly CodeFingerprint[]
   /**
-   * The INIT places its own sprites at fixed positions of the level and ignores where the list put the sprite, so the
+   * The INIT places its own sprites at fixed positions of the map and ignores where the list put the sprite, so the
    * map view must not re-base the picture onto the placed spot (D134/D139-D) or move it with a drag.
    */
   absolute: boolean
@@ -43,17 +43,14 @@ export const INIT_LATCHES: Readonly<Record<number, InitLatch>> = {
     initPointer: 0xddac,
     cell: 0x1b94,
     before: 0,
+    // The whole INIT, up to and including its RTS (bank_01.asm:12675-12721): an edit anywhere in it, the spawn loop
+    // included, keeps today's behavior (D51).
     code: [
       {
         at: 0,
-        length: 9,
-        sha256: '9eb1b3ac84e6fca0a7ed7f0b4ff07296ddc58b26b5188fc6259f8bce5cdec15e',
-      }, // guard: 12676-12679
-      {
-        at: 0x5e,
-        length: 3,
-        sha256: '3c5c0641795a6b9b071e3caf741c0ca09599bccaa370d8155ead7c7754e3d6e2',
-      }, // latch set: 12719
+        length: 0x65,
+        sha256: '78c484a4b08e0f3cc359e9e3cffc0b0188c4441ece8103c807a1f24e5316beb3',
+      },
     ],
     absolute: true,
     why: 'bank_01.asm:12676-12679, 12681-12707, 12719',
@@ -99,8 +96,8 @@ const LOAD_NORMAL: CodeFingerprint = { at: 0x02a8dd, length: 11, sha256: 'de8308
  * The slot the level loader puts a placed sprite in: `SpriteSlotMax[SpriteMemorySetting]`, the top of the downward
  * free-slot search (bank_02.asm:5377, 5400-5405; a normal sprite, none of the ReservedSprite ids is $82). The table's
  * address is read from the loader's own `LDX table,Y` operand, so a repointed table is followed; null when the loader is
- * not the recognised one or the table is unreadable. With earlier stream sprites in the top slots the search lands
- * lower; only the slot-0 outcome is read from the image, any other is assumed to be the top.
+ * not the recognized one or the table is unreadable. With earlier stream sprites in the top slots the search lands
+ * lower, which is assumed away here except when slot 0 holds the $82 (null).
  * `loadNormal` is injectable so a synthetic cart can supply its own fingerprint.
  */
 export function placedSlot(
@@ -108,11 +105,11 @@ export function placedSlot(
   loaded: Uint8Array | undefined,
   loadNormal: CodeFingerprint = LOAD_NORMAL,
 ): number | null {
-  // The INIT's spawn loop fills slots 9..1 and never slot 0 (bank_01.asm:12681-12707), so a live $82 in slot 0 is a
-  // sprite the downward search placed there after earlier sprites took 9..1.
-  if (loaded && loaded[0x14c8] === 8 && loaded[0x9e] === 0x82) return 0
   const head = bytesAt(rom, loadNormal.at, loadNormal.length)
   if (!loaded || !head || fingerprint(Uint8Array.from(head)) !== loadNormal.sha256) return null
+  // The INIT's spawn loop fills slots 9..1 and never slot 0 (bank_01.asm:12681-12707), so a live $82 in slot 0 is one the
+  // downward search put there after earlier sprites took 9..1: that edited map keeps today's behavior (D51), not a tenth block.
+  if (loaded[0x14c8] === 8 && loaded[0x9e] === 0x82) return null
   const operand = bytesAt(rom, loadNormal.at + loadNormal.length, 2)
   if (!operand) return null
   const slot = bytesAt(rom, 0x020000 | (operand[0]! | (operand[1]! << 8)), 0x13)?.[loaded[0x1692]!]
