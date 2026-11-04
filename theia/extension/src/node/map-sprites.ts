@@ -466,6 +466,21 @@ function launcherResult(rom: RomFile, seed: SpriteSeed): SpriteDrawResult {
   }
 }
 
+/** Why a replay in the loader's top slot may differ when an earlier sprite of the list was loaded first (bank_02.asm:5400-5405: the search goes down from the top). */
+export const EARLIER_SPRITE_REASON =
+  'an earlier sprite in the list may have taken the slot the game puts this one in, so one block can differ by a pixel and in its item'
+
+/** True when a list entry before `s` was loaded at level start (SpriteLoadStatus set), so it may hold a slot the search would have used. */
+export function earlierSpriteLoaded(
+  list: readonly LevelSprite[],
+  s: LevelSprite,
+  loadStatus: (index: number) => number,
+): boolean {
+  return list.some(
+    e => e.index < s.index && e.index >= 0 && e.index < 128 && loadStatus(e.index) !== 0,
+  )
+}
+
 /** SpriteLoadStatus, SMWDisX rammap.asm:1968 (SMW_U.sym 00001938): one byte per sprite list entry, 128 of them. */
 const SPRITE_LOAD_STATUS = 0x1938
 
@@ -666,7 +681,15 @@ export function interpRunner(
     if (s.spriteId === FIVE_EERIES) return { direct: eeriesResult(rom, seed(camera), s, model.isVertical, eeriesRoutines) } // prettier-ignore
     if (s.spriteId === THREE_PLATFORMS) return { direct: platformsResult(rom, seed(camera), s, model.isVertical, platformRoutines) } // prettier-ignore
     if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
-    const m = run(rom, s.spriteId, seed(camera))
+    let m = run(rom, s.spriteId, seed(camera))
+    // A sprite placed at the game's own layout (the bonus game) was replayed in the loader's top slot; an earlier loaded sprite
+    // may have taken it, which moves one block by a pixel and changes its item (measured on $000, slots 9 vs 8): drawn, marked.
+    if (
+      m.absolutePlacement &&
+      !m.unverifiedReason &&
+      earlierSpriteLoaded(list, s, i => w?.[SPRITE_LOAD_STATUS + i] ?? 0)
+    )
+      m = { ...m, unverifiedReason: EARLIER_SPRITE_REASON }
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return { m, fixed: false } // prettier-ignore
     // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbor

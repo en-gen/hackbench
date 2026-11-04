@@ -32,6 +32,8 @@ import {
 import { L1ModelCache } from '../../../../theia/extension/src/node/map-screen'
 import {
   drawSprites,
+  earlierSpriteLoaded,
+  EARLIER_SPRITE_REASON,
   interpParts,
   mapSprites,
   modelResult,
@@ -391,12 +393,60 @@ describe.skipIf(!hasRom(VANILLA))('bonus game blocks, vanilla ROM', () => {
     }
     expect(full).toBeGreaterThan(0)
   })
+  // CodeRabbit on #1217: the game puts the sprite lower when an earlier sprite holds the top slot. Measured on $000, one
+  // machine: the picture changes with the run slot in up to 12 of 72 cells (a block's pixel row and its item tile), never in the box.
+  it('the table slot 1..9 changes at most 12 of the 72 cells (tile or palette), never the box', () => {
+    const rom = freshRom()
+    const op = bytesAt(rom, 0x02a8dd + 11, 2)!
+    const off = loromToOffset(0x020000 | (op[0]! | (op[1]! << 8)), rom.buffer.length)!
+    const abs = (slot: number) => {
+      const b = new Uint8Array(rom.buffer)
+      b[off] = slot
+      const r = mapSprites(new L1ModelCache(), b, romPath(VANILLA), 0)
+      if (r.status !== 'ok') throw new Error(r.status)
+      const d = r.sprites.find(x => x.id === 0x82)!
+      // Tile and palette only: a block one pixel higher would shift a position-keyed comparison of the whole grid.
+      return { box: d.box, cells: d.parts!.map(p => `${p.char}/${p.palette}`) }
+    }
+    const top = abs(9)
+    for (let slot = 1; slot <= 9; slot++) {
+      const o = abs(slot)
+      expect(o.box, `slot ${slot}`).toEqual(top.box)
+      const left = [...top.cells]
+      for (const c of o.cells) if (left.includes(c)) left.splice(left.indexOf(c), 1)
+      expect(left.length, `slot ${slot}`).toBeLessThanOrEqual(12)
+    }
+  })
+  it('an earlier loaded sprite in the list marks the grid unverified; the vanilla list alone does not', () => {
+    const rom = freshRom()
+    const at = loromToOffset(new SmwRom(rom).getLevelSpritePointer(0)!, rom.buffer.length)!
+    const b = new Uint8Array(rom.buffer)
+    const o = at + 1 // first entry, after the header byte; the list is rewritten as [koopa][$82][end]
+    const bonus = [b[o]!, b[o + 1]!, b[o + 2]!]
+    b.set([0x50, 0xa0, 0x04, ...bonus, 0xff], o)
+    const r = mapSprites(new L1ModelCache(), b, romPath(VANILLA), 0)
+    if (r.status !== 'ok') throw new Error(r.status)
+    expect(r.sprites.find(x => x.id === 0x82)!.unverified).toBe(EARLIER_SPRITE_REASON)
+  })
   it('without the latch row the sprite is erased, as before the fix', () => {
     const rom = freshRom()
     const seed = withSeed({ sprite: { x: 80, y: 112 } }, levelSeed(rom, 0))
     expect(runOnce(rom, 0x82, seed, { atRest: true, latches: {} }).emptyReason).toMatch(
       /INIT erased/,
     )
+  })
+})
+
+describe('an earlier loaded sprite (no ROM)', () => {
+  const e = (index: number) => ({ index }) as never
+  it('is any list entry before this one that the loader loaded', () => {
+    const loaded = new Set([1])
+    const f = (list: number[], at: number) =>
+      earlierSpriteLoaded(list.map(e), e(at), i => (loaded.has(i) ? 1 : 0))
+    expect(f([0, 1, 2], 2)).toBe(true)
+    expect(f([0, 2], 2)).toBe(false)
+    expect(f([1], 1)).toBe(false)
+    expect(f([2, 1], 0)).toBe(false)
   })
 })
 
