@@ -463,7 +463,7 @@ describe('castle flames on the map (synthetic cart)', () => {
   it('every opaque flame pixel is a colour of the CGRAM row its OAM attribute selects (#965)', () => {
     // Attribute bits 1-3 sweep 0..7 over two carts, one palette value per flame slot (Misc = slot). The rows are
     // literals (CGRAM 8 + palette). COLORS gives each row colours no other row has, so a wrong row cannot match.
-    const rows = [[8, 9, 10, 11], [12, 13, 14, 15]] // prettier-ignore
+    const rows = [[10, 8, 13, 15], [9, 14, 11, 12]] // prettier-ignore
     rows.forEach((want, half) => {
       const props = want.map(r => ((r - 8) << 1) | 1)
       const own = flameRom({ ...DATA, props }, b => void b.fill(0xea, off(0x02aa6c + 14), off(0x02aa6c + 16))) // prettier-ignore
