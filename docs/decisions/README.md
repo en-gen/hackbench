@@ -10,7 +10,7 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 | [2026-11-03-gm12-gate-window-hooks.md](2026-11-03-gm12-gate-window-hooks.md) | Ruled | a hook in GM12PrepLevel before the $0D9B test is an accepted limit, no guard; the warn path is follow-up #1205 (D159) |
 | [2026-10-29-keep-staged-check-scripts.md](2026-10-29-keep-staged-check-scripts.md) | Proposed | keep the staged-check scripts and their gate test as tooling for #1163 |
 | [2026-10-17-map-notes-rom-scope.md](2026-10-17-map-notes-rom-scope.md) | Proposed | whole-ROM map notes are shown once under This ROM, never on each map |
-| [2026-10-17-map-draw-notes-stay-above-map.md](2026-10-17-map-draw-notes-stay-above-map.md) | Proposed | map draw notes stay above the map and are also listed |
+| [2026-10-17-map-draw-notes-panel-only.md](2026-10-17-map-draw-notes-panel-only.md) | Ruled | map draw notes appear only in the Properties panel, no lines over the map (D111 call 2 / "D95B") |
 | [2026-10-17-missing-base-rom-is-a-project-problem.md](2026-10-17-missing-base-rom-is-a-project-problem.md) | Proposed | a missing base ROM is a project problem, not a map note |
 | [2026-10-17-map-facts-plain-labels.md](2026-10-17-map-facts-plain-labels.md) | Proposed | plain labels: Layout, Collected items remembered, Tile graphics |
 | [2026-10-17-graphics-note-names-lunar-magic.md](2026-10-17-graphics-note-names-lunar-magic.md) | Proposed | the graphics note keeps the Lunar Magic wording |
