@@ -284,9 +284,9 @@ export interface L3ScrollRangeDescriptor {
   xMax: number
   yMin: number
   yMax: number
-  /** Wave-surface row Y-position at high tide ($A0). Tide kinds only. */
+  /** Wave-surface row Y-position at high tide ($A0). Byte $01 only; $02-$7F tides keep Y static. */
   yHighTide?: number
-  /** Wave-surface row Y-position at low tide ($30). Tide kinds only. */
+  /** Wave-surface row Y-position at low tide ($30). Byte $01 only; $02-$7F tides keep Y static. */
   yLowTide?: number
 }
 
