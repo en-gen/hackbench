@@ -32,10 +32,11 @@ const WINGS_C2 = 2
 const PERIOD = 4
 
 /**
- * One SHA-256 over eight spans, 568 bytes, all unknown (hashed, none stored). Vanilla US only, measured.
+ * One SHA-256 over eight spans, 529 bytes, all unknown (hashed, none stored). Vanilla US only, measured.
  * Eating path, its branch into the wings test: bank_01.asm:15477-15567 ($01:F344-F3F6).
  * Contact loop and the second touch path to its RTS: 15867-15962 ($01:F622-F6DC).
- * The animation call site, ProcessPlayerAnimation and table slots 0-8: bank_00.asm:7952-7994 ($00:C569-C5AA).
+ * The animation call site, the JSR at bank_00.asm:7952 ($00:C569-C56B), and ProcessPlayerAnimation with
+ * table slots 0-8, bank_00.asm:7982-7994 ($00:C593-C5AA). What runs after the call returns is not on the path.
  * YoshiWingsAni: 8295-8331 ($00:C7FD-C847); CODE_00D273: 9631-9635 ($00:D273-D27B).
  * The block spawn's column rewrite: bank_02.asm:1199-1224 ($02:89A5-89D2) and its tables,
  * DATA_0288D6/D9 1091-1096 ($02:88D6-88DB). The `AND #$30` there is why PERIOD is 4.
@@ -47,12 +48,13 @@ export const WINGS_PATH: readonly (readonly [addr: number, length: number])[] = 
   [0x01f622, 187],
   [0x00c7fd, 75],
   [0x00d273, 9],
-  [0x00c569, 66],
+  [0x00c569, 3],
+  [0x00c593, 24],
   [0x0289a5, 46],
   [0x0288d6, 6],
 ])
 export const WINGS_PATH_DIGESTS: readonly string[] = Object.freeze([
-  'd9642ceb1f4ad2753021f325fa27804d644c3e8ec5fc78155298052b211af13e',
+  '76faec9099c93bda127c206b6108c36a2db5c6c1ef78b64cb3a2009e2334cb83',
 ])
 
 /** What the spawn left in the slot it picked. */

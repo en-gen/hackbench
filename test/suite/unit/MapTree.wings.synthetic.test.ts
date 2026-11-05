@@ -111,17 +111,71 @@ describe('the wings link in buildMapTree', () => {
     expect(yoshiUnder(t)).toEqual({ 0x101: [0x0c8] })
   })
 
-  it('refuses a holder with a secondary screen exit, names it, and still links a plain holder', () => {
-    const exits = { 0x001: [0x040], 0x040: [], 0x002: [] }
-    const r = wingsRom(exits, [0x001])
+  const noteOf = (t: ReturnType<typeof wingsTree>) =>
+    t.notes.filter(n => n.startsWith('Yoshi wings:')).join(' | ')
+  const SECONDARY = 'a secondary screen exit, which the game sends through a table that is not read'
+
+  it('refuses a lone holder with a secondary screen exit, in plain words, and says Yoshi Heaven stays', () => {
+    const r = wingsRom({ 0x001: [0x040], 0x040: [], 0x002: [] }, [0x001])
     const t = wingsTree(r, seamsFor(r, { 0x001: [1] }))
     expect(yoshiUnder(t)).toEqual({})
     expect(bonusSlots(t)).toContain(0x0c8)
-    expect(t.notes.join(' ')).toMatch(
-      /Yoshi wings: \$001 hold the wings block but have a secondary screen exit/,
+    expect(noteOf(t)).toBe(
+      `Yoshi wings: $001 holds the wings block but has ${SECONDARY}, so it is not linked. Yoshi Heaven stays listed as a bonus map.`,
     )
-    const plain = wingsTree(r, seamsFor(r, { 0x001: [1], 0x002: [1] }))
-    expect(yoshiUnder(plain)).toEqual({ 0x002: [0x0c8] })
+  })
+
+  it('does not say Yoshi Heaven stays when another root links it, and uses the plural for two holders', () => {
+    const r = wingsRom({ 0x001: [0x040], 0x040: [0x041], 0x041: [], 0x002: [] }, [0x001, 0x040])
+    const t = wingsTree(r, seamsFor(r, { 0x001: [1], 0x002: [1] }))
+    expect(yoshiUnder(t)).toEqual({ 0x002: [0x0c8] })
+    expect(bonusSlots(t)).not.toContain(0x0c8)
+    expect(noteOf(t)).toBe(
+      `Yoshi wings: $001 holds the wings block but has ${SECONDARY}, so it is not linked.`,
+    )
+    const two = wingsRom({ 0x001: [0x040], 0x040: [], 0x002: [0x041], 0x041: [] }, [0x001, 0x002])
+    const both = wingsTree(two, seamsFor(two, { 0x001: [1], 0x002: [1] }))
+    expect(noteOf(both)).toContain('$001, $002 hold the wings block but have')
+  })
+
+  it('links a plain holder under the same root as a secondary one, without the stays tail', () => {
+    const r = wingsRom({ 0x001: [0x040, 0x041], 0x040: [0x042], 0x041: [], 0x042: [] }, [0x040])
+    const t = wingsTree(r, seamsFor(r, { 0x040: [1], 0x041: [1] }))
+    expect(yoshiUnder(t)).toEqual({ 0x001: [0x0c8] })
+    expect(noteOf(t)).toBe(
+      `Yoshi wings: $040 holds the wings block but has ${SECONDARY}, so it is not linked.`,
+    )
+  })
+
+  it.each([
+    ['a plain exit', [] as number[]],
+    ['a secondary exit', [0x002]],
+  ])('refuses a holder whose stream has no terminator (%s), with a note', (_what, secondary) => {
+    const r = wingsRom(secondary.length ? { 0x002: [0x040], 0x040: [] } : { 0x002: [] }, secondary)
+    // The $FF that ends the stream: after the 3-byte leaf or the 4-byte exit, past the 5-byte header.
+    const end = new SmwRom(r).getLevelL1Pointer(0x002)! + 5 + (secondary.length ? 4 : 3)
+    expect(r.readByte(end)).toBe(0xff)
+    // Not a bare zero: zeros parse as further exits and the next room's $FF would end the walk. Filler objects that are no exit, past the read window.
+    r.writeAt(end, new Array(0x2100).fill(0x01))
+    const t = wingsTree(r, seamsFor(r, { 0x002: [1] }))
+    expect(yoshiUnder(t)).toEqual({})
+    expect(noteOf(t)).toBe(
+      'Yoshi wings: $002 holds the wings block but has object data that could not be read to its end, so its exits are unknown, so it is not linked. Yoshi Heaven stays listed as a bonus map.',
+    )
+  })
+
+  it('drops a link already made when a later root fails to read', () => {
+    const r = rom()
+    const grid = seamsFor(r, { 0x001: [1] }).grid!
+    const later = (slot: number): number[][] | null => {
+      if (slot === 0x002) throw new Error('second root failed')
+      return grid(slot)
+    }
+    const t = wingsTree(r, { ...seamsFor(r, {}), grid: later })
+    expect(yoshiUnder(t)).toEqual({})
+    expect(t.wingsPlaced).toEqual([])
+    expect(bonusSlots(t)).toContain(0x0c8)
+    expect(noteOf(t)).toMatch(/could not be read \(second root failed\)/)
   })
 
   it('does not follow Yoshi Heaven own exits: a map only it reaches stays Unassigned', () => {

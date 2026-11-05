@@ -236,16 +236,32 @@ export function buildMapTree(
       const cols = wingsColumns(rom.rom, fingerprints.wings)
       if (!('columns' in cols)) notes.push(`Yoshi wings: ${cols.note} ${yoshiStays}`)
       else {
-        const refused = new Set<number>()
+        // A holder whose exits are not known to be primary is not counted: a secondary exit sends the
+        // trip through DATA_05F800 (bank_05.asm:7111-7117), and an unreadable stream hides its exits.
+        const secondary = new Set<number>()
+        const unread = new Set<number>()
+        const refusedDests = new Set<number>()
         for (const [root, subs] of subsOf) {
           const holders = [root, ...subs].filter(i => holdsWings(rom, i, cols.columns, fingerprints.wings)) // prettier-ignore
-          // A secondary screen exit sends the trip through DATA_05F800 (bank_05.asm:7111-7117), which is not read here.
-          holders.filter(i => secondaryExit?.has(i)).forEach(i => refused.add(i))
           const dest = wingsDestination(!!flags.get(root), screenHigh!, yoshiLow)
-          if (holders.some(i => !secondaryExit?.has(i)) && !stops(dest)) wingsDest.set(root, dest)
+          holders.filter(i => secondaryExit?.has(i)).forEach(i => secondary.add(i))
+          holders.filter(i => graphCut?.includes(i)).forEach(i => unread.add(i))
+          const ok = holders.filter(i => !secondaryExit?.has(i) && !graphCut?.includes(i))
+          if (ok.length && !stops(dest)) wingsDest.set(root, dest)
+          else if (holders.length) refusedDests.add(dest)
         }
-        if (refused.size)
-          notes.push(`Yoshi wings: ${[...refused].map(i => '$' + i.toString(16).toUpperCase().padStart(3, '0')).join(', ')} hold the wings block but have a secondary screen exit, which sends the trip through a table this tree does not read, so they are not linked. ${yoshiStays}`) // prettier-ignore
+        const placedNow = new Set(wingsDest.values())
+        const stays = [...refusedDests].some(d => !placedNow.has(d)) ? ` ${yoshiStays}` : '' // prettier-ignore
+        const ids = (set: Set<number>): string => [...set].map(i => '$' + i.toString(16).toUpperCase().padStart(3, '0')).join(', ') // prettier-ignore
+        const say = (set: Set<number>, why: string): void => {
+          if (set.size)
+            notes.push(`Yoshi wings: ${ids(set)} ${set.size === 1 ? 'holds the wings block but has' : 'hold the wings block but have'} ${why}, so ${set.size === 1 ? 'it is' : 'they are'} not linked.${stays}`) // prettier-ignore
+        }
+        say(
+          secondary,
+          'a secondary screen exit, which the game sends through a table that is not read',
+        )
+        say(unread, 'object data that could not be read to its end, so its exits are unknown')
       }
     } catch (err) {
       wingsDest.clear()

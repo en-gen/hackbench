@@ -118,11 +118,11 @@ Which maps list Yoshi Heaven as a sub area is read from this block, not assumed
 3. **The path, fingerprinted.** Yoshi touching sprite `$7E` with C2 = 2 sets
    `PlayerAnimation` 8 (`bank_01.asm:15555-15566`, and the same test on the other
    touch path, `15943-15962`); animation 8 is `YoshiWingsAni` (`bank_00.asm:7994`),
-   which sets `YoshiHeavenFlag` (`bank_00.asm:8295-8331`). One SHA-256 covers seven
-   spans, 568 bytes, all unknown (vanilla US, D126): the eating path and its branch
+   which sets `YoshiHeavenFlag` (`bank_00.asm:8295-8331`). One SHA-256 covers eight
+   spans, 529 bytes, all unknown (vanilla US, D126): the eating path and its branch
    into the wings test (`bank_01.asm:15477-15567`), the contact loop to the end of
-   the second touch path (`15867-15962`), the animation call site, `ProcessPlayerAnimation`
-   and table slots 0-8 (`bank_00.asm:7952-7994`), `YoshiWingsAni` and `CODE_00D273`
+   the second touch path (`15867-15962`), the animation call site (`bank_00.asm:7952`, 3 bytes; what runs after the call
+   returns is not on the path), `ProcessPlayerAnimation` and table slots 0-8 (`7982-7994`), `YoshiWingsAni` and `CODE_00D273`
    (`8295-8331`, `9631-9635`), and the spawn's column rewrite with its two tables
    (`bank_02.asm:1199-1224`, `1091-1096`), which holds the `AND #$30` that makes the
    period 4. A ROM that changes any byte of them is refused with a note and Yoshi
@@ -161,10 +161,16 @@ Limits, all static reads unless said:
   so a map only Yoshi Heaven reaches stays Unassigned. Vanilla's two destinations have
   no exits.
 - **Layer 2 and the column.** Only Layer 1, as above.
-- **The spawn is read after one INIT frame**, through the runner's existing probe, not
-  at the instant of the spawn; a `$7E` whose MAIN rewrote C2 in that frame would read as
-  its new value. Vanilla's does not (it gives the wings in column 1 as the touch code
-  expects); not tested on a synthetic ROM.
+- **When the spawn is read.** Through the runner's existing probe, after the spawn and
+  one frame of the sprite's MAIN (the spawn leaves status 8, so no INIT runs; the runner's
+  `initFrames: 1` is only its label for that frame), not at the instant of the spawn. A
+  `$7E` whose MAIN rewrote C2 in that frame would read as its new value. Vanilla's gives the
+  wings in column 1, as the touch code expects; not tested on a synthetic ROM.
+- **Which ROMs get the link.** Of the corpus ROMs measured, only vanilla and the Lunar
+  Magic resave do (one machine, 2026-11-05; the other four, Grand Poo World 2 1.1, Grand Poo
+  World 1.2, Invictus and Seven Vanilla Levels, give no link): the bonus-entrance gate (`BONUS_CALL`) refuses all four, and
+  Yoshi Heaven's low byte comes from it. The path digest is vanilla US only as well. The issue's "hacks get it
+  too" is not met until that gate recognizes more builds.
 - **Cost.** The four spawn runs and the grids of the maps a root reaches are kept per ROM
   bytes (a hash), about 200-250 ms on a cold tree build of the vanilla ROM (5 cold runs,
   one machine, 2026-11-05).

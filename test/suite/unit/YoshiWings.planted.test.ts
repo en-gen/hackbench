@@ -11,6 +11,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { pathToFileURL } from 'url'
 import * as realTree from '../../../src/rom/MapTree'
+import { SmwRom } from '../../../src/rom/SmwRom'
 import { seamsFor, wingsRom, wingsTree, yoshiUnder } from '../support/wingsTree'
 
 const ROM_DIR = path.resolve(__dirname, '../../../src/rom').split(path.sep).join('/')
@@ -64,6 +65,10 @@ function checks(build: typeof realTree.buildMapTree): void {
   const sec = wingsRom({ 0x001: [0x040], 0x040: [] }, [0x001])
   const s = wingsTree(sec, seamsFor(sec, { 0x001: [1] }), build)
   expect(Object.keys(yoshiUnder(s)).length, 'secondary').toBe(0)
+  const cut = wingsRom({ 0x002: [] })
+  cut.writeAt(new SmwRom(cut).getLevelL1Pointer(0x002)! + 8, new Array(0x2100).fill(0x01)) // no $FF in reach
+  const c = wingsTree(cut, seamsFor(cut, { 0x002: [1] }), build)
+  expect(Object.keys(yoshiUnder(c)).length, 'unterminated').toBe(0)
 }
 
 describe('the wings checks can fail', () => {
@@ -95,6 +100,11 @@ describe('the wings checks can fail', () => {
       'the half is a literal 1',
       [{ file: 'YoshiWings', from: '(flag ? screenHigh : 0)', to: '(flag ? 1 : 0)' }],
       /operand/,
+    ],
+    [
+      'an unreadable holder is counted',
+      [{ file: 'MapTree', from: 'graphCut?.includes(i)', to: 'false' }],
+      /unterminated/,
     ],
     [
       'a secondary exit is ignored',
