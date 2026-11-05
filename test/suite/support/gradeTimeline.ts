@@ -6,7 +6,7 @@
  */
 
 import type { RomFile } from '../../../src/rom/RomFile'
-import { shellLoad } from '../../../src/rom/sprites/ShellSprites'
+import { FIRST_SPECIAL, shellLoad } from '../../../src/rom/sprites/ShellSprites'
 
 /** Largest pass index the grader will run for one record; a larger k falls back. */
 export const MAX_GRADED_PASS = 255
@@ -101,4 +101,15 @@ export function runnerId(
   const placed = entries?.find(e => e.index === listIndex)?.id
   const listId = placed === undefined ? NaN : parseInt(placed.slice(1), 16)
   return Number.isNaN(listId) ? id : shellLoad(rom, listId).shell?.number === id ? listId : id
+}
+
+/**
+ * The list id when the level loader places it as a sprite of that number (INIT then runs under it),
+ * else undefined. SMWDisX bank_02.asm:5365-5370 (below $C9 falls into LoadNormalSprite, id kept);
+ * 5337-5361 ($DA-$E0 minus $DE and $E0 are shells, via shellLoad); 5312-5331 ($DE, $E0 load Eeries
+ * and chain platforms), 5337-5347 (generators), 5349-5355 ($E1+), 5365-5367 ($C9-$CA shooters)
+ * spawn no sprite of that number, so the capture's id is the only one there is.
+ */
+export function placedInitId(rom: RomFile, listId: number): number | undefined {
+  return listId < FIRST_SPECIAL || shellLoad(rom, listId).shell ? listId : undefined
 }

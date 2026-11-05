@@ -16,7 +16,9 @@ import {
   facingMismatches,
   loaderImage,
   loaderMario,
+  oursFor,
   sharedRom,
+  unjoined,
 } from '../../support/initFacing'
 import { buildSyntheticRom, SYNTHETIC_INIT_TABLE_OFFSET } from '../../support/syntheticSpriteRom'
 import { loadVanillaBytes, vanillaHitsOver, windowSet } from '../../support/vanillaWindows'
@@ -202,10 +204,9 @@ const OTHER_SIDE = `
 
 /** Compared records where our INIT facing differs from the capture's, as map:slot:id:capture>ours. Not fixed here (#272 is tests only); a fix or a new mismatch must change this list. */
 // The 4 $1e entries: INIT-only sample (inferred, untested: the capture lacks the cloud's slot); the cloud's MAIN writes the rider's $157C (docs/sprites/lakitu-facing.md); map view correct per #1007.
+// The 9 Exploding Block ($4C) entries are gone (#1243): they were run as the Koopa/Goomba the block becomes later, not as the $4C the loader placed.
 const KNOWN_MISMATCHES = `
-    11e:0:$04:0>1 11e:3:$04:0>1 11e:3:$0f:0>1 11e:4:$04:0>1 11e:6:$00:0>1 11e:6:$04:0>1
-    11e:7:$0f:0>1 11e:8:$0f:0>1 11f:6:$1e:1>0 126:7:$0f:0>1 132:5:$1e:1>0 1c4:4:$1e:1>0
-    1c5:4:$1e:1>0
+    11f:6:$1e:1>0 132:5:$1e:1>0 1c4:4:$1e:1>0 1c5:4:$1e:1>0
 `
   .trim()
   .split(/\s+/)
@@ -227,6 +228,22 @@ describe('the facing comparator (planted defects)', () => {
   it('seed: a Mario seeded on the wrong side of the sprite through marioFor turns the comparison red', () => {
     const wrong = facingMismatches(rom, [rec(1)], () => ({ x: 0x210, y: 0x80 }), () => undefined) // prettier-ignore
     expect(wrong).toEqual([{ key: '001:3:$28', capture: 1, ours: 0 }])
+  })
+  it('list id: runs INIT under the placed list id when the capture id is what the sprite became later (#1243, $4C)', () => {
+    // The sprite was placed as $28 (INIT faces Mario: Mario right of it gives 0) and was $29 by the capture's end of frame.
+    const swapped: Loaded = { ...rec(0), listed: [{ index: 5, id: '$28' }], marioStart: { x: 0x210, y: 0x80 }, rec: { ...rec(0).rec, id: '$29', listIndex: 5 } } // prettier-ignore
+    expect(run(swapped)).toEqual([])
+    expect(run({ ...swapped, rec: { ...swapped.rec, initFacing: 1 } }).map(m => m.key)).toEqual(['001:3:$29']) // prettier-ignore
+  })
+  it('list id: an $E0-style placed id (the loader spawns other sprites, none of that number) keeps the capture id (#1243)', () => {
+    const e0: Loaded = { ...rec(0), listed: [{ index: 5, id: '$E0' }], marioStart: { x: 0x210, y: 0x80 }, rec: { ...rec(0).rec, id: '$28', listIndex: 5 } } // prettier-ignore
+    expect(run(e0)).toEqual([])
+    expect(run({ ...e0, rec: { ...e0.rec, initFacing: 1 } }).map(m => m.key)).toEqual(['001:3:$28']) // prettier-ignore
+  })
+  it('list id: a record the list cannot be joined to runs under its own id and is named by unjoined()', () => {
+    const lone: Loaded = { ...rec(1), listed: [], rec: { ...rec(1).rec, id: '$29', listIndex: 5 } }
+    expect(run(lone)).toEqual([])
+    expect(unjoined([lone, rec(1)]).map(r => r.rec.id)).toEqual(['$29'])
   })
   it('skips a record with no INIT (initFacing null) instead of comparing it', () => {
     expect(run({ ...rec(0), rec: { ...rec(0).rec, initFacing: null } })).toEqual([])
@@ -261,10 +278,24 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
         expect(compared.length).toBe(2162)
         const got = mismatches(compared).map(m => `${m.key}:${m.capture}>${m.ours}`.toLowerCase())
         expect(got.sort()).toEqual([...KNOWN_MISMATCHES].sort())
-        expect(compared.length - got.length).toBe(2149)
+        expect(compared.length - got.length).toBe(2158)
       },
       SLOW,
     )
+
+    it('joins every record to its list entry; the 10 records placed as $4C (9 formerly pinned) read ours = 0 each, the 15 placed as $E0 match (#1243)', () => {
+      expect(unjoined(all)).toEqual([])
+      const placed = (r: Loaded, id: string) => r.listed?.find(e => e.index === r.rec.listIndex)?.id === id
+      const mario = (r: Loaded) => loaderMario(parseInt(r.map, 16))!
+      const ours = (r: Loaded) => oursFor(sharedRom(), r, mario(r), loaderImage(parseInt(r.map, 16)))
+      const blocks = compared.filter(r => placed(r, '$4C') && r.rec.id !== '$4C')
+      expect(blocks.length).toBe(10)
+      expect(blocks.map(ours)).toEqual(blocks.map(() => 0))
+      expect(blocks.map(r => r.rec.initFacing)).toEqual(blocks.map(() => 0))
+      const e0 = compared.filter(r => placed(r, '$E0'))
+      expect(e0.length).toBe(15)
+      expect(mismatches(e0)).toEqual([])
+    }, SLOW) // prettier-ignore
 
     it('seed plant: goes red when the seeded Mario is moved to the other side of the sprite', () => {
       const r = compared.find(x => x.rec.listX >= 16 && !KNOWN_MISMATCHES.some(k => k.startsWith(key(x) + ':')))! // prettier-ignore
