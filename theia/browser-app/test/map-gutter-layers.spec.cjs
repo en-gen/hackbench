@@ -24,7 +24,7 @@
  *   G7 fetchBeyond leaves a failed key in `pending` instead of the `gutterFailed` map, or drops the `gutterFailed` skip: the failure case (it would re-ask on every scroll, or never be skipped).
  *   G10 the note stops being derived (it is set once and never recomputed per current key): the note-follows-the-current-key case.
  *   G11 refresh() does not clear `gutterFailed`: the cleared-on-refresh case.
- *   G12 fetchBeyond treats a reply whose screenCount is above the screen as a failure (or keeps its key, or skips requestVisible): the grown-map case.
+ *   G12 fetchBeyond treats a reply whose screenCount is above the screen as a failure (or keeps its key, or asks with requestVisible, which with a stale layout re-asks the same refused screen without end, instead of fetchScreen): the grown-map case.
  *   G13 keepViewOnPadChange drops its first `this.fitStrip()` (the one in the first animation frame): the late-sprites case, which has no scroll to fetch for it.
  *   G14 gutterFailure() looks at every failed key, not the current ones: the late-failure-of-an-old-key case.
  *   G8 the gutter canvas repaints blank while replies are pending (drop the `shots.some(x => !x)` keep): the edit case.
@@ -131,7 +131,7 @@ async function openSynthetic(
           const n = ++calls
           const unread = { status: 'unavailable', reason: 'Part of this map could not be read from the ROM.', detail: 'synthetic detail' } // prettier-ignore
           if (mode === 'fail' || ((mode === 'failOnce' || mode === 'failThenHold') && n === 1)) return unread
-          if (mode === 'grown') return ((grown = true), { ...unread, screenCount: screens + 1 })
+          if (mode === 'grown' && screen <= screens) return ((grown = true), { ...unread, screenCount: screens + 1 }) // past the new last screen the gutter reads fine
           if (mode === 'failLate' && n === 1) return (await gate, unread)
           if (mode === 'failThenHold') await gate
           const past = screen - screens + 1

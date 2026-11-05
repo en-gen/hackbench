@@ -825,7 +825,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         // The map grew since this screen number was chosen (an edit added a screen): it is inside the map now, so
         // its own `fetchScreen` must be free to ask (the key is freed), and no note is warranted.
         if (r && 'screenCount' in r && r.screenCount !== undefined && r.screenCount > screen) {
-          this.requestVisible()
+          // Not requestVisible(): with a stale layout fetchBeyond would pick this screen again and be refused again, without
+          // end. fetchScreen asks for the screen as a map screen, whose reply corrects the layout (and so the screens
+          // the gutter needs); the refit that follows asks for the rest. It cannot loop: it asks once per key.
+          void this.fetchScreen(screen)
           return
         }
         detail ??= r?.status === 'unavailable' ? (r.detail ?? r.reason) : undefined
