@@ -7,7 +7,10 @@ import {
   OVERWORLD_ENTRY,
   OVERWORLD_INDEX_BODY,
   SCREEN_EXIT,
+  operandBytes,
   spanFingerprint,
+  type EntryFingerprints,
+  type RamTable,
   type StockSpan,
 } from '../../../src/rom/SubmapFlagGate'
 import { START_EXIT_SPAN, START_MAIN_SPAN } from '../../../src/rom/LevelStart'
@@ -84,14 +87,32 @@ function plantSpan(rom: RomFile, span: StockSpan, plant: typeof START_EXIT_PLANT
 }
 
 /**
+ * The cart's RAM operands for the entry path, each invented: none is a vanilla address and none is derived
+ * from one by an offset, xor or bias (D185; docs/decisions/2026-11-05-d126-exception-entry-site-ram.md).
+ * SYNTHETIC_FINGERPRINTS.entry carries it, so every reader that takes the override takes the table too.
+ */
+export const SYNTHETIC_RAM: RamTable = Object.freeze({
+  OverworldOverride: 0x1a6d,
+  TranslevelNo: 0x0c8e,
+  LoadingLevelNumber: 0x1d37,
+  OWPlayerSubmap: 0x1ce2,
+  OWLayer1Translevel: 0x7e5c40,
+  _E: 0x4b,
+  _F: 0x91,
+})
+
+/**
  * The fingerprinted spans are vanilla code and never committed (CLAUDE.md),
  * so a synthetic ROM fills them with NOPs. Pass this to the reader under test;
  * the stock defaults refuse it.
  */
 export const SYNTHETIC_FINGERPRINTS: OverworldFingerprints = Object.freeze({
   entry: Object.freeze(
-    [false, true].map(h => spanFingerprint(syntheticIndexSpan(h), OVERWORLD_INDEX_BODY.mask)!),
-  ),
+    Object.assign(
+      [false, true].map(h => spanFingerprint(syntheticIndexSpan(h), OVERWORLD_INDEX_BODY.mask)!),
+      { ram: SYNTHETIC_RAM },
+    ),
+  ) as EntryFingerprints,
   walk: Object.freeze([fingerprint(nops(WALK_PROLOGUE_LENGTH))!]),
   bonus: Object.freeze([spanFingerprint(syntheticCall(), BONUS_CALL.mask)!]),
   startExit: Object.freeze([fingerprint(syntheticSpan(START_EXIT_SPAN, START_EXIT_PLANT))!]),
@@ -177,9 +198,12 @@ export function plantStockSubmapCode(rom: RomFile): void {
   }
   for (const c of stock) {
     // An opcode, and for a branch the displacement that lands where the stock one does.
-    if ('op' in c)
+    if ('op' in c) {
       rom.writeAt(c.addr, [c.op, ...(c.lands === undefined ? [] : [(c.lands - c.addr - 2) & 0xff])]) // prettier-ignore
-    else if (!('fingerprints' in c)) rom.writeAt(c.addr, [...c.bytes])
+      // The invented RAM operand, little-endian, so the operand is never vanilla's.
+      if (c.ram !== undefined)
+        rom.writeAt(c.addr + 1, Array.from({ length: operandBytes(c.op) }, (_, i) => (SYNTHETIC_RAM[c.ram!] >> (8 * i)) & 0xff)) // prettier-ignore
+    } else if (!('fingerprints' in c)) rom.writeAt(c.addr, [...c.bytes])
   }
   plantScreenExitFiling(rom)
   plantSpan(rom, START_EXIT_SPAN, START_EXIT_PLANT)

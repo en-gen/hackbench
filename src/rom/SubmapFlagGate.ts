@@ -60,17 +60,46 @@ const OP = {
   JSL: 0x22,
 } as const
 
-/** One instruction's opcode, and for a relative branch where its displacement (read from the ROM) must land. */
+/**
+ * The seven RAM addresses the entry path's instructions name, one constant each, cited to SMWDisX
+ * rammap.asm. A named exception to the no-hardcoded-ROM-values rule for this block only (D185,
+ * docs/decisions/2026-11-05-d126-exception-entry-site-ram.md): opcodes and these addresses are named;
+ * the threshold, bias, high byte and branch displacements stay read from the ROM. A hack that keeps the
+ * opcodes but repoints a store would otherwise read as stock and yield a confidently wrong slot.
+ */
+export const ENTRY_RAM = Object.freeze({
+  OverworldOverride: 0x0109, // rammap.asm:1036
+  TranslevelNo: 0x13bf, // rammap.asm:1445
+  LoadingLevelNumber: 0x17bb, // rammap.asm:1796
+  OWPlayerSubmap: 0x1f11, // rammap.asm:2049
+  OWLayer1Translevel: 0x7ed000, // rammap.asm:2115
+  _E: 0x0e, // rammap.asm:23
+  _F: 0x0f, // rammap.asm:24
+})
+export type RamKey = keyof typeof ENTRY_RAM
+export type RamTable = Readonly<Record<RamKey, number>>
+
+/** The span-fingerprint override a synthetic ROM passes; it may also carry its own RAM table. */
+export type EntryFingerprints = readonly string[] & { readonly ram?: RamTable }
+
+/** One instruction's opcode, for a relative branch where its displacement (read from the ROM) must land,
+ *  and for a RAM operand its key in the RAM table (never the value). */
 export interface StockOp {
   addr: number
   op: number
   lands?: number
+  ram?: RamKey
   what: string
   cite: string
 }
 
-const op = (addr: number, code: number, what: string, cite: string, lands?: number): StockOp =>
-  Object.freeze({ addr, op: code, what, cite, ...(lands === undefined ? {} : { lands }) })
+const op = (
+  addr: number,
+  code: number,
+  what: string,
+  cite: string,
+  extra: { lands?: number; ram?: RamKey } = {},
+): StockOp => Object.freeze({ addr, op: code, what, cite, ...extra })
 
 const REACH: StockCode = {
   addr: 0x0096f4,
@@ -85,8 +114,8 @@ const SITE_AT = 0x05d8a2
 
 /** LDA OverworldOverride / BNE CODE_05D8A2; the STZ _F and LDY #0 before them are in the digest below. */
 export const OVERWORLD_INDEX_GUARD: readonly StockOp[] = Object.freeze([
-  op(0x05d842, OP.LDA_ABS, "CODE_05D83E's OverworldOverride test", 'bank_05.asm:7167'),
-  op(0x05d845, OP.BNE, "CODE_05D83E's OverworldOverride branch", 'bank_05.asm:7168', SITE_AT),
+  op(0x05d842, OP.LDA_ABS, "CODE_05D83E's OverworldOverride test", 'bank_05.asm:7167', { ram: 'OverworldOverride' }), // prettier-ignore
+  op(0x05d845, OP.BNE, "CODE_05D83E's OverworldOverride branch", 'bank_05.asm:7168', { lands: SITE_AT }), // prettier-ignore
 ])
 
 /**
@@ -107,8 +136,8 @@ export const OVERWORLD_INDEX_BODY: StockSpan = Object.freeze({
 
 /** LDA.L OWLayer1Translevel,X / STA TranslevelNo; a JSL replaces the first (the second stays). */
 export const OVERWORLD_INDEX_LOAD: readonly StockOp[] = Object.freeze([
-  op(0x05d89b, OP.LDA_LONG_X, 'the OWLayer1Translevel load', 'bank_05.asm:7214'),
-  op(0x05d89f, OP.STA_ABS, 'the store to TranslevelNo', 'bank_05.asm:7215'),
+  op(0x05d89b, OP.LDA_LONG_X, 'the OWLayer1Translevel load', 'bank_05.asm:7214', { ram: 'OWLayer1Translevel' }), // prettier-ignore
+  op(0x05d89f, OP.STA_ABS, 'the store to TranslevelNo', 'bank_05.asm:7215', { ram: 'TranslevelNo' }), // prettier-ignore
 ])
 
 /**
@@ -118,15 +147,15 @@ export const OVERWORLD_INDEX_LOAD: readonly StockOp[] = Object.freeze([
 const A2 = 'CODE_05D8A2'
 export const ENTRY_SITE_OPS: readonly StockOp[] = Object.freeze([
   op(0x05d8a2, OP.CMP_IMM, `${A2}'s threshold compare`, 'bank_05.asm:7217'),
-  op(0x05d8a4, OP.BCC, `${A2}'s branch over the bias`, 'bank_05.asm:7218', 0x05d8a9),
+  op(0x05d8a4, OP.BCC, `${A2}'s branch over the bias`, 'bank_05.asm:7218', { lands: 0x05d8a9 }),
   op(0x05d8a6, OP.SEC, `${A2}'s SEC`, 'bank_05.asm:7219'),
   op(0x05d8a7, OP.SBC_IMM, `${A2}'s bias subtract`, 'bank_05.asm:7220'),
-  op(0x05d8a9, OP.STA_ABS, `${A2}'s store of the level number`, 'bank_05.asm:7221'),
-  op(0x05d8ac, OP.STA_DP, `${A2}'s store to _E`, 'bank_05.asm:7222'),
-  op(0x05d8ae, OP.LDA_ABS_Y, `${A2}'s read of the submap flag`, 'bank_05.asm:7223'),
-  op(0x05d8b1, OP.BEQ, `${A2}'s branch over the high byte`, 'bank_05.asm:7224', 0x05d8b5),
+  op(0x05d8a9, OP.STA_ABS, `${A2}'s store of the level number`, 'bank_05.asm:7221', { ram: 'LoadingLevelNumber' }), // prettier-ignore
+  op(0x05d8ac, OP.STA_DP, `${A2}'s store to _E`, 'bank_05.asm:7222', { ram: '_E' }),
+  op(0x05d8ae, OP.LDA_ABS_Y, `${A2}'s read of the submap flag`, 'bank_05.asm:7223', { ram: 'OWPlayerSubmap' }), // prettier-ignore
+  op(0x05d8b1, OP.BEQ, `${A2}'s branch over the high byte`, 'bank_05.asm:7224', { lands: 0x05d8b5 }), // prettier-ignore
   op(0x05d8b3, OP.LDA_IMM, `${A2}'s high byte`, 'bank_05.asm:7225'),
-  op(0x05d8b5, OP.STA_DP, `${A2}'s store to _F`, 'bank_05.asm:7226'),
+  op(0x05d8b5, OP.STA_DP, `${A2}'s store to _F`, 'bank_05.asm:7226', { ram: '_F' }),
 ])
 
 export const OVERWORLD_ENTRY: readonly (StockCode | StockSpan | StockOp)[] = [
@@ -261,8 +290,11 @@ export const LM_ENTRY_HOOK: BytePattern = [
 ]
 
 /** The routine's own threshold and bias, or why the site is not the hook. */
-function lmEntryHook(rom: RomFile): { threshold: number; bias: number } | string {
-  const site = stockCodeMismatch(rom, LM_ENTRY_SITE_OPS)
+function lmEntryHook(
+  rom: RomFile,
+  spanFingerprints?: EntryFingerprints,
+): { threshold: number; bias: number } | string {
+  const site = stockCodeMismatch(rom, LM_ENTRY_SITE_OPS, spanFingerprints)
   if (site) return site
   const b = rom.readAt(JSL_AT + 1, 3)!
   const at = b[0]! | (b[1]! << 8) | (b[2]! << 16)
@@ -286,10 +318,13 @@ export interface TranslevelBias {
 export type TranslevelBiasSite = ({ ok: true } & TranslevelBias) | { ok: false; reason: string }
 
 /** CODE_05D8A2's operands, stock or through the recognized hook. */
-export function readEntrySite(rom: RomFile): TranslevelBiasSite {
-  const stock = stockCodeMismatch(rom, ENTRY_SITE_OPS)
+export function readEntrySite(
+  rom: RomFile,
+  spanFingerprints?: EntryFingerprints,
+): TranslevelBiasSite {
+  const stock = stockCodeMismatch(rom, ENTRY_SITE_OPS, spanFingerprints)
   if (stock) {
-    const hook = lmEntryHook(rom)
+    const hook = lmEntryHook(rom, spanFingerprints)
     if (typeof hook === 'string') {
       return { ok: false, reason: `${stock} Nor is it Lunar Magic's hook: ${hook}` }
     }
@@ -400,7 +435,7 @@ type Hooks = [builds?: readonly MidwayHookBuild[], helpers?: readonly FastRoutin
 /** Each check on the path into CODE_05D8A2 on its own: null where it holds. */
 export function entryPathMismatches(
   rom: RomFile,
-  spanFingerprints?: readonly string[],
+  spanFingerprints?: EntryFingerprints,
   ...hooks: Hooks
 ): (string | null)[] {
   return ENTRY_PATH.map(c => {
@@ -414,10 +449,10 @@ export function entryPathMismatches(
 /** `TranslevelBias` once the path into CODE_05D8A2 is stock or recognized. */
 export function readTranslevelBias(
   rom: RomFile,
-  spanFingerprints?: readonly string[],
+  spanFingerprints?: EntryFingerprints,
 ): TranslevelBiasSite {
   const path = entryPathMismatches(rom, spanFingerprints).find(r => r !== null)
-  return path ? { ok: false, reason: path } : readEntrySite(rom)
+  return path ? { ok: false, reason: path } : readEntrySite(rom, spanFingerprints)
 }
 
 /** The recognized code's formula. `layout` (which buffer half assigned the
@@ -456,13 +491,23 @@ const SIZE: Readonly<Record<number, number>> = {
   [OP.LDA_LONG_X]: 4, [OP.JSL]: 4,
 }
 
-/** Why the instruction at `c.addr` is not the stock one, or null: its opcode, and for a branch where it lands.
- *  The whole instruction must be readable: an operand past the end of the image is a refusal. */
-function opMismatch(rom: RomFile, c: StockOp): string | null {
+/** Operand bytes of an instruction: its size less the opcode. */
+export const operandBytes = (code: number): number => SIZE[code]! - 1
+
+/** Why the instruction at `c.addr` is not the stock one, or null: its opcode, for a RAM operand the address
+ *  against `ram`, and for a branch where it lands. The whole instruction must be readable: an operand past
+ *  the end of the image is a refusal. */
+function opMismatch(rom: RomFile, c: StockOp, ram: RamTable): string | null {
   const at = rom.readAt(c.addr, SIZE[c.op]!)
   const name = `${formatAddr(c.addr)} (${c.what}, ${c.cite})`
   if (!at) return `${name} is not readable.`
   if (at[0] !== c.op) return `${name} holds opcode ${hexs(at[0]!)}, not the stock ${hexs(c.op)}.`
+  if (c.ram !== undefined) {
+    const found = at.subarray(1).reduce((v, b, i) => v | (b << (8 * i)), 0)
+    const want = ram[c.ram]
+    const show = (v: number): string => `$${v.toString(16).toUpperCase().padStart(2 * operandBytes(c.op), '0')}` // prettier-ignore
+    if (found !== want) return `${name} addresses ${show(found)}, not ${c.ram} at ${show(want)}.`
+  }
   if (c.lands === undefined) return null
   const to = c.addr + 2 + ((at[1]! << 24) >> 24)
   return to === c.lands
@@ -473,16 +518,17 @@ function opMismatch(rom: RomFile, c: StockOp): string | null {
 /**
  * A sentence naming the first run that is not stock, or null when all are.
  *
- * @param spanFingerprints Replaces every span's own list; for a synthetic ROM.
+ * @param spanFingerprints Replaces every span's own list; for a synthetic ROM. Its `ram`, if any,
+ *   replaces ENTRY_RAM the same way.
  */
 export function stockCodeMismatch(
   rom: RomFile,
   checks: readonly (StockCode | StockSpan | StockOp)[],
-  spanFingerprints?: readonly string[],
+  spanFingerprints?: EntryFingerprints,
 ): string | null {
   for (const c of new Set(checks)) {
     if ('op' in c) {
-      const why = opMismatch(rom, c)
+      const why = opMismatch(rom, c, spanFingerprints?.ram ?? ENTRY_RAM)
       if (why) return why
       continue
     }

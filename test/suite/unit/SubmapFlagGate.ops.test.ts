@@ -10,6 +10,7 @@ import { hasRom, romPath, VANILLA } from '../support/corpus'
 import { loadVanillaBytes, vanillaHits, windowSet } from '../support/vanillaWindows'
 import {
   LEVEL_START_Y,
+  ENTRY_RAM,
   LM_ENTRY_SITE_OPS,
   OVERWORLD_ENTRY,
   OVERWORLD_INDEX_BODY,
@@ -31,23 +32,29 @@ const bad = (rom: ReturnType<typeof blankStockRom>): (string | null)[] =>
 
 // Written by hand from bank_05.asm (instruction sizes summed from each label) with the independent opcode
 // names in asm65.ts, so a wrong or deleted entry in the source goes red with no corpus. Fields: address,
-// opcode, and for a branch where it lands.
+// opcode, for a branch where it lands (0 if none) and for a RAM operand the address it names (0 if none),
+// from SMWDisX rammap.asm. Known limit (D185): with no ROM this is the table checked against a second
+// hand-written copy of itself; only the corpus test in SubmapFlagGate.ram.test.ts reads the ROM's own operands.
 // prettier-ignore
-const HAND: readonly (readonly [number, number, number?])[] = [
-  [0x05d842, OP.LDA_ABS], [0x05d845, OP.BNE, 0x05d8a2],
-  [0x05d89b, OP.LDA_LONGX], [0x05d89f, OP.STA_ABS],
+const HAND: readonly (readonly [number, number, number?, number?])[] = [
+  [0x05d842, OP.LDA_ABS, 0, 0x0109], [0x05d845, OP.BNE, 0x05d8a2],
+  [0x05d89b, OP.LDA_LONGX, 0, 0x7ed000], [0x05d89f, OP.STA_ABS, 0, 0x13bf],
   [0x05d8a2, OP.CMP_IMM], [0x05d8a4, OP.BCC, 0x05d8a9], [0x05d8a6, OP.SEC], [0x05d8a7, OP.SBC_IMM],
-  [0x05d8a9, OP.STA_ABS], [0x05d8ac, OP.STA_DP], [0x05d8ae, OP.LDA_ABSY],
-  [0x05d8b1, OP.BEQ, 0x05d8b5], [0x05d8b3, OP.LDA_IMM], [0x05d8b5, OP.STA_DP],
+  [0x05d8a9, OP.STA_ABS, 0, 0x17bb], [0x05d8ac, OP.STA_DP, 0, 0x0e], [0x05d8ae, OP.LDA_ABSY, 0, 0x1f11],
+  [0x05d8b1, OP.BEQ, 0x05d8b5], [0x05d8b3, OP.LDA_IMM], [0x05d8b5, OP.STA_DP, 0, 0x0f],
 ]
-const triple = (c: { addr: number; op: number; lands?: number }): number[] => [c.addr, c.op, c.lands ?? 0] // prettier-ignore
-const hand = (h: typeof HAND): number[][] => h.map(([a, o, l = 0]) => [a, o, l])
+const triple = (c: { addr: number; op: number; lands?: number; ram?: keyof typeof ENTRY_RAM }): number[] => [c.addr, c.op, c.lands ?? 0, c.ram === undefined ? 0 : ENTRY_RAM[c.ram]] // prettier-ignore
+const hand = (h: typeof HAND): number[][] => h.map(([a, o, l = 0, r = 0]) => [a, o, l, r])
 
 describe('named-opcode checks on the overworld entry path', () => {
   it('are exactly the hand-written instructions: addresses, opcodes and branch landings', () => {
     expect(OPS.map(triple)).toEqual(hand(HAND))
     // The first seven site instructions, a JSL in place of the BEQ and the LDA, then the stock store to _F.
-    const lm = [...HAND.slice(4, 11), [0x05d8b1, OP.JSL], [0x05d8b5, OP.STA_DP]] as typeof HAND
+    const lm = [
+      ...HAND.slice(4, 11),
+      [0x05d8b1, OP.JSL],
+      [0x05d8b5, OP.STA_DP, 0, 0x0f],
+    ] as typeof HAND
     expect(LM_ENTRY_SITE_OPS.map(triple)).toEqual(hand(lm))
     expect(OVERWORLD_INDEX_BODY).toMatchObject({
       addr: 0x05d83e,
@@ -86,7 +93,7 @@ describe('named-opcode checks on the overworld entry path', () => {
       for (let v = 0; v < 0x100; v++) {
         const rom = blankStockRom()
         rom.writeAt(o.addr, [v])
-        expect(stockCodeMismatch(rom, [o]) === null, `value ${v}`).toBe(v === o.op)
+        expect(stockCodeMismatch(rom, [o], SYNTHETIC_FINGERPRINTS.entry) === null, `value ${v}`).toBe(v === o.op) // prettier-ignore
       }
     },
   )
@@ -98,7 +105,7 @@ describe('named-opcode checks on the overworld entry path', () => {
         const rom = blankStockRom()
         rom.writeAt(o.addr + 1, [d])
         const landing = o.addr + 2 + ((d << 24) >> 24)
-        expect(stockCodeMismatch(rom, [o]) === null, `disp ${d}`).toBe(landing === o.lands)
+        expect(stockCodeMismatch(rom, [o], SYNTHETIC_FINGERPRINTS.entry) === null, `disp ${d}`).toBe(landing === o.lands) // prettier-ignore
       }
     },
   )
@@ -149,8 +156,9 @@ describe.skipIf(!hasRom(VANILLA))('the planted stock cart against the game, wind
     const cart = Uint8Array.from(blankStockRom().readAtFileOffset(0, 0x80000)!)
     const hits = vanillaHits(cart, windowSet(loadVanillaBytes(romPath(VANILLA)), 5), 5)
     const mine = hits.filter(h => h >= '$05:D83E' && h <= '$05:D8B6' && h.startsWith('$05:D8'))
-    // The threshold and bias are invented, so the D8A2 windows are gone. The high byte the cart must keep
-    // at 0 or 1 still equals the game's: that is what leaves D8B0 and D8B1.
-    expect(mine).toEqual(['$05:D8B0', '$05:D8B1'])
+    // The threshold, bias and RAM operands are invented, so the D8A2 windows are gone, and D8B0 with them
+    // (its window held the vanilla submap-flag operand, now invented). The high byte the cart must keep
+    // at 0 or 1 still equals the game's: that is what leaves D8B1.
+    expect(mine).toEqual(['$05:D8B1'])
   })
 })
