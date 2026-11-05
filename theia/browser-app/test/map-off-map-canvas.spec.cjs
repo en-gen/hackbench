@@ -401,8 +401,9 @@ test('$DD: platform pixels land in the left pad: 8 px rounds up to one 16 px til
 // skipped the Layer 3 handler and the tide read as no liquid (#842, docs/sprites/sprite-a4-floating-spike-ball.md;
 // InitFloatingPlat/InitFloatSpkBall, bank_01.asm:6815-6834). #842 and #1119 (draw at the placed spot) ended it for
 // good. So the band rests on a synthetic box 24 px below the map. $1B adds a real 16 px: its Wooden Spike ($AD,
-// y 368, five 16 px tiles, INIT bank_01.asm:730-734 changes no position) is the same at every camera tried (208 to 300, stream
-// indexes 16, 22, 24; vanilla, one machine), unlike $9E on $0E and $110, whose overflow rides on the camera clamp.
+// y 368) draws five 16 px tiles from its own table (bank_03.asm:2657-2704; INIT bank_01.asm:730-734 moves nothing).
+// Emulated CPU, vanilla, one machine, one run per camera, slots 0, 16, 22, 24: cameras 200 to 300 give 5 tiles
+// (bottom 448); camera 192 would give 4 (bottom 432, no overflow). The map's camera is 208.
 const BELOW_24 = { x0: 64, y0: 420, x1: 96, y1: 456 }
 const addBelow24 = page => page.evaluate(b => (window.__hbExtra = [b]), BELOW_24)
 
