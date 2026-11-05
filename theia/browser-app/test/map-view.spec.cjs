@@ -3553,6 +3553,7 @@ const unverifiedReply = () => ({
 test('the unverified note reads in plain words and every cause is on the tooltips (#1166)', async ({
   page,
 }) => {
+  test.skip(!fs.existsSync(ROM), 'needs a ROM: the map under the served reply is the real one')
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openResolving(page, project.manifestPath, 'mapSprites', unverifiedReply())
   const el = page.locator(`${root(0x105)} [data-note="sprites"]`)
@@ -3571,6 +3572,7 @@ test('the unverified note reads in plain words and every cause is on the tooltip
 test('a selected unverified sprite shows the plain Properties line, the cause on its tooltip only (#1166)', async ({
   page,
 }) => {
+  test.skip(!fs.existsSync(ROM), 'needs a ROM: the map under the served reply is the real one')
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openResolving(page, project.manifestPath, 'mapSprites', unverifiedReply())
   await expect(spriteToggle(page, 0x105)).toBeEnabled()
