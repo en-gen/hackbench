@@ -83,11 +83,23 @@ function SpriteSubject({
   const [w, h] = [s.box.x1 - s.box.x0, s.box.y1 - s.box.y0]
   return (
     <div className="hb-props-sprite" data-subject="sprite">
-      {p.notes.map(n => (
-        <div key={n} className="hb-props-note" data-field="note" title={noteTitle(n, p)}>
-          {n}
-        </div>
-      ))}
+      {p.notes.map(n => {
+        const detail = noteTitle(n, p)
+        // A note with detail is a native disclosure: the plain line stays the summary, the engine's text opens beneath
+        // it by keyboard or touch, with the title kept for the mouse (#1166). One without detail is a plain line.
+        return detail ? (
+          <details key={n} className="hb-props-note" data-field="note" title={detail}>
+            <summary>{n}</summary>
+            <div className="hb-props-note-detail" data-field="note-detail">
+              {detail}
+            </div>
+          </details>
+        ) : (
+          <div key={n} className="hb-props-note" data-field="note">
+            {n}
+          </div>
+        )
+      })}
       {/* #1023: the map's notes summary sits above the breadcrumb (docs design map-facts-properties.md); its "Back" link goes in the breadcrumb. */}
       <div className="hb-props-crumb" data-control="crumb">
         Sprite

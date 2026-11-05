@@ -3569,7 +3569,7 @@ test('the unverified note reads in plain words and every cause is on the tooltip
   expect(await toggle.getAttribute('aria-label')).not.toContain('planted')
 })
 
-test('a selected unverified sprite shows the plain Properties line, the cause on its tooltip only (#1166)', async ({
+test('a selected unverified sprite shows the plain Properties line, the cause opening by keyboard (#1166)', async ({
   page,
 }) => {
   test.skip(!fs.existsSync(ROM), 'needs a ROM: the map under the served reply is the real one')
@@ -3585,10 +3585,24 @@ test('a selected unverified sprite shows the plain Properties line, the cause on
   })
   const panel = page.locator('[id="hackbench.properties"]')
   const line = panel.locator('[data-field="note"]', { hasText: 'Unverified' })
-  await expect(line).toHaveText('Unverified: this sprite may not be drawn exactly as in the game.')
+  const summary = line.locator('summary')
+  const detail = line.locator('[data-field="note-detail"]')
+  // Closed: the summary reads the plain line, the cause is not visible, and the mouse tooltip still holds it.
+  await expect(summary).toHaveText(
+    'Unverified: this sprite may not be drawn exactly as in the game.',
+  )
+  await expect(detail).toBeHidden()
   await expect(line).toHaveAttribute('title', UNVERIFIED_CAUSES[0])
   expect(await line.getAttribute('aria-label')).toBeNull()
-  expect(await panel.innerText()).not.toContain('planted cause')
+  expect(await summary.getAttribute('aria-label')).toBeNull()
+  // Keyboard: focus the summary and press Enter; the cause opens beneath it.
+  await summary.focus()
+  await page.keyboard.press('Enter')
+  await expect(detail).toBeVisible()
+  await expect(detail).toHaveText(UNVERIFIED_CAUSES[0])
+  await expect(summary).toHaveText(
+    'Unverified: this sprite may not be drawn exactly as in the game.',
+  )
 })
 
 test('a start position that cannot be worked out shows no note (#1008)', async ({ page }) => {
