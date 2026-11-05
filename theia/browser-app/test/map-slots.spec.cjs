@@ -336,6 +336,49 @@ test('one preview tab goes from a New slot to an ordinary map and back', async (
   await expect(page.locator(PREVIEW)).toHaveCount(1)
 })
 
+test('a single click on New after a map with a picked sprite clears Properties; collision is off for New', async ({
+  page,
+}) => {
+  await load(page, patchedRom())
+  await (await rowOf(page, 0x105)).click()
+  await expect(page.locator(`${PREVIEW} .hb-map-view-strip`)).toBeVisible({ timeout: 30000 })
+  // Pick the first placed sprite as a click would (the map-sprite-props spec covers the click itself).
+  await page.waitForFunction(() => {
+    const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:preview')
+    return !!w.sprites?.sprites?.length
+  })
+  const picked = await page.evaluate(() => {
+    const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:preview')
+    w.selectSprite(w.sprites.sprites[0])
+    return getSvc('PropertiesModel').subject.kind
+  })
+  expect(picked).toBe('sprite')
+
+  await (await rowOf(page, NEW_ZERO)).click()
+  await expect(page.locator(`${PREVIEW} [data-control="map-new-note"]`)).toBeVisible({ timeout: 30000 }) // prettier-ignore
+  const after = await page.evaluate(async () => {
+    const shell = getSvc('ApplicationShell')
+    const w = shell.getWidgetById('hackbench.map-view:preview')
+    await shell.activateWidget(w.id)
+    const commands = getSvc('CommandRegistry')
+    w.toggleCollision()
+    return {
+      subject: getSvc('PropertiesModel').subject.kind,
+      selected: w.selectedSprite ?? null,
+      canToggle: w.canToggleCollision,
+      enabled: commands.isEnabled('hackbench.maps.toggleCollision'),
+      showCollision: w.showCollision,
+    }
+  })
+  expect(after).toEqual({
+    subject: 'none',
+    selected: null,
+    canToggle: false,
+    enabled: false,
+    showCollision: false,
+  })
+})
+
 test('a New slot cannot be added to a group; the near-the-end map can', async ({ page }) => {
   await load(page, patchedRom())
   const can = await page.evaluate(

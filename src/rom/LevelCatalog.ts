@@ -109,7 +109,8 @@ const MIN_COMMON_MARGIN_RATIO = 2
 export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
   const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) => rom.getLevelL1Pointer(i) ?? 0)
   // Only pointers that resolve inside the file can be the common one, as in the exit graph (D155).
-  const common = findCommonPointer(rom.getResolvedL1Pointers())
+  const resolved = rom.getResolvedL1Pointers()
+  const common = findCommonPointer(resolved)
   // Slots on one pointer share one answer, so the stream is walked once per distinct pointer.
   const readOnce = new Map<number, { parseable: boolean; terminated: boolean }>()
 
@@ -121,7 +122,8 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
 
   for (let i = 0; i < LEVEL_COUNT; i++) {
     const l1Pointer = pointers[i]!
-    const pointed = l1Pointer !== 0 && rom.rom.fileOffsetOf(l1Pointer) !== null
+    // One definition with the common pointer above: the resolved list reads 0 for a pointer that names no byte.
+    const pointed = resolved[i] !== 0
     // `common` is picked from resolved pointers only, so a slot on it is always pointed.
     const sharedPointer = common !== null && l1Pointer === common.pointer
     const isReal = pointed && !sharedPointer

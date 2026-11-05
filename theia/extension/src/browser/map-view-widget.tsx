@@ -399,6 +399,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.startState = 'pending'
     this.movedBeforeStart = false
     if (options.isNew) {
+      // A reused tab must not keep the last map's sprite in the Properties panel beside a New slot.
+      this.selectSprite(undefined)
       this.generation++
       this.update()
       return
@@ -1319,7 +1321,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Shows or hides the collision overlay (`hackbench.maps.toggleCollision`); a refused map stays off. */
   toggleCollision(): void {
-    if (this.collisionWhy) return
+    if (this.options?.isNew || this.collisionWhy) return
     this.showCollision = !this.showCollision
     this.collisionSeq++ // off: a reply still on its way is not wanted; on: it is asked for afresh below
     if (this.showCollision && !this.collisionCurrent()) void this.loadCollision()
@@ -1333,7 +1335,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Whether the collision toggle can be used: what `hackbench.maps.toggleCollision` and the button share. */
   get canToggleCollision(): boolean {
-    return !this.collisionWhy
+    return !this.options?.isNew && !this.collisionWhy
   }
 
   /** The collision toggle's tooltip: what pressing it does, or why it cannot. */
