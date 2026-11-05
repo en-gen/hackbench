@@ -52,6 +52,7 @@ import { overworldRows, opensArea, type AreaRow } from './map-explorer-areas'
 import { GfxService } from '../common/gfx-protocol'
 import { ProjectContext } from './project-context'
 import { orderSpecials } from './map-explorer-order'
+import { titleWithWarning } from './map-explorer-warning'
 import {
   GroupedMapNodeDto,
   GroupedMapTreeDto,
@@ -162,11 +163,12 @@ export const CATEGORY_ICONS: Record<MapCategory, string> = {
   message: 'codicon-info',
 }
 
+/** The warning icon wins over the role's own: a bad map says so on any row. */
 const iconFor = (node: MapTreeNode): string =>
-  node.role
-    ? BONUS_ROLES[node.role].icon
-    : node.area?.invalid || node.unreadable
-      ? 'codicon-warning'
+  node.area?.invalid || node.unreadable
+    ? 'codicon-warning'
+    : node.role
+      ? BONUS_ROLES[node.role].icon
       : CATEGORY_ICONS[node.category]
 
 /** A group folder's name without the count its caption adds. */
@@ -532,6 +534,7 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
       parent: undefined,
       children: [],
       selected: false,
+      ...(dto.unreadable ? { unreadable: true as const } : {}),
     }
   }
 
@@ -1036,12 +1039,11 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
     // A New slot says so whatever folder holds it: the tooltip does not depend on its category.
     if (map.noPointer) {
       attrs.title = 'New: nothing has been added to this slot yet'
-    } else if (map.unreadable) {
-      attrs.title = "This map's data could not be read"
     } else if (map.category === 'orphan') {
       attrs.title = 'Not reached from the overworld'
     }
     if (map.role && !map.noPointer) attrs.title = BONUS_ROLES[map.role].title
+    if (!map.noPointer) attrs.title = titleWithWarning(attrs.title, map.unreadable)
     if (map.area?.invalid) attrs.title = map.area.invalid
     if (map.areasNote) attrs.title = map.areasNote
     // Theia's own default caption only carries the node id on expandable

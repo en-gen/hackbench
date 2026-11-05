@@ -776,6 +776,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   }
 
   protected requestVisible(): void {
+    // A New slot shows a note, not a map: no screen is ever asked for.
+    if (this.options?.isNew) return
     this.sync()
     for (const s of this.visibleScreens()) void this.fetchScreen(s)
   }
@@ -787,7 +789,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected async fetchScreen(screen: number): Promise<void> {
     const o = this.options
     const key = this.key(screen)
-    if (!o || this.screens.has(key) || this.pending.has(key)) return
+    if (!o || o.isNew || this.screens.has(key) || this.pending.has(key)) return
     this.pending.add(key)
     const generation = this.generation
     let r: MapScreenResult
@@ -1288,6 +1290,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Refits while in fit mode; always asks for the screens now in view. */
   protected fitStrip(): void {
+    if (this.options?.isNew) return
     this.zoomController.refit()
     requestAnimationFrame(() => this.requestVisible())
   }

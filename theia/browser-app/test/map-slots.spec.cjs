@@ -24,6 +24,8 @@ const SHARED_SLOT = 0x025
 const NEW_ZERO = 0x1f0
 const NEW_OUTSIDE = 0x1f1
 const UNREADABLE = 0x1f2
+/** Vanilla's Title Screen slot (SpecialMaps.synthetic.test.ts names it); patched unreadable to test a special row. */
+const TITLE_SLOT = 0x0c7
 /** The Layer 1 pointer table in the file (SNES $05E000, LoROM, no copier header). */
 const L1_TABLE = 0x2e000
 /** Generous: the point is "responsive with 512 rows", not a tuned budget. */
@@ -57,8 +59,8 @@ test.afterEach(() => {
   if (tmp) fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-/** Vanilla with three pointer-table entries rewritten, written to the temp dir. */
-function patchedRom() {
+/** Vanilla with three pointer-table entries rewritten (and `unreadable` slots pointed at the ROM's tail), in the temp dir. */
+function patchedRom(unreadable = []) {
   const bytes = fs.readFileSync(ROM)
   const header = bytes.length % 1024 === 512 ? 512 : 0
   const size = bytes.length - header
@@ -73,7 +75,9 @@ function patchedRom() {
   const tail = size - 4
   set(NEW_ZERO, 0)
   set(NEW_OUTSIDE, 0x7e8000)
-  set(UNREADABLE, ((tail >> 15) << 16) | 0x8000 | (tail & 0x7fff))
+  const tailPtr = ((tail >> 15) << 16) | 0x8000 | (tail & 0x7fff)
+  set(UNREADABLE, tailPtr)
+  for (const slot of unreadable) set(slot, tailPtr)
   const out = path.join(tmp, 'patched.sfc')
   fs.writeFileSync(out, bytes)
   return out
@@ -274,19 +278,59 @@ test('New slots: the folder counts them apart, the row says New in plain words',
   }
 })
 
-test('opening a New slot shows an empty view with one plain note and no error', async ({
+// Both kinds of New slot: a zero pointer and one outside the file. Titles print the slot in hex.
+for (const slot of [NEW_ZERO, NEW_OUTSIDE]) {
+  test(`opening New slot $${slot.toString(16)} shows an empty view with one plain note and no error`, async ({
+    page,
+  }) => {
+    await load(page, patchedRom())
+    const row = await rowOf(page, slot)
+    await row.dblclick()
+    const view = page.locator(`[id="hackbench.map-view:${slot}"]`)
+    await expect(view).toBeVisible({ timeout: 30000 })
+    await expect(view.locator('[data-control="map-new-note"]')).toHaveText(
+      'This slot is new. It has no map yet.',
+    )
+    await expect(view.locator('[data-control="map-error"]')).toHaveCount(0)
+    await expect(view.locator('.hb-map-view-strip')).toHaveCount(0)
+  })
+}
+
+const PREVIEW = '[id="hackbench.map-view:preview"]'
+
+test('a single click on a New slot previews the note and never asks for a screen', async ({
   page,
 }) => {
   await load(page, patchedRom())
-  const row = await rowOf(page, NEW_ZERO)
-  await row.dblclick()
-  const view = page.locator(`[id="hackbench.map-view:${NEW_ZERO}"]`)
-  await expect(view).toBeVisible({ timeout: 30000 })
-  await expect(view.locator('[data-control="map-new-note"]')).toHaveText(
-    'This slot is new. It has no map yet.',
-  )
-  await expect(view.locator('[data-control="map-error"]')).toHaveCount(0)
-  await expect(view.locator('.hb-map-view-strip')).toHaveCount(0)
+  await (await rowOf(page, NEW_OUTSIDE)).click()
+  const view = page.locator(PREVIEW)
+  await expect(view.locator('[data-control="map-new-note"]')).toBeVisible({ timeout: 30000 })
+  // Resize and wait: the old code asked the server for screens on every resize.
+  await page.setViewportSize({ width: 1100, height: 700 })
+  await page.waitForTimeout(1500)
+  const asked = await page.evaluate(() => {
+    const w = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:preview')
+    return { screens: w.screens.size, pending: w.pending.size, error: w.screenError ?? null }
+  })
+  expect(asked).toEqual({ screens: 0, pending: 0, error: null })
+})
+
+test('one preview tab goes from a New slot to an ordinary map and back', async ({ page }) => {
+  await load(page, patchedRom())
+  const note = page.locator(`${PREVIEW} [data-control="map-new-note"]`)
+  await (await rowOf(page, NEW_ZERO)).click()
+  await expect(note).toBeVisible({ timeout: 30000 })
+
+  await (await rowOf(page, SHARED_SLOT)).click()
+  await expect(page.locator(`${PREVIEW} .hb-map-view-strip`)).toBeVisible({ timeout: 30000 })
+  await expect(note).toHaveCount(0)
+  await expect(page.locator(`${PREVIEW} [data-control="map-error"]`)).toHaveCount(0)
+
+  await (await rowOf(page, NEW_OUTSIDE)).click()
+  await expect(note).toBeVisible({ timeout: 30000 })
+  await expect(page.locator(`${PREVIEW} .hb-map-view-strip`)).toHaveCount(0)
+  // Still the one tab: the preview was reused, not stacked.
+  await expect(page.locator(PREVIEW)).toHaveCount(1)
 })
 
 test('a New slot cannot be added to a group; the near-the-end map can', async ({ page }) => {
@@ -327,4 +371,24 @@ test('a map whose data cannot be read stays a map: the row warns, opening it say
     timeout: 30000,
   })
   await expect(view.locator('[data-control="map-new-note"]')).toHaveCount(0)
+})
+
+test('a special map whose data cannot be read warns on its own row, not only in Unassigned', async ({
+  page,
+}) => {
+  await load(page, patchedRom([TITLE_SLOT]))
+  const id = await page.evaluate(async slot => {
+    const w = await getWidget('hackbench.map-explorer')
+    const node = w.model.root.children.find(n => n.id.startsWith('special:') && n.index === slot)
+    if (!node) return null
+    w.focusService.setFocus(undefined)
+    w.focusService.setFocus(node)
+    w.updateScrollToRow()
+    return node.id
+  }, TITLE_SLOT)
+  expect(id, 'fixture: the Title Screen is a special row').not.toBeNull()
+  await page.waitForTimeout(400)
+  const row = page.locator(`[id="hackbench.map-explorer"] .theia-TreeNode[data-node-id="${id}"]`)
+  expect(await row.getAttribute('title')).toContain("This map's data could not be read")
+  await expect(row.locator('.codicon-warning')).toHaveCount(1)
 })

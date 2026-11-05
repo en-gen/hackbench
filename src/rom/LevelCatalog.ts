@@ -36,8 +36,13 @@ export interface CatalogEntry {
    * to open. Whether the data parses is `parseable`, a different question.
    */
   pointed: boolean
-  /** True when a pointed slot's level data could actually be read back. */
+  /** True when a pointed slot's level data could actually be read back (the header fits). */
   parseable: boolean
+  /**
+   * True when a pointed slot's Layer 1 object stream reaches its end marker inside the file.
+   * A pointed slot without it is the one whose row warns (D155); computed once per pointer.
+   */
+  terminated: boolean
   /**
    * Other real slots whose L1 pointer is identical to this one, ascending.
    *
@@ -103,7 +108,10 @@ const MIN_COMMON_MARGIN_RATIO = 2
  */
 export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
   const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) => rom.getLevelL1Pointer(i) ?? 0)
-  const common = findCommonPointer(pointers)
+  // Only pointers that resolve inside the file can be the common one, as in the exit graph (D155).
+  const common = findCommonPointer(rom.getResolvedL1Pointers())
+  // Slots on one pointer share one answer, so the stream is walked once per distinct pointer.
+  const readOnce = new Map<number, { parseable: boolean; terminated: boolean }>()
 
   const entries: CatalogEntry[] = []
   const notes: string[] = []
@@ -116,7 +124,16 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
     const pointed = l1Pointer !== 0 && rom.rom.fileOffsetOf(l1Pointer) !== null
     const sharedPointer = pointed && common !== null && l1Pointer === common.pointer
     const isReal = pointed && !sharedPointer
-    const parseable = pointed && rom.getLevelRawData(i) !== null
+    let read = readOnce.get(l1Pointer)
+    if (pointed && !read) {
+      read = {
+        parseable: rom.getLevelRawData(i) !== null,
+        terminated: rom.isLevelStreamTerminated(i),
+      }
+      readOnce.set(l1Pointer, read)
+    }
+    const parseable = pointed && read!.parseable
+    const terminated = pointed && read!.terminated
 
     if (isReal) {
       realCount++
@@ -130,6 +147,7 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
       sharedPointer,
       pointed,
       parseable,
+      terminated,
       l1Aliases: [],
       spriteAliases: [],
     })
@@ -174,10 +192,8 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
     const marginThin = common.count < MIN_COMMON_MARGIN_RATIO * common.runnerUpCount
     if (shareLow || marginThin) {
       notes.push(
-        `Most-common-pointer confidence low: 0x${common.pointer.toString(16).padStart(6, '0')} ` +
-          `appears ${common.count}/${LEVEL_COUNT} times, runner-up appears ${common.runnerUpCount} ` +
-          'times. isReal/parseable below may not reflect the true hierarchy slots. ' +
-          'See docs/ideas/level-classification.md, Tier 1.',
+        `Not sure which level data the unused slots share: one copy is used by ${common.count} of ${LEVEL_COUNT} slots ` +
+          `and another by ${common.runnerUpCount}. Some maps may be listed in the wrong folder.`,
       )
     }
   }

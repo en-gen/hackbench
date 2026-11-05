@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom, ADDR, LEVEL_COUNT, findCommonPointer } from '../../../src/rom/SmwRom'
 import { loromToOffset } from '../../../src/rom/addressing'
@@ -96,6 +96,44 @@ describe('buildLevelCatalog (synthetic)', () => {
     )
   })
 
+  // F3: a stream is readable when it reaches its end marker, not merely when five bytes fit.
+  it('marks a pointed slot terminated only when its stream reaches the end marker', () => {
+    const READABLE = 0x048000
+    const NO_END = 0x058000 // zero bytes: 3-byte objects to the end of the read
+    const catalog = buildLevelCatalog(
+      buildFakeRom(i => (i === 0 ? READABLE : i === 1 ? NO_END : FILLER), new Set([READABLE])),
+    )
+    expect(catalog.entries[0]).toMatchObject({ parseable: true, terminated: true })
+    expect(catalog.entries[1]).toMatchObject({ pointed: true, parseable: true, terminated: false })
+    expect(catalog.entries[2]!.terminated).toBe(false) // the shared room has no end marker either
+    expect(catalog.entries[5]!.terminated).toBe(false)
+  })
+
+  it('gives every slot on one pointer the same answer, walking that stream once', () => {
+    const SHARED_READABLE = 0x048000
+    const rom = buildFakeRom(() => SHARED_READABLE, new Set([SHARED_READABLE]))
+    const walks = vi.spyOn(rom, 'isLevelStreamTerminated')
+    const catalog = buildLevelCatalog(rom)
+    expect(catalog.entries.every(e => e.terminated)).toBe(true)
+    expect(walks).toHaveBeenCalledTimes(1)
+    const bad = buildLevelCatalog(buildFakeRom(() => 0x058000))
+    expect(bad.entries.some(e => e.terminated)).toBe(false)
+  })
+
+  // F2: a pointer that makes slots New must not be picked as the common pointer.
+  it('ignores pointers outside the file when choosing the common one', () => {
+    const REAL = 0x068000
+    const READABLE = new Set([REAL])
+    const catalog = buildLevelCatalog(
+      buildFakeRom(i => (i < 20 ? 0x7e8000 : i < 35 ? REAL : 0), READABLE),
+    )
+    expect(catalog.fillerPointer).toBe(REAL)
+    expect(catalog.sharedPointerCount).toBe(15)
+    expect(catalog.realCount + catalog.sharedPointerCount).toBe(15)
+    expect(catalog.entries.filter(e => e.sharedPointer && !e.pointed)).toEqual([])
+    expect(catalog.entries.slice(0, 20).every(e => !e.pointed && !e.isReal)).toBe(true)
+  })
+
   it('omits the partial-parse note when every real slot reads back', () => {
     const READABLE = 0x048000
     const rom = buildFakeRom(i => (i === 0 ? READABLE : FILLER), new Set([READABLE]))
@@ -125,7 +163,7 @@ describe('buildLevelCatalog (synthetic)', () => {
       const rom = buildFakeRom(i => (i < 212 ? FILLER : REUSED_REAL))
       const catalog = buildLevelCatalog(rom)
       expect(catalog.fillerPointer).toBe(REUSED_REAL)
-      expect(catalog.notes.join(' ')).toMatch(/runner-up appears 212 times/)
+      expect(catalog.notes.join(' ')).toMatch(/another by 212\./)
     })
 
     // The share floor is 10% of 512 = 51.2 slots: 51 is under it, 52 is over. The runner-up
@@ -137,7 +175,7 @@ describe('buildLevelCatalog (synthetic)', () => {
       const rom = buildFakeRom(i => (i < n ? FILLER : i < n + 9 ? RUNNER_UP : 0x038000 + i))
       const catalog = buildLevelCatalog(rom)
       expect(catalog.fillerPointer).toBe(FILLER)
-      expect(/confidence low/.test(catalog.notes.join(' '))).toBe(fires)
+      expect(/Not sure which level data/.test(catalog.notes.join(' '))).toBe(fires)
     })
 
     it('stays silent on the confidence check with a wide margin and a share above a tenth', () => {
@@ -145,10 +183,10 @@ describe('buildLevelCatalog (synthetic)', () => {
       const rom = buildFakeRom(i => (i < 100 ? FILLER : i < 109 ? RUNNER_UP : 0x038000 + i))
       const catalog = buildLevelCatalog(rom)
       expect(catalog.fillerPointer).toBe(FILLER)
-      expect(catalog.notes.join(' ')).not.toMatch(/confidence low/)
+      expect(catalog.notes.join(' ')).not.toMatch(/Not sure which level data/)
     })
 
-    it('names no common pointer when every pointer is distinct, and treats every slot as real', () => {
+    it('names no common pointer when every pointer is distinct, and every slot is real', () => {
       // Was: the no-threshold mode picked pointers[0] and a note flagged it. The >=10
       // rule (findCommonPointer) now declines, so nothing is invented as filler.
       const rom = buildFakeRom(i => 0x038000 + i)
@@ -168,10 +206,10 @@ describe('buildLevelCatalog (synthetic)', () => {
     })
   })
 
-  describe('the catalog and the exit graph agree on the placeholder (#901)', () => {
+  describe('the catalog and the exit graph agree on the most common pointer (#901, #949)', () => {
     // SmwRom's private detector feeds the exit graph; reached through a cast because
     // the point is that both consumers use one rule.
-    const graphPlaceholder = (rom: SmwRom): number | null =>
+    const graphCommon = (rom: SmwRom): number | null =>
       (rom as unknown as { _findFillerL1Pointer(): number | null })._findFillerL1Pointer()
 
     it.each([12, 10, 9])('%i slots sharing one pointer, the rest unique', n => {
@@ -179,16 +217,16 @@ describe('buildLevelCatalog (synthetic)', () => {
       const rom = buildFakeRom(i => (i < n ? SHARED : 0x038000 + i))
       const catalog = buildLevelCatalog(rom)
       const expected = n >= 10 ? SHARED : null
-      expect(graphPlaceholder(rom)).toBe(expected)
+      expect(graphCommon(rom)).toBe(expected)
       expect(catalog.fillerPointer).toBe(expected ?? 0)
       expect(catalog.entries.filter(e => e.sharedPointer).length).toBe(expected ? n : 0)
-      // Below the threshold nothing is a placeholder, so every pointered slot is real.
+      // Below the threshold no pointer is common, so every pointed slot is real.
       expect(catalog.realCount).toBe(expected ? LEVEL_COUNT - n : LEVEL_COUNT)
     })
 
-    it('a most common pointer repeating only 9 times is no placeholder', () => {
+    it('a most common pointer repeating only 9 times names no common pointer', () => {
       const rom = buildFakeRom(i => (i < 9 ? 0x078000 : i < 17 ? 0x079000 : 0x038000 + i))
-      expect(graphPlaceholder(rom)).toBeNull()
+      expect(graphCommon(rom)).toBeNull()
       expect(buildLevelCatalog(rom).realCount).toBe(LEVEL_COUNT)
     })
   })

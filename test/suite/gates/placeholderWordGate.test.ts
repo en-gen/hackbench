@@ -16,7 +16,8 @@ import { scan, userText, type Tree } from '../support/userText'
 
 const ROOT = path.resolve(__dirname, '../../..')
 const SCANNED = ['theia/extension/src', 'src/rom', 'src/project']
-const BANNED = /\bplaceholders?\b|test ?levels?\b/i
+// Whitespace runs (a line break in a template or JSX) and hyphens split the words too.
+const BANNED = /\bplace[\s-]*holders?\b|test[\s-]*levels?\b/i
 
 /**
  * The sprite renderer's `status: 'drawn' | 'placeholder'` is a code, never shown:
@@ -67,6 +68,17 @@ describe('placeholder wording gate', () => {
     ])
   })
 
+  it.each([
+    ['test newline level', 'This is a test\n  level'],
+    ['test-level', 'The test-level slot'],
+    ['place-holder', 'a place-holder map'],
+    ['place holder', 'a place holder map'],
+    ['Test   Levels', 'Test   Levels: 3'],
+  ])('catches the split spelling %j', (_name, text) => {
+    expect(BANNED.test(text)).toBe(true)
+    expect(BANNED.test('Search maps and levels in the latest list')).toBe(false)
+  })
+
   it('goes red on a planted string in a scanned tree, and a missing root cannot hide', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'placeholdergate-'))
     try {
@@ -82,6 +94,15 @@ describe('placeholder wording gate', () => {
         "export const s = 'placeholder'; export const t = 'placeholder box'",
       )
       expect(offending(scan(tmp, ['theia/extension/src']))).toEqual([
+        'theia/extension/src/browser/sprite-props.ts: "placeholder box"',
+      ])
+      // ...and the bare word anywhere else is still a failure: the exemption names three files.
+      fs.writeFileSync(
+        path.join(tmp, 'theia/extension/src/browser/other.ts'),
+        "export const s = 'placeholder'",
+      )
+      expect(offending(scan(tmp, ['theia/extension/src']))).toEqual([
+        'theia/extension/src/browser/other.ts: "placeholder"',
         'theia/extension/src/browser/sprite-props.ts: "placeholder box"',
       ])
       expect(() => offending(scan(tmp, ['a', 'empty']))).toThrow(/empty/)

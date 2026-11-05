@@ -233,7 +233,7 @@ describe('readLevelStart (synthetic)', () => {
     rom.writeAt(F600 + 0x12, [0x05])
     const s = start(rom, 0x012)
     expect(s.ok).toBe(false)
-    expect(!s.ok && s.reason).toMatch(/No map is stored/)
+    expect(!s.ok && s.reason).toMatch(/no start position/)
   })
 
   it('a slot number outside the pointer table does not exist', () => {

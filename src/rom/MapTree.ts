@@ -160,7 +160,7 @@ export function buildMapTree(
   const shared = catalog.entries.filter(e => e.sharedPointer).map(e => e.index)
   const noPointers = catalog.entries.filter(e => !e.pointed).map(e => e.index)
   const unreadable = (index: number): { unreadable?: true } =>
-    catalog.entries[index]!.pointed && !catalog.entries[index]!.parseable
+    catalog.entries[index]!.pointed && !catalog.entries[index]!.terminated
       ? { unreadable: true }
       : {}
   const notes = [...catalog.notes]
@@ -172,11 +172,10 @@ export function buildMapTree(
   const entranceIndex = deriveOverworldEntrances(rom, catalog, fingerprints)
   const isRoot = (index: number): boolean => isOverworldLevel(index, entranceIndex.roots)
 
-  const {
-    graph: exitGraph,
-    unavailable,
-    unreadableMaps,
-  } = rom.buildLevelExitGraph(entranceIndex.roots, fingerprints.entry)
+  const { graph: exitGraph, unavailable } = rom.buildLevelExitGraph(
+    entranceIndex.roots,
+    fingerprints.entry,
+  )
 
   const name = (index: number): string | null => rom.getLevelName(index, entranceIndex)
   const aliasesOf = (index: number): number[] => catalog.entries[index]?.l1Aliases ?? []
@@ -209,9 +208,9 @@ export function buildMapTree(
     ),
   )
 
-  // Read from the ROM, and only adopted when the slot named actually holds a
-  // real map: a routine that has been repointed could name a filler slot,
-  // and listing that would invent a map.
+  // Read from the ROM, and only adopted when the slot named is in the hierarchy's
+  // map set. A repointed routine could name a New slot or one on the most common
+  // pointer; both are listed in Unassigned already, so adopting one would list it twice.
   const found = findSpecialMaps(rom.rom)
   const bonusRead = findBonusEntrances(rom.rom, fingerprints.bonus)
   notes.push(...found.notes, ...bonusRead.notes)
@@ -273,7 +272,9 @@ export function buildMapTree(
     )
   }
 
-  if (unreadableMaps?.length) {
+  // Every map the rows warn on, shared-pointer ones included, so the note and the rows agree.
+  const unreadableMaps = catalog.entries.filter(e => e.pointed && !e.terminated).map(e => e.index)
+  if (unreadableMaps.length) {
     const n = unreadableMaps.length
     const ids = unreadableMaps
       .slice(0, UNREADABLE_LISTED)

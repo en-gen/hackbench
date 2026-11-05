@@ -319,6 +319,34 @@ export class SmwRom {
   }
 
   /**
+   * The Layer 1 pointer of every slot, with those that name no byte of this
+   * file (zero, WRAM, registers, past the end) read as 0. Both the catalog and
+   * the exit graph pick the common pointer from this, so a pointer that makes a
+   * slot New (D155) can never be the one the other slots are measured against.
+   */
+  getResolvedL1Pointers(): number[] {
+    return Array.from({ length: LEVEL_COUNT }, (_, i) => {
+      const ptr = this.getLevelL1Pointer(i) ?? 0
+      return ptr !== 0 && this.rom.fileOffsetOf(ptr) !== null ? ptr : 0
+    })
+  }
+
+  /**
+   * True when the slot's Layer 1 object stream can be walked to its end marker
+   * inside the bytes getLevelRawData reads. This is the exit graph's own test
+   * (parseLevelObjects, `terminated`), so the row warning and the graph agree.
+   */
+  isLevelStreamTerminated(index: number): boolean {
+    const raw = this.getLevelRawData(index)
+    if (!raw) return false
+    try {
+      return parseLevelObjects(raw, []).terminated
+    } catch {
+      return false
+    }
+  }
+
+  /**
    * Returns the GFX tileset index for a level.
    *
    * From bank_05.asm: tilesetId = ROM[$05D760 + spriteSet]
@@ -400,8 +428,7 @@ export class SmwRom {
    * that observed ceiling, not at some ratio of it.
    */
   private _findFillerL1Pointer(): number | null {
-    const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) => this.getLevelL1Pointer(i) ?? 0)
-    return findCommonPointer(pointers)?.pointer ?? null
+    return findCommonPointer(this.getResolvedL1Pointers())?.pointer ?? null
   }
 
   /**
@@ -474,7 +501,7 @@ export class SmwRom {
     }
 
     // The map universe comes from pointer identity, the same test
-    // buildLevelCatalog applies. classifyLevels is deliberately NOT used here:
+    // buildLevelCatalog applies (a pointer naming no byte of the file is New, D155, and is left out). classifyLevels is deliberately NOT used here:
     // it dedupes by L1 pointer, and it gates on levelHasObjects(). Between them
     // those made 47 of the vanilla cart's 235 real maps ineligible as a
     // destination, leaving 59 unreachable. $0EB's pointer is shared by $0F0,
@@ -484,11 +511,11 @@ export class SmwRom {
     // around them the same way; levelHasObjects once rejected 24 boss-mode rooms (#695).
     // (Inlined rather than calling buildLevelCatalog: LevelCatalog imports
     // SmwRom for a value, so depending on it here would be a runtime cycle.)
-    const fillerPtr = this._findFillerL1Pointer()
+    const pointers = this.getResolvedL1Pointers()
+    const fillerPtr = findCommonPointer(pointers)?.pointer ?? null
     const realMaps: number[] = []
     for (let i = 0; i < LEVEL_COUNT; i++) {
-      const ptr = this.getLevelL1Pointer(i)
-      if (!ptr || ptr === fillerPtr) continue
+      if (!pointers[i] || pointers[i] === fillerPtr) continue
       realMaps.push(i)
     }
     const overworld = realMaps.filter(idx => isOverworldLevel(idx, roots))
