@@ -165,6 +165,8 @@ export type SpriteDrawResult =
       children?: { index: number; parts: DrawPart[] }[]
       /** A plain-words line about what the map shows of this sprite (not a flaw): it goes on the map's note line. */
       note?: string
+      /** The interpreter detail behind a plain note, for its tooltip. */
+      noteDetail?: string
     })
   | Extract<EngineResult, { ok: false }>
   | { ok: false; reason: string; unverified?: string }
@@ -307,6 +309,7 @@ export function drawSprites(
       status: 'drawn',
       ...(unverified ? { unverified } : {}),
       ...('note' in res && res.note ? { note: res.note } : {}),
+        ...('noteDetail' in res && res.noteDetail ? { noteDetail: res.noteDetail } : {}),
     }
   }
   // Sprites a parent drew (the $9B a $9C picks up, #1049) are part of the parent's picture, not unexplained.
@@ -528,6 +531,7 @@ function eeriesResult(
     identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
     // Fewer than five is the game's answer for this map's slot range, not a flaw: said in plain words, not `unverified`.
     ...(notes.length ? { note: notes.join(' ') } : {}),
+    ...(r.noteDetail ? { noteDetail: r.noteDetail } : {}),
     ...(why
       ? { unverified: `the five Eeries are drawn from the spawner the loader calls, and ${why}` }
       : {}),
@@ -578,6 +582,7 @@ function platformsResult(
     anchor: { x, y },
     identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
     ...(notes.length ? { note: notes.join(' ') } : {}),
+    ...(r.noteDetail ? { noteDetail: r.noteDetail } : {}),
     ...(why
       ? {
           unverified: `the three platforms are drawn from the spawner the loader calls, and ${why}`,
@@ -910,6 +915,7 @@ export function spriteLayer(
       ]
         .filter(Boolean)
         .join(' ') || undefined,
+    noteDetail: [...new Set(sprites.flatMap(s => (s.noteDetail ? [s.noteDetail] : [])))].join(' ') || undefined,
   }
 }
 
@@ -986,7 +992,7 @@ function compute(
       ...layer,
       sprites: [...layer.sprites, ...flames.sprites],
       note: [layer.note, flames.note].filter(Boolean).join(' ') || undefined,
-      ...(flames.noteDetail ? { noteDetail: flames.noteDetail } : {}),
+      noteDetail: [layer.noteDetail, flames.noteDetail].filter(Boolean).join(' ') || undefined,
     }
   } catch (err) {
     return unreadable((err as Error).message)

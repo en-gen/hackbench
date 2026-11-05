@@ -342,6 +342,8 @@ export interface MapSpriteDto {
   unverified?: string
   /** A plain-words line about what the map shows of this sprite, not a flaw (for example fewer Eeries than the placement asks for); the map's note line carries it too. */
   note?: string
+  /** Technical detail behind a plain note, for its tooltip. */
+  noteDetail?: string
 }
 
 /**
