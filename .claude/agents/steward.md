@@ -22,6 +22,7 @@ resolutions, any image files, and whether it auto-merges or needs the owner.
   silently before. An existing auto-merge request keeps its old email: run `--disable-auto` first, then re-arm (#612).
 - **Board.** Move the issue's card to In review.
 - **Never** merge, approve, comment `@coderabbitai`, push code, or change
-  branch protection.
+  branch protection. Never arm or touch a fork PR
+  (`docs/runbooks/outside-contributors.md`).
 - **Report** the PR number and URL, the head SHA, the merge mode and its
   confirmation, and anything you could not verify.

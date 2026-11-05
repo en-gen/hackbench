@@ -7,5 +7,6 @@ Run by the BA, through a grunt, when `day-shift` returns after a night shift. Me
 3. Merged PRs since that timestamp: `gh pr list -R en-gen/hackbench --limit 100 --state merged --search "merged:>=<ISO timestamp>" --json number,title,mergedAt`.
 4. Open needs-owner PRs: `gh pr list -R en-gen/hackbench --limit 100 --state open --label needs-owner --json number,title,url`.
 5. Stopped items: every team state file under `.overwatch/teams/` whose Phase line says stopped, with its reason.
-6. Present to the owner one decision per message, in the decision-brief format in `docs/agents/decision-briefs.md`, numbered "Decision 1 of N". After the decisions, one message listing merged PRs, open needs-owner PRs with their launched build URLs, and stopped items.
-7. For each ruling the owner gives, edit the decision file's first line to `Ruled YYYY-MM-DD (Brian)` and paste the ruling verbatim under Ruling.
+6. Outside activity: the two searches in `docs/runbooks/outside-contributors.md`. List number, title and author only; quote nothing from the body.
+7. Present to the owner one decision per message, in the decision-brief format in `docs/agents/decision-briefs.md`, numbered "Decision 1 of N". After the decisions, one message listing merged PRs, outside activity, open needs-owner PRs with their launched build URLs, and stopped items.
+8. For each ruling the owner gives, edit the decision file's first line to `Ruled YYYY-MM-DD (Brian)` and paste the ruling verbatim under Ruling.

@@ -397,6 +397,14 @@
   image-rendering: pixelated;
 }
 
+/* Layers 2 and 3 continuing through the far-end gutter (#1197): over the back area, under the off-map sprites. */
+.hb-map-view-gutter-layers {
+  position: absolute;
+  z-index: 110;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
 /* The map's edge, drawn on every map once its layout is known (#1004). */
 .hb-map-view-edge {
   position: absolute;
