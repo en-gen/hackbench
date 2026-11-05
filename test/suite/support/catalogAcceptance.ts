@@ -18,7 +18,8 @@ export function assertCatalogAcceptance(
   expect(catalog.parseableCount).toBe(expectedParseable)
 
   const actualReal = catalog.entries.filter(e => e.isReal).length
-  const actualParseable = catalog.entries.filter(e => e.parseable).length
+  // The count is over real slots; shared-pointer slots carry `parseable` too (#949).
+  const actualParseable = catalog.entries.filter(e => e.isReal && e.parseable).length
   expect(actualReal).toBe(catalog.realCount) // kills counts that lie about entries
   expect(actualParseable).toBe(catalog.parseableCount)
 

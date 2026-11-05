@@ -1,4 +1,4 @@
-/** The tree lists every slot, and the maps it already listed are unchanged (#901). Needs the corpus. */
+/** The tree lists every slot; slots sharing the most common pointer are ordinary maps and the hierarchy is unchanged (#901, #949). Needs the corpus. */
 import { describe, it, expect } from 'vitest'
 import { SmwRom, LEVEL_COUNT } from '../../../src/rom/SmwRom'
 import { buildMapTree } from '../../../src/rom/MapTree'
@@ -9,7 +9,7 @@ import { isOverworldLevel } from '../../../src/rom/SmwRom'
 import { VANILLA, freshRom, hasRom } from '../support/corpus'
 
 describe.skipIf(!hasRom(VANILLA))('vanilla tree lists every slot', () => {
-  it('lists 512 slots, and the placeholder count is the pointer-table repeat count', () => {
+  it('lists 512 slots, all maps, and the shared-pointer slots are plain unassigned maps', () => {
     const rom = new SmwRom(freshRom(VANILLA))
     const tree = buildMapTree(rom)
 
@@ -17,6 +17,7 @@ describe.skipIf(!hasRom(VANILLA))('vanilla tree lists every slot', () => {
     const repeats = new Map<number, number>()
     for (const p of pointers) repeats.set(p, (repeats.get(p) ?? 0) + 1)
     const expected = Math.max(...repeats.values())
+    const mostCommon = [...repeats].find(([, n]) => n === expected)![0]
 
     const listed = new Set(
       [...tree.special, ...tree.bonus, ...tree.overworld, ...tree.unassigned].flatMap(n => [
@@ -25,11 +26,19 @@ describe.skipIf(!hasRom(VANILLA))('vanilla tree lists every slot', () => {
       ]),
     )
     expect(listed.size).toBe(LEVEL_COUNT)
-    expect(tree.unassigned.filter(n => n.placeholder)).toHaveLength(expected)
-    expect(tree.counts.placeholders).toBe(expected)
-    expect(tree.mapCount + tree.counts.placeholders + tree.counts.noPointer).toBe(LEVEL_COUNT)
-    // $025 is a placeholder slot the Playwright spec opens.
-    expect(tree.unassigned.find(n => n.index === 0x025)?.placeholder).toBe(true)
+    // Acceptance 4: on vanilla every one of the 512 slots is a map and none is New.
+    expect(tree.mapCount).toBe(LEVEL_COUNT)
+    expect(tree.counts.noPointer).toBe(0)
+    expect(tree.unassigned.filter(n => n.noPointer || n.unreadable)).toEqual([])
+    // The slots on the most common pointer ($068000) are among the unassigned maps, unmarked.
+    const sharedRows = tree.unassigned.filter(n => pointers[n.index] === mostCommon)
+    expect(sharedRows).toHaveLength(expected)
+    expect(tree.counts.unassigned).toBeGreaterThanOrEqual(expected)
+    // $025 shares it and is the slot the Playwright spec opens.
+    expect(tree.unassigned.find(n => n.index === 0x025)).toMatchObject({
+      index: 0x025,
+      kind: 'map',
+    })
   })
 })
 
@@ -45,7 +54,7 @@ const CORPUS_ROMS = [
 
 for (const name of CORPUS_ROMS) {
   describe.skipIf(!hasRom(name))(
-    `placeholders change no map the tree already listed: ${name}`,
+    `sharing a pointer changes no map the hierarchy already listed: ${name}`,
     () => {
       it('keeps entry maps, sub areas, bonus rooms and real orphans identical', () => {
         const rom = new SmwRom(freshRom(name))
@@ -79,7 +88,8 @@ for (const name of CORPUS_ROMS) {
             `${name} $${n.index.toString(16)}`,
           ).toEqual(reachableSlots(n.index, graph, stops))
         }
-        const real = tree.unassigned.filter(n => !n.placeholder).map(n => n.index)
+        const sharedSlots = new Set(catalog.entries.filter(e => e.sharedPointer).map(e => e.index))
+        const real = tree.unassigned.filter(n => !sharedSlots.has(n.index)).map(n => n.index)
         // Everything the old tree placed outside Unassigned: specials, bonus rooms, roots, sub areas.
         const placed = new Set(
           [...tree.special, ...tree.bonus, ...tree.overworld].flatMap(n => [
@@ -90,11 +100,8 @@ for (const name of CORPUS_ROMS) {
         expect(real, `${name} real orphans`).toEqual(
           [...maps].filter(i => !placed.has(i)).sort((a, b) => a - b),
         )
-        expect(tree.mapCount, name).toBe(maps.size)
-        expect(tree.mapCount, name).toBe(catalog.realCount)
-        expect(tree.mapCount + tree.counts.placeholders, name).toBe(
-          maps.size + catalog.placeholderCount,
-        )
+        expect(catalog.realCount, name).toBe(maps.size)
+        expect(tree.mapCount, name).toBe(maps.size + catalog.sharedPointerCount)
       })
     },
   )
@@ -108,7 +115,7 @@ const PINNED = [
     maps: 235,
     entry: 79,
     orphans: 18,
-    placeholders: 277,
+    shared: 277,
     special: [
       [0xc7, 'title-screen'],
       [0xc5, 'new-game'],
@@ -125,7 +132,7 @@ const PINNED = [
     maps: 235,
     entry: 79,
     orphans: 18,
-    placeholders: 277,
+    shared: 277,
     special: [
       [0xc7, 'title-screen'],
       [0xc5, 'new-game'],
@@ -142,7 +149,7 @@ const PINNED = [
     maps: 235,
     entry: 33,
     orphans: 200,
-    placeholders: 277,
+    shared: 277,
     special: [
       [0xc7, 'title-screen'],
       [0xc5, 'new-game'],
@@ -154,7 +161,7 @@ const PINNED = [
     maps: 251,
     entry: 9,
     orphans: 240,
-    placeholders: 261,
+    shared: 261,
     special: [
       [0xc7, 'title-screen'],
       [0xc5, 'new-game'],
@@ -166,7 +173,7 @@ const PINNED = [
     maps: 291,
     entry: 37,
     orphans: 253,
-    placeholders: 221,
+    shared: 221,
     special: [[0xc5, 'new-game']],
     bonus: [],
   },
@@ -175,7 +182,7 @@ const PINNED = [
     maps: 354,
     entry: 38,
     orphans: 315,
-    placeholders: 158,
+    shared: 158,
     special: [[0xc5, 'new-game']],
     bonus: [],
   },
@@ -192,9 +199,9 @@ for (const p of PINNED) {
         ]),
       )
       expect(listed.size).toBe(LEVEL_COUNT)
-      expect(tree.mapCount).toBe(p.maps)
-      expect(tree.counts.placeholders).toBe(p.placeholders)
-      expect(tree.counts.unassigned).toBe(p.orphans)
+      expect(tree.mapCount).toBe(p.maps + p.shared)
+      expect(tree.counts.noPointer).toBe(0)
+      expect(tree.counts.unassigned).toBe(p.orphans + p.shared)
       expect(tree.overworld).toHaveLength(p.entry)
       expect(tree.special.map(n => [n.index, n.role])).toEqual(p.special)
       expect(tree.bonus.map(n => [n.index, n.role])).toEqual(p.bonus)

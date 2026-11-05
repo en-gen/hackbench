@@ -16,17 +16,27 @@
  * layout and ASM citation.
  */
 
-import { SmwRom, LEVEL_COUNT, findPlaceholderPointer } from './SmwRom'
+import { SmwRom, LEVEL_COUNT, findCommonPointer } from './SmwRom'
 
 /** One of the 512 level pointer-table slots. */
 export interface CatalogEntry {
   index: number
   l1Pointer: number
-  /** True when the slot has a pointer and it is not the shared placeholder room. */
+  /**
+   * True when the slot is pointed and not on the most common pointer: the set
+   * the exit graph and the tree's hierarchy are built from. Slots on the common
+   * pointer are maps too (`pointed`) but never roots or destinations.
+   */
   isReal: boolean
-  /** True on the pointer findPlaceholderPointer names: the pointered slots that are not real. */
-  placeholder: boolean
-  /** True when the slot's level data could actually be read back. */
+  /** True on the pointer findCommonPointer names (on vanilla, 277 slots at $068000). */
+  sharedPointer: boolean
+  /**
+   * True when the slot is a map: its pointer is not zero and resolves to an
+   * offset inside the ROM file (D155). False is a New slot, one with nothing
+   * to open. Whether the data parses is `parseable`, a different question.
+   */
+  pointed: boolean
+  /** True when a pointed slot's level data could actually be read back. */
   parseable: boolean
   /**
    * Other real slots whose L1 pointer is identical to this one, ascending.
@@ -52,11 +62,13 @@ export interface CatalogEntry {
 
 export interface LevelCatalog {
   entries: CatalogEntry[]
-  /** The placeholder pointer, or 0 when none repeats enough. */
+  /** The most common pointer, or 0 when none repeats enough. */
   fillerPointer: number
-  /** Slots sharing the placeholder pointer; 0 when the ROM has none. */
-  placeholderCount: number
+  /** Slots sharing the most common pointer; 0 when the ROM has none. */
+  sharedPointerCount: number
+  /** Slots that are `isReal`. */
   realCount: number
+  /** Of the `isReal` slots, how many parse. Slots on the common pointer are not counted. */
   parseableCount: number
   /**
    * Real slots sharing Layer-1 data with at least one other real slot, and the
@@ -70,16 +82,17 @@ export interface LevelCatalog {
 }
 
 /**
- * The placeholder is a statistical call, so say so when the roles may be
- * swapped: a runner-up over half as common, or a placeholder under a tenth of
- * the slots. Neither fires on the corpus (placeholder 158-277, runner-up <= 8).
+ * The most common pointer is a statistical call, so say so when the roles may
+ * be swapped: a runner-up over half as common, or a pointer under a tenth of
+ * the slots. Neither fires on the corpus (common 158-277, runner-up <= 8).
  */
-const MIN_PLACEHOLDER_SHARE = 0.1
-const MIN_PLACEHOLDER_MARGIN_RATIO = 2
+const MIN_COMMON_SHARE = 0.1
+const MIN_COMMON_MARGIN_RATIO = 2
 
 /**
- * Builds the level catalog. A slot is real when it has a pointer and that
- * pointer is not the shared placeholder -- decided by pointer identity alone,
+ * Builds the level catalog. A slot is pointed (a map) when its pointer is not
+ * zero and resolves inside the ROM file. It is real when it is also not on the
+ * most common pointer -- decided by pointer identity alone,
  * never via levelHasObjects(), which cannot spot filler (the filler room holds
  * well-formed objects), so this catalog does not need it. A
  * real slot is parseable when SmwRom.getLevelRawData can read it back at
@@ -90,7 +103,7 @@ const MIN_PLACEHOLDER_MARGIN_RATIO = 2
  */
 export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
   const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) => rom.getLevelL1Pointer(i) ?? 0)
-  const placeholder = findPlaceholderPointer(pointers)
+  const common = findCommonPointer(pointers)
 
   const entries: CatalogEntry[] = []
   const notes: string[] = []
@@ -100,22 +113,22 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
 
   for (let i = 0; i < LEVEL_COUNT; i++) {
     const l1Pointer = pointers[i]!
-    const isReal = l1Pointer !== 0 && l1Pointer !== placeholder?.pointer
-    let parseable = false
+    const pointed = l1Pointer !== 0 && rom.rom.fileOffsetOf(l1Pointer) !== null
+    const sharedPointer = pointed && common !== null && l1Pointer === common.pointer
+    const isReal = pointed && !sharedPointer
+    const parseable = pointed && rom.getLevelRawData(i) !== null
 
     if (isReal) {
-      const data = rom.getLevelRawData(i)
-      parseable = data !== null
-      if (!parseable) unreadableRealCount++
       realCount++
+      if (parseable) parseableCount++
+      else unreadableRealCount++
     }
-
-    if (parseable) parseableCount++
     entries.push({
       index: i,
       l1Pointer,
       isReal,
-      placeholder: placeholder !== null && l1Pointer === placeholder.pointer,
+      sharedPointer,
+      pointed,
       parseable,
       l1Aliases: [],
       spriteAliases: [],
@@ -156,14 +169,14 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
   const l1AliasGroupCount = [...l1Groups.values()].filter(m => m.length > 1).length
   const aliasedSlotCount = entries.filter(e => e.l1Aliases.length > 0).length
 
-  if (placeholder) {
-    const shareLow = placeholder.count / LEVEL_COUNT < MIN_PLACEHOLDER_SHARE
-    const marginThin = placeholder.count < MIN_PLACEHOLDER_MARGIN_RATIO * placeholder.runnerUpCount
+  if (common) {
+    const shareLow = common.count / LEVEL_COUNT < MIN_COMMON_SHARE
+    const marginThin = common.count < MIN_COMMON_MARGIN_RATIO * common.runnerUpCount
     if (shareLow || marginThin) {
       notes.push(
-        `Placeholder-pointer confidence low: 0x${placeholder.pointer.toString(16).padStart(6, '0')} ` +
-          `appears ${placeholder.count}/${LEVEL_COUNT} times, runner-up appears ${placeholder.runnerUpCount} ` +
-          'times. isReal/parseable below may not reflect true placeholder vs. real slots. ' +
+        `Most-common-pointer confidence low: 0x${common.pointer.toString(16).padStart(6, '0')} ` +
+          `appears ${common.count}/${LEVEL_COUNT} times, runner-up appears ${common.runnerUpCount} ` +
+          'times. isReal/parseable below may not reflect the true hierarchy slots. ' +
           'See docs/ideas/level-classification.md, Tier 1.',
       )
     }
@@ -178,8 +191,8 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
 
   return {
     entries,
-    fillerPointer: placeholder?.pointer ?? 0,
-    placeholderCount: placeholder?.count ?? 0,
+    fillerPointer: common?.pointer ?? 0,
+    sharedPointerCount: common?.count ?? 0,
     realCount,
     parseableCount,
     aliasedSlotCount,

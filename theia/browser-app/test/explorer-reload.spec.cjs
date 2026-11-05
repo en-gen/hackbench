@@ -25,7 +25,7 @@ const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 
 /** Vanilla's documented map count, from docs/glossary.md. */
-const VANILLA_MAPS = 235
+const VANILLA_MAPS = 512
 
 const IN_PAGE = `function getSvc(name) {
   const d = window.theia.container._bindingDictionary

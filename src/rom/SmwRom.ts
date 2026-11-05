@@ -141,18 +141,19 @@ export interface RomSummary {
   isVanilla: boolean
 }
 
-/** Fewest slots that must repeat one Layer 1 pointer for it to be the shared placeholder room. */
-const PLACEHOLDER_MIN_REPEATS = 10
+/** Fewest slots that must repeat one Layer 1 pointer for it to be the most common (shared) pointer. */
+const COMMON_POINTER_MIN_REPEATS = 10
 
 /**
- * The shared placeholder pointer, its count and the runner-up's count (for
- * judging confidence), or null when none repeats enough. The exit graph and
- * the map tree both ask here, so they cannot disagree.
+ * The most common Layer 1 pointer, its count and the runner-up's count (for
+ * judging confidence), or null when none repeats enough. Slots on it are
+ * ordinary maps for the user; the exit graph and the map tree still ask here
+ * to keep them out of the hierarchy, so they cannot disagree.
  *
  * Equal counts go to the pointer first in slot order. A falsy pointer is
  * skipped: $000000 is the ROM header and what an all-zero slot reads as.
  */
-export function findPlaceholderPointer(
+export function findCommonPointer(
   pointers: readonly number[],
 ): { pointer: number; count: number; runnerUpCount: number } | null {
   const counts = new Map<number, number>()
@@ -163,7 +164,7 @@ export function findPlaceholderPointer(
     else if (count > best.count) best = { pointer, count, runnerUpCount: best.count }
     else if (count > best.runnerUpCount) best.runnerUpCount = count
   }
-  return best !== null && best.count >= PLACEHOLDER_MIN_REPEATS ? best : null
+  return best !== null && best.count >= COMMON_POINTER_MIN_REPEATS ? best : null
 }
 
 /**
@@ -389,7 +390,7 @@ export class SmwRom {
   }
 
   /**
-   * Detects the shared placeholder Layer-1 pointer that unused pointer-table
+   * Detects the most common Layer-1 pointer that unused pointer-table
    * slots fall back to (measured on vanilla: SNES $068000, shared by 277 of
    * 512 slots, including both $012 and $112). levelHasObjects() cannot spot
    * this -- the filler room contains real, well-formed object data -- only
@@ -400,7 +401,7 @@ export class SmwRom {
    */
   private _findFillerL1Pointer(): number | null {
     const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) => this.getLevelL1Pointer(i) ?? 0)
-    return findPlaceholderPointer(pointers)?.pointer ?? null
+    return findCommonPointer(pointers)?.pointer ?? null
   }
 
   /**

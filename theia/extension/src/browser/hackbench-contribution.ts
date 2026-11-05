@@ -410,9 +410,9 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
     if (this.wiredExplorers.has(explorer)) return
     this.wiredExplorers.add(explorer)
 
-    explorer.onMapOpened(async ({ index, label, pinned, iconClass }) => {
+    explorer.onMapOpened(async ({ index, label, pinned, iconClass, isNew }) => {
       const manifestPath = this.currentManifest
-      const apply = (w: MapViewWidget) => w.open({ manifestPath, index, label, iconClass })
+      const apply = (w: MapViewWidget) => w.open({ manifestPath, index, label, iconClass, isNew })
       if (pinned) {
         await this.previews.pin<MapViewWidget>(
           MAP_VIEW_ID,

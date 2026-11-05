@@ -65,10 +65,8 @@ describe('buildMapTree', () => {
       it('covers every real map the catalog found, and invents none', () => {
         const rom = load(file)
         const catalog = buildLevelCatalog(rom)
-        // Every real slot, plus the placeholder slots the tree lists as orphans (#901).
-        const expected = new Set(
-          catalog.entries.filter(e => e.isReal || e.placeholder).map(e => e.index),
-        )
+        // Every pointed slot: the real ones plus those on the most common pointer (#901, #949).
+        const expected = new Set(catalog.entries.filter(e => e.pointed).map(e => e.index))
 
         const tree = buildMapTree(rom)
         const actual = indicesIn(tree)
@@ -78,9 +76,9 @@ describe('buildMapTree', () => {
 
         expect(missing, 'maps the tree failed to place').toEqual([])
         expect(invented, 'indices the tree shows that hold no real data').toEqual([])
-        // mapCount stays the real maps (glossary), placeholders counted apart.
-        expect(tree.mapCount + tree.counts.placeholders).toBe(expected.size)
-        expect(tree.mapCount).toBe(catalog.entries.filter(e => e.isReal && !e.placeholder).length)
+        // mapCount is every pointed slot (glossary); the New slots are counted apart.
+        expect(tree.mapCount).toBe(expected.size)
+        expect(tree.mapCount + tree.counts.noPointer).toBe(512)
       })
 
       it('places every map exactly once at the top level of one root', () => {
@@ -138,12 +136,14 @@ describe('buildMapTree', () => {
 
 describe.skipIf(!hasRom(VANILLA))('buildMapTree, on the vanilla cart', () => {
   /**
-   * Vanilla's documented figure, from docs/glossary.md: 512 slots, 277 empty,
-   * 235 maps. Pinned because it is the number every other count in this
-   * project gets checked against.
+   * Vanilla's documented figure, from docs/glossary.md: 512 slots, every one a
+   * map (#949). The 277 on the most common pointer are maps too. Pinned because
+   * it is the number every other count in this project gets checked against.
    */
-  it('finds the 235 maps the glossary documents for vanilla', () => {
-    expect(buildMapTree(load(VANILLA)).mapCount).toBe(235)
+  it('finds the 512 maps the glossary documents for vanilla, and no New slot', () => {
+    const tree = buildMapTree(load(VANILLA))
+    expect(tree.mapCount).toBe(512)
+    expect(tree.counts.noPointer).toBe(0)
   })
 
   /**
@@ -153,7 +153,7 @@ describe.skipIf(!hasRom(VANILLA))('buildMapTree, on the vanilla cart', () => {
    * Driving the tree from the catalog instead is what keeps it out, so this
    * pins the reason rather than the symptom.
    */
-  it('lists the filler slot that classifyLevels reports as a level only as a placeholder orphan', () => {
+  it('lists the filler slot that classifyLevels reports as a level only as an unassigned map', () => {
     const rom = load(VANILLA)
     expect(rom.classifyLevels(deriveOverworldEntrances(rom).roots).overworld).toContain(0x012)
     const tree = buildMapTree(rom)
@@ -162,7 +162,7 @@ describe.skipIf(!hasRom(VANILLA))('buildMapTree, on the vanilla cart', () => {
       ...n.children.map(c => c.index),
     ])
     expect(reached).not.toContain(0x012)
-    expect(tree.unassigned.find(n => n.index === 0x012)?.placeholder).toBe(true)
+    expect(tree.unassigned.find(n => n.index === 0x012)).toMatchObject({ kind: 'map' })
   })
 
   /**
@@ -211,9 +211,9 @@ describe.skipIf(!hasRom(VANILLA))('group counts', () => {
 
   it('counts unassigned maps as the rows it actually shows', () => {
     const tree = buildMapTree(load(VANILLA))
-    // Placeholder rows share the folder but are counted apart (#901).
-    expect(tree.counts.unassigned).toBe(tree.unassigned.filter(n => !n.placeholder).length)
-    expect(tree.counts.placeholders).toBe(tree.unassigned.filter(n => n.placeholder).length)
+    // New rows share the folder but are counted apart; vanilla has none (#949).
+    expect(tree.counts.unassigned).toBe(tree.unassigned.filter(n => !n.noPointer).length)
+    expect(tree.counts.noPointer).toBe(tree.unassigned.filter(n => n.noPointer).length)
   })
 })
 
@@ -336,7 +336,7 @@ describe.skipIf(!hasRom(VANILLA))('the oracle can fail', () => {
     const tree = buildMapTree(rom)
     const expected = new Set(
       buildLevelCatalog(rom)
-        .entries.filter(e => e.isReal || e.placeholder)
+        .entries.filter(e => e.pointed)
         .map(e => e.index),
     )
 

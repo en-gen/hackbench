@@ -68,16 +68,16 @@ export interface MapNode {
    */
   l1Aliases: number[]
   /**
-   * A slot on the shared placeholder room; `sharedCount` is how many slots
-   * share it. Always an orphan. Editing it edits every sharer, so views say so.
-   */
-  placeholder?: true
-  sharedCount?: number
-  /**
-   * A slot with no readable Layer 1 pointer (zero, or unreadable): nothing to open. Listed so
-   * every slot appears (#901), never counted as a map or a placeholder.
+   * A New slot (D155): its Layer 1 pointer is zero or does not resolve to an
+   * offset inside the ROM file, so there is no map data. Listed so every slot
+   * appears (#901), never counted as a map, and no group takes it.
    */
   noPointer?: true
+  /**
+   * A map whose pointer is valid but whose data could not be read back. It stays
+   * a map and its row warns; opening it gives the view's "could not be read" reply.
+   */
+  unreadable?: true
   children: MapNode[]
 }
 
@@ -101,11 +101,9 @@ export interface SpecialMapNode<R extends string = SpecialRole> extends MapNode 
  */
 export interface MapTreeCounts {
   entrances: number | null
-  /** Real maps nothing reaches. Placeholder slots are counted apart, below. */
+  /** Maps nothing reaches, the ones on the most common pointer included. */
   unassigned: number
-  /** Slots listed as orphans only because they use the shared placeholder room. */
-  placeholders: number
-  /** Slots listed only because their Layer 1 pointer is zero or unreadable. */
+  /** New slots: listed beside the unassigned maps but counted apart. */
   noPointer: number
 }
 
@@ -122,13 +120,13 @@ export interface MapTree {
   /** Maps the overworld can start, each with its sub-areas beneath it. */
   overworld: MapNode[]
   /**
-   * Real maps no overworld root reaches, and every placeholder slot, in slot
-   * order. Flat: see the note in build.
+   * Maps no overworld root reaches, then the New slots, in slot order. Flat:
+   * see the note in build.
    */
   unassigned: MapNode[]
   /**
-   * Real maps in the ROM, placeholders excluded (docs/glossary.md: 235 on
-   * vanilla). The tree lists mapCount + counts.placeholders + counts.noPointer slots.
+   * Maps in the ROM: every slot with a usable pointer (docs/glossary.md: 512 on
+   * vanilla). The tree lists mapCount + counts.noPointer slots.
    */
   mapCount: number
   counts: MapTreeCounts
@@ -155,9 +153,16 @@ export function buildMapTree(
 ): MapTree {
   const catalog = buildLevelCatalog(rom)
   // Listed but not a map: never a root or destination, as in the exit graph.
+  // `maps` is the hierarchy's universe. Slots on the most common pointer are
+  // maps too but stay out of it, and go straight to unassigned: they are never
+  // roots, destinations or bonus targets, so the vanilla tree keeps its shape.
   const maps = new Set(catalog.entries.filter(e => e.isReal).map(e => e.index))
-  const placeholders = catalog.entries.filter(e => e.placeholder).map(e => e.index)
-  const noPointers = catalog.entries.filter(e => !e.isReal && !e.placeholder).map(e => e.index)
+  const shared = catalog.entries.filter(e => e.sharedPointer).map(e => e.index)
+  const noPointers = catalog.entries.filter(e => !e.pointed).map(e => e.index)
+  const unreadable = (index: number): { unreadable?: true } =>
+    catalog.entries[index]!.pointed && !catalog.entries[index]!.parseable
+      ? { unreadable: true }
+      : {}
   const notes = [...catalog.notes]
 
   // Launch tiles the overworld grants a translevel, which is what a hacker
@@ -188,6 +193,7 @@ export function buildMapTree(
       name: name(index),
       kind: 'map',
       l1Aliases: aliasesOf(index),
+      ...unreadable(index),
       children,
     }
   }
@@ -221,6 +227,7 @@ export function buildMapTree(
           name: name(index),
           kind: 'map' as const,
           l1Aliases: aliasesOf(index),
+          ...unreadable(index),
           children: [],
         },
       ]
@@ -240,29 +247,27 @@ export function buildMapTree(
   // complete coverage.
   const realUnassignedIds = [...maps].filter(i => !placed.has(i))
   const realUnassigned = realUnassignedIds.length
-  const unassigned: MapNode[] = [...realUnassignedIds, ...placeholders, ...noPointers]
+  const unassigned: MapNode[] = [...realUnassignedIds, ...shared, ...noPointers]
     .sort((a, b) => a - b)
     .map(i => ({
       index: i,
       name: name(i),
       kind: 'map' as const,
       l1Aliases: aliasesOf(i),
-      ...(catalog.entries[i]!.placeholder
-        ? { placeholder: true as const, sharedCount: catalog.placeholderCount }
-        : catalog.entries[i]!.isReal
-          ? {}
-          : { noPointer: true as const }),
+      ...(catalog.entries[i]!.pointed ? unreadable(i) : { noPointer: true as const }),
       children: [],
     }))
+  const unassignedMaps = realUnassigned + shared.length
+  const mapCount = maps.size + shared.length
 
   if (unavailable) {
     notes.push(
       `Map hierarchy unavailable: ${unavailable} Sub areas are listed unassigned rather ` +
         'than grouped by a rule this ROM may not follow. Every map is still listed and editable.',
     )
-  } else if (realUnassigned > 0) {
+  } else if (unassignedMaps > 0) {
     notes.push(
-      `${realUnassigned} of ${maps.size} maps are unassigned: no overworld root ` +
+      `${unassignedMaps} of ${mapCount} maps are unassigned: no overworld root ` +
         'reaches them through the exit graph. They are listed flat because an ' +
         "orphan's own exits are left unresolved by design (SmwRom.buildLevelExitGraph).",
     )
@@ -283,10 +288,9 @@ export function buildMapTree(
 
   const counts: MapTreeCounts = {
     entrances: entranceIndex.overworldReadable ? entranceIndex.entrances.length : null,
-    unassigned: realUnassigned,
-    placeholders: placeholders.length,
+    unassigned: unassignedMaps,
     noPointer: noPointers.length,
   }
 
-  return { special, bonus, overworld, unassigned, mapCount: maps.size, counts, notes }
+  return { special, bonus, overworld, unassigned, mapCount, counts, notes }
 }

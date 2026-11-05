@@ -117,7 +117,12 @@ export interface MapViewOptions {
   label: string
   /** The tree row's own icon, so the tab matches where it was opened from. */
   iconClass?: string
+  /** A New slot: nothing to read, so the view shows `NEW_SLOT_NOTE` instead of a map (#950 replaces it). */
+  isNew?: boolean
 }
+
+/** The one-line note an opened New slot shows until its empty editor exists (#950). */
+export const NEW_SLOT_NOTE = 'This slot is new. It has no map yet.'
 
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
 type Sprites = Extract<MapSpritesResult, { status: 'ok' }>
@@ -391,6 +396,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.pendingStart = undefined
     this.startState = 'pending'
     this.movedBeforeStart = false
+    if (options.isNew) {
+      this.generation++
+      this.update()
+      return
+    }
     void this.loadStart(++this.startSeq)
     this.update()
     this.refresh()
@@ -459,6 +469,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Drops every cached screen and reads the map again from the working copy. */
   protected refresh(): void {
+    // A New slot has nothing to read, so an edit elsewhere changes nothing here.
+    if (this.options?.isNew) return
     this.generation++
     this.update()
     this.pendingRestore = undefined
@@ -1412,8 +1424,20 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return l3.reason ?? (l3.priority ? 'Layer 3 · Overlay' : 'Layer 3 · Background')
   }
 
+  /** The view of a New slot: one plain-words note, no toolbar and no error (D155). */
+  protected renderNewSlot(): React.ReactNode {
+    return (
+      <div className="hb-map-view-main" data-details="done" data-generation={this.generation}>
+        <div className="hb-map-view-empty" data-control="map-new-note">
+          {NEW_SLOT_NOTE}
+        </div>
+      </div>
+    )
+  }
+
   /** Renders the toolbar and canvas; every unavailable overlay title comes from the plain-word helpers (#967). */
   protected render(): React.ReactNode {
+    if (this.options?.isNew) return this.renderNewSlot()
     this.renderedZoom = this.zoomController.value
     return (
       <div
