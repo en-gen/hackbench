@@ -35,10 +35,11 @@ export function routineSha(bytes: Uint8Array | null, norm: readonly number[] = [
 }
 
 /**
- * The stock routines the dispatch CODE_01D9A7 reaches, by role, each hashed whole in one digest: the prelude
- * CODE_018063, platform draw CODE_01B2DF, rope draw CODE_01DC54, $67 draw CODE_01DC0B, $68 draw CODE_01DBD4, the
- * chainsaw draw (CODE_03C263 and the routine after it) and the line step CODE_01D74D. Code and the tables inside the
- * span are hashed; a table outside it is not. MarioSprInteractRt is not hashed: its slot takes any callee that is not
+ * The stock routines the dispatch CODE_01D9A7 (bank_01.asm:12182) reaches, by role, each hashed whole in one digest:
+ * the prelude CODE_018063 (bank_01.asm:85), platform draw CODE_01B2DF (bank_01.asm:6913), rope draw CODE_01DC54
+ * (bank_01.asm:12564), $67 draw CODE_01DC0B (bank_01.asm:12521), $68 draw CODE_01DBD4 (bank_01.asm:12489), the
+ * chainsaw draw (CODE_03C263, bank_03.asm:7631, and the routine after it) and the line step CODE_01D74D
+ * (bank_01.asm:11848). Code and the tables inside the span are hashed; a table outside it is not. MarioSprInteractRt is not hashed: its slot takes any callee that is not
  * one of these. One cart (vanilla US), one machine.
  */
 const STOCK: Readonly<Record<string, Routine>> = {
