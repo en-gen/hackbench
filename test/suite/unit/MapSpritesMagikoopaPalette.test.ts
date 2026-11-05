@@ -155,7 +155,7 @@ describe('runtime palette on the map (#1097)', () => {
 
   it('marks a sprite that stopped being drawn after its colors changed since the picture', () => {
     const p = { ...fade(), lastDrawn: 30, writes: { ...fade().writes, 40: rung(5) } }
-    expect(draw(run(0x1f, p)).unverified).toMatch(/not drawn throughout/)
+    expect(draw(run(0x1f, p)).unverified).toMatch(/disappeared partway/)
   })
 
   it('does not mark a sprite that stopped being drawn when its colors did not change since the picture', () => {
@@ -170,6 +170,11 @@ describe('runtime palette on the map (#1097)', () => {
       gap: [30, 59],
       writes: { ...fade().writes, 24: rung(7), 40: rung(0) },
     }
-    expect(draw(run(0x1f, p)).unverified).toMatch(/not drawn throughout/)
+    expect(draw(run(0x1f, p)).unverified).toMatch(/disappeared partway/)
+  })
+
+  it('keeps the fade-out mark on a later frame: the colors are compared with the first drawn pass, not the frame', () => {
+    const p: Plan = { ...fade(), gap: [30, 59], chosen: 60 }
+    expect(draw(run(0x1f, p)).unverified).toMatch(/disappeared partway/)
   })
 })

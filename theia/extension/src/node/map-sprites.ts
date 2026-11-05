@@ -435,15 +435,16 @@ function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
   const last = m.passes.length - 1
   const net = netColors(m, last)
   const writes = [...net].map(([index, bgr555]) => ({ index, bgr555 }))
-  // A run no longer than the window (a short caller) cannot say anything about settling.
+  // Guards the tail loop below and keeps hand-built models of a few passes from being marked; no production run is that short.
   if (last < SETTLE_TAIL) return { writes }
-  const end = ' when the check ended, so they may differ in the game'
+  const end = 'so its colors may differ in the game'
   for (let p = last - SETTLE_TAIL + 1; p <= last; p++)
-    if (!sameColors(netColors(m, p), netColors(m, p - 1))) return { writes, why: `its colors were still changing${end}` } // prettier-ignore
+    if (!sameColors(netColors(m, p), netColors(m, p - 1))) return { writes, why: `its colors were still changing when the check ended, ${end}` } // prettier-ignore
   const first = m.passes.findIndex(p => p.parts.length > 0)
-  if (first >= last - SETTLE_TAIL) return { writes, why: `it only appeared${end}` }
-  if (m.passes.slice(first).some(p => !p.parts.length) && !sameColors(net, netColors(m, m.chosen!)))
-    return { writes, why: `it was not drawn throughout and its colors had changed${end}` }
+  if (first >= last - SETTLE_TAIL)
+    return { writes, why: `it only appeared when the check ended, ${end}` }
+  if (m.passes.slice(first).some(p => !p.parts.length) && !sameColors(net, netColors(m, first)))
+    return { writes, why: `it disappeared partway through and its colors changed, ${end}` }
   return { writes }
 }
 

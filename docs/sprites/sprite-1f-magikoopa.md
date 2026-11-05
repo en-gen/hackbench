@@ -240,9 +240,10 @@ those colors may not be the settled ones:
    time to write, so a quiet tail proves nothing). The test uses the run's
    first drawn pass, not the pass a frame of the animation is drawn from;
 3. the sprite stopped drawing at some pass after its first and its end colors
-   differ from those at the drawn pass: a fade-out followed by a new cycle.
+   differ from those at its first drawn pass (not the frame being drawn): a fade-out followed by a new cycle.
 
-A run no longer than 16 passes (a short caller) is not checked. The run is not
+A run of 16 passes or fewer is not checked: that guards the tail loop and keeps
+hand-built models from being marked; no production run is that short. The run is not
 lengthened. Whether the fade finishes depends on the placement: state 0 waits
 on `GetRand` and a ground test.
 
@@ -267,10 +268,14 @@ Evidence (vanilla ROM, one machine):
   - marked: `$01:C00A` = 10 or 16; `$01:C023` = 4; the fade-out cases
     (`$01:C00A`/`$01:C023` = 3/1, 3/2, 3/4, 3/6, 2/12, 1/20, where the sprite
     fades out, leaves and starts a new cycle);
-  - NOT marked (silent): `$01:C00A` = 21, 22, 31, 36, 40 (the slower fades the
-    16-pass tail cannot see). Values 17 to 20 and 23 to 30 were not run. A
-    fade whose rungs land more than 16 passes apart is a known limit of this
-    check.
+  - NOT marked (silent), measured at the `$11C` placed spot for `$01:C00A`
+    9 to 70: 9-20 marked; 21 and 22 silent (rung 2); 23-30 marked; 31-45
+    silent (rung 1); 46-61 marked; 62-70 silent (rung 0); not run above 70.
+    The cause is that no rung lands in the last 16 passes. A wider sweep by the
+    reviewer (`$01:C00A` 1-40, 14 `$01:C023` values, 4 `$01:BFE9` values) had
+    silent wrong results only at `$01:C00A` 21, 22 and 31-40. One machine,
+    vanilla ROM. A fade whose rungs land more than 16 passes apart is a known
+    limit of this check.
 - `$1FE` at its placed spot draws no tile in the run (a placeholder): it has no
   pixels to compare, and there is no capture for it (`captures/layers_v5/1fe.zip`
   does not exist), so nothing is claimed about its colors.
