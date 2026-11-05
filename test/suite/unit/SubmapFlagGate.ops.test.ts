@@ -14,6 +14,7 @@ import {
   type StockOp,
   type StockSpan,
 } from '../../../src/rom/SubmapFlagGate'
+import { formatAddr } from '../../../src/rom/addressing'
 import { blankStockRom, flip, SYNTHETIC_FINGERPRINTS } from '../support/syntheticRom'
 
 const OPS = OVERWORLD_ENTRY.filter((c): c is StockOp => 'op' in c)
@@ -67,7 +68,9 @@ describe('the digests', () => {
     for (let off = 0; off < s.length; off++) {
       const rom = blankStockRom()
       flip(rom, s.addr + off)
-      const refused = bad(rom).some(r => r !== null && r.startsWith('$' + s.addr.toString(16).toUpperCase().padStart(6, '0')) && r.includes('recognized build')) // prettier-ignore
+      const refused = bad(rom).some(
+        r => r?.startsWith(formatAddr(s.addr)) && r.includes('recognized build'),
+      )
       expect(refused, `offset ${off}`).toBe(!s.mask!.includes(off))
     }
   })

@@ -8,7 +8,6 @@ import {
   OVERWORLD_INDEX_BODY,
   SCREEN_EXIT,
   spanFingerprint,
-  type StockOp,
   type StockSpan,
 } from '../../../src/rom/SubmapFlagGate'
 import { START_EXIT_SPAN, START_MAIN_SPAN } from '../../../src/rom/LevelStart'
@@ -60,11 +59,6 @@ function syntheticIndexSpan(): Buffer {
   const span = nops(OVERWORLD_INDEX_BODY.length)
   span.set(MIDWAY_HOOK_SITE.slice(0, 4), 0)
   return span
-}
-
-/** One opcode planted, and for a branch the displacement that lands where the stock one does. */
-export function plantOp(rom: RomFile, c: StockOp): void {
-  rom.writeAt(c.addr, [c.op, ...(c.lands === undefined ? [] : [(c.lands - c.addr - 2) & 0xff])])
 }
 
 /**
@@ -171,7 +165,9 @@ export function plantStockSubmapCode(rom: RomFile): void {
     if ('fingerprints' in c) rom.writeAt(c.addr, c === OVERWORLD_INDEX_BODY ? syntheticIndexSpan() : nops(c.length)) // prettier-ignore
   }
   for (const c of stock) {
-    if ('op' in c) plantOp(rom, c)
+    // An opcode, and for a branch the displacement that lands where the stock one does.
+    if ('op' in c)
+      rom.writeAt(c.addr, [c.op, ...(c.lands === undefined ? [] : [(c.lands - c.addr - 2) & 0xff])]) // prettier-ignore
     else if (!('fingerprints' in c)) rom.writeAt(c.addr, [...c.bytes])
   }
   plantScreenExitFiling(rom)
