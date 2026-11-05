@@ -7,9 +7,15 @@
  * The report is deterministic (sorted, no times); the run time goes to stdout only.
  */
 import { readFileSync, writeFileSync } from 'fs'
-import { basename } from 'path'
+import { basename, resolve } from 'path'
 import { REVEAL_TEXT } from '../../theia/extension/src/node/map-sprites'
-import { type RevealRow, revealReport, solidToDoorText } from './spriteReport'
+import {
+  isInside,
+  reasonClass,
+  type RevealRow,
+  solidToDoorText,
+  sweepSection,
+} from './spriteReport'
 import { revealRows } from './spriteReportRun'
 
 const args = process.argv.slice(2)
@@ -28,12 +34,13 @@ if (!roms.length || !out) {
   process.exit(2)
 }
 
-/** A marker reason with its ids and numbers blanked, so the same refusal counts once. */
-const reasonClass = (m: string) =>
-  m
-    .replace(/\$[0-9a-f]+/gi, '$..')
-    .replace(/\d+/g, 'N')
-    .slice(0, 110)
+// Reports hold map, column and id lists of a copyrighted ROM; they stay out of the public checkout.
+for (const p of [out, solid].filter(Boolean))
+  if (isInside(p, resolve(__dirname, '..', '..'))) {
+    console.error(`refusing ${p}: it is inside the hackbench checkout. Nothing written.`)
+    process.exit(2)
+  }
+
 const say = (code: string) => (REVEAL_TEXT as Record<string, string>)[code] ?? code
 
 const t0 = Date.now()
@@ -53,27 +60,7 @@ for (const rom of roms) {
     }
   }
   all.push(...rows)
-  const markers = new Map<string, number>()
-  for (const r of rows)
-    if (r.marker) markers.set(reasonClass(r.marker), (markers.get(reasonClass(r.marker)) ?? 0) + 1)
-  const byCondition = new Map<string, number>()
-  for (const r of rows)
-    if (r.condition) byCondition.set(r.condition, (byCondition.get(r.condition) ?? 0) + 1)
-  sections.push(
-    [
-      `=== ${roms.length > 1 ? basename(rom) : 'ROM'} ===`,
-      revealReport(rows),
-      'Revealed per condition:',
-      ...[...byCondition].sort().map(([k, n]) => `${k}: ${n}`),
-      '',
-      'Markers per reason:',
-      ...[...markers].sort().map(([k, n]) => `${k}: ${n}`),
-      '',
-      `Maps not run: ${skipped.length}`,
-      ...skipped,
-      '',
-    ].join('\n'),
-  )
+  sections.push(sweepSection(roms.length > 1 ? basename(rom) : 'ROM', rows, skipped))
 }
 writeFileSync(out, sections.join('\n'))
 if (solid) writeFileSync(solid, solidToDoorText(all, say))

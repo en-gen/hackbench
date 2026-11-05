@@ -25,9 +25,14 @@ import { getSpriteMetadata } from '../../src/rom/model/sprites/SpriteMetadata'
 import { drew } from '../../src/rom/sprites/interp/RevealSearch'
 import { RomFile } from '../../src/rom/RomFile'
 import { SmwRom } from '../../src/rom/SmwRom'
-import { parseLevelSprites } from '../../src/rom/LevelParser'
+import { parseLevelSprites, type LevelSprite } from '../../src/rom/LevelParser'
 import { L1ModelCache } from '../../theia/extension/src/node/map-screen'
-import { interpRunner, modelResult, readStream } from '../../theia/extension/src/node/map-sprites'
+import {
+  interpRunner,
+  modelResult,
+  readStream,
+  type SpriteRun,
+} from '../../theia/extension/src/node/map-sprites'
 import {
   levelSeed,
   loadLevelState,
@@ -626,12 +631,21 @@ export function revealRows(bytes: Uint8Array, romFile: string, map: number): Rev
   const stream = parseLevelSprites(data, model.isVertical)
   const runner = (reveal: boolean) =>
     interpRunner(rom.rom, map, model, undefined, () => base, undefined, undefined, undefined, stream, reveal) // prettier-ignore
-  const [plain, served] = [runner(false), runner(true)]
+  return revealRowsOf(map.toString(16), stream, runner(false), runner(true))
+}
+
+/** The rows of one map's sprite list from its two runners: `plain` without the reveal search, `served` with it. */
+export function revealRowsOf(
+  map: string,
+  stream: readonly LevelSprite[],
+  plain: (s: LevelSprite) => SpriteRun,
+  served: (s: LevelSprite) => SpriteRun,
+): RevealRow[] {
   return stream.map((s): RevealRow => {
     const [a, b] = [plain(s), served(s)]
     const name = getSpriteMetadata(s.spriteId)?.displayName
     const row = {
-      map: map.toString(16),
+      map,
       index: s.index,
       id: s.spriteId,
       column: s.x,

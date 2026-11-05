@@ -5,7 +5,12 @@
  */
 import { describe, expect, it } from 'vitest'
 import { parseArgs, run, type Io } from '../../../tools/scripts/spriteReportRun'
-import { revealReport, solidToDoorText, type RevealRow } from '../../../tools/scripts/spriteReport'
+import {
+  revealReport,
+  solidToDoorText,
+  sweepSection,
+  type RevealRow,
+} from '../../../tools/scripts/spriteReport'
 
 const rows: RevealRow[] = [
   { map: '105', index: 2, id: 0x74, column: 25, row: 23, rest: 'drew', hidden: false },
@@ -63,7 +68,7 @@ describe('revealReport', () => {
     const flipped = text.split('Drew at rest, now hidden:\n')[1]!.split('\n\n')[0]!
     expect(flipped.split('\n')).toEqual([
       'map 105 #1 $4D (column 15, row 23): rest drew, hidden, revealed by mario-at-sprite',
-      'map 105 #5 $56 (column 55, row 20): rest drew, hidden, revealed by none-found',
+      'map 105 #5 $56 (column 55, row 20): rest drew, hidden, no condition reveals it',
     ])
     const all = text.split('All sprites:\n')[1]!.split('\n')
     expect(all.map(l => l.match(/#(\d)/)?.[1])).toEqual(['0', '1', '2', '3', '4', '5', undefined])
@@ -120,5 +125,27 @@ describe('sprite-report --reveal', () => {
       ['--reveal', '--sheet', '--map', '1'],
     ])
       expect(typeof parseArgs(bad)).toBe('string')
+  })
+})
+
+describe('sweepSection (reveal-sweep)', () => {
+  const text = sweepSection('ROM', rows, ['map 1: no sprite data'])
+  it('counts revealed sprites per condition, leaving none-found out of them', () => {
+    const per = text.split('Revealed per condition:\n')[1]!.split('\n\n')[0]!
+    expect(per).toBe('mario-at-sprite: 2')
+  })
+  it('reports the sprites no condition reveals on a line of their own', () => {
+    expect(text).toContain('Hidden, no condition reveals it (kept in the door): 1')
+  })
+  it('lists markers per reason and the maps not run', () => {
+    expect(text).toContain('Markers per reason:\nunrevealed: 1')
+    expect(text).toContain('Maps not run: 1\nmap 1: no sprite data')
+  })
+  it('blanks ids and numbers in a refusal reason so one refusal counts once', () => {
+    const a = { ...rows[0]!, marker: 'refused: the sprite became $FF: id $ff is past 201' }
+    const b = { ...rows[0]!, index: 9, marker: 'refused: the sprite became $12: id $12 is past 77' }
+    expect(sweepSection('ROM', [a, b], [])).toContain(
+      'refused: the sprite became $..: id $.. is past N: 2',
+    )
   })
 })

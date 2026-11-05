@@ -304,7 +304,7 @@ export function revealReport(rows: readonly RevealRow[]): string {
   const id = (r: RevealRow) =>
     `map ${r.map} #${r.index} $${hex2(r.id)} (column ${r.column}, row ${r.row})`
   const line = (r: RevealRow) =>
-    `${id(r)}: rest ${r.rest}, ${r.hidden ? 'hidden' : 'not hidden'}${r.condition ? `, revealed by ${r.condition}` : ''}${r.marker ? `, marker ${r.marker}` : ''}`
+    `${id(r)}: rest ${r.rest}, ${r.hidden ? 'hidden' : 'not hidden'}${r.condition ? (r.condition === NONE_FOUND ? ', no condition reveals it' : `, revealed by ${r.condition}`) : ''}${r.marker ? `, marker ${r.marker}` : ''}`
   const count = (f: (r: RevealRow) => boolean) => sorted.filter(f).length
   const flipped = sorted.filter(r => r.rest === 'drew' && r.hidden)
   const none = sorted.filter(r => r.condition === NONE_FOUND)
@@ -341,6 +341,46 @@ export function solidToDoorText(rows: readonly RevealRow[], say: (code: string) 
       r =>
         `map $${r.map}, column ${r.column}, row ${r.row}, sprite $${hex2(r.id)} ${r.name ?? '(no name)'}: ${r.condition === NONE_FOUND ? 'none found' : say(r.condition!)}`,
     ),
+    '',
+  ].join('\n')
+}
+
+/** A marker reason with its ids and numbers blanked, so the same refusal counts once. */
+export const reasonClass = (m: string) =>
+  m
+    .replace(/\$[0-9a-f]+/gi, '$..')
+    .replace(/\d+/g, 'N')
+    .slice(0, 110)
+
+const tally = (keys: Iterable<string>) => {
+  const n = new Map<string, number>()
+  for (const k of keys) n.set(k, (n.get(k) ?? 0) + 1)
+  return [...n].sort().map(([k, c]) => `${k}: ${c}`)
+}
+
+/**
+ * One ROM's block of the sweep report (`reveal-sweep`): the audit, the sprites each condition revealed (a sprite no
+ * condition reveals is counted apart, not as a condition), the markers per reason and the maps that did not run.
+ */
+export function sweepSection(
+  label: string,
+  rows: readonly RevealRow[],
+  skipped: readonly string[],
+): string {
+  const none = rows.filter(r => r.condition === NONE_FOUND).length
+  return [
+    `=== ${label} ===`,
+    revealReport(rows),
+    'Revealed per condition:',
+    ...tally(rows.filter(isReveal).map(r => r.condition!)),
+    '',
+    `Hidden, no condition reveals it (kept in the door): ${none}`,
+    '',
+    'Markers per reason:',
+    ...tally(rows.filter(r => r.marker).map(r => reasonClass(r.marker!))),
+    '',
+    `Maps not run: ${skipped.length}`,
+    ...skipped,
     '',
   ].join('\n')
 }

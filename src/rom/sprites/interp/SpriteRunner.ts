@@ -258,7 +258,7 @@ export interface SpriteModel {
    * the second run refused (the run alone stands in both).
    */
   neighbourRun?: 'adopted' | 'same' | 'refused'
-  /** Set by the reveal search (RevealSearch.ts): the sprite draws nothing at rest, and this condition made it draw. */
+  /** Set by the reveal search (RevealSearch.ts): this condition made the sprite draw, or `none-found` for one that drew at rest, hides under a probe and none reveals. */
   reveal?: RevealCondition
 }
 
