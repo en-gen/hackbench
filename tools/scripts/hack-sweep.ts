@@ -26,6 +26,9 @@ import { buildStockTables, countCustomPaletteLevels } from '../../src/rom/Palett
 import { detectPaletteAnimation } from '../../src/rom/PaletteAnimationDetect'
 import { MUSIC_BANKS, readMusicCatalog, readTrackUsage } from '../../src/rom/MusicCatalog'
 import { SFX_PORTS, readSfxTable } from '../../src/rom/SfxTables'
+import { parseLevelObjects, parseLevelSprites } from '../../src/rom/LevelParser'
+import { levelNameForSlot } from '../../src/rom/SmwLevelNames'
+import { filterSomeRamNote, levelGfxAssignmentNote } from '../../src/rom/GfxLoader'
 import { buildMapDetails } from '../../theia/extension/src/node/map-details'
 import { decodeGfxSheet, listGfxFileInfos } from '../../theia/extension/src/node/gfx-decode'
 import { decodeMap16Sheet } from '../../theia/extension/src/node/map16-decode'
@@ -65,7 +68,7 @@ function overworldGates(smw: SmwRom): string[] {
 }
 
 /** Each entry is what its view's server calls. */
-function readers(smw: SmwRom): Record<string, () => ReaderOutcome> {
+export function readers(smw: SmwRom): Record<string, () => ReaderOutcome> {
   return {
     maps: () => {
       const t = buildMapTree(smw)
@@ -74,12 +77,38 @@ function readers(smw: SmwRom): Record<string, () => ReaderOutcome> {
       )
     },
     mapDetails: () => {
-      // What the app calls when a map is clicked, over every map the catalog calls real.
+      // The app reads only the level mode per map (buildMapDetails). The object parser, the name
+      // lookup and the GFX notes are called directly too, because the map Properties panel (#1023)
+      // shows what they decode and a throw in any of them is a defect. The sprite parser runs only
+      // for a map with readable level data and a readable sprite pointer (as the pre-#1008
+      // buildMapDetails did, returning before the sprites without level data); a hooked hack
+      // without a pointer skips it. As before,
+      // a sprite stream that will not parse is caught and stays ok: it is an unavailable fact,
+      // not a crash.
       const real = buildLevelCatalog(smw).entries.filter(e => e.isReal)
+      const entrances = deriveOverworldEntrances(smw)
+      const vertical = smw.getVerticalTable()
       const failed: { index: number; err: Error }[] = []
       for (const e of real) {
         try {
           buildMapDetails(smw, e.index)
+          const raw = smw.getLevelRawData(e.index)
+          if (raw) {
+            const parsed = parseLevelObjects(raw, vertical.ok ? vertical.table : [])
+            const h = parsed.header
+            filterSomeRamNote(smw.rom, h.objectTileset, h.spriteSet)
+            const spritePtr = smw.getLevelSpritePointer(e.index)
+            const spriteData = spritePtr === null ? null : smw.rom.readAt(spritePtr, 0x200)
+            if (spriteData) {
+              try {
+                parseLevelSprites(spriteData, vertical.ok && parsed.isVertical)
+              } catch {
+                // unavailable, not a crash
+              }
+            }
+          }
+          levelNameForSlot(smw.rom, entrances, e.index)
+          levelGfxAssignmentNote(smw.rom)
         } catch (err) {
           failed.push({ index: e.index, err: err as Error })
         }

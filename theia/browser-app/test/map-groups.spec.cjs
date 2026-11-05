@@ -503,7 +503,7 @@ test('Ctrl+click and Shift+click select multiple rows and open no preview', asyn
   })
   expect(afterCtrl).toBe(2)
   // A multi-row selection opens no editor tab.
-  expect(await page.locator('.hb-map-view-body').count()).toBe(0)
+  expect(await page.locator('.hb-map-view-main').count()).toBe(0)
 
   const rowC = await rowFor(page, c.id)
   await rowC.click({ modifiers: ['Shift'] })
@@ -512,7 +512,7 @@ test('Ctrl+click and Shift+click select multiple rows and open no preview', asyn
     return w.model.selectedNodes.length
   })
   expect(afterShift).toBeGreaterThanOrEqual(2)
-  expect(await page.locator('.hb-map-view-body').count()).toBe(0)
+  expect(await page.locator('.hb-map-view-main').count()).toBe(0)
 })
 
 test('dragging one row of a multi-selection moves the whole selection into a group', async ({
