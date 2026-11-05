@@ -426,12 +426,13 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
   }
 
   // 24: 21 plus the 3 stationary shells on $106 ($DB at 272,368 and 1312,368; $DA at 1664,368), drawn since #837.
-  // $3E (the P-switch) draws too, now INIT runs for the picture (D139 D); the other sprite is marked (D52).
-  it('draws 24 of the 25 sprites of $106 and marks the rest, every one with a matching bitmap', () => {
+  // $3E (the P-switch) draws too, now INIT runs for the picture (D139 D). The 25th, a Monty Mole that drew nothing from
+  // Mario's start, is drawn since #1132 (found by the reveal search: one machine, one run), so all 25 are.
+  it('draws all 25 sprites of $106, every one with a matching bitmap', () => {
     const r = run(0x106)
     expect(r.sprites).toHaveLength(25)
     const drawn = r.sprites.filter(s => s.status === 'drawn')
-    expect(drawn).toHaveLength(24)
+    expect(drawn).toHaveLength(25)
     // Sprite $05 stands at tile row 20: its parts begin above the anchor, a 16 x 32 body.
     const koopa = drawn.find(s => s.id === 0x05)!
     expect(sized(koopa)).toEqual([16, 32])
@@ -449,12 +450,15 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
     expect(tape!.reason).not.toBe('extraBits')
   })
 
-  // 32: 31 plus the stationary shell $DB at 3344,368, drawn since #837.
-  it('draws 32 of the 34 sprites of $105 from the interpreter, marking the rest with its reason', () => {
+  // 33: 31 plus the stationary shell $DB at 3344,368 (drawn since #837) plus the invisible mushroom $C7 (the reveal search, #1132).
+  it('draws 33 of the 34 sprites of $105 from the interpreter, marking the rest with its reason', () => {
     const r = run(0x105)
     expect(r.sprites).toHaveLength(34)
-    expect(r.sprites.filter(s => s.status === 'drawn')).toHaveLength(32)
-    for (const s of r.sprites.filter(s => s.status === 'placeholder')) expect(s.reason).toMatch(/^(refused: |drew no OAM tile)/) // prettier-ignore
+    expect(r.sprites.filter(s => s.status === 'drawn')).toHaveLength(33)
+    for (const s of r.sprites.filter(s => s.status === 'placeholder')) expect(s.reason).toMatch(/^(refused: |drew no OAM tile|unrevealed$)/) // prettier-ignore
+    const mushroom = r.sprites.find(s => s.id === 0xc7)!
+    expect(mushroom).toMatchObject({ status: 'drawn', screenDoor: true })
+    expect(mushroom.reveal).toContain('Mario touches this spot')
   })
 
   // Maps 006 and 126 hold every vanilla $9C beside its $9B (one machine, one run).
