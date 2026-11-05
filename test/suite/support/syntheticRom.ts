@@ -230,7 +230,7 @@ export function blankStockRom(): RomFile {
 }
 
 /** Lunar Magic's JSL at $05D8B1 into its routine at `at`, with the routine's
- *  own CMP and SBC operands. The stock site keeps its stock operands. */
+ *  own CMP and SBC operands. The site's other operands are the cart's invented ones (SYNTHETIC_RAM). */
 export function plantLmEntryHook(
   rom: RomFile,
   { at = 0x05dcd0, threshold = SYNTHETIC_THRESHOLD, bias = SYNTHETIC_BIAS } = {},

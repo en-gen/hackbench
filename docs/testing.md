@@ -127,7 +127,7 @@ pointer table.
 Planted defects for each are in `test/suite/unit/sprites/ShapeRuns.test.ts`.
 
 The fix for an allowed region is to make the reader recognize the code by SHA-256 (as
-`CastleFlames.ts` and `SubmapFlagGate.ts` do, the latter also by named opcodes read one instruction at a time), then delete the region.
+`CastleFlames.ts` and `SubmapFlagGate.ts` do, the latter also by named opcodes read one instruction at a time; its seven RAM addresses are a table, checked with no ROM only against a hand copy, and the assembled window scans need a ROM), then delete the region.
 
 Source-text probes read the file text only, so they miss runs built from helpers, named opcodes or spread
 arrays. The assembled gate, run against the built cart, is the oracle; a clean probe alone proves nothing.

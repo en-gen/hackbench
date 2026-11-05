@@ -29,7 +29,7 @@ const read = (rom: RomFile): ReturnType<typeof readTranslevelBias> =>
 
 describe('readTranslevelBias: Lunar Magic entry hook', () => {
   it("reads the routine's operands, not the stock site's", () => {
-    // The stock site keeps $25/$24; the routine overwrites what they computed.
+    // The site's own threshold and bias operands are invented too; the routine's are the ones read.
     expect(read(hooked({ threshold: 0x30, bias: 0x2a }))).toEqual({
       ok: true,
       threshold: 0x30,
