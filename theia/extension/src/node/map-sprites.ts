@@ -413,37 +413,48 @@ export function runWithUploads(rom: RomFile, id: number, seed: SpriteSeed): RunM
 }
 
 /**
- * Passes at the end of a run in which no color may change for them to count as settled. A fade writes a rung each
- * time its timer runs out (vanilla Magikoopa: every 4 passes, SMWDisX bank_01.asm:8715-8722), so 16 catches a fade
- * up to 4x slower; a slower one looks settled and is not caught. Vanilla map $11C settles at pass 30 of 63.
+ * Fewest quiet passes at the end of a run before its colors count as settled. A vanilla fade writes a rung every
+ * 4 passes (SMWDisX bank_01.asm:8715-8722); vanilla map $11C goes quiet at pass 30 of 63 (one machine).
  */
 const SETTLE_TAIL = 16
 
 /** The colors CGRAM holds after pass `p`: the run's writes are cumulative and the last one to a color wins. */
 const netColors = (m: RunModel, p: number) => new Map(m.passes[p]!.palette.map(w => [w.index, w.bgr555] as const)) // prettier-ignore
+/** True when two net color maps hold the same color at every index. */
 const sameColors = (a: Map<number, number>, b: Map<number, number>) => a.size === b.size && [...a].every(([i, v]) => b.get(i) === v) // prettier-ignore
 
 /**
  * The CGRAM colors a picture is drawn with (#1097). The chosen pass is a pose policy: the Magikoopa's first drawn
  * frame comes before any upload (bank_01.asm:8474, 8733-8755), so its writes left the level's row showing. CGRAM
  * keeps what the run wrote, drawn or not, so use the net writes at the last pass. Marked when they may be wrong:
- * a color changed in any of the last SETTLE_TAIL passes; the sprite first drew inside that tail (no time to write);
- * or it stopped drawing at some pass and its colors changed since the picture (a fade-out and a new cycle).
- * Docs: docs/sprites/sprite-1f-magikoopa.md section 5.
+ * not settled (the quiet span since the last change, from the first drawn pass on, is under SETTLE_TAIL or no
+ * longer than the longest gap between earlier changes); first drawn inside the tail; or it left and the colors
+ * changed while away or differ from before it left or from its first picture. One change gives no gap to
+ * compare, so a lone update is marked too (vanilla: 0 such sprites or frames). Docs: sprite-1f-magikoopa.md s5.
  */
 function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
   const last = m.passes.length - 1
   const net = netColors(m, last)
   const writes = [...net].map(([index, bgr555]) => ({ index, bgr555 }))
-  // Guards the tail loop below and keeps hand-built models of a few passes from being marked; no production run is that short.
+  // Guards the loops below and keeps hand-built models of a few passes from being marked; no production run is that short.
   if (last < SETTLE_TAIL) return { writes }
   const end = 'so its colors may differ in the game'
-  for (let p = last - SETTLE_TAIL + 1; p <= last; p++)
-    if (!sameColors(netColors(m, p), netColors(m, p - 1))) return { writes, why: `its colors were still changing when the check ended, ${end}` } // prettier-ignore
   const first = m.passes.findIndex(p => p.parts.length > 0)
   if (first >= last - SETTLE_TAIL)
     return { writes, why: `it only appeared when the check ended, ${end}` }
-  if (m.passes.slice(first).some(p => !p.parts.length) && !sameColors(net, netColors(m, first)))
+  const changed = (p: number) => !sameColors(netColors(m, p), netColors(m, p - 1))
+  const events: number[] = []
+  for (let p = first + 1; p <= last; p++) if (changed(p)) events.push(p)
+  const quiet = last - (events[events.length - 1] ?? first)
+  const gap = Math.max(0, ...events.slice(1).map((e, i) => e - events[i]!))
+  if (events.length === 1) return { writes, why: `its colors changed only once, ${end}` }
+  if (quiet < SETTLE_TAIL || quiet <= gap)
+    return { writes, why: `its colors were still changing when the check ended, ${end}` }
+  const away = m.passes.map((_, p) => p).filter(p => p > first && !m.passes[p]!.parts.length)
+  if (
+    away.length &&
+    (away.some(changed) || [first, away[0]! - 1].some(p => !sameColors(net, netColors(m, p))))
+  )
     return { writes, why: `it disappeared partway through and its colors changed, ${end}` }
   return { writes }
 }

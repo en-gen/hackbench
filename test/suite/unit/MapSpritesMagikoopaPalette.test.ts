@@ -138,9 +138,9 @@ describe('runtime palette on the map (#1097)', () => {
     },
   )
 
-  it('does not mark colors that settled at pass 40, well before the last 16 passes', () => {
+  it('does not mark colors that settled at pass 30, well before the last 16 passes', () => {
     expect(
-      draw(run(0x1f, { first: 1, writes: { ...fade().writes, 40: rung(4) } })).unverified,
+      draw(run(0x1f, { first: 1, writes: { ...fade().writes, 30: rung(4) } })).unverified,
     ).toBeUndefined()
   })
 
@@ -154,7 +154,7 @@ describe('runtime palette on the map (#1097)', () => {
   })
 
   it('marks a sprite that stopped being drawn after its colors changed since the picture', () => {
-    const p = { ...fade(), lastDrawn: 30, writes: { ...fade().writes, 40: rung(5) } }
+    const p = { ...fade(), lastDrawn: 20, writes: { ...fade().writes, 28: rung(5) } }
     expect(draw(run(0x1f, p)).unverified).toMatch(/disappeared partway/)
   })
 
@@ -175,6 +175,60 @@ describe('runtime palette on the map (#1097)', () => {
 
   it('keeps the fade-out mark on a later frame: the colors are compared with the first drawn pass, not the frame', () => {
     const p: Plan = { ...fade(), gap: [30, 59], chosen: 60 }
+    expect(draw(run(0x1f, p)).unverified).toMatch(/disappeared partway/)
+  })
+
+  it('marks an update every 22 passes: a quiet tail of 19 is shorter than the 22 between updates', () => {
+    const w = { 2: rung(0), 24: rung(1), 46: rung(2) }
+    expect(draw(run(0x1f, { first: 1, writes: w })).unverified).toMatch(/still changing/)
+  })
+
+  it('does not mark a long fade that finished with a quiet tail longer than its longest gap', () => {
+    const w = { 2: rung(0), 14: rung(1), 26: rung(2), 38: rung(3) }
+    expect(draw(run(0x1f, { first: 1, writes: w })).unverified).toBeUndefined()
+  })
+
+  it.each(Array.from({ length: 39 }, (_, i) => i + 2))(
+    'an 8-rung fade, one rung every %i passes, is never unmarked and wrong',
+    period => {
+      const writes: Plan['writes'] = {}
+      for (let k = 0; k < 8; k++) if (2 + k * period < PASSES) writes[2 + k * period] = rung(k)
+      const reached = Math.min(7, Math.floor((PASSES - 3) / period))
+      const d = draw(run(0x1f, { first: 1, writes }))
+      if (d.unverified === undefined)
+        expect(reached, 'unmarked, so the fade must have finished').toBe(7)
+    },
+  )
+
+  it('marks a sprite that drew A, then B, left, and came back on A: a change while away', () => {
+    const p: Plan = { first: 1, gap: [20, 40], writes: { 0: rung(0), 10: rung(1), 25: rung(0) } }
+    expect(draw(run(0x1f, p)).unverified).toMatch(/disappeared partway/)
+  })
+
+  it('marks colors that changed and changed back while the sprite was away', () => {
+    const p: Plan = { first: 1, gap: [20, 40], writes: { 0: rung(0), 25: rung(1), 30: rung(0) } }
+    expect(draw(run(0x1f, p)).unverified).toMatch(/disappeared partway/)
+  })
+
+  it('marks end colors that differ from the last picture before it left', () => {
+    const p: Plan = { first: 1, gap: [20, 25], writes: { 0: rung(0), 10: rung(1), 45: rung(2) } }
+    expect(draw(run(0x1f, p)).unverified).toMatch(/disappeared partway|still changing/)
+    const q: Plan = { first: 1, gap: [20, 25], writes: { 0: rung(0), 30: rung(2), 38: rung(3) } }
+    expect(draw(run(0x1f, q)).unverified).toMatch(/disappeared partway/)
+  })
+
+  it('marks a single update: with no earlier gap to compare it cannot be shown finished', () => {
+    expect(draw(run(0x1f, { first: 1, writes: { 2: rung(0) } })).unverified).toMatch(/only once/)
+  })
+
+  it('marks a quiet tail exactly as long as the longest gap between changes', () => {
+    expect(draw(run(0x1f, { first: 1, writes: { 3: rung(0), 33: rung(1) } })).unverified).toMatch(
+      /still changing/,
+    )
+  })
+
+  it('marks colors restored after it came back: B was on screen when it left, A is there now', () => {
+    const p: Plan = { first: 1, gap: [20, 25], writes: { 0: rung(0), 10: rung(1), 30: rung(0) } }
     expect(draw(run(0x1f, p)).unverified).toMatch(/disappeared partway/)
   })
 })

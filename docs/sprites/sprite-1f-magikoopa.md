@@ -233,16 +233,23 @@ sprite and with no id test: draw the colors CGRAM holds at the end of the run
 picture is marked `unverified` ("... so they may differ in the game") when
 those colors may not be the settled ones:
 
-1. a color changed at any pass of the last 16 (every pass of the tail is
-   compared with the one before). A vanilla fade writes a rung every 4 passes,
-   so a fade up to 4x slower is caught;
-2. the sprite's first drawn pass is inside that tail (a late start has had no
-   time to write, so a quiet tail proves nothing). The test uses the run's
-   first drawn pass, not the pass a frame of the animation is drawn from;
-3. the sprite stopped drawing at some pass after its first and its end colors
-   differ from those at its first drawn pass (not the frame being drawn): a fade-out followed by a new cycle.
+1. the colors are not shown to have finished. From the first drawn pass on, the
+   passes where the net colors change are listed. They count as settled only if
+   the quiet span since the last change is at least 16 passes AND longer than the
+   longest gap between earlier changes (so an update every 22 passes, last at
+   pass 44, is marked: quiet 19, gap 22; vanilla `$11C` has gaps of about 4 and
+   a quiet span of about 33). Exactly one change gives no gap to compare and is
+   marked too ("changed only once"); vanilla has 0 such sprites and 0 such frames
+   (only `$1F` on `$11C` changes colors at all, 8 changes);
+2. the sprite's first drawn pass is inside the last 16 (a late start has had no
+   time to write). The test uses the run's first drawn pass, not the pass a
+   frame of the animation is drawn from;
+3. the sprite has an undrawn pass after its first drawn pass and its colors
+   changed on an undrawn pass, or the end colors differ from those at its last
+   drawn pass before it left, or from those at its first drawn pass (a fade-out
+   and a new cycle, or A, B, gone, restored A).
 
-A run of 16 passes or fewer is not checked: that guards the tail loop and keeps
+A run of 16 passes or fewer is not checked: that guards the loops and keeps
 hand-built models from being marked; no production run is that short. The run is not
 lengthened. Whether the fade finishes depends on the placement: state 0 waits
 on `GetRand` and a ground test.
@@ -268,14 +275,13 @@ Evidence (vanilla ROM, one machine):
   - marked: `$01:C00A` = 10 or 16; `$01:C023` = 4; the fade-out cases
     (`$01:C00A`/`$01:C023` = 3/1, 3/2, 3/4, 3/6, 2/12, 1/20, where the sprite
     fades out, leaves and starts a new cycle);
-  - NOT marked (silent), measured at the `$11C` placed spot for `$01:C00A`
-    9 to 70: 9-20 marked; 21 and 22 silent (rung 2); 23-30 marked; 31-45
-    silent (rung 1); 46-61 marked; 62-70 silent (rung 0); not run above 70.
-    The cause is that no rung lands in the last 16 passes. A wider sweep by the
-    reviewer (`$01:C00A` 1-40, 14 `$01:C023` values, 4 `$01:BFE9` values) had
-    silent wrong results only at `$01:C00A` 21, 22 and 31-40. One machine,
-    vanilla ROM. A fade whose rungs land more than 16 passes apart is a known
-    limit of this check.
+  - Earlier rule (fixed 16-pass tail): silent at `$01:C00A` 21, 22, 31-45 and
+    62-70 (rung 2, 1, 0), because no rung landed in the last 16 passes. With the
+    event rule above, `$01:C00A` 9 to 70 at the `$11C` placed spot (62 patches),
+    `$01:C023` = 4 and the six fade-out pairs: all 69 are drawn and marked, 0
+    silent. One machine, vanilla ROM. The reviewer's wider sweep (`$01:C00A`
+    1-40, 14 `$01:C023` values, 4 `$01:BFE9` values) was run against the earlier
+    rule only. Above 70 not run.
 - `$1FE` at its placed spot draws no tile in the run (a placeholder): it has no
   pixels to compare, and there is no capture for it (`captures/layers_v5/1fe.zip`
   does not exist), so nothing is claimed about its colors.
