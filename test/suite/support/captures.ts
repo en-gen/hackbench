@@ -6,6 +6,7 @@ import { CAPTURE_DIR } from './corpus'
 import type { PlacedSprite } from './gradeTimeline'
 import type { RecordedPiece } from './spriteGrade'
 
+/** One sprite_spawns.json record: the placed sprite, its INIT/draw frames and the OAM tiles Mesen caught. */
 export interface Rec {
   id: string
   slot: number
@@ -27,6 +28,7 @@ export interface Rec {
   complete?: boolean
 }
 
+/** A capture record with its map's frame-0 WRAM and the per-map capture fields. */
 export interface Loaded {
   map: string
   rec: Rec
@@ -39,6 +41,7 @@ export interface Loaded {
   listed?: PlacedSprite[]
 }
 
+/** Every sprite record in every `*.zip` under `dir` (default: the corpus captures), in map order. */
 export function loadCaptures(dir: string = CAPTURE_DIR): Loaded[] {
   const out: Loaded[] = []
   for (const f of readdirSync(dir).sort()) {

@@ -26,6 +26,7 @@ export function facingAfterInit(
   return facing
 }
 
+/** A record whose INIT facing differs from the capture's. */
 export interface FacingMismatch {
   key: string
   capture: number
@@ -35,6 +36,7 @@ export interface FacingMismatch {
 /** The vanilla ROM, loaded once for the facing tests, and the level loader's image per map, cached across describes. */
 let shared: RomFile | undefined
 const images = new Map<number, Uint8Array | undefined>()
+/** The level loader's WRAM image for `map`, or undefined when the loader refuses; cached per map. */
 export function loaderImage(map: number): Uint8Array | undefined {
   shared ??= freshRom()
   if (!images.has(map)) {
@@ -43,6 +45,7 @@ export function loaderImage(map: number): Uint8Array | undefined {
   }
   return images.get(map)
 }
+/** The vanilla ROM, loaded once and shared by the facing tests. */
 export const sharedRom = (): RomFile => (shared ??= freshRom())
 
 /** Mario's start as the map view seeds it: the loader image's $94/$96. */

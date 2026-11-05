@@ -17,10 +17,10 @@ import {
   loaderMario,
   sharedRom,
 } from '../../support/initFacing'
-import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
+import { buildSyntheticRom, SYNTHETIC_INIT_TABLE_OFFSET } from '../../support/syntheticSpriteRom'
 
-/** CallSpriteInit's table of 201 words, right after its 11 bytes of code. */
-const INIT_TABLE = 0x018170 + 11
+/** CallSpriteInit's table of 201 words, right after its code in the synthetic ROM. */
+const INIT_TABLE = 0x018170 + SYNTHETIC_INIT_TABLE_OFFSET
 const SLOW = 120_000 // a whole-corpus sweep, not a unit: the default 5 s is under its cost
 
 /** Synthetic ROM with SubHorizPos at a free address, id 40 (INIT faces Mario) and id 41 (INIT stores a constant). */
@@ -29,8 +29,8 @@ function facingRom() {
   // Hand-assembled equivalent of the vanilla routine (SMWDisX bank_01.asm:6124-6134), built here with no ROM read.
   // LDA is hoisted above LDY and NOPs are placed so no 8-byte window equals the cartridge's bytes (owner rule):
   // Y = 1 when Mario (PlayerXPosNow $D1/$D2) is left of the sprite ($E4,X / $14E0,X), as the disassembly has it.
-  rom.writeAt(0x01ad30, [0xa5, 0xd1, 0xa0, 0x00, 0x38, 0xf5, 0xe4, 0x85, 0x0f, 0xea, 0xa5, 0xd2, 0xfd, 0xe0, 0x14, 0xea, 0x10, 0x01, 0xc8, 0x60, 0xea]) // prettier-ignore
-  rom.writeAt(0x019600, [0xea, 0x20, 0x30, 0xad, 0x98, 0xea, 0x9d, 0x7c, 0x15, 0x60, 0xea]) // FaceMario: NOP / JSR SubHorizPos / TYA / NOP / STA $157C,X / RTS / NOP (the NOPs keep the zero padding out of an 8-byte window)
+  rom.writeAt(0x01ad60, [0xa5, 0xd1, 0xa0, 0x00, 0x38, 0xf5, 0xe4, 0x85, 0x0f, 0xea, 0xa5, 0xd2, 0xfd, 0xe0, 0x14, 0xea, 0x10, 0x01, 0xc8, 0x60, 0xea]) // prettier-ignore
+  rom.writeAt(0x019600, [0xea, 0x20, 0x60, 0xad, 0x98, 0xea, 0x9d, 0x7c, 0x15, 0x60, 0xea]) // FaceMario: NOP / JSR SubHorizPos / TYA / NOP / STA $157C,X / RTS / NOP (the NOPs keep the zero padding out of an 8-byte window)
   rom.writeAt(0x019620, [0xa9, 0x01, 0x9d, 0x7c, 0x15, 0x60, 0xea]) // LDA #1 / STA $157C,X / RTS / NOP
   rom.writeAt(INIT_TABLE + 40 * 2, [0x00, 0x96])
   rom.writeAt(INIT_TABLE + 41 * 2, [0x20, 0x96])
@@ -71,6 +71,17 @@ describe('interpDrawer takes Mario from the loader image, its single source (#27
     interpDrawer(blank, 0x104, { isVertical: false, screenCount: 2 }, run as never, () => withSeed({ loaded }))(sprite) // prettier-ignore
     expect(seen).toMatchObject({ x: 0x1234, y: 0x0567 })
     expect(readMarioStartPos(blank, 0x104)).not.toMatchObject({ x: 0x1234, y: 0x0567 })
+  })
+  it('falls back to readMarioStartPos when the seed has no loader image, as interpDrawer does', () => {
+    let seen: { x: number; y: number } | undefined
+    const run = (_r: unknown, _i: number, s: { mario: { x: number; y: number } }) => {
+      seen = s.mario
+      return { id: 1, passes: [], dependsOn: [], steps: [] }
+    }
+    const want = readMarioStartPos(blank, 0x104)
+    interpDrawer(blank, 0x104, { isVertical: false, screenCount: 2 }, run as never, () => withSeed({}))(sprite) // prettier-ignore
+    expect(want).toBeTruthy()
+    expect(seen).toMatchObject(want!)
   })
 })
 
