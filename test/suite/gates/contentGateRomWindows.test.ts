@@ -52,6 +52,14 @@ const REPO = join(__dirname, '../../..')
 const tmp = mkdtempSync(join(tmpdir(), 'cg-romwin-'))
 afterAll(() => rmSync(tmp, { recursive: true, force: true }))
 
+/** The gate script plus what it imports, laid out as in the repo, so a throwaway repo can run it. */
+function installGate(dir: string): void {
+  mkdirSync(join(dir, 'test/suite/support'), { recursive: true })
+  mkdirSync(join(dir, 'tools/scripts'), { recursive: true })
+  cpSync(join(REPO, 'tools/scripts'), join(dir, 'tools/scripts'), { recursive: true })
+  cpSync(join(REPO, 'test/suite/support/corpus.cjs'), join(dir, 'test/suite/support/corpus.cjs'))
+}
+
 function prng(n: number, seed = 0x5eed1234): Uint8Array {
   const out = new Uint8Array(n)
   let s = seed >>> 0
@@ -138,15 +146,7 @@ describe(
     // The CLI end to end in a throwaway repo; the fake ROM is found through HACKBENCH_ROMS.
     function gateRepo(): string {
       const dir = mkdtempSync(join(tmp, 'repo-'))
-      mkdirSync(join(dir, 'tools/scripts'), { recursive: true })
-      mkdirSync(join(dir, 'test/suite/support'), { recursive: true })
-      const src = join(REPO, 'tools/scripts')
-      cpSync(join(src, 'check-content.mjs'), join(dir, 'tools/scripts/check-content.mjs'))
-      cpSync(join(src, 'lib'), join(dir, 'tools/scripts/lib'), { recursive: true })
-      cpSync(
-        join(REPO, 'test/suite/support/corpus.cjs'),
-        join(dir, 'test/suite/support/corpus.cjs'),
-      )
+      installGate(dir)
       const g = (...a: string[]) => spawnSync('git', a, { cwd: dir })
       g('init', '-q')
       g('config', 'user.email', 't@example.com')
@@ -209,14 +209,7 @@ describe('rom-window rule judges the net added files of a range', { timeout: 600
 
   function repo(): { dir: string; g: (...a: string[]) => string } {
     const dir = mkdtempSync(join(tmp, 'net-'))
-    mkdirSync(join(dir, 'tools/scripts'), { recursive: true })
-    mkdirSync(join(dir, 'test/suite/support'), { recursive: true })
-    cpSync(
-      join(REPO, 'tools/scripts/check-content.mjs'),
-      join(dir, 'tools/scripts/check-content.mjs'),
-    )
-    cpSync(join(REPO, 'tools/scripts/lib'), join(dir, 'tools/scripts/lib'), { recursive: true })
-    cpSync(join(REPO, 'test/suite/support/corpus.cjs'), join(dir, 'test/suite/support/corpus.cjs'))
+    installGate(dir)
     const g = (...a: string[]) => spawnSync('git', a, { cwd: dir }).stdout.toString().trim()
     g('init', '-q', '-b', 'develop')
     g('config', 'user.email', 't@example.com')
@@ -270,11 +263,10 @@ describe('rom-window rule judges the net added files of a range', { timeout: 600
     spawnSync('git', ['init', '-q', '--bare', remote])
     g('remote', 'add', 'origin', remote)
     g('push', '-q', 'origin', 'develop')
-    const sha = g('rev-parse', 'feature')
     const push = () =>
       spawnSync('node', ['tools/scripts/check-content.mjs', 'push', 'origin'], {
         cwd: dir,
-        input: `refs/heads/feature ${sha} refs/heads/feature ${'0'.repeat(40)}
+        input: `refs/heads/feature ${g('rev-parse', 'feature')} refs/heads/feature ${'0'.repeat(40)}
 `,
         env: { ...process.env, HACKBENCH_ROMS: roms },
       })
@@ -282,13 +274,7 @@ describe('rom-window rule judges the net added files of a range', { timeout: 600
     writeFileSync(join(dir, 'planted.ts'), run)
     g('add', 'planted.ts')
     g('commit', '-q', '-m', 'plant')
-    const sha2 = g('rev-parse', 'feature')
-    const red = spawnSync('node', ['tools/scripts/check-content.mjs', 'push', 'origin'], {
-      cwd: dir,
-      input: `refs/heads/feature ${sha2} refs/heads/feature ${'0'.repeat(40)}
-`,
-      env: { ...process.env, HACKBENCH_ROMS: roms },
-    })
+    const red = push()
     expect(red.status).toBe(1)
   })
 
