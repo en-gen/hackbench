@@ -314,8 +314,6 @@ export interface RunOptions {
    * kept, as the game and the graders do.
    */
   atRest?: boolean
-  /** Count only the sprite's own OAM writes as drawn parts: a sprite it spawned does not count as the sprite drawing (D106A). */
-  ownOamOnly?: boolean
   /** End the run at the first pass that draws a tile: for a caller that only asks whether the sprite draws (RevealSearch.ts probes). */
   stopAtDraw?: boolean
   /** The INIT-latch rows to apply; a test hook so a synthetic cart brings its own (default: INIT_LATCHES). */

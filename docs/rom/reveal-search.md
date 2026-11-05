@@ -46,7 +46,7 @@ flowchart TD
   $9E each frame (CallSpriteMain reads it, `SpriteRunner` runs that loop), so the runner only checks the new number's
   MAIN pointer is code (`resolvePointer`) and refuses with a reason when it is not.
 - Created sprites do not count as drawing (D106A): the probes keep only the OAM entries written while `$15E9` is
-  the sprite's own slot (`RunOptions.ownOamOnly`).
+  the sprite's own slot (`parts` are own-only in every run since #840; the rest are `companions`).
 
 ## Shortcuts and the third outcome
 

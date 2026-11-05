@@ -103,7 +103,7 @@ export function drew(m: SpriteModel): boolean {
 
 /**
  * Looks for what makes a hidden sprite draw. `first` is the at-rest run of `seed`; `run` reruns the sprite with a
- * changed seed and must count only the sprite's own OAM writes (`ownOamOnly`, D106A: a sprite it creates is not its
+ * changed seed and must count only the sprite's own OAM writes (`parts` are own-only since #840, D106A: a sprite it creates is not its
  * picture). `probe` is true for the hidden check, which only asks whether the sprite draws, so the rerun may stop at
  * its first drawn pass; the search's own reruns run whole, as their passes are the sprite's frames. A refused rerun
  * counts as not drawing, never as a finding.

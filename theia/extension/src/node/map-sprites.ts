@@ -435,7 +435,7 @@ export function runWithUploads(
   rom: RomFile,
   id: number,
   seed: SpriteSeed,
-  opts: Pick<RunOptions, 'ownOamOnly' | 'stopAtDraw' | 'trackInputs'> = {},
+  opts: Pick<RunOptions, 'stopAtDraw' | 'trackInputs'> = {},
 ): RunModel {
   // prettier-ignore
   const p = uploadProbe()
@@ -772,7 +772,7 @@ export function interpRunner(
   rom: RomFile,
   index: number,
   model: { isVertical: boolean; screenCount: number },
-  run: (rom: RomFile, id: number, seed: SpriteSeed, opts?: Pick<RunOptions, 'ownOamOnly' | 'stopAtDraw' | 'trackInputs'>) => RunModel = runWithUploads, // prettier-ignore
+  run: (rom: RomFile, id: number, seed: SpriteSeed, opts?: Pick<RunOptions, 'stopAtDraw' | 'trackInputs'>) => RunModel = runWithUploads, // prettier-ignore
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
   ringRoutines: RingRoutines = VANILLA_RING_ROUTINES,
   eeriesRoutines: EeriesRoutines = VANILLA_EERIES_ROUTINES,
@@ -829,7 +829,7 @@ export function interpRunner(
     // Hidden sprites take their picture from the search, whatever the at-rest run drew (a mole drawn from where Mario starts).
     if (reveal) {
       const rv = findReveal(seed(camera, { opening }), m, (q, probe) =>
-        run(rom, s.spriteId, q, { ownOamOnly: true, stopAtDraw: probe }),
+        run(rom, s.spriteId, q, { stopAtDraw: probe }),
       )
       if (rv.status === 'hidden') return { m: rv.model, fixed: false }
       // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.

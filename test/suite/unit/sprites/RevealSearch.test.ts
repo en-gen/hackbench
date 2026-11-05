@@ -31,12 +31,11 @@ interface Search {
   calls: SpriteSeed[]
 }
 
-/** The search over sprite id at x with real Mario at marioX; own false lets a created sprite OAM count. */
+/** The search over sprite id at x with real Mario at marioX. */
 function search(
   id: number,
   x = SX,
   marioX = 0x80,
-  own = true,
   extra: SeedOverride = {},
   track = false,
 ): Search {
@@ -44,7 +43,7 @@ function search(
   const calls: SpriteSeed[] = []
   const run = (q: SpriteSeed, probe: boolean) => {
     calls.push(q)
-    return runOnce(rom, id, q, { atRest: true, ownOamOnly: own, stopAtDraw: probe })
+    return runOnce(rom, id, q, { atRest: true, stopAtDraw: probe })
   }
   const first = runOnce(rom, id, seed, { atRest: true, trackInputs: track })
   return { result: findReveal(seed, first, run), calls }
@@ -70,7 +69,7 @@ describe('the reveal search finds what shows a hidden sprite, in the D142 order'
   })
 
   it('takes the first condition that draws: a touch sprite with a switch active still reports Mario', () => {
-    const both = search(140, SX, 0x80, true, { pSwitch: 0xb0 })
+    const both = search(140, SX, 0x80, { pSwitch: 0xb0 })
     expect(condition(both.result)).toBe('mario-at-sprite')
   })
 
@@ -82,16 +81,16 @@ describe('the reveal search finds what shows a hidden sprite, in the D142 order'
 
   it('probes nothing for a sprite whose run never read Mario or a switch, and still probes one that did', () => {
     // Id 0 draws from its own spot and the camera only; id 2 flips by Mario's side ($D1).
-    expect(search(0, SX, 0x80, true, {}, true).calls).toHaveLength(0)
-    expect(search(0, SX, 0x80, true, {}, true).result.status).toBe('visible')
-    expect(search(2, SX, 0x80, true, {}, true).calls).toHaveLength(DISTANCES.length)
+    expect(search(0, SX, 0x80, {}, true).calls).toHaveLength(0)
+    expect(search(0, SX, 0x80, {}, true).result.status).toBe('visible')
+    expect(search(2, SX, 0x80, {}, true).calls).toHaveLength(DISTANCES.length)
     // Control: untracked, the same sprite is probed, so the skip is what removed them.
     expect(search(0).calls).toHaveLength(DISTANCES.length)
   })
 
   it('still searches a blank sprite that read nothing of Mario (the skip is for sprites that drew)', () => {
-    expect(search(5, SX, 0x80, true, {}, true).result.status).toBe('unrevealed')
-    expect(condition(search(155, SX, 0x80, true, {}, true).result)).toBe('more-frames')
+    expect(search(5, SX, 0x80, {}, true).result.status).toBe('unrevealed')
+    expect(condition(search(155, SX, 0x80, {}, true).result)).toBe('more-frames')
   })
 
   it('stops at the first blank run: a hidden sprite needs no further probes', () => {
@@ -172,7 +171,7 @@ describe('where the revealed picture stands', () => {
     const hit = search(149)
     const m = picked(hit.result)
     expect(m.chosen).toBeGreaterThan(0)
-    const again = runOnce(rom, 149, hit.calls[0]!, { atRest: true, ownOamOnly: true })
+    const again = runOnce(rom, 149, hit.calls[0]!, { atRest: true })
     expect(m.anchor).toEqual(again.anchor)
     expect(m.passes[m.chosen!]).toEqual(again.passes[again.chosen!])
     // Control: the sprite really moved, so a position taken from pos would differ from the placed one.
@@ -200,8 +199,18 @@ describe('created sprites do not count as drawing (D106A)', () => {
   it('a sprite that only creates one stays unrevealed', () => {
     expect(search(154).result.status).toBe('unrevealed')
   })
-  it('control: counted without the filter, the created sprite would pass for the sprite drawing', () => {
-    expect(search(154, SX, 0x80, false).result.status).toBe('hidden')
+  // Since #840 a run keeps a created sprite's tiles in `companions`, never in `parts`; this proves they were
+  // written (so the check above is not passing on an empty run) and that only `parts` decide "drew".
+  it('control: the created sprite wrote tiles, held as companions, and none are its own parts', () => {
+    const { result, calls } = search(154)
+    expect(result.status).toBe('unrevealed')
+    // The search's own reruns, whole: some probe made the sprite create its child.
+    const runs = calls.map(q => runOnce(rom, 154, q, { atRest: true }))
+    expect(runs.some(m => m.passes.some(p => (p.companions?.length ?? 0) > 0))).toBe(true)
+    for (const m of runs) {
+      expect(m.passes.flatMap(p => p.parts)).toHaveLength(0)
+      expect(drew(m)).toBe(false)
+    }
   })
 })
 

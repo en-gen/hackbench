@@ -101,7 +101,7 @@ describe('the served drawer reveals hidden sprites', () => {
         base(),
       ),
     )
-    const m = runWithUploads(rom, 149, seed, { ownOamOnly: true })
+    const m = runWithUploads(rom, 149, seed)
     expect(m.chosen).toBeGreaterThan(0)
     const want = ok(modelResult(m))
     expect(got.anchor).toEqual(want.anchor)
