@@ -14,6 +14,7 @@ import {
   modelResult,
 } from '../../../../theia/extension/src/node/map-sprites'
 import { freshRom, hasRom, VANILLA } from '../../support/corpus'
+import { RomFile } from '../../../../src/rom/RomFile'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
 const rom = buildSyntheticRom()
@@ -217,4 +218,17 @@ describe.skipIf(!hasRom(VANILLA))('map view companions, vanilla ROM (#840, D52)'
       expect(split(0x101, 0xb9, x, 336)).toEqual([1, 0])
     },
   )
+})
+
+// Mario's side decides what the companion draws (id 81 patched to id 2's handler, attribute from Mario's X): the spawner
+// depends on Mario's X though none of its own parts do.
+describe('a companion that depends on Mario', () => {
+  it('flags the spawner marioX', () => {
+    const bytes = new Uint8Array(buildSyntheticRom().buffer)
+    const off = (snes: number) => (snes >>> 16) * 0x8000 + ((snes & 0xffff) - 0x8000)
+    bytes.set([0x80, 0x86], off(0x018320 + 9 + 81 * 2)) // id 81's MAIN -> id 2's
+    const patched = RomFile.fromBytes('mario.sfc', bytes)
+    expect(runSprite(patched, 80, withSeed({ slot: SLOT })).dependsOn).toContain('marioX')
+    expect(runSprite(rom, 80, withSeed({ slot: SLOT })).dependsOn).not.toContain('marioX')
+  })
 })
