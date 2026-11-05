@@ -51,8 +51,8 @@ describe('slotWalk (synthetic loader)', () => {
 })
 
 describe.skipIf(!hasRom(VANILLA))('slotWalk (vanilla loader, corpus)', () => {
-  const v = freshRom()
-  const w = (s: number, a: number) => slotWalk(v, s, 0x64, a)
+  const v = () => freshRom()
+  const w = (s: number, a: number) => slotWalk(v(), s, 0x64, a)
   it('is the fingerprinted loader', () => expect(LOADER_PICK.length).toBe(62))
   it('setting 1: odd coordinate slot 7 (fixed); even slot 5, or 0 when the ordinary slots are busy (both short)', () => {
     expect(w(1, 0x10)).toEqual({ status: 'ok', long: 7, short: 7 })
