@@ -78,7 +78,7 @@ describe('INIT facing through SubHorizPos (synthetic)', () => {
   it.each([
     ['no loader image', undefined],
     ['a loader image', new Uint8Array(0x20000)],
-  ])('INIT sees Mario in all four cells ($94, $96, $D1, $D3) with %s', (_, loaded) => {
+  ])('INIT sees Mario in all four cells (94, 96, D1, D3) with %s', (_, loaded) => {
     expect(marioCells(rom, loaded)).toEqual([0x123c, 0x0567, 0x123c, 0x0567])
   })
 })
