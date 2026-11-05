@@ -276,7 +276,7 @@ export type MapScreenResult =
       /** The back area (CGRAM color 0), RGB: its own layer under L1. */
       backdrop: [number, number, number]
     }
-  /** `detail`: exception text for the tooltip and log, never the visible message. `screenCount`: set by `mapBeyond` when the screen asked for is inside the map, so a caller with a stale count can tell (#1197). */
+  /** `detail`: exception text for the tooltip and log, never the visible message. `screenCount`: set by `mapBeyond` on every range refusal, so a caller with a stale count can tell (a screen inside the map has a number below it) (#1197). */
   | { status: 'unavailable'; reason: string; detail?: string; screenCount?: number }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 

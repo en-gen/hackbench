@@ -197,8 +197,12 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected offMapCanvas: HTMLCanvasElement | null = null
   /** The canvas for Layers 2 and 3 continuing through the far-end gutter (#1197); mounted only when the map has a gutter. */
   protected gutterCanvas: HTMLCanvasElement | null = null
-  /** Set when a gutter read failed: shown as a map note, cleared by `refresh`. The map itself drew, so this is not a screen error. */
-  protected gutterWhy: { detail?: string } | undefined
+  /**
+   * Gutter reads that failed, by cache key, with the technical text. A failed key is not asked again until `refresh`
+   * clears this. The map note is DERIVED from it (`gutterFailure`): it shows while a key the gutter needs now has
+   * failed, and only then. The map itself drew, so this is not a screen error.
+   */
+  protected readonly gutterFailed = new Map<string, string | undefined>()
   /** `pad` for one (layout, sprites) pair: it is read on every pointer move. */
   protected padMemo: { l: Layout; s: Sprites | undefined; pad: Pad } | undefined
   /** The sprite pixels outside the map for one (layout, sprites) pair, null when none reach outside. */
@@ -487,7 +491,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.coveredIds.clear()
     this.lift = undefined
     this.pending.clear()
-    this.gutterWhy = undefined
+    this.gutterFailed.clear()
     this.screenError = undefined
     this.screenErrorDetail = undefined
     void this.loadDetails()
@@ -801,41 +805,51 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
    */
   protected async fetchBeyond(): Promise<void> {
     const o = this.options
-    const l = this.mapLayout
-    if (!o || !l || farGutter(l.screenCount) === 0) return
-    const vertical = l.orientation === 'vertical'
-    const far = vertical ? this.pad.bottom : this.pad.right
+    if (!o) return
     const generation = this.generation
-    const wanted = Array.from({ length: beyondScreens(far, vertical ? l.height : l.width) }, (_, i) => l.screenCount + i) // prettier-ignore
     await Promise.all(
-      wanted.map(async screen => {
+      this.gutterScreens().map(async screen => {
         const key = this.key(screen)
-        if (this.screens.has(key) || this.pending.has(key)) return
-        // A failed key stays in `pending`, so a scroll does not ask again; `refresh` clears it with the screens.
+        if (this.screens.has(key) || this.pending.has(key) || this.gutterFailed.has(key)) return
         this.pending.add(key)
         let detail: string | undefined
         const r = await this.projects
           .mapBeyond(o.manifestPath, o.index, screen, this.view.state.flags, this.view.state.switches)
           .catch(err => ((detail = rawText(err)), undefined)) // prettier-ignore
         if (generation !== this.generation) return
+        this.pending.delete(key)
         if (r?.status === 'ok') {
-          this.pending.delete(key)
           this.screens.set(key, screenImages(r))
           return
         }
         // The map grew since this screen number was chosen (an edit added a screen): it is inside the map now, so
-        // its own `fetchScreen` must be free to ask, and no note is warranted.
+        // its own `fetchScreen` must be free to ask (the key is freed), and no note is warranted.
         if (r && 'screenCount' in r && r.screenCount !== undefined && r.screenCount > screen) {
-          this.pending.delete(key)
+          this.requestVisible()
           return
         }
         detail ??= r?.status === 'unavailable' ? (r.detail ?? r.reason) : undefined
         console.error(`Map ${o.index.toString(16)} gutter ${screen} failed:`, r ?? detail)
-        this.gutterWhy = { detail }
+        this.gutterFailed.set(key, detail)
         this.update()
       }),
     )
     if (generation === this.generation) this.sync()
+  }
+
+  /** The screens past the last that the far-end canvas (content band plus gutter) spans now; none when the map has no gutter. */
+  protected gutterScreens(): number[] {
+    const l = this.mapLayout
+    if (!l || farGutter(l.screenCount) === 0) return []
+    const vertical = l.orientation === 'vertical'
+    const far = vertical ? this.pad.bottom : this.pad.right
+    return Array.from({ length: beyondScreens(far, vertical ? l.height : l.width) }, (_, i) => l.screenCount + i) // prettier-ignore
+  }
+
+  /** Why the gutter cannot be drawn now: the text of the first failed read among the screens it needs, else undefined. */
+  protected gutterFailure(): { detail?: string } | undefined {
+    const key = this.gutterScreens().map(s => this.key(s)).find(k => this.gutterFailed.has(k)) // prettier-ignore
+    return key === undefined ? undefined : { detail: this.gutterFailed.get(key) }
   }
 
   /**
@@ -972,14 +986,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const [w, h] = vertical ? [sw, far] : [far, sh]
     const want = `${this.generation}:${this.key(l.screenCount)}:${shots.map(x => +!!x).join('')}:${+this.showL2}${+this.showL3}:${w}x${h}` // prettier-ignore
     if (c.dataset.drawn === want) return
-    // Every read for this key landed: an earlier failure's note has outlived its cause.
-    if (this.gutterWhy && shots.length > 0 && shots.every(x => x)) {
-      this.gutterWhy = undefined
-      this.update()
-    }
     // After an edit, flag or switch the new replies are not in yet: keep the old picture up, as the map's planes do,
-    // unless a read failed or the pad changed size (the old bitmap would be stretched).
-    if (c.dataset.drawn && !this.gutterWhy && shots.some(x => !x) && c.width === w && c.height === h) return // prettier-ignore
+    // unless a read this canvas needs has failed or the pad changed size (the old bitmap would be stretched).
+    if (c.dataset.drawn && !this.gutterFailure() && shots.some(x => !x) && c.width === w && c.height === h) return // prettier-ignore
     const gutterShots = shots.map(x => x && { width: x.width, height: x.height, planes: Object.fromEntries(MAP_PLANE_KEYS.map(k => [k, x.planes[k]?.data ?? null])), lists: x.screens, math: x.math }) // prettier-ignore
     const out = composeGutter(
       gutterShots,
@@ -1634,8 +1643,12 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             {this.blocksWhy}
           </div>
         )}
-        {this.gutterWhy && (
-          <div className="hb-map-view-note" data-note="gutter-layers" title={this.gutterWhy.detail}>
+        {this.gutterFailure() && (
+          <div
+            className="hb-map-view-note"
+            data-note="gutter-layers"
+            title={this.gutterFailure()?.detail}
+          >
             {GUTTER_UNREAD}
           </div>
         )}

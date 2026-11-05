@@ -21,10 +21,12 @@
  *   G3 fetchBeyond runs from requestVisible without the last-screen check: the lazy-fetch case.
  *   G5 the canvas z-index goes above the off-map canvas (110 -> 130): the sprite cases.
  *   G6 fetchBeyond drops its `generation !== this.generation` guard: the stale-reply case.
- *   G7 a failed read leaves `pending` (the delete moves above the status check): the failure case (it would re-ask).
- *   G10 syncGutterLayers never clears `gutterWhy` once every read for the key is in: the note-outlives-its-cause case.
- *   G11 refresh() does not clear `gutterWhy`: the cleared-on-refresh case.
- *   G12 fetchBeyond keeps the key and the note on a reply whose screenCount is above the screen: the grown-map case.
+ *   G7 fetchBeyond leaves a failed key in `pending` instead of the `gutterFailed` map, or drops the `gutterFailed` skip: the failure case (it would re-ask on every scroll, or never be skipped).
+ *   G10 the note stops being derived (it is set once and never recomputed per current key): the note-follows-the-current-key case.
+ *   G11 refresh() does not clear `gutterFailed`: the cleared-on-refresh case.
+ *   G12 fetchBeyond treats a reply whose screenCount is above the screen as a failure (or keeps its key, or skips requestVisible): the grown-map case.
+ *   G13 keepViewOnPadChange drops its first `this.fitStrip()` (the one in the first animation frame): the late-sprites case, which has no scroll to fetch for it.
+ *   G14 gutterFailure() looks at every failed key, not the current ones: the late-failure-of-an-old-key case.
  *   G8 the gutter canvas repaints blank while replies are pending (drop the `shots.some(x => !x)` keep): the edit case.
  */
 const { test, expect } = require('@playwright/test')
@@ -64,7 +66,8 @@ test.afterEach(async ({ page }) => {
  * `mode` is how mapBeyond answers: 'ok'; 'fail' (always unavailable); 'failOnce' (the first call fails, later
  * ones answer); 'failThenHold' (the first fails, later ones wait for `window.__openGate()`); 'stale' (the first
  * call waits for the gate and then answers with red 200, later ones at once); 'grown' (every call is refused
- * because the map now has one more screen). `holdSprites` keeps mapSprites waiting for `window.__openSprites()`.
+ * because the map now has one more screen, and mapScreen reports it from then on); 'failLate' (the first call waits
+ * for the gate and then fails). `holdSprites` keeps mapSprites waiting for `window.__openSprites()`.
  * Waiting on a gate the test opens, not on a timer, keeps the order of events certain. The screens asked of `mapBeyond` are kept in
  * `window.__beyond`. `math` is the CGADSUB state every reply carries (null: none). A vertical map has Layer 2 only.
  */
@@ -107,7 +110,7 @@ async function openSynthetic(
         l3High: null,
       }
       const base = screen => ({
-        status: 'ok', screen, screenCount: screens, orientation, width, height, planes: none,
+        status: 'ok', screen, screenCount: grown ? screens + 1 : screens, orientation, width, height, planes: none,
         layer3: { priority: false, reason: null }, screens: { main: ['l2Low', 'l3Low'], sub: [] },
         math, layer2Interactive: false, layerNotes: [], backdrop: [200, 0, 0],
       }) // prettier-ignore
@@ -117,6 +120,7 @@ async function openSynthetic(
         return { index: 900 + i, id: 1, name: 'Test sprite', x: x0, y: y0, box, rgba, status: 'drawn' } // prettier-ignore
       })
       let calls = 0
+      let grown = false
       const gate = new Promise(r => (window.__openGate = r))
       const spritesGate = new Promise(r => (window.__openSprites = r))
       const canned = {
@@ -127,7 +131,8 @@ async function openSynthetic(
           const n = ++calls
           const unread = { status: 'unavailable', reason: 'Part of this map could not be read from the ROM.', detail: 'synthetic detail' } // prettier-ignore
           if (mode === 'fail' || ((mode === 'failOnce' || mode === 'failThenHold') && n === 1)) return unread
-          if (mode === 'grown') return { ...unread, screenCount: screens + 1 }
+          if (mode === 'grown') return ((grown = true), { ...unread, screenCount: screens + 1 })
+          if (mode === 'failLate' && n === 1) return (await gate, unread)
           if (mode === 'failThenHold') await gate
           const past = screen - screens + 1
           const old = mode === 'stale' && n === 1
@@ -479,7 +484,7 @@ test('a gutter note is cleared by a refresh at once, before the new reads land',
   await expect(note).toHaveCount(0)
 })
 
-test('a gutter note goes once the reads for the new switch state all land, without a refresh', async ({
+test('the gutter note follows the key in view: gone while another switch state is fine, back on the failed one', async ({
   page,
 }) => {
   await openSynthetic(page, { screens: 2, mode: 'failOnce' })
@@ -489,19 +494,44 @@ test('a gutter note goes once the reads for the new switch state all land, witho
   await onWidget(page, w => w.view.dispatch({ type: 'toggleSwitch', key: 'blue' }))
   await scrollEnd(page, false)
   await painted(page)
-  await expect(note).toHaveCount(0)
+  await expect(note).toHaveCount(0) // the blue-on reads all landed
+  await onWidget(page, w => w.view.dispatch({ type: 'toggleSwitch', key: 'blue' }))
+  await expect(note).toHaveCount(1) // the failed blue-off key is current again: its note returns, nothing re-asks it
+  await expect.poll(async () => (await pixels(page, [[0, 300]]))[0][3]).toBe(0) // and the blue-on picture is not left under it
+  await scrollEnd(page, false)
+  await page.waitForTimeout(500)
+  expect(await page.evaluate(() => window.__beyond.length)).toBe(2) // the failed key and the blue-on one, once each
 })
 
-test('a map that gained a screen since the gutter was asked for: no note, and the key is free to ask again', async ({
+test('a read that fails late for a key no longer in view raises no note over a complete gutter', async ({
+  page,
+}) => {
+  await openSynthetic(page, { screens: 2, mode: 'failLate' })
+  await scrollEnd(page, false)
+  await expect.poll(() => page.evaluate(() => window.__beyond.length)).toBe(1) // the blue-off read is out, held
+  await onWidget(page, w => w.view.dispatch({ type: 'toggleSwitch', key: 'blue' }))
+  await scrollEnd(page, false)
+  await painted(page) // the blue-on key landed
+  await page.evaluate(() => window.__openGate()) // now the old key fails
+  await page.waitForTimeout(500)
+  await expect(page.locator(`${root} [data-note="gutter-layers"]`)).toHaveCount(0)
+  expect((await pixels(page, [[0, 300]]))[0][3]).toBe(255)
+})
+
+test('a map that gained a screen since the gutter was asked for: no note, and the new last screen is fetched', async ({
   page,
 }) => {
   await openSynthetic(page, { screens: 2, mode: 'grown' })
   await scrollEnd(page, false)
-  await page.waitForTimeout(500)
-  await expect(page.locator(`${root} [data-note="gutter-layers"]`)).toHaveCount(0)
-  await page.evaluate(sel => { const s = document.querySelector(`${sel} [data-control="map-scroller"]`); s.scrollLeft = 0 }, root) // prettier-ignore
+  await expect.poll(() => page.evaluate(() => window.__beyond.length)).toBeGreaterThanOrEqual(1)
+  await onWidget(page, w => w.refresh()) // the edit: mapScreen now reports three screens
   await scrollEnd(page, false)
-  await expect.poll(() => page.evaluate(() => window.__beyond.length)).toBeGreaterThan(1) // asked again after a refusal, not held back by a kept key
+  await expect
+    .poll(() => page.locator(`${root} .hb-map-view-screen`).count(), { timeout: 15000 })
+    .toBe(3)
+  // Screen 2 was a gutter screen a moment ago; it is now the map's own last screen and must have drawn.
+  await expect(page.locator(`${root} [data-layer="screen"][data-screen="2"]`)).toHaveAttribute('data-drawn', /.+/, { timeout: 15000 }) // prettier-ignore
+  await expect(page.locator(`${root} [data-note="gutter-layers"]`)).toHaveCount(0)
 })
 
 test('an edit keeps the old gutter picture up until the new replies land', async ({ page }) => {
