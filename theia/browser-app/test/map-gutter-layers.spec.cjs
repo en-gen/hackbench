@@ -27,6 +27,7 @@
  *   G15 syncGutterLayers draws nothing for a screen whose current reply is out (drops the `gutterLast` fallback), or paints the held screens clear on a toggle: the toggle-while-held case.
  *   G16 open() does not clear `gutterLast`: the reopened-map case.
  *   G17 fetchBeyond writes `gutterLast` for a key that is no longer current: the stale-key-fallback case.
+ *   G18 fetchBeyond syncs only after Promise.all (drop the `this.sync()` after the cache write): the one-screen-held case.
  *   G13 keepViewOnPadChange drops its first `this.fitStrip()` (the one in the first animation frame): the late-sprites case, which has no scroll to fetch for it.
  *   G14 gutterFailure() looks at every failed key, not the current ones: the late-failure-of-an-old-key case.
  *   G8 the `gutterLast` fallback is dropped, so the gutter blanks while replies are pending after an edit: the edit case.
@@ -66,7 +67,7 @@ test.afterEach(async ({ page }) => {
 /**
  * Opens a synthetic map of `screens` screens. `boxes` are opaque 16 x 16 white sprites at [x0, y0] map px.
  * `mode` is how mapBeyond answers: 'ok'; 'fail' (always unavailable); 'failOnce' (the first call fails, later
- * ones answer); 'failThenHold' (the first fails, later ones wait for `window.__openGate()`); 'stale' (the first
+ * ones answer); 'failThenHold' (the first fails, later ones wait for `window.__openGate()`); 'holdFirst' (the screen right past the end waits for the gate, the others answer); 'stale' (the first
  * call waits for the gate and then answers with red 200, later ones at once); 'failLate' (the first call waits
  * for the gate and then fails). `holdSprites` keeps mapSprites waiting for `window.__openSprites()`.
  * Waiting on a gate the test opens, not on a timer, keeps the order of events certain. The screens asked of `mapBeyond` are kept in
@@ -133,6 +134,7 @@ async function openSynthetic(
           if (mode === 'fail' || ((mode === 'failOnce' || mode === 'failThenHold') && n === 1)) return unread
           if (mode === 'failLate' && n === 1) return (await gate, unread)
           if (mode === 'failThenHold') await gate
+          if (mode === 'holdFirst' && screen === screens) await gate
           const past = screen - screens + 1
           const old = mode === 'stale' && n === 1
           if (old) await gate
@@ -594,6 +596,21 @@ test('a reply for an older switch state never becomes the fallback picture', asy
   await scrollEnd(page, false)
   await expect(page.locator(gutter)).toHaveAttribute('data-drawn', /o/) // now drawn from the last good planes
   await untilRgb(page, [0, 300], l2At(0, 300, 1)) // the blue-on planes, not the stale red 200
+})
+
+test('a gutter screen paints as its reply lands, while another screen is still out', async ({
+  page,
+}) => {
+  // The sprite makes the far end two screens long. The first is held; the second answers at once and must show.
+  await openSynthetic(page, { screens: 2, boxes: [[2 * 256 + 100, 50]], mode: 'holdFirst' })
+  await scrollEnd(page, false)
+  await expect.poll(() => page.evaluate(() => window.__beyond)).toEqual([2, 3])
+  await expect
+    .poll(async () => (await pixels(page, [[270, 300]]))[0][3], { timeout: 15000 })
+    .toBeGreaterThan(50) // screen 3's stretch
+  expect((await pixels(page, [[10, 300]]))[0][3]).toBe(0) // screen 2's is still out
+  await page.evaluate(() => window.__openGate())
+  await expect.poll(async () => (await pixels(page, [[10, 300]]))[0][3]).toBe(255)
 })
 
 test('a 32-screen map has no gutter and no gutter-layers canvas', async ({ page }) => {

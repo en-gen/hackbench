@@ -850,6 +850,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           this.screens.set(key, images)
           // Only while the key is still current: a reply for an older flag or switch state must not become the fallback.
           if (key === this.key(screen)) this.gutterLast.set(screen, images)
+          this.sync() // paint this screen now; another one still out must not hold it back
           return
         }
         detail ??= r?.status === 'unavailable' ? (r.detail ?? r.reason) : undefined
