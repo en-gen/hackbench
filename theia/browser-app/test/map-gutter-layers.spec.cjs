@@ -24,6 +24,7 @@
  *   G7 fetchBeyond leaves a failed key in `pending` instead of the `gutterFailed` map, or drops the `gutterFailed` skip: the failure case (it would re-ask on every scroll, or never be skipped).
  *   G10 the note stops being derived (it is set once and never recomputed per current key): the note-follows-the-current-key case.
  *   G11 refresh() does not clear `gutterFailed`: the cleared-on-refresh case.
+ *   G15 the keep-old return in syncGutterLayers ignores the layer toggles (no `data-layers` check): the toggle-while-held case.
  *   G13 keepViewOnPadChange drops its first `this.fitStrip()` (the one in the first animation frame): the late-sprites case, which has no scroll to fetch for it.
  *   G14 gutterFailure() looks at every failed key, not the current ones: the late-failure-of-an-old-key case.
  *   G8 the gutter canvas repaints blank while replies are pending (drop the `shots.some(x => !x)` keep): the edit case.
@@ -527,6 +528,31 @@ test('an edit keeps the old gutter picture up until the new replies land', async
   await scrollEnd(page, false)
   await page.waitForTimeout(1500)
   expect((await pixels(page, [[0, 300]]))[0][3]).toBe(255)
+})
+
+test('a layer toggle repaints the gutter at once while a read is still out, with the missing stretch clear', async ({
+  page,
+}) => {
+  await openSynthetic(page, { screens: 2 })
+  await scrollEnd(page, false)
+  await painted(page)
+  // Hold every further gutter read, then refresh (an edit): the old picture is kept, as the map planes are.
+  await onWidget(page, w => {
+    const real = w.projects
+    w.projects = new Proxy(
+      {},
+      { get: (_t, k) => (k === 'mapBeyond' ? () => new Promise(() => undefined) : real[k]) },
+    )
+    w.refresh()
+  })
+  await scrollEnd(page, false)
+  await page.waitForTimeout(500)
+  expect((await pixels(page, [[0, 300]]))[0][3]).toBe(255) // kept while the read is out
+  await toggle(page, 'l2') // hide Layer 2: the toggle needs no new read, so it shows at once
+  await expect.poll(async () => (await pixels(page, [[0, 300]]))[0][3]).toBe(0)
+  await toggle(page, 'l2') // show it again: no read has landed, so the stretch is clear, not the old pixels
+  await page.waitForTimeout(300)
+  expect((await pixels(page, [[0, 300]]))[0][3]).toBe(0)
 })
 
 test('a 32-screen map has no gutter and no gutter-layers canvas', async ({ page }) => {

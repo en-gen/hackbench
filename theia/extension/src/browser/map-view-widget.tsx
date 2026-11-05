@@ -1001,8 +1001,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const want = `${this.generation}:${this.key(l.screenCount)}:${shots.map(x => +!!x).join('')}:${+this.showL2}${+this.showL3}:${w}x${h}` // prettier-ignore
     if (c.dataset.drawn === want) return
     // After an edit, flag or switch the new replies are not in yet: keep the old picture up, as the map's planes do,
-    // unless a read this canvas needs has failed or the pad changed size (the old bitmap would be stretched).
-    if (c.dataset.drawn && !this.gutterFailure() && shots.some(x => !x) && c.width === w && c.height === h) return // prettier-ignore
+    // unless a read this canvas needs has failed, the pad changed size (the old bitmap would be stretched) or a layer
+    // toggle changed what is shown (a toggle needs no new read, so it repaints with what is in; missing stretches clear).
+    const layers = `${+this.showL2}${+this.showL3}`
+    if (c.dataset.drawn && c.dataset.layers === layers && !this.gutterFailure() && shots.some(x => !x) && c.width === w && c.height === h) return // prettier-ignore
     const gutterShots = shots.map(x => x && { width: x.width, height: x.height, planes: Object.fromEntries(MAP_PLANE_KEYS.map(k => [k, x.planes[k]?.data ?? null])), lists: x.screens, math: x.math }) // prettier-ignore
     const out = composeGutter(
       gutterShots,
@@ -1016,6 +1018,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     c.height = h
     c.getContext('2d')?.putImageData(new ImageData(out, w, h), 0, 0)
     c.dataset.drawn = want
+    c.dataset.layers = layers
   }
 
   /** Remembers the gutter-layers canvas (mounted only when the map has a gutter) and paints it at once. */
