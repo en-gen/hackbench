@@ -234,11 +234,19 @@ sprite of a map as one RGBA bitmap in map pixels (`MapSpriteDto`: index, id,
 anchor, `box`, base64 `rgba`, `status` of `drawn` or `placeholder`, and the
 reason a marker is a marker: the interpreter's refusal (`refused: ...`), an
 empty run (`drew no OAM tile`), or `extraBits` / `charsNotLoaded`), plus the
-screen size and orientation. A drawn sprite may carry `unverified`: the level
-loader refused this ROM, so the sprite ran from a placement-only seed, not the
-level's state. The reply's `note` joins two caveats: the stream has no end
-marker in the bytes read (sprites past them are not drawn), and, once per map,
-that sprites were drawn unverified; the tab shows it.
+screen size and orientation. A sprite may carry `unverified`, the
+engine's own words for why HackBench cannot vouch that the picture matches the
+game; several causes can be joined by `; `, and new ones are added over time. For
+example: some of its pieces have no graphics in the map's loaded sprite set (they
+are left out and the count said; `charsNotLoaded` is the marker only when none
+has), the level loader refused this ROM (placement-only seed), the map's memory
+setting differs from the one checked, or an earlier sprite may hold its slot. The reply's `note`
+joins two caveats: the stream has no end marker in the bytes read (sprites past
+them are not drawn), and, once per map, a plain count ("Unverified: 2 sprites
+may not be drawn exactly as in the game."). The causes go in `noteDetail`, one
+per line, for the note's tooltip (the castle flames' detail joins it); the Sprites
+toggle's tooltip and the Properties line carry the same text, never the visible
+words (#1166).
 `node/map-sprites.ts` is the pure module behind it; `project-server.ts`
 reads the working copy through `WorkingRomRegistry`, as `mapScreen` does.
 It is a separate call from `mapScreen` because a sprite is not cut at screen

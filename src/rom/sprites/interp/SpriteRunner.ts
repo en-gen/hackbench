@@ -159,6 +159,8 @@ export interface PassResult {
   /** Where this pass's parts are measured from: `SpriteModel.anchor` when INIT's moves are kept; the end-of-pass `pos` at rest; the pass before's `pos` for $67 on a vanilla-shaped handler (where the pass before left it). */
   origin: { x: number; y: number }
   parts: SpritePart[]
+  /** Plain run only: pieces written under any other `$15E9` (a sprite this run spawned, a cluster index), same origin. Not the grader's: the map view draws `drawnParts` (D52, #840). */
+  companions?: SpritePart[]
   /** Palette or graphics uploads the pass wrote registers for. */
   uploads: string[]
   /**
@@ -173,6 +175,14 @@ export interface PassResult {
    */
   drew?: { children: { index: number; oam: number[] }[]; shift: { x: number; y: number } }
 }
+
+/**
+ * What the map view draws for a pass: the sprite's own parts, then the companions it spawned (D52). `parts` alone
+ * is what the grader compares; a spawner that draws only through its children (INIT spawns, MAIN draws nothing) has
+ * no parts and still draws, so the chosen pass and "drew no tile" follow this, not `parts`.
+ */
+export const drawnParts = (p: PassResult): SpritePart[] =>
+  p.companions?.length ? [...p.parts, ...p.companions] : p.parts
 
 /** What a sprite's picture depends on besides its own code: Mario's X, or the map's other sprites placed beside it (#841). */
 export type DependsOn = 'marioX' | 'neighbours'
@@ -320,7 +330,17 @@ export { Refusal }
 export class Machine {
   readonly bus: SpriteBus
   readonly cpu: Cpu65816
-  private touched = new Set<number>()
+  /**
+   * OAM tile bytes written while `$15E9` named this sprite's slot: its parts (the grader's; the map view's in a
+   * neighbor run). Why a write under another slot is not its own, and the limit: docs/sprites/grader-triage.md
+   * (cause C; SMWDisX bank_01.asm:110-125, 143-152).
+   */
+  private own = new Set<number>()
+  /**
+   * Plain run only: every other tile write, whatever `$15E9` held, so own + companion is all the map view draws
+   * (D52; the grader reads `own` only). A neighbor run keeps none (#841). A byte belongs to its last writer.
+   */
+  private companion = new Set<number>()
   /** The sprite's position at the first OAM write since `clearOamWrites` (the capture's sampling moment). */
   private drawAt: { x: number; y: number } | null = null
   /** Colors set so far, in the order they took effect (cumulative; see `nmi`). */
@@ -346,11 +366,8 @@ export class Machine {
   private readonly childTiles = new Map<number, Set<number>>()
   /** Where the sprite stood at the first such read. */
   private drewAt: { x: number; y: number } | undefined
-  /** OAM tile bytes written while `$15E9` named this sprite's slot; read instead of `touched` in a neighbor run. */
-  private own = new Set<number>()
-  /** Count only the sprite's own OAM writes, so a sprite it created (a shooter's bullet) is not its picture (D106A). */
-  ownOnly = false
 
+  /** Boots the CPU and bus on the ROM and hooks WRAM writes, the one place a tile write is sorted into own or companion. */
   constructor(
     private readonly rom: RomFile,
     public seed: SpriteSeed,
@@ -362,7 +379,7 @@ export class Machine {
     this.bus = m.bus
     this.cpu = m.cpu
     this.bus.onWramWrite = off => {
-      this.touched.add(off)
+      const cur = this.bus.wram[RAM.curSprite]
       // The capture's own filter (headless_capture.lua:1270-1290): $0200-$049F minus the $0400-$041F gap,
       // and only while $15E9 (the current sprite) is the slot, so a write by another routine does not count.
       if (
@@ -370,16 +387,20 @@ export class Machine {
         off >= RAM.oam &&
         off < 0x4a0 &&
         (off < 0x400 || off >= 0x420) &&
-        this.bus.wram[RAM.curSprite] === this.seed.slot
+        cur === this.seed.slot
       )
         // prettier-ignore
         this.drawAt = this.pos()
-      if (this.bus.wram[RAM.curSprite] === this.seed.slot) {
+      if (cur === this.seed.slot) {
         this.own.add(off)
+        this.companion.delete(off)
         if (this.drawingFor !== undefined) {
           const set = this.childTiles.get(this.drawingFor) ?? new Set<number>()
           this.childTiles.set(this.drawingFor, set.add(off))
         }
+      } else if (!this.neighbourRun) {
+        this.companion.add(off)
+        this.own.delete(off)
       }
       if (off === RAM.paletteIndexTable) this.modeWritten = true
     }
@@ -627,10 +648,11 @@ export class Machine {
     this.nmi()
   }
 
+  /** Forget the last pass's tile writes, so each pass reports only what it drew itself. */
   clearOamWrites(): void {
-    this.touched.clear()
     this.drawAt = null
     this.own.clear()
+    this.companion.clear()
     this.drewSlots.clear()
     this.childTiles.clear()
     this.drawingFor = undefined
@@ -660,8 +682,15 @@ export class Machine {
   /** OAM mirror indices whose tile byte this pass wrote. */
   writtenOam(): number[] {
     const out: number[] = []
-    const seen = this.neighbourRun || this.ownOnly ? this.own : this.touched
-    for (let i = 0; i < RAM.oamEntries; i++) if (seen.has(RAM.oam + 2 + i * 4)) out.push(i)
+    for (let i = 0; i < RAM.oamEntries; i++) if (this.own.has(RAM.oam + 2 + i * 4)) out.push(i)
+    return out
+  }
+
+  /** OAM mirror indices whose tile byte a sprite this run spawned wrote this pass. */
+  companionOam(): number[] {
+    const out: number[] = []
+    for (let i = 0; i < RAM.oamEntries; i++)
+      if (this.companion.has(RAM.oam + 2 + i * 4)) out.push(i)
     return out
   }
 }
@@ -669,11 +698,15 @@ export class Machine {
 const s8 = (v: number) => (v > 127 ? v - 256 : v)
 
 /** Parts the pass wrote, relative to `anchor`, in screen terms (camera removed). */
-function readParts(m: Machine, anchor: { x: number; y: number }): SpritePart[] {
+function readParts(
+  m: Machine,
+  anchor: { x: number; y: number },
+  oam = m.writtenOam(),
+): SpritePart[] {
   const w = m.bus.wram
   const cam = m.seed.camera
   const out: SpritePart[] = []
-  for (const i of m.writtenOam()) {
+  for (const i of oam) {
     const b = RAM.oam + i * 4
     const y = w[b + 1]
     if (y === 0xf0) continue
@@ -727,7 +760,8 @@ const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = LINE_GUIDED_IDS
  * Run with a seed; no marioX analysis (half the cost of `runSprite`). The run is alone. When the sprite's own
  * code scanned the slot tables for a companion (`scansSlots`) and the seed lists `neighbours`, a second run puts
  * them in the other slots and counts only the OAM written under this sprite's slot (as the capture does: a
- * neighbor's own draw is not this sprite's). It replaces the first only when its parts differ (#841).
+ * neighbor's own draw is not this sprite's), with no `companions`. It replaces the first only when it adds
+ * parts to what the first run drew (parts plus companions) and keeps all of them (#841).
  */
 export function runOnce(
   rom: RomFile,
@@ -749,8 +783,8 @@ export function runOnce(
  * scan, a kick) is not a part of its picture (#841).
  */
 function addsOnly(a: SpriteModel, b: SpriteModel): boolean {
-  const mine = a.chosen === undefined ? [] : a.passes[a.chosen]!.parts.map(partKey)
-  const theirs = new Set(b.passes[b.chosen!]!.parts.map(partKey))
+  const mine = a.chosen === undefined ? [] : drawnParts(a.passes[a.chosen]!).map(partKey)
+  const theirs = new Set(drawnParts(b.passes[b.chosen!]!).map(partKey))
   return theirs.size > mine.length && mine.every(k => theirs.has(k))
 }
 
@@ -766,8 +800,9 @@ function childrenAtRest(b: SpriteModel): SpriteModel {
   const pass = b.passes[b.chosen!]!
   const shift = pass.drew?.shift
   if (!shift || (!shift.x && !shift.y)) return b
-  const parts = pass.parts.map(q => ({ ...q, dx: q.dx - shift.x, dy: q.dy - shift.y }))
-  return { ...b, passes: b.passes.map(p => (p === pass ? { ...p, parts } : p)) }
+  const move = (q: SpritePart) => ({ ...q, dx: q.dx - shift.x, dy: q.dy - shift.y })
+  const moved = { ...pass, parts: pass.parts.map(move), companions: pass.companions?.map(move) }
+  return { ...b, passes: b.passes.map(p => (p === pass ? moved : p)) }
 }
 
 /** One run of `id` from INIT through the main passes, alone or (`neighbourRun`) with the seed's neighbors placed in the other slots. */
@@ -839,7 +874,6 @@ function runCore(
   try {
     const m = new Machine(rom, opts.spawn ? { ...seed } : latched, id, shell, neighbourRun)
     if (opts.trackInputs) m.bus.inputs = new Set()
-    m.ownOnly = opts.ownOamOnly === true
     // RNGCalc ($148B/C) is zero until the game first calls GetRand, its only
     // writer (CODE_01AD07, bank_01.asm:6101-6121); one call from zero is what
     // frame 0 of a level has run, so run the ROM's own GetRand once.
@@ -990,6 +1024,7 @@ function runCore(
         ...(drawPos ? { drawPos } : {}),
         origin: { x: origin.x, y: origin.y },
         parts: readParts(m, origin),
+        companions: readParts(m, origin, m.companionOam()),
         uploads: uploadsOf(m, hw),
         palette: m.paletteWrites(),
         ...(drew ? { drew } : {}),
@@ -998,11 +1033,15 @@ function runCore(
     }
     if (m.scanned) model.scansSlots = true
     if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)
-    const first = model.passes.findIndex(p => p.parts.length > 0)
+    const first = model.passes.findIndex(p => drawnParts(p).length > 0)
     if (first >= 0) model.chosen = first
     // At rest, an admitted line-guided sprite is drawn on its line (D156): the pass after the one that put it there.
     const online = atRest && snaps ? onLinePass(lineStates) : undefined
-    if (online !== undefined && model.passes[online + 1]?.parts.length) {
+    if (
+      online !== undefined &&
+      model.passes[online + 1] &&
+      drawnParts(model.passes[online + 1]!).length
+    ) {
       model.chosen = online + 1
       // A lock on pass 0 or 1 is the probe lock then the first walk (bank_01.asm:12045-12061, 11863-11930): it stepped. A later lock came
       // after the line step found nothing and let it fall (SpriteTableC2 = 2, bank_01.asm:11976-11981): it fell.
@@ -1015,13 +1054,13 @@ function runCore(
     // $1F: (415,336) -> (419,340) -> (431,336)). Each step is only taken if the pass before it moved the sprite
     // and the next pass draws; a fingerprint match cannot prove that. A first draw after pass 0 is already on track.
     // The line-walk pick is a move: play/simulate only (D91).
-    if (snaps && !atRest && first === 0 && model.passes[1]?.parts.length) {
+    if (snaps && !atRest && first === 0 && model.passes[1] && drawnParts(model.passes[1]).length) {
       const [q0, q1] = [model.passes[0]!.pos, model.passes[1]!.pos]
       const moved = (a: { x: number; y: number }, b: { x: number; y: number }) =>
         a.x !== b.x || a.y !== b.y
       if (!moved(q0, anchor))
         model.lineStepReason = 'the line step did not move the sprite on pass 0: kept the first drawn pass' // prettier-ignore
-      else if (model.passes[2]?.parts.length && moved(q0, q1)) model.chosen = 2
+      else if (model.passes[2] && drawnParts(model.passes[2]).length && moved(q0, q1)) model.chosen = 2
       // Only the grinder (#126) falls back to pass 1, the probe-corner spot. For the ids #792 admits, a pass 2 that
       // does not draw leaves pass 0, the generic rule: the corner spot is not where the game keeps them.
       else if (num === 0x67) model.chosen = 1
@@ -1062,7 +1101,7 @@ function runCore(
       )
         model.lineInitReason = `its INIT (at $${inits.handler.address.toString(16)}) is not a stock line-guided INIT, so the move it makes before the first frame is unverified`
     }
-    if (model.passes.every(p => p.parts.length === 0))
+    if (model.passes.every(p => drawnParts(p).length === 0))
       model.emptyReason = `drew no OAM tile in ${m.seed.mainPasses} passes (${atRest ? "it drew no tile at rest; whether it shows in play was not checked" : 'invisible by design, or the seed lacks state'})` // prettier-ignore
   } catch (e) {
     if (e instanceof Refusal) return { ...model, refusal: e.message }
@@ -1075,8 +1114,9 @@ function runCore(
  * Whether no spawn the loader allows shows the sprite (D156): it spawns at the right or left edge (offsets read from the
  * ROM, `loaderWindow`) or, if the map's loader placed it, at the map-load camera. Each is run from that camera with
  * the sprite where the loader puts it, and the side of the scroll it starts on decides (`neverAppears`).
+ * Exported for the companion tests, which run it on a non-line-guided synthetic id.
  */
-function startsBehind(
+export function startsBehind(
   rom: RomFile,
   id: number,
   seed: SpriteSeed,
@@ -1090,11 +1130,11 @@ function startsBehind(
   const at = vert ? placed.y : placed.x
   const spawn = (dir: Spawn['dir'], cam: number): Spawn => {
     const m = runOnce(rom, id, withSeed({ camera: vert ? { y: cam } : { x: cam } }, seed), { ...opts, atRest: false, probe: undefined }) // prettier-ignore
-    const q = m.passes.find(p => p.parts.length)
+    const q = m.passes.find(p => drawnParts(p).length)
     if (!q) return { dir, extent: null }
     const sgn = (v: number) => (v << 16) >> 16
     const edge = (t: SpritePart, far: boolean) => sgn(vert ? q.origin.y : q.origin.x) + (vert ? t.dy : t.dx) - cam + (far ? t.size : 0) // prettier-ignore
-    return { dir, extent: { lo: Math.min(...q.parts.map(t => edge(t, false))), hi: Math.max(...q.parts.map(t => edge(t, true))) } } // prettier-ignore
+    return { dir, extent: { lo: Math.min(...drawnParts(q).map(t => edge(t, false))), hi: Math.max(...drawnParts(q).map(t => edge(t, true))) } } // prettier-ignore
   }
   const spawns = (
     [
@@ -1110,10 +1150,11 @@ function startsBehind(
   return neverAppears(spawns, screen)
 }
 
+/** One string per run of what it draws (companions included), so two runs that draw the same pieces compare equal. */
 const partsKey = (m: SpriteModel): string =>
   m.passes
     .map(p =>
-      p.parts
+      drawnParts(p)
         .map(q => [q.char, q.palette, +q.flipX, +q.flipY, q.dx, q.dy, q.size].join(','))
         .sort()
         .join(';'),

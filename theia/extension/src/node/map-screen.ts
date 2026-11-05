@@ -531,11 +531,11 @@ const PALACE_UNDRAWN = 'this block could not be drawn on this ROM.'
 export const unreadable = (detail: string, reason = MAP_UNREADABLE) =>
   ({ status: 'unavailable', reason, detail }) as const
 
-/** A level-start read as the RPC reply: on failure the loader's `detail` (the diagnostic, e.g. on a changed-code ROM) is kept, `reason` only when there is none (#967). */
+/** A level-start read as the RPC reply: on failure the plain `reason` and the loader's `detail` (the diagnostic, e.g. on a changed-code ROM) are both kept, the reason alone when there is no detail (#967, #1166). */
 export const startResult = (s: LevelStart): MapStartResult =>
   s.ok
     ? { status: 'ok', screen: s.screen, x: s.x, y: s.y, vertical: s.vertical }
-    : startUnavailable(s.detail ?? s.reason)
+    : startUnavailable(s.detail ? `${s.reason}\n${s.detail}` : s.reason)
 
 /** A start position the entrance loader could not work out (#967): plain words, the loader's text apart. */
 export const startUnavailable = (detail: string) =>

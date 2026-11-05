@@ -201,19 +201,19 @@ function gradeAll(
   return { rows, by, inputs, fallbacks, missAtK }
 }
 
-/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised for #841 (neighbor run): measured with the merge head against develop 6d23b7b0, one machine: exact 1058, exact+shape 1877, wrong 48, close 18, empty 14 (develop: 1053, 1863, 62, 18, 14); only the 14 $9C rows changed. */
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised for #840 (init companions): measured 2026-11-04 on the merge of develop a028e0dc, one machine, 1957 records: exact 1917, shape 0, close 17, wrong 22, empty 1, missAtK 7 (develop alone: 1906, 0, 17, 33, 1, 7; the 11 rows that changed are $61 and $1E, wrong to exact, none got worse). */
 const FLOOR = {
   graded: 1957,
   // Measured on the merge of develop a9de2145 and #842 (offsets from the draw-time position, Layer 3 handler run),
   // one machine, 2026-10-28: exact 1906, shape 0, close 17, wrong 33, empty 1 (the #842 head alone, before
   // the merge: 1865, 0, 17, 75, 0). Shape is not floored: with shape at 0, exact + shape could never fire below the
   // exact floor.
-  exact: 1890,
+  exact: 1900, // 1917 measured, develop a028e0dc alone 1906
   maxRefused: 0,
   maxShape: 5, // 0 measured
   maxClose: 20, // 17 measured
   maxEmpty: 5, // 1 measured
-  maxWrong: 45, // 33 measured
+  maxWrong: 30, // 22 measured (develop alone 33)
   maxMissAtK: 10, // 7 measured
   // 38 measured (spawned records without initFrame); all-timed would read 0.
   minFallbacks: 30,
@@ -275,6 +275,9 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     ['127', '$16', 1296, 368],
     ['1cc', '$93', 224, 368], // #846: moves after drawing; graded from where it drew
     ['102', '$A4', 912, 400], // #842: sank 32 px until the loader ran the Layer 3 handler
+    // INIT spawns companions that draw in their own slots (#840): the recorded pieces are the sprite's alone, 1 and 2.
+    ['10a', '$61', 160, 384],
+    ['1c4', '$1E', 1120, 224],
   ])(
     'map %s %s at %i,%i grades exact',
     (map, id, x, y) => {

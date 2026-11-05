@@ -26,7 +26,7 @@ const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 const PACE = Number(process.argv[2] || 1600)
 const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT || 3000}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
-const VANILLA_MAPS = 235
+const VANILLA_MAPS = 512
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
@@ -131,7 +131,7 @@ async function main() {
   await say(
     '2. Load every map',
     'The count comes from the ROM, never from a constant: a hack with 354 maps',
-    'reports 354. docs/glossary.md documents vanilla as 235.',
+    'reports 354. docs/glossary.md documents vanilla as 512.',
   )
 
   const loaded = await page.evaluate(async mp => {
@@ -142,12 +142,7 @@ async function main() {
     const roots = w.model.root.children
     return {
       mapCount: w.mapCount,
-      distinct: new Set(
-        roots
-          .flatMap(r => r.children.flatMap(walk))
-          .filter(n => n.sharedCount === undefined)
-          .map(n => n.index),
-      ).size,
+      distinct: new Set(roots.flatMap(r => r.children.flatMap(walk)).map(n => n.index)).size,
       groups: roots.map(r => r.name),
       overworld: roots[0].children.length,
       unassigned: roots[1].children.length,

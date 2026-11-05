@@ -128,15 +128,16 @@ describe('the map tree note (synthetic)', () => {
     buildMapTree(new SmwRom(file), SYNTHETIC_FINGERPRINTS).notes.join(' | ')
 
   it('says in plain words that a map was not read to its end', () => {
-    expect(notes(rom([...PRIMARY, ...RUN_OFF]))).toMatch(
+    // Placed above every other planted byte, so the walk reaches the file's end without meeting a $FF.
+    expect(notes(rom([...PRIMARY, ...RUN_OFF], 0x108000))).toMatch(
       /1 map has object data that could not be read to its end, so screen exits from it may be missing: \$001\./,
     )
     expect(notes(rom([...PRIMARY, 0xff]))).not.toMatch(/read to its end/)
   })
 
   it('pluralises, and names at most 10 maps then "and N more"', () => {
-    const file = rom([...PRIMARY, ...RUN_OFF])
-    for (let k = 0; k < 12; k++) strayMap(file, 0x0d0 + k, ((0x08 + k) << 16) | 0x8000)
+    const file = rom([...PRIMARY, ...RUN_OFF], 0x108000)
+    for (let k = 0; k < 12; k++) strayMap(file, 0x0d0 + k, ((0x11 + k) << 16) | 0x8000)
     expect(notes(file)).toMatch(
       /13 maps have .* from them may be missing: (\$[0-9A-F]{3}, ){9}\$[0-9A-F]{3} and 3 more\./,
     )

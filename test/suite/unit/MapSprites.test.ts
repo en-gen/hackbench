@@ -83,10 +83,31 @@ describe('drawSprites', () => {
     expect(px(bmp, 8, 7, 0)[0]).toBe(9 * 16 + 1)
   })
 
-  it('marks a sprite whose chars are not in this level, rather than drawing garbage', () => {
+  // .claude/rules/rom-interpretation.md "Viewers draw; they do not blank": the pieces whose chars are loaded are drawn,
+  // the sprite says why it is incomplete; only a sprite with no loaded char at all is the marker (#840 review).
+  it('draws the pieces whose chars are loaded and says the rest are missing', () => {
     const [s] = drawSprites([spr(0, 0, 0)], MODEL, () => ok(part(0x401, 0, 0), part(0x5ff, 8, 0)))
+    expect(s).toMatchObject({ status: 'drawn', parts: [{ char: 0x401, dx: 0 }] })
+    expect(s!.unverified).toMatch(/1 of 2 pieces/)
+    expect(sized(s!)).toEqual([8, 8])
+  })
+
+  it('a sprite with no loaded char at all is the marker', () => {
+    const [s] = drawSprites([spr(0, 0, 0)], MODEL, () => ok(part(0x5fe, 0, 0), part(0x5ff, 8, 0)))
     expect(s).toMatchObject({ status: 'placeholder', reason: 'charsNotLoaded' })
     expect(sized(s!)).toEqual([16, 16])
+  })
+
+  it('a sprite whose chars are all loaded carries no unverified note', () => {
+    const [s] = drawSprites([spr(0, 0, 0)], MODEL, () => ok(part(0x400, 0, 0), part(0x401, 8, 0)))
+    expect(s).toMatchObject({ status: 'drawn' })
+    expect(s).not.toHaveProperty('unverified')
+  })
+
+  it('the kept pieces stay aligned with their art when an earlier one is missing', () => {
+    const [s] = drawSprites([spr(0, 0, 0)], MODEL, () => ok(part(0x5ff, 0, 0), part(0x401, 8, 0)))
+    expect(s).toMatchObject({ status: 'drawn', parts: [{ char: 0x401, dx: 8 }] })
+    expect(px(decode(s!), 8, 0, 0)[3]).toBe(255)
   })
 
   it('takes the anchor from the parsed tile position as is (the parser already swapped vertical X and Y)', () => {
