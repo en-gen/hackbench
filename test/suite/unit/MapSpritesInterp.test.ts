@@ -510,7 +510,8 @@ const PINNED_ROWS: Record<string, string> = {
   '106:4e@3088,304': 'same 3088,304 a890101608',
   '106:4e@3168,352': 'same 3168,352 a890101608',
   '106:4e@3424,320': 'same 3424,320 a890101608',
-  '106:4d@3760,368': 'interp-miss - -',
+  // The mole that drew nothing from Mario's start is found by the reveal search (#1132) and matches the engine's picture.
+  '106:4d@3760,368': 'same 3760,368 e53dc0877b',
   '106:4d@3952,368': 'same 3952,368 e53dc0877b',
   '8:2@128,304': 'differ 128,304 5c1daaa53f',
   '8:5@224,368': 'differ 224,368 73a3e6fff4',
@@ -578,7 +579,7 @@ const EXPECTED: Record<string, Record<string, number>> = {
   $11: { differ: 5 },
   $13: { differ: 11 },
   $1F: { differ: 1 },
-  $4D: { 'interp-miss': 1, same: 1 },
+  $4D: { same: 2 },
   $4E: { same: 3 },
 }
 
@@ -838,14 +839,15 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     const got = [0x105, 0x106].map(m => {
       const r = mapSprites(new L1ModelCache(), b, romPath(VANILLA), m)
       if (r.status !== 'ok') throw new Error(JSON.stringify(r))
-      for (const s of r.sprites.filter(s => s.status === 'placeholder')) expect(s.reason).toMatch(/^(refused: INIT: id \$[0-9a-f]+ is past|drew no OAM tile)/) // prettier-ignore
+      for (const s of r.sprites.filter(s => s.status === 'placeholder')) expect(s.reason).toMatch(/^(refused: INIT: id \$[0-9a-f]+ is past|drew no OAM tile|unrevealed$)/) // prettier-ignore
       expect(r.sprites.some(s => s.unverified)).toBe(false)
       return [r.sprites.filter(s => s.status === 'drawn').length, r.sprites.length]
     })
     // +1 on $105 and +3 on $106: the stationary shells ($DA-$DD, $DF) draw since #837; $3E draws its P-switch again now INIT runs for the picture (D139 D), so $106 is 24.
+    // Then +1 on $105 (the invisible mushroom) and +1 on $106 (a Monty Mole), both found by the reveal search (#1132).
     expect(got).toEqual([
-      [32, 34],
-      [24, 25],
+      [33, 34],
+      [25, 25],
     ])
   })
 })
