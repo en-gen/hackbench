@@ -123,6 +123,17 @@ export interface MapViewOptions {
 }
 
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
+
+/** A screen reply's planes decoded to images, for a map screen and a gutter screen alike. */
+const screenImages = (r: Layout): ScreenImages => ({
+  width: r.width,
+  height: r.height,
+  planes: Object.fromEntries(
+    MAP_PLANE_KEYS.map(k => [k, r.planes[k] === null ? null : new ImageData(decodeRgba(r.planes[k]!), r.width, r.height)]), // prettier-ignore
+  ) as ScreenImages['planes'],
+  screens: r.screens,
+  math: r.math,
+})
 type Sprites = Extract<MapSpritesResult, { status: 'ok' }>
 type Collision = Extract<MapCollisionResult, { status: 'ok' }>
 /** A refusal's plain words, and the technical text that belongs on a tooltip's second line (#967). */
@@ -803,15 +814,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         if (generation !== this.generation) return
         this.pending.delete(key)
         if (r?.status !== 'ok') return
-        this.screens.set(key, {
-          width: r.width,
-          height: r.height,
-          planes: Object.fromEntries(
-            MAP_PLANE_KEYS.map(k => [k, r.planes[k] === null ? null : new ImageData(decodeRgba(r.planes[k]!), r.width, r.height)]), // prettier-ignore
-          ) as ScreenImages['planes'],
-          screens: r.screens,
-          math: r.math,
-        })
+        this.screens.set(key, screenImages(r))
       }),
     )
     if (generation === this.generation) this.sync()
@@ -847,17 +850,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       this.update()
       return
     }
-    const image = (b64: string | null) =>
-      b64 === null ? null : new ImageData(decodeRgba(b64), r.width, r.height)
-    this.screens.set(key, {
-      width: r.width,
-      height: r.height,
-      planes: Object.fromEntries(
-        MAP_PLANE_KEYS.map(k => [k, image(r.planes[k])]),
-      ) as ScreenImages['planes'],
-      screens: r.screens,
-      math: r.math,
-    })
+    this.screens.set(key, screenImages(r))
     const l = this.mapLayout
     if (
       !l ||

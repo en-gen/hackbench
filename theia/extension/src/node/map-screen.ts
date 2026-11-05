@@ -626,24 +626,23 @@ export const startUnavailable = (detail: string) =>
     detail,
   }) as const
 
-/** Builds one screen; a refusal keeps the cache's plain-words reason and carries the gate text as detail (#967). */
-export function mapScreen(
+/** The cached model's screen, or its refusal: the cache's plain-words reason with the gate text as detail (#967). */
+function onModel(
   cache: L1ModelCache,
   bytes: Uint8Array,
   romPath: string,
   index: number,
-  screen: number,
   flags: SwitchFlagsDto,
-  switches: SwitchStateDto = SWITCHES_OFF,
+  build: (model: MapInputs) => ScreenReply,
 ): ScreenReply {
   const built = cache.get(bytes, romPath, index, flags)
-  if (built.ok) return screenResult(built.inputs, screen, switches)
+  if (built.ok) return build(built.inputs)
   // The cache already swapped the exception or gate text for plain words (#967); a screen note is a sentence, so only the casing is the caller's.
   return { status: 'unavailable', reason: built.reason.replace(/^./, c => c.toUpperCase()), detail: built.detail } // prettier-ignore
 }
 
-/** Builds one screen past the last, for the gutter (#1197), from the same cached model as `mapScreen`. */
-export function mapBeyond(
+/** Builds one screen of the map. */
+export const mapScreen = (
   cache: L1ModelCache,
   bytes: Uint8Array,
   romPath: string,
@@ -651,11 +650,20 @@ export function mapBeyond(
   screen: number,
   flags: SwitchFlagsDto,
   switches: SwitchStateDto = SWITCHES_OFF,
-): ScreenReply {
-  const built = cache.get(bytes, romPath, index, flags)
-  if (built.ok) return beyondResult(built.inputs, screen, switches)
-  return { status: 'unavailable', reason: built.reason.replace(/^./, c => c.toUpperCase()), detail: built.detail } // prettier-ignore
-}
+): ScreenReply =>
+  onModel(cache, bytes, romPath, index, flags, m => screenResult(m, screen, switches))
+
+/** Builds one screen past the last, for the gutter (#1197), from the same cached model as `mapScreen`. */
+export const mapBeyond = (
+  cache: L1ModelCache,
+  bytes: Uint8Array,
+  romPath: string,
+  index: number,
+  screen: number,
+  flags: SwitchFlagsDto,
+  switches: SwitchStateDto = SWITCHES_OFF,
+): ScreenReply =>
+  onModel(cache, bytes, romPath, index, flags, m => beyondResult(m, screen, switches))
 
 /**
  * The toolbar's art for this map: each palace's block (per ROM) and each
