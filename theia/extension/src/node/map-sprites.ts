@@ -728,8 +728,12 @@ function fixOffsets(
   loaded: Uint8Array,
 ): RunModel | null {
   const at = m.chosen
-  const pass = at === undefined || !m.passes[at] ? undefined : { ...m.passes[at]!, parts: drawnParts(m.passes[at]!) } // prettier-ignore
-  const other = at === undefined || !probe.passes[at] ? undefined : { ...probe.passes[at]!, parts: drawnParts(probe.passes[at]!) } // prettier-ignore
+  // Compared and rewritten as one list: a screen-fixed companion piece is fixed like the sprite's own.
+  const flat = (r: RunModel) => {
+    const q = at === undefined ? undefined : r.passes[at]
+    return q && { ...q, parts: drawnParts(q) }
+  }
+  const [pass, other] = [flat(m), flat(probe)]
   if (!m.anchor || !pass || !other) return null
   const anchor = m.anchor
   // Residue: the loader's entry is the part's X and Y, in an entry that is not all zero. Tile and
