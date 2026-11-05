@@ -74,12 +74,14 @@ function pathMismatch(rom: RomFile, digests: readonly string[]): string | null {
     : 'the code that turns the wings into a Yoshi Heaven trip is not stock.'
 }
 
+const wanted = (seams: WingsSeams): number => seams.sprite ?? WINGS_SPRITE
+
 /** Runs CODE_0288DC for a block at column `col` and reads back the sprite it made. */
 function runSpawn(rom: RomFile, col: number, seams: WingsSeams, content: number): Spawned | string {
   let got: Spawned | undefined
   const m = runOnce(
     rom,
-    seams.sprite ?? WINGS_SPRITE,
+    wanted(seams),
     withSeed({ slot: 3, mainPasses: 1 }, SPRITE_SEED),
     {
       spawn: { inputs: spawnInputs(content, col * 16, 0), dispatcher: seams.dispatcher },
@@ -141,7 +143,7 @@ export function wingsColumns(rom: RomFile, seams: WingsSeams = {}): WingsColumns
     for (let col = 0; col < PERIOD; col++) {
       const r = seams.spawn ? seams.spawn(col) : runSpawn(rom, col, seams, content!)
       if (typeof r === 'string') return { note: `the item block spawn was refused: ${r}` }
-      if (r.number === (seams.sprite ?? WINGS_SPRITE) && r.c2 === WINGS_C2) columns.add(col)
+      if (r.number === wanted(seams) && r.c2 === WINGS_C2) columns.add(col)
     }
     return { columns }
   }
@@ -172,13 +174,12 @@ export function holdsWings(
   const hit = seen.get(slot)
   if (hit !== undefined) return hit
   const read = seams.grid ?? ((s: number) => layer1Grid(rom, s))
-  const grid = ((): number[][] | null => {
-    try {
-      return read(slot)
-    } catch {
-      return null // an unreadable stream reads as no block; the tree already warns on it
-    }
-  })()
+  let grid: number[][] | null = null
+  try {
+    grid = read(slot)
+  } catch {
+    // an unreadable stream reads as no block; the tree already warns on it
+  }
   const holds = !!grid?.some(row =>
     row.some((id, x) => id === WINGS_TILE && columns.has(x % PERIOD)),
   )
