@@ -16,7 +16,7 @@ import {
 import { GUTTER_PX, MAX_SCREENS, farGutter } from '../../../src/rom/model/MapGutter'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 
-// 16 x 27 tile screens side by side, or 32 x 16 stacked (LevelParser.ts), one to seven screens.
+// 16 x 27 tile screens side by side, or 32 x 16 stacked (LevelParser.ts), one to 32 screens, the 5-bit ceiling.
 const SHAPES = [1, 2, 5, 7, 31, 32].flatMap(n => [
   { n, w: 256 * n, h: 432, vertical: false },
   { n, w: 512, h: 256 * n, vertical: true },

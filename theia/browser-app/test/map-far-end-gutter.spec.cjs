@@ -12,7 +12,9 @@
  *
  * Planted defects for the verifier to plant in SOURCE (each should turn the named cases red):
  *   W1 offMapPad adds `farGutter` to `left` (or `top`): the nothing-off and planted-defect cases.
- *   W2 the checker inset starts at the leading pad (`pad.left * z`): the content-before and far-content cases.
+ *   W2 the checker inset starts at the leading pad (`pad.left * z`): the content-before cases only (the far-content cases have no leading pad).
+ *   W6 measureFit adds `p.left` (or `p.top`) to the cross size, or drops its cross pad term: the Fit cases.
+ *   W7 updateHover, the strip onClick or the sprite anchor drop `pad` or scale it by the wrong zoom: the zoomed-in hover case.
  *   W3 fadeMask returns the two-ended gradient: every near-end alpha case.
  *   W4 `farGutter` ignores MAX_SCREENS: the 32-screen cases.
  *   W5 updateHover, the strip onClick or placeStart drop their `pad` term: the hover, click and start cases.
@@ -59,7 +61,7 @@ test.afterEach(async ({ page }) => {
  */
 async function openSynthetic(
   page,
-  { screens, vertical = false, boxes = [], fit = false, start = 1500 },
+  { screens, vertical = false, boxes = [], fit = false, start = 1500, zoomStep = 'zoom-actual' },
 ) {
   await page.evaluate(
     async ({ index, screens, vertical, boxes, back, start }) => {
@@ -119,7 +121,7 @@ async function openSynthetic(
     )
     await expect(page.locator(`${root} [data-control="map-scroller"]`)).toHaveAttribute('data-start', 'placed', { timeout: 15000 }) // prettier-ignore
   } else {
-    await page.locator(`${root} [data-control="zoom-actual"]`).click()
+    await page.locator(`${root} [data-control="${zoomStep}"]`).click()
     await page.waitForTimeout(600)
   }
 }
@@ -353,59 +355,69 @@ for (const vertical of [false, true]) {
     const lead = content ? 32 : 0
     const [padL, padT] = vertical ? [0, lead] : [lead, 0]
 
-    test(`${shape}: hover, the sprite anchor and click land on map pixel (108, 108) (acceptance 5)`, async ({
-      page,
-    }) => {
-      await openSynthetic(page, { screens: 4, vertical, boxes: sprites })
-      await scrollAxis(page, vertical, false)
-      await page.waitForTimeout(300)
-      const m = await measure(page)
-      const [px, py] = [m.strip.left + (padL + 108) * m.zoom, m.strip.top + (padT + 108) * m.zoom]
-      const widget = fn => page.evaluate(({ i, src }) => getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index: i }).then(w => new Function('w', `return (${src})(w)`)(w)), { i: INDEX, src: fn.toString() }) // prettier-ignore
-      await page.mouse.move(px, py)
-      await expect
-        .poll(() => widget(w => w.hoverSprite?.index ?? null), { timeout: 10000 })
-        .toBe(900)
-      const a = await page.evaluate(() => {
-        const b = document.querySelector('.hb-map-sprite-anchor')?.getBoundingClientRect()
-        return b && { left: b.left, top: b.top, w: b.width }
-      })
-      expect(a).not.toBeNull()
-      expect(a.left - m.strip.left).toBeCloseTo((padL + 100) * m.zoom, 0)
-      expect(a.top - m.strip.top).toBeCloseTo((padT + 100) * m.zoom, 0)
-      expect(a.w).toBeCloseTo(16 * m.zoom, 0)
-      await page.mouse.click(px, py)
-      await expect.poll(() => widget(w => w.selectedSprite?.index ?? null)).toBe(900)
-      if (content) {
-        // The same client point measured from the strip's origin is the pad short of the sprite: no hit.
-        const [wx, wy] = [m.strip.left + 108 * m.zoom, m.strip.top + 108 * m.zoom]
-        await page.mouse.move(wx, wy)
+    for (const zoomStep of content ? ['zoom-actual', 'zoom-in'] : ['zoom-actual']) {
+      test(`${shape}, ${zoomStep}: hover, the sprite anchor and click land on map pixel (108, 108) (acceptance 5)`, async ({
+        page,
+      }) => {
+        await openSynthetic(page, { screens: 4, vertical, boxes: sprites, zoomStep })
+        await scrollAxis(page, vertical, false)
+        await page.waitForTimeout(300)
+        const m = await measure(page)
+        // Zoom 1 at Actual size; a step in must leave 1, so the pad is scaled by the zoom, not added in map pixels.
+        if (zoomStep === 'zoom-actual') expect(m.zoom).toBeCloseTo(1, 2)
+        else expect(m.zoom).toBeGreaterThan(1.05)
+        const [px, py] = [m.strip.left + (padL + 108) * m.zoom, m.strip.top + (padT + 108) * m.zoom]
+        const widget = fn => page.evaluate(({ i, src }) => getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index: i }).then(w => new Function('w', `return (${src})(w)`)(w)), { i: INDEX, src: fn.toString() }) // prettier-ignore
+        await page.mouse.move(px, py)
         await expect
           .poll(() => widget(w => w.hoverSprite?.index ?? null), { timeout: 10000 })
-          .toBeNull()
-        await page.mouse.click(wx, wy)
-        await expect.poll(() => widget(w => w.selectedSprite?.index ?? null)).toBeNull()
-      }
-    })
+          .toBe(900)
+        const a = await page.evaluate(() => {
+          const b = document.querySelector('.hb-map-sprite-anchor')?.getBoundingClientRect()
+          return b && { left: b.left, top: b.top, w: b.width }
+        })
+        expect(a).not.toBeNull()
+        expect(a.left - m.strip.left).toBeCloseTo((padL + 100) * m.zoom, 0)
+        expect(a.top - m.strip.top).toBeCloseTo((padT + 100) * m.zoom, 0)
+        expect(a.w).toBeCloseTo(16 * m.zoom, 0)
+        await page.mouse.click(px, py)
+        await expect.poll(() => widget(w => w.selectedSprite?.index ?? null)).toBe(900)
+        if (content) {
+          // The same client point measured from the strip's origin is the pad short of the sprite: no hit.
+          const [wx, wy] = [m.strip.left + 108 * m.zoom, m.strip.top + 108 * m.zoom]
+          await page.mouse.move(wx, wy)
+          await expect
+            .poll(() => widget(w => w.hoverSprite?.index ?? null), { timeout: 10000 })
+            .toBeNull()
+          await page.mouse.click(wx, wy)
+          await expect.poll(() => widget(w => w.selectedSprite?.index ?? null)).toBeNull()
+        }
+      })
+    }
 
     test(`${shape}: Fit holds the padded strip to the map and the start centers at (start + pad) (acceptance 5)`, async ({
       page,
     }) => {
       const start = 1500
+      // A sprite 16 px on the cross side (above a horizontal map, left of a vertical one) feeds measureFit's cross term.
+      const cross = vertical ? [-16, 60] : [60, -16]
       await openSynthetic(page, {
         screens: 12,
         vertical,
-        boxes: content ? [near] : [],
+        boxes: [...(content ? [near] : []), cross],
         fit: true,
         start,
       })
       const m = await measure(page)
-      // Fit frames the cross axis: map plus short-side pads, which this content does not touch.
+      // Fit frames the cross axis: the map plus the short-side pad the cross sprite makes (16), and nothing of the
+      // scroll-axis content. The zoom is the available size over that, clamped to 0.25..4, by arithmetic.
       const [along, across] = vertical
         ? [m.strip.height, m.strip.width]
         : [m.strip.width, m.strip.height]
       expect(along / m.zoom).toBeCloseTo(12 * 256 + lead + G, 0)
-      expect(across / m.zoom).toBeCloseTo(vertical ? 512 : 432, 0)
+      expect(across / m.zoom).toBeCloseTo((vertical ? 512 : 432) + 16, 0)
+      const wantZoom = Math.min(4, Math.max(0.25, (vertical ? m.view.w : m.view.h) / ((vertical ? 512 : 432) + 16))) // prettier-ignore
+      expect(Math.abs(m.zoom - wantZoom)).toBeLessThanOrEqual(0.01 * wantZoom)
       // The start scroll: (start + pad) * zoom - view / 2, clamped to the scroll range.
       const [view, size, got] = vertical
         ? [m.view.h, m.scroll.h, m.scroll.top]

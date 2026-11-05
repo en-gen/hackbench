@@ -20,7 +20,7 @@ On width (R41): "I think "the gutter" should be 1 screen wide."
 
 On vertical maps: "the purpose of the "gutter" is it will allow a user to add tiles to extend the map. but, we can't extend the map to negative "x" coordinates." and "remove the gutter such that a user can't add tiles at a negative X coordinate".
 
-Recorded as R36 (the first three quotes) and R41 (the width), both 2026-11-04, direct to Planning. The plan was gated and ruled as D172 (agreed with the recommendation). R41 also asks that the background layers extend through the gutter and fade; that is #1197 and is not part of this change. This replaces the left half of D48 part 2 and R24 ("half a screen of width to the left and right of a horizontal map").
+Recorded as R36 (the first and the vertical quotes) and R41 (the width), both 2026-11-04, direct to Planning. The plan was gated and ruled as D172 (agreed with the recommendation). R41 also asks that the background layers extend through the gutter and fade; that is #1197 and is not part of this change. This replaces the left half of D48 part 2 and R24 ("half a screen of width to the left and right of a horizontal map").
 
 ## Why
 
