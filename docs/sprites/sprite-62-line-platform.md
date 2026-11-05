@@ -30,7 +30,7 @@ Every line-guided id ends in the one dispatch `CODE_01D9A7` (`bank_01.asm:12182-
 it calls the line step `CODE_01D74D`: `$62` through `CODE_01DAA2` (shift, draw JSR `CODE_01B2DF` at `12347`, restore, step JSR at `12358`; arm `12323-12358`),
 `$65` and `$66` through the interact call, the `CODE_03C263` JSL, then the step JMP, `$67` and `$68` through their draw JSR,
 the interact, then the step JMP. So play and simulate place these ids where the line walk left them on their third MAIN
-(`SpriteRunner.ts`), as #126 did for the grinder; the map's picture at rest does not take that pick (D91). The three ways in: `LineGrinder` (`11837`, `$67`), `LineRope_Chainsaw` (`11817`, a
+(`SpriteRunner.ts`), as #126 did for the grinder; the map's picture at rest takes the first frame on the line instead (D156, below), which replaced the earlier D91 pick of the list position for these ids. The three ways in: `LineGrinder` (`11837`, `$67`), `LineRope_Chainsaw` (`11817`, a
 prelude that falls into `LineGrinder`: `$64`-`$66`), and `LineFuzzy_Plats` (`11845`, a bare JMP: `$62`, `$68`).
 `$64` is admitted (owner ruling D85 call 1): `InitLineRope` joins `InitLinePlat`'s tail, two `JSR LineFuzzy_Plats`
 (`11766-11783`), so its INIT already steps it. On the vanilla ROM all 12 placements already sit on their line: the line

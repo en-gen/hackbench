@@ -1521,13 +1521,15 @@ test('$4F on $105 is served at its stream position: the INIT move (+8, -1) is no
 })
 
 /**
- * #126, D91, D134: a vanilla grinder ($67) draws, then steps onto its line (pass 2 at (751, 367) INIT-on, pass 1
- * at (739, 356)). The map's picture is the sprite at rest: the first pass, at the list position (720, 352), frame
- * checksum 3767367845 (the same frame as the INIT-on pass 0; the 896249997 frame of passes 1 and 2 is the one
- * play/simulate reaches). Values from the served reply on vanilla, one machine, 2026-10-17; the list position
- * is pinned against the parsed list by LineGuidedDraw.test.ts.
+ * #126, #792, D156: a vanilla grinder ($67, map $01A idx 4) draws at INIT, locks onto its line, then steps along it.
+ * D156 (owner call B, docs/decisions/2026-10-29-line-guided-first-frame-on-line.md) puts the map's picture at the first
+ * frame the game has it on its line: pass 2 at (751, 367) (the Mesen capture's f1111 draw), served with `onLine` 'step'
+ * and the list position (720, 352) kept as `stored`. That replaces the older D91 pick of the first pass at the list
+ * position for line-guided sprites; the frame is the one play/simulate reach, checksum 896249997. Values from the
+ * core's reply on vanilla, one machine, 2026-11-04; the list position is pinned against the parsed list by
+ * LineGuidedDraw.test.ts and the on-line spot for every sprite on the map by map-sprite-placed-at-rest.spec.cjs.
  */
-test('a vanilla grinder is served at its list position, its first pass, not walked onto its track (D91)', async ({
+test('a vanilla grinder is served on its line at its first frame there, with its list position kept (D156)', async ({
   page,
 }) => {
   // The pinned numbers are the vanilla ROM's; a custom HB_ROM or a missing corpus ROM cannot match them.
@@ -1543,14 +1545,21 @@ test('a vanilla grinder is served at its list position, its first pass, not walk
   )
   expect(reply.status).toBe('ok')
   const grinder = reply.sprites.find(s => s.id === 0x67)
-  expect(grinder).toMatchObject({ x: 720, y: 352, status: 'drawn' })
-  // The four 16 x 16 body pieces sit around the anchor: a 32 x 32 box, not the track's (735, 351).
-  expect(grinder.box).toEqual({ x0: 704, y0: 336, x1: 736, y1: 368 })
+  expect(grinder).toMatchObject({
+    index: 4,
+    x: 751,
+    y: 367,
+    status: 'drawn',
+    onLine: 'step',
+    stored: { x: 720, y: 352 },
+  })
+  // The four 16 x 16 body pieces sit around the anchor: a 32 x 32 box on the line spot, not the list position's.
+  expect(grinder.box).toEqual({ x0: 735, y0: 351, x1: 767, y1: 383 })
   const sum = await page.evaluate(
     rgba => checksumOf(Uint8Array.from(atob(rgba), ch => ch.charCodeAt(0))),
     grinder.rgba,
   )
-  expect(sum, 'the first pass frame, not the walked passes (896249997)').toBe(3767367845)
+  expect(sum, 'the frame drawn on the line (self-pin, D156)').toBe(896249997)
 
   // And the canvas holds that bitmap at that box (screen 2 starts at x 512).
   await showScreen(page, 0x01a, 2)
