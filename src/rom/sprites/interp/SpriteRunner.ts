@@ -996,7 +996,8 @@ function runCore(
       model.steps.push(m.steps - n)
       probe?.(p, w)
       const now = w[RAM.spriteNumber + m.seed.slot]!
-      if (now !== following) {
+      // Only a live sprite is dispatched: a dead one's number is never run, whatever it holds.
+      if (now !== following && w[RAM.status + m.seed.slot] !== 0) {
         const next = resolvePointer(rom, tables.tables.mainTable, now)
         if (!next.ok) throw new Refusal(`the sprite became $${now.toString(16).toUpperCase().padStart(2, '0')}: MAIN: ${next.reason}`) // prettier-ignore
         following = now

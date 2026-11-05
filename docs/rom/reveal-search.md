@@ -46,7 +46,10 @@ flowchart TD
   flipped value is the loaded image's, xor 1.
 - A sprite that rewrites its own number ($9E) is followed: the game's sprite loop dispatches whatever number is in
   $9E each frame (CallSpriteMain reads it, `SpriteRunner` runs that loop), so the runner only checks the new number's
-  MAIN pointer is code (`resolvePointer`) and refuses with a reason when it is not.
+  MAIN pointer is code (`resolvePointer`) and refuses with a reason when it is not. Only a live sprite is dispatched, so the check
+  is skipped once the sprite's status ($14C8) is 0: a sprite that removes itself and leaves junk in $9E keeps its picture.
+- A sprite counts as drawing when its own code draws a tile on any pass, and the served picture is the first such pass,
+  even if a child it created drew on an earlier one (`ownPass`).
 - Created sprites do not count as drawing (D106A): the probes keep only the OAM entries written while `$15E9` is
   the sprite's own slot (`parts` are own-only in every run since #840; the rest are `companions`).
 
@@ -76,5 +79,7 @@ near. The test `RevealSearch.test.ts` shows 0 and 256 alone miss it, for sprite 
 ## Limits
 
 Interpreter limits (dynamic graphics, unmodelled registers) refuse the run as before and a refused run is never
-searched. A sprite no condition shows keeps a marker with the reason `unrevealed`. Revealed sprites are listed by
+searched. A search rerun the interpreter refuses (for example the sprite becomes a number with no handler) is served as that
+refusal, in its own words, when nothing else drew and the sprite did not draw at rest; a sprite that drew at rest keeps its
+picture. A sprite no condition shows keeps a marker with the reason `unrevealed`. Revealed sprites are listed by
 `npm run sprite:report -- --reveal --map <hex>`, which also lists the sprites that drew at rest and are now hidden.

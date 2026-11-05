@@ -831,6 +831,7 @@ export function interpRunner(
         run(rom, s.spriteId, q, { stopAtDraw: probe }),
       )
       if (rv.status === 'hidden') return { m: rv.model, fixed: false }
+      if (rv.status === 'refused') return { m: { ...m, chosen: undefined, refusal: rv.reason }, fixed: false } // prettier-ignore
       // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.
       if (rv.status === 'unrevealed' && rv.drewAtRest)
         return { m: { ...m, reveal: 'none-found' }, fixed: false }

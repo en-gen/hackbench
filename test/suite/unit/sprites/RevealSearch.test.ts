@@ -152,7 +152,30 @@ describe('a sprite that rewrites its own number is followed', () => {
   it('refuses when the new number has no handler, and finds no picture', () => {
     const m = runOnce(rom, 147, seedAt(SX, SX), { atRest: true })
     expect(m.refusal).toMatch(/became \$FF/)
-    expect(search(147).result.status).toBe('unrevealed')
+    // A rerun's refusal is the answer, in its own words, not "no condition found" (a lone blank at rest, then refused).
+    expect(search(147).result).toMatchObject({ status: 'refused', reason: expect.stringMatching(/became \$FF/) }) // prettier-ignore
+  })
+
+  it('a sprite that removes itself (status 0) is not followed to the number it left behind', () => {
+    // Id 158 draws, then at frame 5 sets status 0 and leaves $FF in $9E: the game never dispatches a dead sprite.
+    const m = runOnce(rom, 158, seedAt(SX, SX), { atRest: true })
+    expect(m.refusal).toBeUndefined()
+    expect(drew(m)).toBe(true)
+    expect(m.passes.length).toBeGreaterThan(5)
+  })
+})
+
+describe('a sprite that creates a child every pass (own parts decide, on any pass)', () => {
+  it('is revealed by the first condition that makes its own tile draw, though a child drew before it', () => {
+    const r = search(157).result
+    expect(condition(r)).toBe('mario-at-sprite')
+    const m = picked(r)
+    expect(m.passes[m.chosen!]!.parts.length).toBeGreaterThan(0)
+  })
+  it('control: with Mario away it only creates children and stays unrevealed', () => {
+    const m = runOnce(rom, 157, seedAt(SX, 0x80), { atRest: true })
+    expect(m.passes.some(p => (p.companions?.length ?? 0) > 0)).toBe(true)
+    expect(drew(m)).toBe(false)
   })
 })
 

@@ -60,6 +60,11 @@ describe('the served drawer reveals hidden sprites', () => {
     expect(drawer()(entry(5))).toMatchObject({ ok: false, reason: 'unrevealed' })
   })
 
+  it('serves a refused search rerun as the refusal, in its own words, not as "unrevealed"', () => {
+    // Id 47 is blank with Mario away; on touch it becomes $FF, which has no handler.
+    expect(drawer()(entry(147))).toMatchObject({ ok: false, reason: expect.stringMatching(/^refused: .*became \$FF/) }) // prettier-ignore
+  })
+
   it('keeps the real-start picture in the door when it drew, hides under a probe, and nothing reveals it (id 56)', () => {
     // Mario starts $40 px right of the sprite, the only place it draws.
     const r = ok(drawer(runWithUploads, 0x1040)(entry(156)))

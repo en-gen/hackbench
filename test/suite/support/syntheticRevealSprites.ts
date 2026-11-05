@@ -13,12 +13,17 @@
  * 152 mole: draws unless Mario's low-byte distance is 96-159  153 INIT faces Mario; draws on touch, flipped as INIT left it
  * 156 draws only with Mario exactly $40 px right of it
  * 154 touch: creates a sprite in slot 1 and draws nothing itself   155 draws from frame 100 on (a slow timer)
+ * 157 creates a sprite in slot 1 every pass; on touch from frame 5 draws its own tile
+ * 158 draws every pass; at frame 5 sets its status to 0 and leaves $FF in $9E (dead, so the number is never run)
  */
 const RTS = 0x60
-/** Handlers sit 128 bytes apart from here (the longest is under 100); id 153 INIT follows the last. */
+// Writes a plain-drawer sprite into slot 1 at this sprite's spot (status 8, number 0).
+const MAKE_CHILD = [0xa9, 0x08, 0x8d, 0xc9, 0x14, 0xa9, 0x00, 0x85, 0x9f, 0xa5, 0xe4, 0x85, 0xe5, 0xa5, 0xd8, 0x85, 0xd9] // prettier-ignore
+const FRAME_5 = [0xa5, 0x14, 0xc9, 0x05] // LDA $14 / CMP #5: carry set from frame 5 on
+/** Handlers sit 128 bytes apart from here (the longest is under 100); id 153 INIT sits past the last (158). */
 const FIRST = 0x01b000
 const STRIDE = 0x80
-const INIT_53 = 0x01b900
+const INIT_53 = 0x01ba00
 
 /**
  * Tests in order, each a guard (leaving the flags) and the branch that SKIPS the picture; a taken branch lands on the
@@ -103,10 +108,19 @@ export function putRevealSprites(put: (snes: number, bytes: number[]) => void): 
     // Faces by the facing byte INIT left in $157C: attribute $0A, or'd with it.
     [153, gated([sees], piece(0x24, [0xbd, 0x7c, 0x15, 0x09, 0x0a]))],
     // On touch writes a sprite into slot 1 (status 8, number 0: the plain drawer) at its own spot, and draws nothing.
-    [154, gated([sees], [0xa9, 0x08, 0x8d, 0xc9, 0x14, 0xa9, 0x00, 0x85, 0x9f, 0xa5, 0xe4, 0x85, 0xe5, 0xa5, 0xd8, 0x85, 0xd9])], // prettier-ignore
+    [154, gated([sees], MAKE_CHILD)],
     // Draws only at exactly 64 px right of it: shown from a real start there, blank at every other probe, shown by no condition.
     [156, gated([[[...diff, 0xc9, 0x40], BNE]], piece(0x24))],
     [155, gated([[[0xa5, 0x14, 0xc9, 0x64], BCC]], piece(0x24))],
+    [157, [...MAKE_CHILD, ...gated([[FRAME_5, BCC], sees], piece(0x24))]],
+    // LDA #$FF / STA $9E,X / LDA #0 / STA $14C8,X
+    [
+      158,
+      [
+        ...piece(0x24),
+        ...gated([[FRAME_5, BCC]], [0xa9, 0xff, 0x95, 0x9e, 0xa9, 0x00, 0x9d, 0xc8, 0x14]),
+      ],
+    ],
   ]
   const main: Record<number, number> = {}
   for (const [id, bytes] of mains) {
