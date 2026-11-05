@@ -22,7 +22,9 @@
  *   G5 the canvas z-index goes above the off-map canvas (110 -> 130): the sprite cases.
  *   G6 fetchBeyond drops its `generation !== this.generation` guard: the stale-reply case.
  *   G7 a failed read leaves `pending` (the delete moves above the status check): the failure case (it would re-ask).
- *   G9 loadSprites drops its `requestVisible()` call: the late-sprites case.
+ *   G10 syncGutterLayers never clears `gutterWhy` once every read for the key is in: the note-outlives-its-cause case.
+ *   G11 refresh() does not clear `gutterWhy`: the cleared-on-refresh case.
+ *   G12 fetchBeyond keeps the key and the note on a reply whose screenCount is above the screen: the grown-map case.
  *   G8 the gutter canvas repaints blank while replies are pending (drop the `shots.some(x => !x)` keep): the edit case.
  */
 const { test, expect } = require('@playwright/test')
@@ -59,8 +61,11 @@ test.afterEach(async ({ page }) => {
 
 /**
  * Opens a synthetic map of `screens` screens. `boxes` are opaque 16 x 16 white sprites at [x0, y0] map px.
- * `mode` is how mapBeyond answers: 'ok', 'fail' (unavailable) or 'stale' (the first call answers late, in
- * red 200 green marker blue, later calls at once). The screens asked of `mapBeyond` are kept in
+ * `mode` is how mapBeyond answers: 'ok'; 'fail' (always unavailable); 'failOnce' (the first call fails, later
+ * ones answer); 'failThenHold' (the first fails, later ones wait for `window.__openGate()`); 'stale' (the first
+ * call waits for the gate and then answers with red 200, later ones at once); 'grown' (every call is refused
+ * because the map now has one more screen). `holdSprites` keeps mapSprites waiting for `window.__openSprites()`.
+ * Waiting on a gate the test opens, not on a timer, keeps the order of events certain. The screens asked of `mapBeyond` are kept in
  * `window.__beyond`. `math` is the CGADSUB state every reply carries (null: none). A vertical map has Layer 2 only.
  */
 async function openSynthetic(
@@ -72,12 +77,11 @@ async function openSynthetic(
     mode = 'ok',
     math = null,
     l2Rows = null,
-    spritesDelay = 0,
-    scrollEarly = false,
+    holdSprites = false,
   },
 ) {
   await page.evaluate(
-    async ({ index, screens, vertical, boxes, mode, math, l2Rows, spritesDelay }) => {
+    async ({ index, screens, vertical, boxes, mode, math, l2Rows, holdSprites }) => {
       window.__beyond = []
       const [width, height] = vertical ? [512, 256] : [256, 432]
       const orientation = vertical ? 'vertical' : 'horizontal'
@@ -113,16 +117,21 @@ async function openSynthetic(
         return { index: 900 + i, id: 1, name: 'Test sprite', x: x0, y: y0, box, rgba, status: 'drawn' } // prettier-ignore
       })
       let calls = 0
+      const gate = new Promise(r => (window.__openGate = r))
+      const spritesGate = new Promise(r => (window.__openSprites = r))
       const canned = {
         mapStart: () => ({ status: 'ok', x: 1500, y: 1500 }),
         mapScreen: (_m, _i, screen) => base(screen),
         mapBeyond: async (_m, _i, screen) => {
           window.__beyond.push(screen)
           const n = ++calls
-          if (mode === 'fail') return { status: 'unavailable', reason: 'Part of this map could not be read from the ROM.', detail: 'synthetic detail' } // prettier-ignore
+          const unread = { status: 'unavailable', reason: 'Part of this map could not be read from the ROM.', detail: 'synthetic detail' } // prettier-ignore
+          if (mode === 'fail' || ((mode === 'failOnce' || mode === 'failThenHold') && n === 1)) return unread
+          if (mode === 'grown') return { ...unread, screenCount: screens + 1 }
+          if (mode === 'failThenHold') await gate
           const past = screen - screens + 1
           const old = mode === 'stale' && n === 1
-          if (old) await new Promise(r => setTimeout(r, 1500))
+          if (old) await gate
           return {
             ...base(screen),
             planes: {
@@ -133,7 +142,7 @@ async function openSynthetic(
           }
         },
         mapSprites: async () => {
-          if (spritesDelay) await new Promise(r => setTimeout(r, spritesDelay))
+          if (holdSprites) await spritesGate
           return { status: 'ok', orientation, screenCount: screens, width, height, sprites }
         },
       } // prettier-ignore
@@ -146,19 +155,19 @@ async function openSynthetic(
       await shell.addWidget(w, { area: 'main' })
       await shell.activateWidget(w.id)
     },
-    { index: INDEX, screens, vertical, boxes, mode, math, l2Rows, spritesDelay },
+    { index: INDEX, screens, vertical, boxes, mode, math, l2Rows, holdSprites },
   )
   await expect
     .poll(() => page.locator(`${root} .hb-map-view-screen`).count(), { timeout: 30000 })
     .toBe(screens)
-  if (scrollEarly) {
-    // Scroll to the end while the sprites are still out, so only the gutter-wide pad is known.
-    await page.locator(`${root} [data-control="zoom-actual"]`).click()
-    await page.waitForTimeout(600)
-    await scrollEnd(page, vertical)
-    await expect.poll(() => page.evaluate(() => window.__beyond)).toEqual([screens])
-  }
-  await expect
+  if (!holdSprites) await spritesLanded(page)
+  await page.locator(`${root} [data-control="zoom-actual"]`).click()
+  await page.waitForTimeout(600)
+}
+
+/** Waits for the sprites reply to land, so the pad is final. */
+const spritesLanded = page =>
+  expect
     .poll(
       () =>
         page.evaluate(
@@ -168,11 +177,10 @@ async function openSynthetic(
       { timeout: 30000 },
     )
     .toBe(true) // prettier-ignore
-  if (!scrollEarly) {
-    await page.locator(`${root} [data-control="zoom-actual"]`).click()
-    await page.waitForTimeout(600)
-  }
-}
+
+/** Runs `fn(widget)` in the page. */
+const onWidget = (page, fn) =>
+  page.evaluate(([i, src]) => getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index: i }).then(w => new Function('w', src)(w)), [INDEX, `return (${fn.toString()})(w)`]) // prettier-ignore
 
 const scrollEnd = (page, vertical) =>
   page.evaluate(
@@ -326,17 +334,16 @@ test('screens past the end land end to end in order, and a content band stays so
   expect(px[4][3]).toBeLessThanOrEqual(2)
 })
 
-test('sprites that land after the scroll widen the far pad, and the screens that now fit are fetched without another scroll', async ({
+test('sprites that land late widen the far pad, and the screen that now fits is fetched with no scroll', async ({
   page,
 }) => {
-  // The sprite is 100 px past the edge, so the far pad grows from 256 to 128 + 256 once it lands: a second screen.
-  await openSynthetic(page, {
-    screens: 2,
-    boxes: [[2 * 256 + 100, 50]],
-    spritesDelay: 1500,
-    scrollEarly: true,
-  })
-  await expect.poll(() => page.evaluate(() => window.__beyond), { timeout: 15000 }).toEqual([2, 3])
+  // One screen, so the last screen is in view at scroll 0 and nothing ever scrolls. The sprite is 100 px past the edge:
+  // once it lands the far pad grows from 256 to 128 + 256, a second screen. The reply is held until the test lets it go.
+  await openSynthetic(page, { screens: 1, boxes: [[256 + 100, 50]], holdSprites: true })
+  await expect.poll(() => page.evaluate(() => window.__beyond)).toEqual([1])
+  await page.evaluate(() => window.__openSprites())
+  await spritesLanded(page)
+  await expect.poll(() => page.evaluate(() => window.__beyond), { timeout: 15000 }).toEqual([1, 2])
   const size = await painted(page)
   expect(size.w).toBe(128 + G)
 })
@@ -428,7 +435,8 @@ test('a reply that lands after the map was refreshed is dropped, not painted ove
   await scrollEnd(page, false)
   await expect.poll(() => page.evaluate(() => window.__beyond.length)).toBe(2)
   await painted(page)
-  await page.waitForTimeout(2200) // the old reply lands now
+  await page.evaluate(() => window.__openGate()) // the old reply lands now, after the refresh
+  await page.waitForTimeout(300)
   await toggle(page, 'l3') // any repaint reads whatever the screens hold
   await toggle(page, 'l3')
   await untilRgb(page, [0, 300], l2At(0, 300, 1)) // not red 200
@@ -453,6 +461,47 @@ test('a failed gutter read says so as a map note, draws nothing there, and is no
   await page.evaluate(i => getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index: i }).then(w => w.refresh()), INDEX) // prettier-ignore
   await scrollEnd(page, false)
   await expect.poll(() => page.evaluate(() => window.__beyond)).toEqual([2, 2]) // a refresh asks again
+})
+
+test('a gutter note is cleared by a refresh at once, before the new reads land', async ({
+  page,
+}) => {
+  await openSynthetic(page, { screens: 2, mode: 'failThenHold' })
+  await scrollEnd(page, false)
+  const note = page.locator(`${root} [data-note="gutter-layers"]`)
+  await expect(note).toHaveCount(1)
+  await onWidget(page, w => w.refresh())
+  await scrollEnd(page, false)
+  await expect.poll(() => page.evaluate(() => window.__beyond.length)).toBe(2) // the new read is out and held
+  await expect(note).toHaveCount(0)
+  await page.evaluate(() => window.__openGate())
+  await painted(page)
+  await expect(note).toHaveCount(0)
+})
+
+test('a gutter note goes once the reads for the new switch state all land, without a refresh', async ({
+  page,
+}) => {
+  await openSynthetic(page, { screens: 2, mode: 'failOnce' })
+  await scrollEnd(page, false)
+  const note = page.locator(`${root} [data-note="gutter-layers"]`)
+  await expect(note).toHaveCount(1)
+  await onWidget(page, w => w.view.dispatch({ type: 'toggleSwitch', key: 'blue' }))
+  await scrollEnd(page, false)
+  await painted(page)
+  await expect(note).toHaveCount(0)
+})
+
+test('a map that gained a screen since the gutter was asked for: no note, and the key is free to ask again', async ({
+  page,
+}) => {
+  await openSynthetic(page, { screens: 2, mode: 'grown' })
+  await scrollEnd(page, false)
+  await page.waitForTimeout(500)
+  await expect(page.locator(`${root} [data-note="gutter-layers"]`)).toHaveCount(0)
+  await page.evaluate(sel => { const s = document.querySelector(`${sel} [data-control="map-scroller"]`); s.scrollLeft = 0 }, root) // prettier-ignore
+  await scrollEnd(page, false)
+  await expect.poll(() => page.evaluate(() => window.__beyond.length)).toBeGreaterThan(1) // asked again after a refusal, not held back by a kept key
 })
 
 test('an edit keeps the old gutter picture up until the new replies land', async ({ page }) => {

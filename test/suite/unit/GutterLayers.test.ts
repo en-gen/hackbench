@@ -163,14 +163,30 @@ describe('drawL2Beyond', () => {
     expect(alpha(drawL2Beyond(m, l2, 2).l2Low, 512, 5 * 16 + 3, 2 * 16 + 3)).toBe(255)
   })
 
-  it('a vertical object stream shifted down by Layer2YPos draws its last rows past the edge (planted: grid row 31, empty beyond, dy 8)', () => {
+  it('a vertical object stream shifted by Layer2YPos draws the rows it pushes across the edge, for several shifts', () => {
     const m = inputs(vGrid(2), true, 2)
-    const grid = nullGrid(32, 32)
-    grid[31]![5] = 1
-    const l2: L2Inputs = { kind: 'objects', grid, beyond: nullGrid(16, 32), tiles, dy: 8 }
-    // Row 31 sits at y 496, +8 = 504..519: its last 8 pixel rows are on screen 2 (top 512).
-    const p = drawL2Beyond(m, l2, 2).l2Low
-    expect([alpha(p, 512, 5 * 16 + 3, 0), alpha(p, 512, 5 * 16 + 3, 7), alpha(p, 512, 5 * 16 + 3, 8)]).toEqual([255, 255, 0]) // prettier-ignore
+    const drawnRows = (l2: L2Inputs) => {
+      const p = drawL2Beyond(m, l2, 2).l2Low
+      return Array.from({ length: 256 }, (_, y) => alpha(p, 512, 5 * 16 + 3, y)).filter(a => a === 255).length // prettier-ignore
+    }
+    const first = (l2: L2Inputs) => {
+      const p = drawL2Beyond(m, l2, 2).l2Low
+      return Array.from({ length: 256 }, (_, y) => alpha(p, 512, 5 * 16 + 3, y)).indexOf(255)
+    }
+    // Down: grid row 31 (y 496..511) moves to 496+dy; its last dy rows are on screen 2, from its row 0.
+    for (const dy of [1, 8, 16]) {
+      const grid = nullGrid(32, 32)
+      grid[31]![5] = 1
+      const l2: L2Inputs = { kind: 'objects', grid, beyond: nullGrid(16, 32), tiles, dy }
+      expect([dy, drawnRows(l2), first(l2)], `dy ${dy}`).toEqual([dy, dy, 0])
+    }
+    // Up: beyond row 0 (y 512..527) moves to 512+dy; its first 16+dy rows stay on screen 2, the rest is on screen 1.
+    for (const dy of [-1, -8, -15]) {
+      const beyond = nullGrid(16, 32)
+      beyond[0]![5] = 1
+      const l2: L2Inputs = { kind: 'objects', grid: nullGrid(32, 32), beyond, tiles, dy }
+      expect([dy, drawnRows(l2), first(l2)], `dy ${dy}`).toEqual([dy, 16 + dy, 0])
+    }
   })
 
   it('the map own screens are drawn exactly as before', () => {
@@ -274,6 +290,11 @@ describe('beyondResult', () => {
         expect(beyondResult(map(n), s).status, `${n} screens, screen ${s}`).toBe('unavailable')
       }
     }
+  })
+
+  it('a refusal for a screen inside the map carries the screen count, so a caller with a stale count can tell', () => {
+    expect(beyondResult(map(3), 2)).toMatchObject({ status: 'unavailable', screenCount: 3 })
+    expect(beyondResult(map(3), 3 + MAX_BEYOND_SCREENS)).toMatchObject({ status: 'unavailable', screenCount: 3 }) // prettier-ignore
   })
 
   it('the map own range check is unchanged: the first screen past the end is still refused', () => {

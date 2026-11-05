@@ -585,8 +585,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.spritesVersion++
     this.update()
     this.sync()
-    // Off-map sprites can lengthen the far end, which needs more screens of layers.
-    this.requestVisible()
+    // Off-map sprites can lengthen the far end: `keepViewOnPadChange` refits on a pad change and `fitStrip` asks for the visible screens, the gutter's included.
   }
 
   /**
@@ -824,6 +823,12 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           this.screens.set(key, screenImages(r))
           return
         }
+        // The map grew since this screen number was chosen (an edit added a screen): it is inside the map now, so
+        // its own `fetchScreen` must be free to ask, and no note is warranted.
+        if (r && 'screenCount' in r && r.screenCount !== undefined && r.screenCount > screen) {
+          this.pending.delete(key)
+          return
+        }
         detail ??= r?.status === 'unavailable' ? (r.detail ?? r.reason) : undefined
         console.error(`Map ${o.index.toString(16)} gutter ${screen} failed:`, r ?? detail)
         this.gutterWhy = { detail }
@@ -967,8 +972,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const [w, h] = vertical ? [sw, far] : [far, sh]
     const want = `${this.generation}:${this.key(l.screenCount)}:${shots.map(x => +!!x).join('')}:${+this.showL2}${+this.showL3}:${w}x${h}` // prettier-ignore
     if (c.dataset.drawn === want) return
-    // After an edit, flag or switch the new replies are not in yet: keep the old picture up, as the map's planes do, unless a read failed.
-    if (c.dataset.drawn && !this.gutterWhy && shots.some(x => !x)) return
+    // Every read for this key landed: an earlier failure's note has outlived its cause.
+    if (this.gutterWhy && shots.length > 0 && shots.every(x => x)) {
+      this.gutterWhy = undefined
+      this.update()
+    }
+    // After an edit, flag or switch the new replies are not in yet: keep the old picture up, as the map's planes do,
+    // unless a read failed or the pad changed size (the old bitmap would be stretched).
+    if (c.dataset.drawn && !this.gutterWhy && shots.some(x => !x) && c.width === w && c.height === h) return // prettier-ignore
     const gutterShots = shots.map(x => x && { width: x.width, height: x.height, planes: Object.fromEntries(MAP_PLANE_KEYS.map(k => [k, x.planes[k]?.data ?? null])), lists: x.screens, math: x.math }) // prettier-ignore
     const out = composeGutter(
       gutterShots,
