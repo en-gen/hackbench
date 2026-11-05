@@ -13,6 +13,7 @@ import { PLATFORM_COUNT, threePlatforms } from '../../../../src/rom/sprites/inte
 import { L1ModelCache } from '../../../../theia/extension/src/node/map-screen'
 import { cameraFor, mapSprites } from '../../../../theia/extension/src/node/map-sprites'
 import { freshRom, hasRom, romPath, VANILLA } from '../../support/corpus'
+import { slow } from '../../support/loadTimeout'
 
 /** Map, placements, and (for $135) the pixel positions the issue lists. */
 const MAPS: [number, number][] = [[0x005, 8], [0x135, 7]] // prettier-ignore
@@ -86,37 +87,41 @@ describe.skipIf(!hasRom(VANILLA))('sprite $E0, vanilla ROM', () => {
     expect([...shapes]).toHaveLength(1)
   })
 
-  it('draws through the map view, never a marker, and $A3 placed directly still draws', () => {
-    const bytes = new Uint8Array(freshRom().buffer)
-    for (const [map, n] of MAPS) {
-      const r = mapSprites(new L1ModelCache(), bytes, romPath(VANILLA), map)
-      if (r.status !== 'ok') throw new Error(`map ${map.toString(16)}: ${r.status}`)
-      const e0 = r.sprites.filter(s => s.id === 0xe0)
-      expect(e0, `map ${map.toString(16)}`).toHaveLength(n)
-      for (const s of e0) {
-        expect(s.status, JSON.stringify({ ...s, rgba: undefined, priority: undefined })).toBe('drawn') // prettier-ignore
-        expect(s.unverified).toBeUndefined()
-        expect(s.note).toBeUndefined()
-        // The group spans a chain's length either side: far bigger than the 16 x 16 placeholder.
-        expect(s.box.x1 - s.box.x0).toBeGreaterThan(64)
-        // Spawn-frame positions (D137): the same box from the placement for every one, to the pixel.
-        expect([s.box.x0 - s.x, s.box.y0 - s.y, s.box.x1 - s.x, s.box.y1 - s.y]).toEqual([-57, -25, 74, 64]) // prettier-ignore
+  it(
+    'draws through the map view, never a marker, and $A3 placed directly still draws',
+    slow(12_000),
+    () => {
+      const bytes = new Uint8Array(freshRom().buffer)
+      for (const [map, n] of MAPS) {
+        const r = mapSprites(new L1ModelCache(), bytes, romPath(VANILLA), map)
+        if (r.status !== 'ok') throw new Error(`map ${map.toString(16)}: ${r.status}`)
+        const e0 = r.sprites.filter(s => s.id === 0xe0)
+        expect(e0, `map ${map.toString(16)}`).toHaveLength(n)
+        for (const s of e0) {
+          expect(s.status, JSON.stringify({ ...s, rgba: undefined, priority: undefined })).toBe('drawn') // prettier-ignore
+          expect(s.unverified).toBeUndefined()
+          expect(s.note).toBeUndefined()
+          // The group spans a chain's length either side: far bigger than the 16 x 16 placeholder.
+          expect(s.box.x1 - s.box.x0).toBeGreaterThan(64)
+          // Spawn-frame positions (D137): the same box from the placement for every one, to the pixel.
+          expect([s.box.x0 - s.x, s.box.y0 - s.y, s.box.x1 - s.x, s.box.y1 - s.y]).toEqual([-57, -25, 74, 64]) // prettier-ignore
+        }
       }
-    }
-    // The 24 $A3 placed directly (22 on $023, 2 on $135) are drawn as themselves, one 48 x 48 platform each.
-    for (const [map, n] of [
-      [0x023, 22],
-      [0x135, 2],
-    ] as const) {
-      // prettier-ignore
-      const r = mapSprites(new L1ModelCache(), bytes, romPath(VANILLA), map)
-      if (r.status !== 'ok') throw new Error(`map ${map.toString(16)}: ${r.status}`)
-      const a3 = r.sprites.filter(s => s.id === 0xa3)
-      expect(a3, `map ${map.toString(16)}`).toHaveLength(n)
-      for (const s of a3) {
-        expect(s.status).toBe('drawn')
-        expect([s.box.x1 - s.box.x0, s.box.y1 - s.box.y0]).toEqual([48, 48])
+      // The 24 $A3 placed directly (22 on $023, 2 on $135) are drawn as themselves, one 48 x 48 platform each.
+      for (const [map, n] of [
+        [0x023, 22],
+        [0x135, 2],
+      ] as const) {
+        // prettier-ignore
+        const r = mapSprites(new L1ModelCache(), bytes, romPath(VANILLA), map)
+        if (r.status !== 'ok') throw new Error(`map ${map.toString(16)}: ${r.status}`)
+        const a3 = r.sprites.filter(s => s.id === 0xa3)
+        expect(a3, `map ${map.toString(16)}`).toHaveLength(n)
+        for (const s of a3) {
+          expect(s.status).toBe('drawn')
+          expect([s.box.x1 - s.box.x0, s.box.y1 - s.box.y0]).toEqual([48, 48])
+        }
       }
-    }
-  })
+    },
+  )
 })

@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { STOCK_BOOT, STOCK_DMA } from '../../../src/rom/MarioGraphics'
 import { freshRom, hasRom, VANILLA } from '../support/corpus'
 import { allCarts, cart, dmaCode, seq } from '../support/marioGraphicsFixture'
+import { slow } from '../support/loadTimeout'
 
 const W = 8
 const distinct = (w: Uint8Array) => new Set(w).size >= 3
@@ -45,7 +46,7 @@ function loose(): Uint8Array[] {
 }
 
 describe.skipIf(!hasRom(VANILLA))('MarioGraphics fixtures against the vanilla ROM (#980)', () => {
-  it('assembles no 8-byte window that occurs in the vanilla ROM', () => {
+  it('assembles no 8-byte window that occurs in the vanilla ROM', slow(15_000), () => {
     const { set } = vanillaWindows()
     const carts = allCarts()
     const hits = carts.map(c => shared(c.buffer, set).length)

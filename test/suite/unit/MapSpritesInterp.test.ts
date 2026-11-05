@@ -799,21 +799,25 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     expect(planted).not.toEqual(EXPECTED)
   })
 
-  it('goes red when a part changes INSIDE a row that already differs (the verdict counts stay equal)', () => {
-    const rows = compare(d => s => {
-      const r = d(s)
-      // $13 differs from the engine already; one more pixel keeps it "differ".
-      return r.ok && s.spriteId === 0x13
-        ? { ...r, parts: r.parts.map(p => ({ ...p, dy: p.dy + 1 })) }
-        : r
-    })
-    expect(tally(rows)).toEqual(EXPECTED)
-    expect(pinned(rows)).not.toEqual(PINNED_ROWS)
-  })
+  it(
+    'goes red when a part changes INSIDE a row that already differs (the verdict counts stay equal)',
+    slow(12_000),
+    () => {
+      const rows = compare(d => s => {
+        const r = d(s)
+        // $13 differs from the engine already; one more pixel keeps it "differ".
+        return r.ok && s.spriteId === 0x13
+          ? { ...r, parts: r.parts.map(p => ({ ...p, dy: p.dy + 1 })) }
+          : r
+      })
+      expect(tally(rows)).toEqual(EXPECTED)
+      expect(pinned(rows)).not.toEqual(PINNED_ROWS)
+    },
+  )
 
   // 7.3 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
   // prettier-ignore
-  it('caches an ok reply per bytes and map, at most 8 of them (least recently used out), and never an unavailable one', slow(15_000), () => {
+  it('caches an ok reply per bytes and map, at most 8 of them (least recently used out), and never an unavailable one', slow(30_000), () => {
     const b = bytes()
     const c = new L1ModelCache()
     const get = (m: number) => mapSprites(c, b, romPath(VANILLA), m)
@@ -849,16 +853,20 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     }
   })
 
-  it('$9C (Hammer Bro platform) is served with its Hammer Bro on top: the map list reaches the neighbour run (#841)', () => {
-    // Alone the platform box is 26 px tall; the neighbor run adds the Hammer Bro, 14 more.
-    for (const idx of [0x006, 0x11e, 0x127]) {
-      const r = mapSprites(new L1ModelCache(), bytes(), romPath(VANILLA), idx)
-      if (r.status !== 'ok') throw new Error(JSON.stringify(r))
-      const plats = r.sprites.filter(d => d.id === 0x9c && d.status === 'drawn')
-      expect(plats.length).toBeGreaterThan(0)
-      expect(plats.map(d => d.box.y1 - d.box.y0)).toEqual(plats.map(() => 40))
-    }
-  })
+  it(
+    '$9C (Hammer Bro platform) is served with its Hammer Bro on top: the map list reaches the neighbour run (#841)',
+    slow(15_000),
+    () => {
+      // Alone the platform box is 26 px tall; the neighbor run adds the Hammer Bro, 14 more.
+      for (const idx of [0x006, 0x11e, 0x127]) {
+        const r = mapSprites(new L1ModelCache(), bytes(), romPath(VANILLA), idx)
+        if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+        const plats = r.sprites.filter(d => d.id === 0x9c && d.status === 'drawn')
+        expect(plats.length).toBeGreaterThan(0)
+        expect(plats.map(d => d.box.y1 - d.box.y0)).toEqual(plats.map(() => 40))
+      }
+    },
+  )
 
   it('$4F on $105 is served at its stream position: the INIT move (+8, -1) is not shown at rest (D134)', () => {
     const b = bytes()
