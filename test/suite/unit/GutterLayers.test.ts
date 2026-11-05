@@ -4,6 +4,10 @@
  * `beyondResult` in the node backend, and the pure fade and coverage helpers the view paints with.
  */
 import { describe, it, expect, vi } from 'vitest'
+import { readFileSync } from 'fs'
+import { resolve } from 'path'
+import { SWITCH_FLAGS_UNCLEARED as UNCLEARED } from '../../../src/rom/ObjectExpander'
+import { composeScreen } from '../../../src/rom/model/ColorMath'
 import { RomFile } from '../../../src/rom/RomFile'
 import type * as ExpanderMod from '../../../src/rom/ObjectExpander'
 import { loadL2Objects, tilePresetGrid, L2_EMPTY_TILE } from '../../../src/rom/L2Loader'
@@ -12,6 +16,8 @@ import type { L2Inputs } from '../../../src/rom/model/L2Model'
 import type { L3Inputs } from '../../../src/rom/L3Loader'
 import {
   beyondResult,
+  L1ModelCache,
+  mapBeyond,
   drawL2Beyond,
   drawL2Planes,
   drawL3Planes,
@@ -21,8 +27,10 @@ import {
 import {
   beyondScreens,
   clearUncovered,
+  composeGutter,
   fadeFarEnd,
   fadeMask,
+  type GutterShot,
 } from '../../../theia/extension/src/browser/off-map-extent'
 import { COLORS, hGrid, inputs, px, sub, tile, vGrid } from '../support/mapInputs'
 
@@ -32,14 +40,20 @@ vi.mock('../../../src/rom/ObjectExpander', async importOriginal => {
   const real = await importOriginal<typeof ExpanderMod>()
   return {
     ...real,
+    // Like writeTile: a row grows (padded with $25) to reach the column, so a plain call can come out longer than the map.
     expandObject: (grid: number[][], obj: { x: number; y: number }) => {
-      for (let i = 0; i < 4; i++) if (grid[obj.y]?.[obj.x + i] !== undefined) grid[obj.y]![obj.x + i] = 0x40 + i // prettier-ignore
+      const row = grid[obj.y]
+      if (!row) return
+      for (let i = 0; i < 4; i++) {
+        while (row.length < obj.x + i) row.push(0x25)
+        row[obj.x + i] = 0x40 + i
+      }
     },
   }
 })
 
 const solid = tile(1, [sub(1), sub(1), sub(1), sub(1)])
-const tiles = [undefined, solid]
+const tiles = [undefined, solid, tile(2, [sub(5), sub(5), sub(5), sub(5)])] // tile 2 is blank until the blue switch is on
 const alpha = (b: Uint8ClampedArray | null, w: number, x: number, y: number) => (b ? px(b, w, x, y)[3] : null) // prettier-ignore
 const nullGrid = (rows: number, cols: number) => Array.from({ length: rows }, () => new Array<number | null>(cols).fill(null)) // prettier-ignore
 const same = (a: Uint8ClampedArray | null, b: Uint8ClampedArray | null) => (a === null || b === null ? a === b : Buffer.compare(Buffer.from(a), Buffer.from(b)) === 0) // prettier-ignore
@@ -60,7 +74,12 @@ describe('loadL2Objects past the last screen', () => {
   it('the map screens are the grid a plain call builds, whatever extra room is asked for', () => {
     const plain = loadL2Objects(edge, 0x078000, 1, 0, false)!
     const wide = loadL2Objects(edge, 0x078000, 1, 0, false, MAX_BEYOND_SCREENS)!
-    expect(wide.grid).toEqual(plain.grid)
+    // A plain call grows the rows the object spills along; the wide call keeps the map width and moves the spill to beyond.
+    const row = plain.grid.findIndex(r => r[15] === 0x40)
+    expect(plain.grid[row]!.length).toBe(19)
+    expect(wide.grid[row]).toEqual(plain.grid[row]!.slice(0, 16))
+    expect(wide.grid.every(r => r.length === 16)).toBe(true)
+    expect(wide.grid.map((r, y) => r.every((v, x) => v === plain.grid[y]![x]))).not.toContain(false)
     expect(plain.beyond).toBeUndefined()
     expect(wide.unverified).toEqual(plain.unverified)
   })
@@ -144,6 +163,16 @@ describe('drawL2Beyond', () => {
     expect(alpha(drawL2Beyond(m, l2, 2).l2Low, 512, 5 * 16 + 3, 2 * 16 + 3)).toBe(255)
   })
 
+  it('a vertical object stream shifted down by Layer2YPos draws its last rows past the edge (planted: grid row 31, empty beyond, dy 8)', () => {
+    const m = inputs(vGrid(2), true, 2)
+    const grid = nullGrid(32, 32)
+    grid[31]![5] = 1
+    const l2: L2Inputs = { kind: 'objects', grid, beyond: nullGrid(16, 32), tiles, dy: 8 }
+    // Row 31 sits at y 496, +8 = 504..519: its last 8 pixel rows are on screen 2 (top 512).
+    const p = drawL2Beyond(m, l2, 2).l2Low
+    expect([alpha(p, 512, 5 * 16 + 3, 0), alpha(p, 512, 5 * 16 + 3, 7), alpha(p, 512, 5 * 16 + 3, 8)]).toEqual([255, 255, 0]) // prettier-ignore
+  })
+
   it('the map own screens are drawn exactly as before', () => {
     const grid = nullGrid(27, 32)
     grid[0]![16] = 1
@@ -182,36 +211,103 @@ describe('beyondResult', () => {
   const plane = nullGrid(32, 32)
   plane[0]![0] = 1
   const l2: L2Inputs = { kind: 'image', grid: nullGrid(27, 32), plane, tiles, dy: 0 }
-  const map = (screens: number, vertical = false): MapInputs => ({
+  const L3_WORD = (1 << 10) | 2
+  const l3Verdict = (): MapInputs['l3'] => {
+    const tilemap = new Uint16Array(64 * 64)
+    tilemap[8 * 64] = L3_WORD
+    const chars = [0, 1, 2, 3].map(() => Array.from({ length: 128 }, (_, i) => new Uint8Array(64).fill(i % 4))) // prettier-ignore
+    return { screens: { main: ['l2Low', 'l3Low'], sub: [] }, cgadsub: null, layer2Interactive: false, priority: false, reason: null, l3: { tilemap, chars, colors: COLORS, yPx: 0x40, camYPx: 0, tide: false } } // prettier-ignore
+  }
+  const map = (screens: number, vertical = false, extra: Partial<MapInputs> = {}): MapInputs => ({
     ...inputs(vertical ? vGrid(screens) : hGrid(screens), vertical, screens),
     l2: { ok: true, l2 },
+    ...extra,
   })
+  const ok = (r: ReturnType<typeof beyondResult>) => {
+    if (r.status !== 'ok') throw new Error(r.status)
+    return r
+  }
 
   it('answers the screens past the last, L2 only, with no map notes and no Layer 1', () => {
-    const r = beyondResult(map(2), 2)
-    if (r.status !== 'ok') throw new Error(r.status)
+    const r = ok(beyondResult(map(2), 2))
     expect(r.screen).toBe(2)
     expect([r.planes.l1Low, r.planes.l1High, r.planes.l3Low]).toEqual([null, null, null])
     expect(r.planes.l2Low).not.toBeNull()
+  })
+
+  it('carries the map notes and refused cells on its own screens only, not on a gutter screen', () => {
+    const noisy = map(2, false, {
+      unverified: ['dispatch note'],
+      orderNote: 'mode 2',
+      routeNote: 'no route',
+      refusedCells: [{ x: 1, y: 1, objectIndex: 0, objectType: 'x', handler: 1, reasons: ['r'] }],
+    })
+    const own = ok(screenResult(noisy, 1))
+    expect([own.note, own.refusedCells, own.layerNotes.length > 0]).toEqual([expect.any(String), expect.any(Array), true]) // prettier-ignore
+    const r = ok(beyondResult(noisy, 2))
     expect([r.note, r.refusedCells, r.layerNotes]).toEqual([undefined, undefined, []])
   })
 
-  it('refuses a screen inside the map, a non-integer, and one beyond the bound', () => {
-    for (const s of [0, 1, 1.5, -1, 2 + MAX_BEYOND_SCREENS]) {
-      expect(beyondResult(map(2), s).status, `screen ${s}`).toBe('unavailable')
-    }
-    expect(beyondResult(map(2), 2 + MAX_BEYOND_SCREENS - 1).status).toBe('ok')
+  it('draws Layer 3 past the end when the map has one, and keeps the map stacking', () => {
+    const r = ok(beyondResult(map(2, false, { l3: l3Verdict() }), 2))
+    expect(r.planes.l3Low).not.toBeNull() // column 0 repeats every 512 px: screen 2 shows it
+    expect(ok(beyondResult(map(2, false, { l3: l3Verdict() }), 3)).planes.l3Low).toBeNull()
+    expect(r.screens).toEqual({ main: ['l2Low', 'l3Low'], sub: [] })
   })
 
-  it('mapScreen keeps its own range check: the first screen past the end is still refused', () => {
+  it('draws with the switches that are on: a tile hidden until the blue switch is on', () => {
+    const hidden = nullGrid(32, 32)
+    hidden[0]![0] = 2 // tile 2 is blank until blue is on
+    const m: MapInputs = { ...map(2), l2: { ok: true, l2: { ...l2, plane: hidden } } }
+    const off = { blue: false, silver: false, onOff: false }
+    expect(ok(beyondResult(m, 2, off)).planes.l2Low).toBeNull()
+    expect(ok(beyondResult(m, 2, { ...off, blue: true })).planes.l2Low).not.toBeNull()
+  })
+
+  it('refuses every screen but the 33 past the last, for 1, 2 and 31 screens, and any non-integer', () => {
+    for (const n of [1, 2, 31]) {
+      for (let s = -3; s < n + MAX_BEYOND_SCREENS + 3; s++) {
+        const inRange = s >= n && s < n + MAX_BEYOND_SCREENS
+        expect(beyondResult(map(n), s).status, `${n} screens, screen ${s}`).toBe(inRange ? 'ok' : 'unavailable') // prettier-ignore
+      }
+      for (const s of [n + 0.5, n + 2.5, NaN, Infinity]) {
+        expect(beyondResult(map(n), s).status, `${n} screens, screen ${s}`).toBe('unavailable')
+      }
+    }
+  })
+
+  it('the map own range check is unchanged: the first screen past the end is still refused', () => {
     expect(screenResult(map(2), 2).status).toBe('unavailable')
     expect(screenResult(map(2), 1).status).toBe('ok')
   })
 
   it('a vertical map answers with L2 and no Layer 3', () => {
-    const r = beyondResult(map(2, true), 2)
-    if (r.status !== 'ok') throw new Error(r.status)
+    const r = ok(beyondResult(map(2, true), 2))
     expect([r.planes.l3Low, r.planes.l3High]).toEqual([null, null])
+  })
+
+  it('mapBeyond reads the cached model and passes the switches: not mapScreen, which refuses a screen past the end', () => {
+    const cache = { get: () => ({ ok: true as const, inputs: map(2) }) } as unknown as L1ModelCache
+    const hidden = nullGrid(32, 32)
+    hidden[0]![0] = 2
+    const m = { ...map(2), l2: { ok: true as const, l2: { ...l2, plane: hidden } } }
+    const swCache = { get: () => ({ ok: true as const, inputs: m }) } as unknown as L1ModelCache
+    const on = { blue: true, silver: false, onOff: false }
+    expect(ok(mapBeyond(cache, new Uint8Array(), 'x.sfc', 5, 2, UNCLEARED)).screen).toBe(2)
+    expect(mapBeyond(cache, new Uint8Array(), 'x.sfc', 5, 1, UNCLEARED).status).toBe('unavailable')
+    expect(ok(mapBeyond(swCache, new Uint8Array(), 'x.sfc', 5, 2, UNCLEARED, on)).planes.l2Low).not.toBeNull() // prettier-ignore
+    const refused = {
+      get: () => ({ ok: false as const, reason: 'cannot read.' }),
+    } as unknown as L1ModelCache
+    expect(mapBeyond(refused, new Uint8Array(), 'x.sfc', 5, 2, UNCLEARED)).toMatchObject({ status: 'unavailable', reason: 'Cannot read.' }) // prettier-ignore
+  })
+
+  it('the server answers mapBeyond from mapBeyond, not mapScreen (project-server.ts cannot load in CI, so its text is checked)', () => {
+    const src = readFileSync(resolve(__dirname, '../../../theia/extension/src/node/project-server.ts'), 'utf8') // prettier-ignore
+    const body = /async mapBeyond\([\s\S]*?\r?\n {2}}\r?\n/.exec(src)?.[0] ?? ''
+    expect(body).toMatch(/return mapBeyond\(this\.screens, r\.working\.bytes\(\)/)
+    expect(body).not.toMatch(/mapScreen\(/)
+    expect(body).toMatch(/switches\)/)
   })
 })
 
@@ -274,22 +370,102 @@ describe('fadeFarEnd', () => {
   })
 })
 
-describe('clearUncovered and beyondScreens', () => {
-  it('clears alpha where no source covers, keeps it where one does', () => {
+describe('composeGutter and clearUncovered', () => {
+  const opaque = (n: number, rgb: [number, number, number]) => {
+    const b = new Uint8ClampedArray(n * 4)
+    for (let i = 0; i < n; i++) b.set([...rgb, 255], i * 4)
+    return b
+  }
+  const shot = (planes: GutterShot['planes'], o: Partial<GutterShot> = {}): GutterShot => ({
+    width: 4, height: 2, planes, lists: { main: ['l2Low', 'l3Low'], sub: [] }, math: null, ...o,
+  }) // prettier-ignore
+  const all = () => true
+  const A = (b: Uint8ClampedArray) => Array.from({ length: b.length / 4 }, (_, i) => b[i * 4 + 3]!)
+
+  it('composes the shown planes in the map stacking: Layer 3 over Layer 2', () => {
+    const l3 = new Uint8ClampedArray(32)
+    l3.set(opaque(2, [0, 0, 255]), 0) // the first two pixels
+    const out = composeGutter(
+      [shot({ l2Low: opaque(8, [0, 255, 0]), l3Low: l3 })],
+      all,
+      false,
+      4,
+      2,
+      0,
+    )
+    expect([out.slice(0, 3), out.slice(8, 11)].map(a => Array.from(a))).toEqual([[0, 0, 255], [0, 255, 0]]) // prettier-ignore
+  })
+
+  it('a plane the toggles hide is left out: Layer 2 hidden shows Layer 3 alone, both hidden shows nothing', () => {
+    const planes = { l2Low: opaque(8, [0, 255, 0]), l3Low: opaque(8, [0, 0, 255]) }
+    const only = (k: string) => k === 'l3Low'
+    expect(Array.from(composeGutter([shot(planes)], only, false, 4, 2, 0).slice(0, 3))).toEqual([0, 0, 255]) // prettier-ignore
+    expect(A(composeGutter([shot(planes)], () => false, false, 4, 2, 0)).every(v => v === 0)).toBe(
+      true,
+    )
+  })
+
+  it('fades the far end of what it composed', () => {
+    const out = composeGutter(
+      [shot({ l2Low: opaque(8, [0, 255, 0]) }, { width: 4, height: 2 })],
+      all,
+      false,
+      4,
+      2,
+      4,
+    )
+    const a = A(out).slice(0, 4)
+    expect(a[0]).toBeGreaterThan(a[1]!)
+    expect(a[3]).toBeLessThan(a[0]!)
+    expect(a[3]).toBeLessThan(40)
+  })
+
+  it('clears a pixel only a plane outside both lists covers, instead of leaving opaque backdrop (planted: cgadsub 0, fixed 40)', () => {
+    const planes = { l3Low: opaque(8, [9, 9, 9]) }
+    const s = shot(planes, {
+      lists: { main: ['l2Low'], sub: [] },
+      math: { cgadsub: 0, fixed: [40, 40, 40] },
+    })
+    // composeScreen alone fills the black backdrop here (it is not the fixed color), so the clear is what keeps it transparent.
+    expect(A(composeScreen({ width: 4, height: 2, planes: s.planes, lists: s.lists, math: s.math })).every(v => v === 255)).toBe(true) // prettier-ignore
+    expect(A(composeGutter([s], all, false, 4, 2, 0)).every(v => v === 0)).toBe(true)
+  })
+
+  it('applies the map color math to the gutter layers, not a flat stack', () => {
+    const planes = { l2Low: opaque(8, [0, 100, 0]) }
+    const lists = { main: ['l2Low'] as const, sub: [] }
+    const plain = composeGutter([shot(planes, { lists })], all, false, 4, 2, 0)
+    const math = composeGutter([shot(planes, { lists, math: { cgadsub: 0x02, fixed: [80, 0, 0] } })], all, false, 4, 2, 0) // prettier-ignore
+    expect(plain[0]).toBe(0)
+    expect(math[0]).toBeGreaterThan(40) // the fixed color was added to Layer 2
+    expect(math[3]).toBe(255)
+  })
+
+  it('lays the screens end to end: horizontal by columns, vertical by rows, a missing one clear', () => {
+    const a = shot({ l2Low: opaque(8, [1, 2, 3]) })
+    const b = shot({ l2Low: opaque(8, [4, 5, 6]) })
+    const h = composeGutter([a, undefined, b], all, false, 12, 2, 0)
+    expect([h[0], h[16], h[32]]).toEqual([1, 0, 4])
+    const v = composeGutter([a, b], all, true, 4, 4, 0)
+    expect([v[0], v[8 * 4]]).toEqual([1, 4])
+  })
+
+  it('clearUncovered looks only at the planes the lists name', () => {
     const out = new Uint8ClampedArray([1, 2, 3, 255, 4, 5, 6, 255])
-    const src = new Uint8ClampedArray([0, 0, 0, 0, 9, 9, 9, 255])
-    clearUncovered(out, [src, null, undefined])
+    const named = new Uint8ClampedArray([0, 0, 0, 0, 9, 9, 9, 255])
+    const stray = opaque(2, [7, 7, 7])
+    clearUncovered(out, { l2Low: named, l3Low: stray }, { main: ['l2Low'], sub: [] })
     expect([out[3], out[7]]).toEqual([0, 255])
+    clearUncovered(out, {}, { main: ['l2Low'], sub: [] })
+    expect(out[7]).toBe(0)
   })
+})
 
-  it('with no shown source everything is clear', () => {
-    const out = new Uint8ClampedArray([1, 2, 3, 255])
-    clearUncovered(out, [])
-    expect(out[3]).toBe(0)
-  })
-
-  it('asks for as many screens as fill the far pad, never more than the bound', () => {
+describe('beyondScreens', () => {
+  it('asks for as many screens as fill the far pad, 33 at the most (a one-screen map, a sprite ending at x = 8208)', () => {
     expect([beyondScreens(0, 256), beyondScreens(256, 256), beyondScreens(257, 256), beyondScreens(288, 256)]).toEqual([0, 1, 2, 2]) // prettier-ignore
+    expect(beyondScreens(8208 - 256 + 256, 256)).toBe(33)
     expect(beyondScreens(256 * 100, 256)).toBe(MAX_BEYOND_SCREENS)
+    expect(MAX_BEYOND_SCREENS).toBe(33)
   })
 })

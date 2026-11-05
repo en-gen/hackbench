@@ -441,8 +441,16 @@ With the pad the widget:
   Layer 2: an image is one fixed 512 px plane (`L2Inputs.plane`), so it has content at any position; an object
   stream has only the tiles it wrote past the last screen (`L2Inputs.beyond`, from `loadL2Objects`' extra
   room), usually none, never a repeat of the last screen. Layer 3 repeats by x as on a screen (one copy when
-  it follows the camera); a vertical map has none (L3Model). The map's own grid is untouched, so no pixel of
-  its screens changes;
+  it follows the camera); a vertical map has none (L3Model). The map's own grid is untouched: a `mapScreen`
+  JSON differential over 488 vanilla maps (adversarial review; one machine, one run) found 0 that differ, before and after;
+  hack ROMs are refused by the build and were not compared, so there is no hack evidence. One difference in
+  `loadL2Objects` itself: with extra room the spill of an object past the last screen moves to `beyond`, where
+  a plain call grows the row (`writeTile` pads to column $200); `map-block-contents.ts:189` iterates
+  `l2.grid` rows, so a spilled L2 block would no longer appear there (0 vanilla maps do this). The reference
+  extension has no edge continuation: `src/providers/MapEditorProvider.ts:374-387` tiles an image by modulo
+  over `screens * 16` columns, stops at the map and passes object grids through. A read that fails shows the
+  map note `data-note="gutter-layers"` (technical text in the tooltip) and is not asked again until the next
+  refresh. After an edit the old gutter pixels stay up until the new replies land;
 - confines the checkerboard (`.hb-checkerboard`, "nothing here") to the strip without the far-end gutter: it
   reaches the near canvas edge and stops at the gutter, so where the back color fades out the panel shows
   behind it, not the checkerboard [PROP];

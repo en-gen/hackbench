@@ -65,8 +65,7 @@ import { CollisionOverlay } from './collision-overlay'
 import { RefusedOverlay } from './refused-overlay'
 import {
   beyondScreens,
-  clearUncovered,
-  fadeFarEnd,
+  composeGutter,
   fadeMask,
   cellRect,
   centerScroll,
@@ -121,6 +120,9 @@ export interface MapViewOptions {
   /** The tree row's own icon, so the tab matches where it was opened from. */
   iconClass?: string
 }
+
+/** The map note when the layers past the end could not be read: the map itself drew, so it only says so. */
+const GUTTER_UNREAD = 'The layers past the end of the map could not be drawn.'
 
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
 
@@ -195,6 +197,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected offMapCanvas: HTMLCanvasElement | null = null
   /** The canvas for Layers 2 and 3 continuing through the far-end gutter (#1197); mounted only when the map has a gutter. */
   protected gutterCanvas: HTMLCanvasElement | null = null
+  /** Set when a gutter read failed: shown as a map note, cleared by `refresh`. The map itself drew, so this is not a screen error. */
+  protected gutterWhy: { detail?: string } | undefined
   /** `pad` for one (layout, sprites) pair: it is read on every pointer move. */
   protected padMemo: { l: Layout; s: Sprites | undefined; pad: Pad } | undefined
   /** The sprite pixels outside the map for one (layout, sprites) pair, null when none reach outside. */
@@ -483,6 +487,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.coveredIds.clear()
     this.lift = undefined
     this.pending.clear()
+    this.gutterWhy = undefined
     this.screenError = undefined
     this.screenErrorDetail = undefined
     void this.loadDetails()
@@ -807,14 +812,22 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       wanted.map(async screen => {
         const key = this.key(screen)
         if (this.screens.has(key) || this.pending.has(key)) return
+        // A failed key stays in `pending`, so a scroll does not ask again; `refresh` clears it with the screens.
         this.pending.add(key)
+        let detail: string | undefined
         const r = await this.projects
           .mapBeyond(o.manifestPath, o.index, screen, this.view.state.flags, this.view.state.switches)
-          .catch(err => (console.error(`Map ${o.index.toString(16)} gutter ${screen} failed:`, err), undefined)) // prettier-ignore
+          .catch(err => ((detail = rawText(err)), undefined)) // prettier-ignore
         if (generation !== this.generation) return
-        this.pending.delete(key)
-        if (r?.status !== 'ok') return
-        this.screens.set(key, screenImages(r))
+        if (r?.status === 'ok') {
+          this.pending.delete(key)
+          this.screens.set(key, screenImages(r))
+          return
+        }
+        detail ??= r?.status === 'unavailable' ? (r.detail ?? r.reason) : undefined
+        console.error(`Map ${o.index.toString(16)} gutter ${screen} failed:`, r ?? detail)
+        this.gutterWhy = { detail }
+        this.update()
       }),
     )
     if (generation === this.generation) this.sync()
@@ -954,24 +967,17 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const [w, h] = vertical ? [sw, far] : [far, sh]
     const want = `${this.generation}:${this.key(l.screenCount)}:${shots.map(x => +!!x).join('')}:${+this.showL2}${+this.showL3}:${w}x${h}` // prettier-ignore
     if (c.dataset.drawn === want) return
-    const out = new Uint8ClampedArray(w * h * 4)
-    shots.forEach((shot, i) => {
-      if (!shot) return
-      const planes: Partial<Record<SourceKey, Uint8ClampedArray | null>> = {}
-      for (const k of MAP_PLANE_KEYS)
-        if (this.layerShown(k)) planes[k] = shot.planes[k]?.data ?? null
-      const one = composeScreen({
-        width: sw,
-        height: sh,
-        planes,
-        lists: shot.screens,
-        math: shot.math,
-      })
-      clearUncovered(one, Object.values(planes))
-      if (vertical) out.set(one.subarray(0, Math.min(sh, h - i * sh) * sw * 4), i * sh * sw * 4)
-      else for (let y = 0; y < h; y++) out.set(one.subarray(y * sw * 4, (y * sw + Math.min(sw, w - i * sw)) * 4), (y * w + i * sw) * 4) // prettier-ignore
-    })
-    fadeFarEnd(out, w, h, vertical, farGutter(l.screenCount))
+    // After an edit, flag or switch the new replies are not in yet: keep the old picture up, as the map's planes do, unless a read failed.
+    if (c.dataset.drawn && !this.gutterWhy && shots.some(x => !x)) return
+    const gutterShots = shots.map(x => x && { width: x.width, height: x.height, planes: Object.fromEntries(MAP_PLANE_KEYS.map(k => [k, x.planes[k]?.data ?? null])), lists: x.screens, math: x.math }) // prettier-ignore
+    const out = composeGutter(
+      gutterShots,
+      k => this.layerShown(k),
+      vertical,
+      w,
+      h,
+      farGutter(l.screenCount),
+    )
     c.width = w
     c.height = h
     c.getContext('2d')?.putImageData(new ImageData(out, w, h), 0, 0)
@@ -1612,6 +1618,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         {this.blocksWhy && (
           <div className="hb-map-view-note" data-note="block-contents" title={this.blocksDetail}>
             {this.blocksWhy}
+          </div>
+        )}
+        {this.gutterWhy && (
+          <div className="hb-map-view-note" data-note="gutter-layers" title={this.gutterWhy.detail}>
+            {GUTTER_UNREAD}
           </div>
         )}
         {this.mapLayout?.layerNotes.map(n => (

@@ -261,8 +261,9 @@ export function drawL2Beyond(
   if (!beyond) return { l2Low: null, l2High: null }
   // The stream's grid past the last screen starts at this column (or row, vertical).
   const edge = model.screenCount * (model.isVertical ? SCREEN_H_VERT : SCREEN_W)
+  // Vertical: `dy` can push the map's last rows down past the edge, so rows above it are read from the grid.
   return model.isVertical
-    ? drawL2(model, l2, screen, vram, edge + beyond.length, (x, y) => beyond[y - edge]?.[x])
+    ? drawL2(model, l2, screen, vram, edge + beyond.length, (x, y) => (y < edge ? l2.grid[y] : beyond[y - edge])?.[x]) // prettier-ignore
     : drawL2(model, l2, screen, vram, beyond.length, (x, y) => beyond[y]?.[x - edge])
 }
 

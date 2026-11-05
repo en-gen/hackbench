@@ -9,7 +9,12 @@
  * short sides get the content alone. This is the single place the canvas grows: every pointer and
  * overlay consumer reads the resulting `Pad` as one origin.
  */
-import type { MapSpriteDto } from '../common/project-protocol'
+import { MAP_PLANE_KEYS, type MapPlaneKey, type MapSpriteDto } from '../common/project-protocol'
+import {
+  composeScreen,
+  type ScreenInput,
+  type SourceKey,
+} from '../../../../src/rom/model/ColorMath'
 import { decodeRgba } from './map16-pixels'
 import { MAX_BEYOND_SCREENS, farGutter } from '../../../../src/rom/model/MapGutter'
 
@@ -112,18 +117,59 @@ export function fadeFarEnd(
 }
 
 /**
- * Clears the alpha of every pixel none of `sources` covers. `composeScreen` can fill a pixel no layer drew
- * (color math against the black backdrop); in the gutter that pixel must stay clear so the back area,
- * which has its own fade, is not faded a second time (#1197).
+ * Clears the alpha of every pixel no plane NAMED in the screen's lists covers. `composeScreen` can fill a
+ * pixel nothing it composed drew (color math against the black backdrop); in the gutter that pixel must
+ * stay clear so the back area, which has its own fade, is not faded a second time (#1197). Keyed on the
+ * lists, not on every plane present: a plane in neither list is not composed, so it covers nothing.
  */
 export function clearUncovered(
   out: Uint8ClampedArray,
-  sources: Iterable<Uint8ClampedArray | null | undefined>,
+  planes: Partial<Record<SourceKey, Uint8ClampedArray | null>>,
+  lists: { main: readonly SourceKey[]; sub: readonly SourceKey[] },
 ): void {
-  const planes = [...sources].filter((p): p is Uint8ClampedArray => !!p)
+  const named = new Set([...lists.main, ...lists.sub])
+  const sources = [...named].map(k => planes[k]).filter((p): p is Uint8ClampedArray => !!p)
   for (let a = 3; a < out.length; a += 4) {
-    if (planes.every(p => p[a] === 0)) out[a] = 0
+    if (sources.every(p => p[a] === 0)) out[a] = 0
   }
+}
+
+/** One gutter screen as the view holds it: its shown-or-not planes and the stacking and color math of its reply. */
+export interface GutterShot {
+  width: number
+  height: number
+  planes: Partial<Record<MapPlaneKey, Uint8ClampedArray | null>>
+  lists: ScreenInput['lists']
+  math: ScreenInput['math']
+}
+
+/**
+ * The far-end canvas's pixels (#1197): each screen past the last composed with the map's own stacking and
+ * color math from the planes `shown` lets through (no Layer 1, sprites or flames), pixels nothing covered
+ * left clear, the screens laid end to end along the scroll axis, and the whole faded over the last `gutter`
+ * px. `w` x `h` is the canvas; a missing screen (a reply not in yet) leaves its stretch clear.
+ */
+export function composeGutter(
+  shots: readonly (GutterShot | undefined)[],
+  shown: (plane: MapPlaneKey) => boolean,
+  vertical: boolean,
+  w: number,
+  h: number,
+  gutter: number,
+): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(w * h * 4)
+  shots.forEach((shot, i) => {
+    if (!shot) return
+    const { width: sw, height: sh, lists, math } = shot
+    const planes: Partial<Record<MapPlaneKey, Uint8ClampedArray | null>> = {}
+    for (const k of MAP_PLANE_KEYS) if (shown(k)) planes[k] = shot.planes[k] ?? null
+    const one = composeScreen({ width: sw, height: sh, planes, lists, math })
+    clearUncovered(one, planes, lists)
+    if (vertical) out.set(one.subarray(0, Math.min(sh, h - i * sh) * sw * 4), i * sh * sw * 4)
+    else for (let y = 0; y < h; y++) out.set(one.subarray(y * sw * 4, (y * sw + Math.min(sw, w - i * sw)) * 4), (y * w + i * sw) * 4) // prettier-ignore
+  })
+  fadeFarEnd(out, w, h, vertical, gutter)
+  return out
 }
 
 /**

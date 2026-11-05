@@ -4,17 +4,25 @@
  * #1228: the right gutter of a horizontal map and the bottom one of a vertical map, nothing before position 0.
  *
  * SYNTHETIC maps, no ROM: the widget's `projects` is swapped for canned replies (docs/testing.md "Playwright and
- * RPC"). `mapScreen` answers a blank map; `mapBeyond` answers screens past the last with Layer 2 as opaque green
- * over the whole screen and Layer 3 as opaque blue over its top 100 rows, so each layer is told apart by color.
- * The pixels are read from the gutter canvas itself (`data-layer="gutter-layers"`, a bitmap in map pixels), and
- * the expected alpha is arithmetic on the gutter width, never read from the element under test.
+ * RPC"). `mapScreen` answers a blank map; `mapBeyond` answers screens past the last with a KNOWN non-uniform
+ * pattern: Layer 2 is opaque over the whole screen with green = 100 + (x & 127), red = y & 127 and blue =
+ * 40 * (its position past the end), Layer 3 is opaque pure blue over its top 100 rows. A wrong column, row or
+ * screen order therefore changes the pixel read. The pixels are read from the gutter canvas itself
+ * (`data-layer="gutter-layers"`, a bitmap in map pixels) and the expected values are arithmetic on the gutter
+ * width and the pattern, never read from the element under test.
+ *
+ * What the browser-side logic is held to: the pure pieces (`composeGutter`, `fadeFarEnd`, `clearUncovered`,
+ * `beyondScreens`) have unit tests with planted defects (test/suite/unit/GutterLayers.test.ts). This spec holds
+ * the wiring those cannot: the toggles reaching the canvas, the lazy fetch, a stale reply dropped by the
+ * generation guard, a failed read shown as a note and not re-sent, and the sprite canvas above the layers.
  *
  * Planted defects for the verifier to plant in SOURCE (each should turn the named cases red):
- *   G1 syncGutterLayers skips fadeFarEnd: the fade case and the vertical case.
- *   G2 syncGutterLayers ignores layerShown (passes every plane): the two toggle cases.
+ *   G1 syncGutterLayers does not pass `k => this.layerShown(k)` to composeGutter (passes `() => true`): the toggle case.
  *   G3 fetchBeyond runs from requestVisible without the last-screen check: the lazy-fetch case.
- *   G4 clearUncovered is dropped: not caught here (no color math in these maps); the unit tests cover it.
- *   G5 the canvas z-index goes above the off-map canvas (110 -> 130): the sprite case.
+ *   G5 the canvas z-index goes above the off-map canvas (110 -> 130): the sprite cases.
+ *   G6 fetchBeyond drops its `generation !== this.generation` guard: the stale-reply case.
+ *   G7 a failed read leaves `pending` (the delete moves above the status check): the failure case (it would re-ask).
+ *   G8 the gutter canvas repaints blank while replies are pending (drop the `shots.some(x => !x)` keep): the edit case.
  */
 const { test, expect } = require('@playwright/test')
 
@@ -49,20 +57,32 @@ test.afterEach(async ({ page }) => {
 })
 
 /**
- * Opens a synthetic map of `screens` screens. `boxes` are opaque 16 x 16 white sprites at [x0, y0] map px. The
- * screens asked of `mapBeyond` are kept in `window.__beyond`. A vertical map has Layer 2 only.
+ * Opens a synthetic map of `screens` screens. `boxes` are opaque 16 x 16 white sprites at [x0, y0] map px.
+ * `mode` is how mapBeyond answers: 'ok', 'fail' (unavailable) or 'stale' (the first call answers late, in
+ * red 200 green marker blue, later calls at once). The screens asked of `mapBeyond` are kept in
+ * `window.__beyond`. `math` is the CGADSUB state every reply carries (null: none). A vertical map has Layer 2 only.
  */
-async function openSynthetic(page, { screens, vertical = false, boxes = [] }) {
+async function openSynthetic(
+  page,
+  { screens, vertical = false, boxes = [], mode = 'ok', math = null, l2Rows = null },
+) {
   await page.evaluate(
-    async ({ index, screens, vertical, boxes }) => {
+    async ({ index, screens, vertical, boxes, mode, math, l2Rows }) => {
       window.__beyond = []
       const [width, height] = vertical ? [512, 256] : [256, 432]
       const orientation = vertical ? 'vertical' : 'horizontal'
-      const plane = (rows, rgb) => {
+      // btoa over 1.7 MB: spreading it into String.fromCharCode overflows the stack, so convert in chunks.
+      const b64 = bytes => {
+        let s = ''
+        for (let i = 0; i < bytes.length; i += 0x8000)
+          s += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+        return btoa(s)
+      }
+      const plane = (rows, rgbAt) => {
         const b = new Uint8Array(width * height * 4)
         for (let y = 0; y < rows; y++)
-          for (let x = 0; x < width; x++) b.set([...rgb, 255], (y * width + x) * 4)
-        return btoa(String.fromCharCode(...b))
+          for (let x = 0; x < width; x++) b.set([...rgbAt(x, y), 255], (y * width + x) * 4)
+        return b64(b)
       }
       const none = {
         l2Low: null,
@@ -75,21 +95,31 @@ async function openSynthetic(page, { screens, vertical = false, boxes = [] }) {
       const base = screen => ({
         status: 'ok', screen, screenCount: screens, orientation, width, height, planes: none,
         layer3: { priority: false, reason: null }, screens: { main: ['l2Low', 'l3Low'], sub: [] },
-        math: null, layer2Interactive: false, layerNotes: [], backdrop: [200, 0, 0],
+        math, layer2Interactive: false, layerNotes: [], backdrop: [200, 0, 0],
       }) // prettier-ignore
       const sprites = boxes.map(([x0, y0], i) => {
         const box = { x0, y0, x1: x0 + 16, y1: y0 + 16 }
         const rgba = btoa(String.fromCharCode(...new Uint8Array(16 * 16 * 4).fill(255)))
         return { index: 900 + i, id: 1, name: 'Test sprite', x: x0, y: y0, box, rgba, status: 'drawn' } // prettier-ignore
       })
+      let calls = 0
       const canned = {
         mapStart: () => ({ status: 'ok', x: 1500, y: 1500 }),
         mapScreen: (_m, _i, screen) => base(screen),
-        mapBeyond: (_m, _i, screen) => {
+        mapBeyond: async (_m, _i, screen) => {
           window.__beyond.push(screen)
+          const n = ++calls
+          if (mode === 'fail') return { status: 'unavailable', reason: 'Part of this map could not be read from the ROM.', detail: 'synthetic detail' } // prettier-ignore
+          const past = screen - screens + 1
+          const old = mode === 'stale' && n === 1
+          if (old) await new Promise(r => setTimeout(r, 1500))
           return {
             ...base(screen),
-            planes: { ...none, l2Low: plane(height, [0, 255, 0]), l3Low: vertical ? null : plane(100, [0, 0, 255]) },
+            planes: {
+              ...none,
+              l2Low: plane(l2Rows ?? height, (x, y) => [old ? 200 : y & 127, 100 + (x & 127), 40 * past]),
+              l3Low: vertical ? null : plane(100, () => [0, 0, 255]),
+            },
           }
         },
         mapSprites: () => ({ status: 'ok', orientation, screenCount: screens, width, height, sprites }),
@@ -103,7 +133,7 @@ async function openSynthetic(page, { screens, vertical = false, boxes = [] }) {
       await shell.addWidget(w, { area: 'main' })
       await shell.activateWidget(w.id)
     },
-    { index: INDEX, screens, vertical, boxes },
+    { index: INDEX, screens, vertical, boxes, mode, math, l2Rows },
   )
   await expect
     .poll(() => page.locator(`${root} .hb-map-view-screen`).count(), { timeout: 30000 })
@@ -131,7 +161,7 @@ const scrollEnd = (page, vertical) =>
     { sel: root, vertical },
   )
 
-/** RGBA of bitmap pixels `at` ([x, y] in map px on the gutter canvas), once the canvas has been painted. */
+/** RGBA of bitmap pixels `at` ([x, y] in map px on the gutter canvas). */
 const pixels = (page, at) =>
   page.evaluate(
     ({ sel, at }) => {
@@ -142,23 +172,39 @@ const pixels = (page, at) =>
     { sel: gutter, at },
   )
 
-/** The canvas bitmap size once something is painted on it. */
-const painted = async page => {
-  await expect(page.locator(gutter)).toHaveAttribute('data-drawn', /.+/, { timeout: 20000 })
+/**
+ * Waits until the canvas shows the first real pixel (the data-drawn marker is set by the blank first paint, so
+ * it proves nothing) and returns its bitmap and css size. `at` is a pixel Layer 2 covers; `alphaMin` what it must reach.
+ */
+async function painted(page, at = [0, 300]) {
+  await expect
+    .poll(async () => (await pixels(page, [at]))[0][3], { timeout: 20000 })
+    .toBeGreaterThan(200)
   return page.evaluate(sel => {
     const c = document.querySelector(sel)
-    return {
-      w: c.width,
-      h: c.height,
-      cssW: c.getBoundingClientRect().width,
-      cssH: c.getBoundingClientRect().height,
-    }
+    const r = c.getBoundingClientRect()
+    return { w: c.width, h: c.height, cssW: r.width, cssH: r.height }
   }, gutter)
 }
 
+/** A canvas stores premultiplied 8-bit color, so a faded pixel reads back a few levels off: compare within 3. */
+const expectRgb = (p, want, msg) => expect(p.slice(0, 3).map((v, i) => (Math.abs(v - want[i]) <= 3 ? want[i] : v)), msg).toEqual(want) // prettier-ignore
+/** Polls until the pixel at [x, y] reads `want` (within 3 per channel). */
+const untilRgb = (page, at, want) =>
+  expect
+    .poll(async () =>
+      (await pixels(page, [at]))[0]
+        .slice(0, 3)
+        .map((v, i) => (Math.abs(v - want[i]) <= 3 ? want[i] : v)),
+    )
+    .toEqual(want)
+
 const toggle = (page, layer) => page.locator(`${root} [data-control="layer-${layer}"]`).click()
 
-test('the layers run through the gutter and fade to clear, as the back color does', async ({
+/** The expected Layer 2 pixel of the canned pattern at gutter-canvas position (x, y), `past` = screen position past the end. */
+const l2At = (x, y, past) => [y & 127, 100 + (x & 127), 40 * past]
+
+test('the layers run through the gutter, in the right place, and fade to clear as the back color does', async ({
   page,
 }) => {
   await openSynthetic(page, { screens: 3 })
@@ -166,20 +212,18 @@ test('the layers run through the gutter and fade to clear, as the back color doe
   const size = await painted(page)
   expect([size.w, size.h]).toEqual([G, 432]) // from the map edge to the canvas far end, a map tall
   expect([size.cssW, size.cssH]).toEqual([G, 432]) // at Actual size one map px is one css px
-  // Fade is 1 - (x + 0.5) / G on the far axis; at x = 0 the layer is opaque, then falls steadily.
+  // Fade is 1 - (x + 0.5) / G on the far axis; the color under it is the canned pattern at that exact column and row.
   const xs = [0, 64, 128, 192, 255]
   const px = await pixels(
     page,
     xs.map(x => [x, 300]),
   )
-  const alphas = px.map(p => p[3])
-  expect(alphas[0]).toBe(255)
-  xs.forEach((x, i) =>
-    expect(Math.abs(alphas[i] - 255 * (1 - (x + 0.5) / G))).toBeLessThanOrEqual(1),
-  )
-  expect(alphas[4]).toBeLessThanOrEqual(2)
-  expect(alphas).toEqual([...alphas].sort((a, b) => b - a))
-  // Layer 3 (blue) is over Layer 2 (green) where it has pixels, by the map's own stacking.
+  xs.forEach((x, i) => {
+    expect(Math.abs(px[i][3] - 255 * (1 - (x + 0.5) / G)), `alpha at ${x}`).toBeLessThanOrEqual(1)
+    expectRgb(px[i], l2At(x, 300, 1), `color at ${x}`)
+  })
+  expect(px[4][3]).toBeLessThanOrEqual(2)
+  // Layer 3 (pure blue) is over Layer 2 where it has pixels, by the map own stacking.
   const [l3, l2] = (
     await pixels(page, [
       [0, 50],
@@ -187,7 +231,7 @@ test('the layers run through the gutter and fade to clear, as the back color doe
     ])
   ).map(p => p.slice(0, 3))
   expect(l3).toEqual([0, 0, 255])
-  expect(l2).toEqual([0, 255, 0])
+  expectRgb(l2, l2At(0, 300, 1))
 })
 
 test('hiding Layer 3 and then Layer 2 removes each from the gutter', async ({ page }) => {
@@ -197,8 +241,8 @@ test('hiding Layer 3 and then Layer 2 removes each from the gutter', async ({ pa
   const top = [[0, 50]]
   const low = [[0, 300]]
   await toggle(page, 'l3')
-  await expect.poll(async () => (await pixels(page, top))[0].slice(0, 3)).toEqual([0, 255, 0]) // L2 shows through
-  expect((await pixels(page, low))[0].slice(0, 3)).toEqual([0, 255, 0])
+  await untilRgb(page, [0, 50], l2At(0, 50, 1)) // L2 shows through
+  expectRgb((await pixels(page, low))[0], l2At(0, 300, 1))
   await toggle(page, 'l2')
   await expect.poll(async () => (await pixels(page, top))[0][3]).toBe(0)
   expect((await pixels(page, low))[0][3]).toBe(0)
@@ -206,7 +250,24 @@ test('hiding Layer 3 and then Layer 2 removes each from the gutter', async ({ pa
   await expect.poll(async () => (await pixels(page, top))[0].slice(0, 3)).toEqual([0, 0, 255]) // L3 alone
   expect((await pixels(page, low))[0][3]).toBe(0)
   await toggle(page, 'l2')
-  await expect.poll(async () => (await pixels(page, low))[0].slice(0, 3)).toEqual([0, 255, 0])
+  await untilRgb(page, [0, 300], l2At(0, 300, 1))
+})
+
+test('the map color math reaches the gutter, and a pixel no layer covered stays clear', async ({
+  page,
+}) => {
+  // Layer 2 covers only the top 200 rows; CGADSUB adds the fixed color (80, 0, 0) to it. Below row 200 nothing draws.
+  await openSynthetic(page, { screens: 3, math: { cgadsub: 0x02, fixed: [80, 0, 0] }, l2Rows: 200 })
+  await scrollEnd(page, false)
+  await expect
+    .poll(async () => (await pixels(page, [[0, 150]]))[0][3], { timeout: 20000 })
+    .toBeGreaterThan(200)
+  const [covered, bare] = await pixels(page, [
+    [0, 150],
+    [0, 300],
+  ])
+  expect(covered[0]).toBeGreaterThan(l2At(0, 150, 1)[0] + 40) // red = (y & 127) + fixed red, in 5-bit steps
+  expect(bare[3]).toBe(0) // not the fixed color or the black backdrop: clear, so the back area is not faded twice
 })
 
 test('the gutter layers are fetched once the last screen is in view, not on open', async ({
@@ -218,20 +279,35 @@ test('the gutter layers are fetched once the last screen is in view, not on open
   await expect.poll(() => page.evaluate(() => window.__beyond)).toEqual([12]) // the first screen past screen 11
 })
 
-test('an off-map sprite draws at full strength over the layers, which run through its band', async ({
+test('screens past the end land end to end in order, and a content band stays solid', async ({
   page,
 }) => {
-  // The sprite sits 100 px past the map edge: the band is 128 px (whole tiles), solid, then the 256 px gutter.
+  // A sprite 100 px past the edge: the band is 128 px (whole tiles), solid, then the 256 px gutter: two screens.
   await openSynthetic(page, { screens: 2, boxes: [[2 * 256 + 100, 50]] })
   await scrollEnd(page, false)
   const size = await painted(page)
   expect(size.w).toBe(128 + G)
-  await expect.poll(() => page.evaluate(() => window.__beyond)).toEqual([2, 3]) // 384 px of far end is two screens
-  const [inBand, afterBand, nearEnd] = (await pixels(page, [[108, 300], [128 + 128, 300], [size.w - 1, 300]])).map(p => p[3]) // prettier-ignore
-  expect(inBand).toBe(255)
-  expect(Math.abs(afterBand - 127.5)).toBeLessThanOrEqual(1)
-  expect(nearEnd).toBeLessThanOrEqual(2)
-  // The sprite is on its own canvas, opaque, above the gutter canvas.
+  await expect.poll(() => page.evaluate(() => window.__beyond)).toEqual([2, 3])
+  const at = [
+    [108, 300],
+    [255, 300],
+    [256, 300],
+    [128 + 128, 300],
+    [size.w - 1, 300],
+  ]
+  const px = await pixels(page, at)
+  expect(px[0][3]).toBe(255) // in the band: solid
+  expectRgb(px[0], l2At(108, 300, 1))
+  expectRgb(px[1], l2At(255, 300, 1)) // last column of the first screen past the end
+  expectRgb(px[2], l2At(0, 300, 2)) // first column of the second one, blue 80
+  expect(Math.abs(px[3][3] - 127.5)).toBeLessThanOrEqual(1) // half way down the gutter fade
+  expect(px[4][3]).toBeLessThanOrEqual(2)
+})
+
+test('an off-map sprite draws at full strength over the layers', async ({ page }) => {
+  await openSynthetic(page, { screens: 2, boxes: [[2 * 256 + 100, 50]] })
+  await scrollEnd(page, false)
+  await painted(page)
   const z = await page.evaluate(
     sel => ({
       sprites: Number(
@@ -248,7 +324,8 @@ test('an off-map sprite draws at full strength over the layers, which run throug
     const c = document.querySelector(`${sel} [data-layer="off-map-sprites"]`)
     return Array.from(c.getContext('2d').getImageData(2 * 256 + 108, 58, 1, 1).data)
   }, root)
-  expect(sprite[3]).toBe(255)
+  expect(sprite).toEqual([255, 255, 255, 255]) // opaque white, over a layer pixel that is not
+  expectRgb((await pixels(page, [[108, 58]]))[0], l2At(108, 58, 1))
 })
 
 test('a vertical map continues Layer 2 down through its bottom gutter and fades it', async ({
@@ -256,23 +333,98 @@ test('a vertical map continues Layer 2 down through its bottom gutter and fades 
 }) => {
   await openSynthetic(page, { screens: 2, vertical: true })
   await scrollEnd(page, true)
-  const size = await painted(page)
+  const size = await painted(page, [300, 0])
   expect([size.w, size.h]).toEqual([512, G])
   const ys = [0, 128, 255]
-  const alphas = (
-    await pixels(
-      page,
-      ys.map(y => [300, y]),
-    )
-  ).map(p => p[3])
-  expect(alphas[0]).toBe(255)
-  ys.forEach((y, i) =>
-    expect(Math.abs(alphas[i] - 255 * (1 - (y + 0.5) / G))).toBeLessThanOrEqual(1),
+  const px = await pixels(
+    page,
+    ys.map(y => [300, y]),
   )
-  expect((await pixels(page, [[300, 10]]))[0].slice(0, 3)).toEqual([0, 255, 0])
-  // No Layer 3 on a vertical map: hiding it changes nothing, hiding Layer 2 clears the gutter.
+  ys.forEach((y, i) => {
+    expect(Math.abs(px[i][3] - 255 * (1 - (y + 0.5) / G)), `alpha at ${y}`).toBeLessThanOrEqual(1)
+    expectRgb(px[i], l2At(300, y, 1), `color at ${y}`)
+  })
+  // No Layer 3 on a vertical map; hiding Layer 2 clears the gutter.
   await toggle(page, 'l2')
   await expect.poll(async () => (await pixels(page, [[300, 10]]))[0][3]).toBe(0)
+})
+
+test('a vertical map with an off-map sprite below it keeps the band solid and the sprite on top', async ({
+  page,
+}) => {
+  // A sprite 100 px below the map edge (2 screens of 256): the band is 128 px, then the gutter; two screens of layers.
+  await openSynthetic(page, { screens: 2, vertical: true, boxes: [[100, 2 * 256 + 100]] })
+  await scrollEnd(page, true)
+  const size = await painted(page, [300, 0])
+  expect([size.w, size.h]).toEqual([512, 128 + G])
+  await expect.poll(() => page.evaluate(() => window.__beyond)).toEqual([2, 3])
+  const px = await pixels(page, [
+    [108, 108],
+    [300, 255],
+    [300, 256],
+    [300, size.h - 1],
+  ])
+  expect(px[0][3]).toBe(255)
+  expectRgb(px[1], l2At(300, 255, 1))
+  expectRgb(px[2], l2At(300, 0, 2))
+  expect(px[3][3]).toBeLessThanOrEqual(2)
+  const sprite = await page.evaluate(sel => {
+    const c = document.querySelector(`${sel} [data-layer="off-map-sprites"]`)
+    return Array.from(c.getContext('2d').getImageData(108, 2 * 256 + 108, 1, 1).data)
+  }, root)
+  expect(sprite).toEqual([255, 255, 255, 255])
+})
+
+test('a reply that lands after the map was refreshed is dropped, not painted over the new one', async ({
+  page,
+}) => {
+  await openSynthetic(page, { screens: 2, mode: 'stale' })
+  await scrollEnd(page, false)
+  await expect.poll(() => page.evaluate(() => window.__beyond.length)).toBe(1) // the late (red 200) reply is in flight
+  await page.evaluate(i => getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index: i }).then(w => w.refresh()), INDEX) // prettier-ignore
+  await scrollEnd(page, false)
+  await expect.poll(() => page.evaluate(() => window.__beyond.length)).toBe(2)
+  await painted(page)
+  await page.waitForTimeout(2200) // the old reply lands now
+  await toggle(page, 'l3') // any repaint reads whatever the screens hold
+  await toggle(page, 'l3')
+  await untilRgb(page, [0, 300], l2At(0, 300, 1)) // not red 200
+})
+
+test('a failed gutter read says so as a map note, draws nothing there, and is not asked again until a refresh', async ({
+  page,
+}) => {
+  await openSynthetic(page, { screens: 2, mode: 'fail' })
+  await scrollEnd(page, false)
+  const note = page.locator(`${root} [data-note="gutter-layers"]`)
+  await expect(note).toHaveText('The layers past the end of the map could not be drawn.')
+  await expect(note).toHaveAttribute('title', 'synthetic detail')
+  for (let i = 0; i < 3; i++) {
+    await scrollEnd(page, false)
+    await page.evaluate(sel => { const s = document.querySelector(`${sel} [data-control="map-scroller"]`); s.scrollLeft = 0 }, root) // prettier-ignore
+    await scrollEnd(page, false)
+  }
+  await page.waitForTimeout(500)
+  expect(await page.evaluate(() => window.__beyond)).toEqual([2]) // once, not once per scroll
+  expect((await pixels(page, [[0, 300]]))[0][3]).toBe(0)
+  await page.evaluate(i => getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index: i }).then(w => w.refresh()), INDEX) // prettier-ignore
+  await scrollEnd(page, false)
+  await expect.poll(() => page.evaluate(() => window.__beyond)).toEqual([2, 2]) // a refresh asks again
+})
+
+test('an edit keeps the old gutter picture up until the new replies land', async ({ page }) => {
+  await openSynthetic(page, { screens: 2 })
+  await scrollEnd(page, false)
+  await painted(page)
+  // Hold the next gutter replies, then refresh (what an edit does): the canvas must not blank while they are out.
+  await page.evaluate(i => getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index: i }).then(w => {
+    const real = w.projects
+    w.projects = new Proxy({}, { get: (_t, k) => k === 'mapBeyond' ? () => new Promise(() => undefined) : real[k] }) // prettier-ignore
+    w.refresh()
+  }), INDEX) // prettier-ignore
+  await scrollEnd(page, false)
+  await page.waitForTimeout(1500)
+  expect((await pixels(page, [[0, 300]]))[0][3]).toBe(255)
 })
 
 test('a 32-screen map has no gutter and no gutter-layers canvas', async ({ page }) => {

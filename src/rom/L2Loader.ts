@@ -287,7 +287,10 @@ export function tilePresetGrid(
  * discard the parsed header and use only `.objects`.
  *
  * `extraScreens` (#1197) expands the stream into a grid that many screens longer and returns the part
- * past the last screen as `beyond`; `grid` is the same as without it. Default 0: no `beyond`.
+ * past the last screen as `beyond`; `grid` is the map's own screens only. A plain call (default 0, no
+ * `beyond`) can differ in one way: `writeTile` pads and grows a row up to column $200, so an object that
+ * spills past the last screen leaves a plain call's rows LONGER than the map, while here those columns
+ * are `beyond` and `grid` rows stay the map's width.
  */
 export function loadL2Objects(
   rom: RomFile,
