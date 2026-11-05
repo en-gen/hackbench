@@ -848,7 +848,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         if (r?.status === 'ok') {
           const images = screenImages(r)
           this.screens.set(key, images)
-          this.gutterLast.set(screen, images)
+          // Only while the key is still current: a reply for an older flag or switch state must not become the fallback.
+          if (key === this.key(screen)) this.gutterLast.set(screen, images)
           return
         }
         detail ??= r?.status === 'unavailable' ? (r.detail ?? r.reason) : undefined

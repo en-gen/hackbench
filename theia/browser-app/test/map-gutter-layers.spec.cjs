@@ -25,6 +25,8 @@
  *   G10 the note stops being derived (it is set once and never recomputed per current key): the note-follows-the-current-key case.
  *   G11 refresh() does not clear `gutterFailed`: the cleared-on-refresh case.
  *   G15 syncGutterLayers draws nothing for a screen whose current reply is out (drops the `gutterLast` fallback), or paints the held screens clear on a toggle: the toggle-while-held case.
+ *   G16 open() does not clear `gutterLast`: the reopened-map case.
+ *   G17 fetchBeyond writes `gutterLast` for a key that is no longer current: the stale-key-fallback case.
  *   G13 keepViewOnPadChange drops its first `this.fitStrip()` (the one in the first animation frame): the late-sprites case, which has no scroll to fetch for it.
  *   G14 gutterFailure() looks at every failed key, not the current ones: the late-failure-of-an-old-key case.
  *   G8 the `gutterLast` fallback is dropped, so the gutter blanks while replies are pending after an edit: the edit case.
@@ -180,9 +182,9 @@ const spritesLanded = page =>
     )
     .toBe(true) // prettier-ignore
 
-/** Runs `fn(widget)` in the page. */
-const onWidget = (page, fn) =>
-  page.evaluate(([i, src]) => getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index: i }).then(w => new Function('w', src)(w)), [INDEX, `return (${fn.toString()})(w)`]) // prettier-ignore
+/** Runs `fn(widget, arg)` in the page and returns its result. */
+const onWidget = (page, fn, arg) =>
+  page.evaluate(([i, src, a]) => getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index: i }).then(w => new Function('w', 'a', src)(w, a)), [INDEX, `return (${fn.toString()})(w, a)`, arg]) // prettier-ignore
 
 const scrollEnd = (page, vertical) =>
   page.evaluate(
@@ -554,6 +556,44 @@ test('a layer toggle while a read is out hides only the layer it names, drawn fr
   expect((await pixels(page, [l3]))[0].slice(0, 4)).toEqual([0, 0, 255, 255])
   await toggle(page, 'l2') // and back: the same last good planes, no read has landed
   await expect.poll(async () => (await pixels(page, [l2]))[0][3]).toBe(255)
+})
+
+test('reopening the widget on another map never shows the old gutter planes', async ({ page }) => {
+  await openSynthetic(page, { screens: 2 })
+  await scrollEnd(page, false)
+  await painted(page)
+  // The same widget opens a map again (a preview tab reuse) with every gutter read held: nothing of the old one may show.
+  await onWidget(page, w => {
+    const real = w.projects
+    w.projects = new Proxy({}, { get: (_t, k) => (k === 'mapBeyond' ? () => new Promise(() => undefined) : real[k]) }) // prettier-ignore
+    return w.open(w.options)
+  })
+  await expect
+    .poll(() => page.locator(`${root} .hb-map-view-screen`).count(), { timeout: 30000 })
+    .toBe(2)
+  await scrollEnd(page, false)
+  await page.waitForTimeout(500)
+  expect((await pixels(page, [[0, 300]]))[0][3]).toBe(0)
+})
+
+test('a reply for an older switch state never becomes the fallback picture', async ({ page }) => {
+  await openSynthetic(page, { screens: 2, mode: 'stale' })
+  await scrollEnd(page, false)
+  await expect.poll(() => page.evaluate(() => window.__beyond.length)).toBe(1) // blue-off read held (red 200 when it lands)
+  const keyA = await onWidget(page, w => w.key(2))
+  await onWidget(page, w => w.view.dispatch({ type: 'toggleSwitch', key: 'blue' }))
+  await scrollEnd(page, false)
+  await painted(page) // the blue-on read landed and is current
+  await page.evaluate(() => window.__openGate()) // the old read lands now, for a key no longer current
+  await expect.poll(() => onWidget(page, (w, k) => w.pending.has(k), keyA)).toBe(false) // handled
+  await onWidget(page, w => {
+    const real = w.projects
+    w.projects = new Proxy({}, { get: (_t, k) => (k === 'mapBeyond' ? () => new Promise(() => undefined) : real[k]) }) // prettier-ignore
+    w.refresh()
+  })
+  await scrollEnd(page, false)
+  await expect(page.locator(gutter)).toHaveAttribute('data-drawn', /o/) // now drawn from the last good planes
+  await untilRgb(page, [0, 300], l2At(0, 300, 1)) // the blue-on planes, not the stale red 200
 })
 
 test('a 32-screen map has no gutter and no gutter-layers canvas', async ({ page }) => {
