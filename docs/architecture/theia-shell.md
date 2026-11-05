@@ -391,16 +391,21 @@ tooltip; the `aria-label` is the same text, prefixed `<n> issues.` with 2+. The 
 ### The map strip's pad (#1004)
 
 Owner rulings: D76 call 2 ("draw it off the map where the game indicates it is drawn. the canvas can and
-should extend beyond the map bounds"), D48 part 2 ("half a screen width of gutter on each end with ui to
-add a screen. The background should fade in a gradient to the edges"), D145 ("no matter what. the user
-needs ways to extend the size of the map") and R24 (the back color fades to transparent in the gutter).
+should extend beyond the map bounds"), D145 ("no matter what. the user needs ways to extend the size of the
+map") and, since #1228 (R36 and R41, plan gate D172), "I don't want any gutter to the left of the map, only
+to the right for the purpose of leaving space to add more map to the right" with "I think "the gutter" should
+be 1 screen wide" (`decisions/2026-11-04-map-gutter-far-end-only.md`). That replaces the left half of D48 part 2 ("half a
+screen width of gutter on each end with ui to add a screen") and R24 (the back color fades in the gutter):
+the fade stays, over the far-end gutter only.
 
 `offMapPad` (`browser/off-map-extent.ts`, pure) is the one place the canvas grows. Per side, the pad is
 the content the data places off the map there (a refused-object mark's 16 px cell, a sprite's `box`),
-rounded up to whole 16 px tiles, so the grid runs on across it on the same lattice. At each LONG end (left
-and right of a horizontal map, top and bottom of a vertical one) a fixed 128 px gutter (`GUTTER_PX`, half a
-256 px screen) is added BEYOND that content, always, even when nothing is off the map; the short sides get
-the content alone, no gutter and no extra margin. The "add screen" control (#950, D69) will sit in a gutter.
+rounded up to whole 16 px tiles, so the grid runs on across it on the same lattice. At the FAR end only
+(right of a horizontal map, bottom of a vertical one) a fixed 256 px gutter (`GUTTER_PX`, one screen) is
+added BEYOND that content, even when nothing is off the map, unless the map has 32 screens (`MAX_SCREENS`:
+the header's count is 5 bits, so it cannot grow and `farGutter` is 0). Before position 0 there is no gutter,
+since growing that way would move (0,0); the near side and the short sides get the content alone, no gutter
+and no extra margin. The "add screen" control (#950, D69) will sit in the far-end gutter.
 
 The pad is derived from the layout (marks) and the sprites reply together and memoized by both, so it can
 change when the sprites arrive (`keepViewOnPadChange`, below). It is read from one getter, `pad`, by every
@@ -410,10 +415,11 @@ units as #977's neighbor-card hook) is the same value as a point.
 With the pad the widget:
 
 - pads `.hb-map-view-strip` by the pad times the zoom, so the screens keep their place relative to the map;
-- paints the back area over the whole strip as a gradient along the scroll axis (`backGradient`, "to right"
-  on a horizontal map, "to bottom" on a vertical one): the map's back color, solid across the map and
-  across any content band, and fading linearly to transparent over the 128 px gutter only, which starts
-  beyond the content. A band the content grew on a SHORT side is not a gutter and stays solid [PROP];
+- paints the back area over the whole strip, masked along the scroll axis (`fadeMask`, "to right" on a
+  horizontal map, "to bottom" on a vertical one): the map's back color, solid from the near edge across the
+  map and any content band, and fading linearly to transparent over the 256 px far-end gutter only, which
+  starts beyond the content. No mask at all on a 32-screen map. A content band, on any side, is not a
+  gutter and stays solid [PROP];
 - draws the refused SVG in a user space whose origin is the MAP origin (`viewBox` starts at the negative
   left/top pad), so marks off the map land where the data names them;
 - draws the sprite pixels that fall outside the map on one canvas (`data-layer="off-map-sprites"`, z 120).
@@ -421,9 +427,11 @@ With the pad the widget:
   padded strip rather than the pad bands (simpler) and is mounted only when `offMapSpritePixels` returns
   pixels, so a map whose sprites all lie inside it has no such element. Like the refused overlay it is not
   drawn while the tab shows a screen error;
-- confines the checkerboard (`.hb-checkerboard`, "nothing here") to the strip without the 128 px gutters, so
-  where the back color fades out the panel shows behind it, not the checkerboard [PROP];
-- marks the map's edge with a 1 px outline (`data-control="map-edge"`) [PROP], and runs the grid
+- confines the checkerboard (`.hb-checkerboard`, "nothing here") to the strip without the far-end gutter: it
+  reaches the near canvas edge and stops at the gutter, so where the back color fades out the panel shows
+  behind it, not the checkerboard [PROP];
+- marks the map's edge with a 1 px outline (`data-control="map-edge"`) [PROP]; on a side with no pad (the near
+  side of most maps since #1228) that line falls on the canvas edge and is not visible there; and runs the grid
   (`MapGridOverlay`, `map-grid.ts` `pad`) on across the pad.
 
 Everything that turns a pointer or scroll offset into a map position subtracts the leading pad: hover
@@ -433,8 +441,8 @@ Everything that turns a pointer or scroll offset into a map position subtracts t
 in a pad touches no screen, and no screen outside the map is ever requested (a request for one would set a
 screen error that sticks). Fit's cross axis
 includes the short-side pads (`measureFit`). A newly opened map still scrolls to the player's start
-(`placeStart` centers it, lead included), so the leading gutter shows only when the start is near the map's
-beginning.
+(`placeStart` centers it, lead included). The lead is content only (zero for most maps), and every
+consumer reads the pad as one origin, so #1228 changed none of them.
 
 When a sprites reply grows the pad, `keepViewOnPadChange` refits and restores the view: the map pixel under
 the view center is recorded before the change and the scroll set absolutely after the refit commits (an
@@ -457,11 +465,13 @@ gutter, in px:
 | $1B                                                | $AD                                       | 0    | 0     | 16     |
 | $102                                               | $5D, $A4 (24 px below)                    | 0    | 0     | 32     |
 
-Add 128 on the left and right (the gutters) to read the pad itself; a bottom pad has no gutter.
+The table is from the two-sided 128 px gutter commit. Since #1228 the left pad is the left column alone, and
+the right pad is the right column plus 256 (the sweep's maps are 1 to 7 screens); a bottom pad has no gutter
+on a horizontal map.
 
 Sharing the space with #977: its neighbor cards sit in bands that are siblings of the scroller and are
-positioned from `mapOrigin()`, while the gutters are inside the strip, so the two never overlap. The "add
-screen" control (#950) goes in a gutter.
+positioned from `mapOrigin()`, while the gutter is inside the strip, so the two never overlap. The "add
+screen" control (#950) goes in the far-end gutter.
 
 The reference VS Code extension has no off-map canvas: its map editor pans with padding that is clamped
 to the map (`src/webview/mapEditor/main.ts:301`), so there is nothing to port.

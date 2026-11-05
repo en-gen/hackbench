@@ -32,8 +32,8 @@ export function RefusedOverlay(props: {
   height: number
   zoom: number
   /**
-   * The gutter around the map (#1004): the svg covers the padded strip and its user space
-   * keeps the MAP's origin, so a cell the data places in the gutter lands there, at its own x,y.
+   * The pad around the map (#1004, #1228): the svg covers the padded strip and its user space
+   * keeps the MAP's origin, so a cell the data places in the pad lands there, at its own x,y.
    */
   pad?: Pad
 }): React.ReactElement | null {

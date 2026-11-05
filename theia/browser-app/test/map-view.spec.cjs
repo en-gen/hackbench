@@ -410,7 +410,7 @@ test('$109 opens scrolled to its start: screen 6 in view, scrollTop above 0', as
   expect(st.top).toBeGreaterThan(0)
   expect(st.left).toBe(0)
   // y 1680 on the scroll axis, centred where the strip allows (here the strip's end clamps it).
-  // The start sits at 1680 + the top gutter in the strip, and is centered there.
+  // The start sits at 1680 + the pad before the map in the strip (content only since #1228), and is centered there.
   const org = await originOf(page, 0x109)
   expect(st.top).toBeCloseTo(centred(1680 + org.y, st.zoom, st.viewH, st.maxTop), 0)
   await expect
@@ -2660,7 +2660,7 @@ for (const [index, vertical] of [
     await gridSettled(page, index)
     const g = await readGrid(page, root(index))
     expect(g.cell).toBe(16) // zoom 1
-    // Line positions are from the STRIP's start; the map starts after its gutter (#1004), so tiles count from there.
+    // Line positions are from the STRIP's start; the map starts after its leading pad (content only since #1228; #1004 had a gutter), so tiles count from there.
     const org = await page.evaluate(sel => {
       const e = document.querySelector(`${sel} [data-control="map-edge"]`).getBoundingClientRect()
       const t = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
