@@ -54,11 +54,7 @@ function syntheticCall(): Buffer {
   return span
 }
 
-/**
- * OVERWORLD_INDEX_BODY as planted: all NOPs on a stock cart (an invented head), but on a hooked cart
- * the head the midway hook's own site check reads (taken from that pattern, not restated). The two
- * hash differently, so SYNTHETIC_FINGERPRINTS.entry lists both.
- */
+/** OVERWORLD_INDEX_BODY as planted: NOPs, or on a hooked cart the head MIDWAY_HOOK_SITE reads; both are in SYNTHETIC_FINGERPRINTS.entry. */
 export function syntheticIndexSpan(hooked = false): Buffer {
   const span = nops(OVERWORLD_INDEX_BODY.length)
   if (hooked) span.set(MIDWAY_HOOK_SITE.slice(0, 4), 0)
@@ -86,11 +82,7 @@ function plantSpan(rom: RomFile, span: StockSpan, plant: typeof START_EXIT_PLANT
   for (const [at, run] of plant) rom.writeAt(at, [...run])
 }
 
-/**
- * The cart's RAM operands for the entry path, each invented: none is a vanilla address and none is derived
- * from one by an offset, xor or bias (D185; docs/decisions/2026-11-05-d126-exception-entry-site-ram.md).
- * SYNTHETIC_FINGERPRINTS.entry carries it, so every reader that takes the override takes the table too.
- */
+/** The cart's RAM operands, each invented, none derived from a vanilla address (D185). SYNTHETIC_FINGERPRINTS.entry carries it. */
 export const SYNTHETIC_RAM: RamTable = Object.freeze({
   OverworldOverride: 0x1a6d,
   TranslevelNo: 0x0c8e,
@@ -177,11 +169,7 @@ export function plantScreenExitFiling(rom: RomFile): void {
   }
 }
 
-/**
- * The entry site's operands, invented. A translevel at the threshold is the
- * first sub-map tile and lands on slot $01, so the threshold is the bias plus
- * one; plantOverworldTiles and the tests that name tile counts rely on that.
- */
+/** The entry site's invented operands; the threshold is the bias plus one, as plantOverworldTiles assumes. */
 export const SYNTHETIC_BIAS = 0x2a
 export const SYNTHETIC_THRESHOLD = SYNTHETIC_BIAS + 1
 

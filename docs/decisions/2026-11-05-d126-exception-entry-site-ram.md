@@ -6,13 +6,6 @@ Ruled 2026-11-05 (Brian)
 
 #1061 PR 2 replaced the overworld entry path's literals with per-instruction opcode checks, which compare opcodes and branch targets but not the RAM addresses the literals compared. A hack that keeps the opcodes and repoints a store passed where the old check refused it (13 operand bytes, 3,315 single-byte alternatives, 7 addresses; the adversarial reviewer's count, one machine). Closing the gap means the source names those addresses, which D126 (no hardcoded ROM bytes, needed operands read from the ROM) does not allow without a ruling. May this block name them? (Decisions D178 option B, then D179; recorded as D185.)
 
-## Options considered
-
-1. (D178 A) Accept the gap, name it in the PR, file it for 0.85. Withdrawn: a confidently wrong slot cuts against "read correctly or refuse with a reason".
-2. (D178 B) Add named RAM-address checks. The synthetic cart must then carry invented operands, not vanilla's.
-3. (D178 C) Run the site on the core. Not sized.
-4. (D179 A) Allow B as a named exception to D126 for this block only, on four conditions (below).
-
 ## Ruling
 
 Ruled 2026-11-05 (Brian): "D178 B" and "D179 A". The exception, "for this block only", on four conditions:
@@ -24,7 +17,7 @@ Ruled 2026-11-05 (Brian): "D178 B" and "D179 A". The exception, "for this block 
 
 ## Why
 
-The gap was real and silent: the opcode and the branch landing read as stock while a store went elsewhere. The alternatives either left it (A) or ran the ROM (C). Seven named addresses, each cited to SMWDisX, are the smallest statement that refuses it. Evidence for the safety of the choice, one machine: see `test/suite/unit/SubmapFlagGate.ram.test.ts`.
+The opcode and the branch landing read as stock while a store went elsewhere. Seven named addresses, each cited to SMWDisX, are the smallest statement that refuses it; the alternatives left the gap or ran the ROM. Evidence, one machine: `test/suite/unit/SubmapFlagGate.ram.test.ts`.
 
 ## Applies to
 

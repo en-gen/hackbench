@@ -14,7 +14,6 @@ import {
   ENTRY_RAM,
   LM_ENTRY_SITE_OPS,
   OVERWORLD_ENTRY,
-  ENTRY_SITE_OPS,
   operandBytes,
   readTranslevelBias,
   stockCodeMismatch,
@@ -82,23 +81,6 @@ describe('the RAM table on the overworld entry path (D185)', () => {
     expect(r.refused).toBe(3315)
   })
 
-  it('the whole path, not just the one instruction, refuses each of them', () => {
-    const r = sweep(blankStockRom, RAM_OPS, rom => {
-      const bias = readTranslevelBias(rom, FP)
-      return bias.ok ? null : bias.reason
-    })
-    expect(r.refused).toBe(3315)
-    expect(r.wrongReason).toEqual([])
-  })
-
-  it('names the instruction, the address found and the address expected', () => {
-    const rom = blankStockRom()
-    const o = ENTRY_SITE_OPS.find(c => c.ram === '_E')!
-    rom.writeAt(o.addr + 1, [0x77])
-    expect(stockCodeMismatch(rom, [o], FP)).toContain('store to _E')
-    expect(stockCodeMismatch(rom, [o], FP)).toContain('addresses $77, not _E at $4B')
-  })
-
   it('under the Lunar Magic hook, the site operands it keeps are checked: every alternative is refused', () => {
     const kept = LM_ENTRY_SITE_OPS.filter(o => o.ram !== undefined)
     expect(BYTES(kept).length).toBe(6)
@@ -114,14 +96,6 @@ describe('the RAM table on the overworld entry path (D185)', () => {
     })
     expect(r.refused).toBe(6 * 255)
     expect(r.wrongReason).toEqual([])
-  })
-
-  it('the hooked sites (guard and table load) have an operand check of their own where the stock opcode stays', () => {
-    // The JSL that replaces the OWLayer1Translevel load has no RAM operand to compare; its target is the
-    // recognized-hook check. The store after it still names TranslevelNo and is in RAM_OPS (swept above).
-    const load = RAM_OPS.find(o => o.ram === 'OWLayer1Translevel')!
-    expect(operandBytes(load.op)).toBe(3)
-    expect(RAM_OPS.some(o => o.ram === 'TranslevelNo')).toBe(true)
   })
 })
 

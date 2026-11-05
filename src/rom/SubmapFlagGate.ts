@@ -402,7 +402,7 @@ function midwayHookMismatch(
 }
 
 /** JSL loader / STA TranslevelNo: a hook in place of the table load. */
-const LOAD_HOOK_SITE: BytePattern = [0x22, WILD, WILD, WILD, 0x8d, 0xbf, 0x13]
+const LOAD_HOOK_SITE: BytePattern = [OP.JSL, WILD, WILD, WILD, OP.STA_ABS] // the store's operand is checked as an op
 
 /** Loaders that return OWLayer1Translevel,X. The second returns save byte $70035C for translevel
  *  1; first boot sets it to 1 at $A0F20F, the table's value, the runtime-state default. */

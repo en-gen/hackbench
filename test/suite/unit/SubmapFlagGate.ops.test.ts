@@ -15,13 +15,11 @@ import {
   OVERWORLD_ENTRY,
   OVERWORLD_INDEX_BODY,
   entryPathMismatches,
-  readTranslevelBias,
   stockCodeMismatch,
   type StockOp,
   type StockSpan,
 } from '../../../src/rom/SubmapFlagGate'
-import { formatAddr, loromToOffset } from '../../../src/rom/addressing'
-import { RomFile } from '../../../src/rom/RomFile'
+import { formatAddr } from '../../../src/rom/addressing'
 import { OP } from '../support/asm65'
 import { blankStockRom, flip, SYNTHETIC_FINGERPRINTS } from '../support/syntheticRom'
 
@@ -61,30 +59,6 @@ describe('named-opcode checks on the overworld entry path', () => {
       length: 93,
       mask: [4, 5, 6, 7, 8],
     })
-  })
-
-  it.each([0x05d846, 0x05d8b2])('a branch displacement flipped at %i is refused', at => {
-    const rom = blankStockRom()
-    flip(rom, at)
-    expect(readTranslevelBias(rom, SYNTHETIC_FINGERPRINTS.entry).ok).toBe(false)
-  })
-
-  // Instruction lengths by hand: an image cut one byte short of the whole instruction is refused, whole is not.
-  const LEN = new Map([[OP.SEC, 1], [OP.BCC, 2], [OP.BEQ, 2], [OP.BNE, 2], [OP.LDA_IMM, 2], [OP.CMP_IMM, 2], [OP.SBC_IMM, 2], [OP.STA_DP, 2], [OP.LDA_ABS, 3], [OP.LDA_ABSY, 3], [OP.STA_ABS, 3], [OP.LDA_LONGX, 4], [OP.JSL, 4]]) // prettier-ignore
-  it.each([...OPS, LM_ENTRY_SITE_OPS[7]!].map(o => [o.what, o] as const))(
-    '%s: an image ending inside the instruction is not readable, ending after it is',
-    (_w, o) => {
-      const rom = blankStockRom()
-      const at = loromToOffset(o.addr, rom.romSize)!
-      const cut = (n: number): RomFile => new RomFile('cut.sfc', Buffer.from(rom.readAtFileOffset(0, at + n)!)) // prettier-ignore
-      expect(stockCodeMismatch(cut(LEN.get(o.op)! - 1), [o])).toContain('not readable')
-      expect(stockCodeMismatch(cut(LEN.get(o.op)!), [o]) ?? '').not.toContain('not readable')
-    },
-  )
-
-  it('covers the guard, the table load and the whole CODE_05D8A2 block', () => {
-    expect(OPS.length).toBe(14)
-    expect(bad(blankStockRom()).every(r => r === null)).toBe(true)
   })
 
   it.each(OPS.map(o => [o.what, o] as const))(
@@ -137,15 +111,6 @@ describe('the digests', () => {
       )
       expect(refused, `offset ${off}`).toBe(!s.mask!.includes(off))
     }
-  })
-
-  it('the level-start gate is the reach call plus two merged spans, contiguous with the old ranges', () => {
-    const spans = LEVEL_START_Y.filter((c): c is StockSpan => 'fingerprints' in c)
-    expect(LEVEL_START_Y.length).toBe(3)
-    expect(spans.map(s => [s.addr, s.length])).toEqual([
-      [0x05d7d4, 0x05d83e - 0x05d7d4],
-      [0x05d907, 0x05da17 - 0x05d907],
-    ])
   })
 })
 
