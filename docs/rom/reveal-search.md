@@ -31,6 +31,8 @@ flowchart TD
 
 ## What is run
 
+- The first condition, `mario-at-sprite`, puts Mario's position on the sprite's. The tooltip says "gets close to this spot": a mole wakes on a low-byte distance window and a Blargg at about 112 px either side, so "touches" was true only for a sprite that tests Mario's box.
+
 - Every rerun is the same `runOnce` with `atRest`, so the picture's position is the one the at-rest path gives
   (placed spot, parts measured from where the pass ended). The trigger's own movement (the invisible mushroom's
   rise) is therefore not shown. Until #1231 lands, a hidden sprite whose INIT moves it is drawn at the placed spot,

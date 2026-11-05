@@ -449,7 +449,7 @@ const MARIO_SAID = 'small Mario, on foot'
 
 /** The tooltip line for each condition. Keyed by the condition the search found, never by a sprite id. */
 export const REVEAL_TEXT: Record<RevealCondition, string> = {
-  'mario-at-sprite': 'appears when Mario touches this spot',
+  'mario-at-sprite': 'appears when Mario gets close to this spot',
   'mario-left': 'appears when Mario is just left of this spot',
   'mario-right': 'appears when Mario is just right of this spot',
   'more-frames': 'appears after a while',

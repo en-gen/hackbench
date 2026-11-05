@@ -4,7 +4,7 @@
  * Checked from the node reply (`mapSprites`), which is what the view draws from: the screen door itself is the
  * view model's `spriteLayer` (unit tested in MapSpritesReveal.test.ts, alpha on alternating squares).
  * - Map $105: the invisible mushroom ($C7) is drawn, not a marker, with `screenDoor` set, a hover line from the
- *   condition ("Mario touches this spot", not an id), and opaque pixels where it is placed.
+ *   condition ("Mario gets close to this spot", not an id), and opaque pixels where it is placed.
  * - Maps $106 and $010: every Monty Mole ($4D) is drawn with `screenDoor`, including $106 column 235, $010 column 201
  *   and $106 column 247, and all the moles of one map draw the same bitmap whatever their position.
  * Plants for the verifier (each must turn this red; restore after):
@@ -78,7 +78,7 @@ test('map $105 draws the invisible mushroom in the screen door, with the conditi
   for (const s of found) {
     expect(s.status, 'a picture, not the id marker').toBe('drawn')
     expect(s.screenDoor).toBe(true)
-    expect(s.reveal).toContain('appears when Mario touches this spot')
+    expect(s.reveal).toContain('appears when Mario gets close to this spot')
     expect(s.reveal, 'the condition, never the id').not.toMatch(/c7|\$/i)
     expect(opaque(s), 'pixels to read').toBeGreaterThan(0)
     // Placed position (D142): the box covers the anchor's tile.

@@ -120,7 +120,7 @@ describe('the picture and its hover', () => {
 
   it('sets the whole-sprite door and the hover text only for a revealed sprite', () => {
     expect(shown()).not.toHaveProperty('screenDoor')
-    expect(shown('mario-at-sprite')).toMatchObject({ screenDoor: true, reveal: expect.stringContaining('Mario touches this spot') }) // prettier-ignore
+    expect(shown('mario-at-sprite')).toMatchObject({ screenDoor: true, reveal: expect.stringContaining('Mario gets close to this spot') }) // prettier-ignore
   })
 
   it('states Mario fixed state in every condition, and never a sprite id', () => {
@@ -139,7 +139,7 @@ describe('the picture and its hover', () => {
   it('names the sprite from the app name table, then the condition', () => {
     const d = { ...shown('mario-at-sprite'), name: 'Invisible mushroom' }
     expect(spriteName(d)).toBe(
-      'Invisible mushroom: appears when Mario touches this spot (small Mario, on foot)',
+      'Invisible mushroom: appears when Mario gets close to this spot (small Mario, on foot)',
     )
     expect(spriteName({ id: 0x33, name: 'Podoboo' })).toBe('Podoboo')
   })

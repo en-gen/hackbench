@@ -479,7 +479,7 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
     for (const s of r.sprites.filter(s => s.status === 'placeholder')) expect(s.reason).toMatch(/^(refused: |drew no OAM tile|unrevealed$)/) // prettier-ignore
     const mushroom = r.sprites.find(s => s.id === 0xc7)!
     expect(mushroom).toMatchObject({ status: 'drawn', screenDoor: true })
-    expect(mushroom.reveal).toContain('Mario touches this spot')
+    expect(mushroom.reveal).toContain('Mario gets close to this spot')
   })
 
   // Maps 006 and 126 hold every vanilla $9C beside its $9B (one machine, one run).
