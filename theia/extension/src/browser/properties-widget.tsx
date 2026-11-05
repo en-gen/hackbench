@@ -71,6 +71,7 @@ function framesView(f: Extract<FramesState, { kind: 'playing' }>) {
   return { pixels: out, w, h }
 }
 
+/** The panel body for a selected sprite: its notes first (a note with detail opens as a disclosure), then its facts and preview. */
 function SpriteSubject({
   subject,
   frames,

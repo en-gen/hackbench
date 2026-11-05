@@ -411,6 +411,7 @@ describe('drawSprites with runtime palette writes', () => {
 })
 
 /** A sprite flagged for `why`, or not flagged when `why` is omitted; the status does not matter to the note (#1166). */
+/** A sprite DTO with only the fields the note reads; `why` flags it unverified. */
 const mk = (n: number, why?: string) => ({ id: n, x: 0, y: 0, status: 'drawn', ...(why ? { unverified: why } : {}) }) as MapSpriteDto // prettier-ignore
 
 describe('a refused level loader marks every sprite unverified', () => {
@@ -464,10 +465,12 @@ describe('a refused level loader marks every sprite unverified', () => {
   // The causes as the code produces them: modelResult joins the loader refusal and a runner reason with `; `.
   // The memory-setting text is a literal copy of SpriteRunner.ts's message (it is built inline there, no shared constant).
   const MEMORY = 'this map uses sprite memory setting 3; the bonus game blocks were only checked for setting 1, so some may be missing' // prettier-ignore
+  /** The `unverified` text the code itself builds for a refused run with these model fields. */
   const causeOf = (o: Partial<RunModel>) => {
     const r = modelResult(model({ refusal: 'stub', ...o }) as RunModel)
     return !r.ok ? r.unverified : undefined
   }
+  /** The map note for one sprite flagged with `cause`. */
   const noteOf = (cause: string | undefined) => unverifiedNote([mk(1, cause)])
   const PLAIN = 'Unverified: 1 sprite may not be drawn exactly as in the game.'
   const generic = { seedSource: 'generic', seedReason: 'planted' } as const
@@ -509,7 +512,9 @@ describe('a refused level loader marks every sprite unverified', () => {
 })
 
 describe('withFlames keeps both details (#1166)', () => {
+  /** An ok sprite layer carrying the given note and detail. */
   const layer = (note?: string, noteDetail?: string) => ({ status: 'ok', orientation: 'horizontal', screenCount: 1, width: 1, height: 1, sprites: [mk(1)], note, noteDetail }) as Extract<MapSpritesResult, { status: 'ok' }> // prettier-ignore
+  /** The castle flames' reply carrying the given note and detail. */
   const flames = (note?: string, noteDetail?: string) => ({ sprites: [mk(2)], note, noteDetail })
 
   it('joins the layer detail and the flames detail, one per line, layer first', () => {

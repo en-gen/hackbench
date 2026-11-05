@@ -140,6 +140,7 @@ export const noteTitle = (
       ? p.rawUnverified
       : undefined
 
+/** What the Properties panel shows for one sprite: label, position, parts and the notes, each in plain words with the engine's text kept apart (#1166). */
 export function spriteProps(s: MapSpriteDto): SpriteProps {
   const parts = s.status === 'drawn' && s.parts ? s.parts : null
   const notes: string[] = []

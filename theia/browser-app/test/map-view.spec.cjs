@@ -3527,8 +3527,9 @@ test('a note on the sprites carries its technical text on the title only (#967)'
   await expect(el).toHaveAttribute('title', 'the flame spawn routine is not the vanilla shape')
 })
 
-/** Two sprites flagged for different causes, as the sprites reply carries them (#1166); a 1x1 clear bitmap each. */
+/** Two different causes, one per flagged sprite (#1166); the first holds a `; ` on purpose. */
 const UNVERIFIED_CAUSES = ['planted cause one; with a semicolon', 'planted cause two']
+/** A served sprites reply with two sprites flagged for different causes, a 1x1 clear bitmap each (#1166). */
 const unverifiedReply = () => ({
   status: 'ok',
   orientation: 'horizontal',
