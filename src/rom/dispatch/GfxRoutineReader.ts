@@ -23,6 +23,8 @@
  * `docs/sprites/sprite-gfx-routine-reading.md`.
  */
 
+import { formatAddr } from '../addressing'
+import { hexs } from '../hex'
 import type { RomFile } from '../RomFile'
 import { resolveDispatch } from './DispatchChain'
 import { SPRITE_PTR_TABLE_COUNT } from './SpritePointerTables'
@@ -228,21 +230,20 @@ export function decidedRoutine(r: GfxRoutineReading | undefined): GfxRoutine | n
 
 /** One line for a tooltip or a warning. */
 export function gfxRoutineMessage(r: GfxRoutineReading): string {
-  const hex = (n: number) => `$${n.toString(16).toUpperCase().padStart(6, '0')}`
   switch (r.kind) {
     case 'read':
-      return `${r.routine} via the call at ${hex(r.callAt)} in the ${r.site.via} handler ${hex(r.site.at)}`
+      return `${r.routine} via the call at ${formatAddr(r.callAt)} in the ${r.site.via} handler ${formatAddr(r.site.at)}`
     case 'selected':
       return (
-        `${r.routine}, chosen by the branch at ${hex(r.select.at)} on ` +
-        `${hex(r.select.table)} & $${r.select.mask.toString(16).toUpperCase()} ` +
+        `${r.routine}, chosen by the branch at ${formatAddr(r.select.at)} on ` +
+        `${formatAddr(r.select.table)} & ${hexs(r.select.mask)} ` +
         `(set: ${r.select.whenSet}, clear: ${r.select.whenClear})`
       )
     case 'ambiguous':
-      return `handler ${hex(r.site.at)} reaches ${r.routines.join(' and ')} with no readable choice between them`
+      return `handler ${formatAddr(r.site.at)} reaches ${r.routines.join(' and ')} with no readable choice between them`
     case 'unreached':
       return (
-        `handler ${hex(r.site.at)} reaches no shared draw routine ` +
+        `handler ${formatAddr(r.site.at)} reaches no shared draw routine ` +
         `(${r.stops.length ? r.stops.join(', ') : 'no call found'})`
       )
     case 'noHandler':

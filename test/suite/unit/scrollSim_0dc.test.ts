@@ -50,14 +50,10 @@ const CHECK_FIELDS: readonly FieldKey[] = [
   'nl2y',
 ]
 
-describe.skipIf(!vanillaRomPresent)(
+describe.skipIf(!vanillaRomPresent || !fs.existsSync(CSV))(
   'scrollSim - $0DC capture validation (L2 cmd $0B, On/Off Switch Y)',
   () => {
     it('post-setup state matches capture row 1', () => {
-      if (!fs.existsSync(CSV)) {
-        console.warn(`[skip] ${CSV} not found`)
-        return
-      }
       const cap = loadCapture(CSV)
       const sim = simFromCapture(cap[0])
       const m = firstMismatch(sim.stateAtFrame(0), cap[0], CHECK_FIELDS)
@@ -76,7 +72,6 @@ describe.skipIf(!vanillaRomPresent)(
     })
 
     it('cmd $0B Y-scroll matches every active captured frame', () => {
-      if (!fs.existsSync(CSV)) return
       const cap = loadCapture(CSV)
       const sim = simFromCapture(cap[0])
 

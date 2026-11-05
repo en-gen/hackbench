@@ -21,7 +21,7 @@ import { spawnSync } from 'child_process'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { SpriteModel } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { runSprite } from '../../../src/rom/sprites/interp/SpriteRunner'
-import { loadLevelState } from '../../../src/rom/sprites/interp/LevelLoader'
+import { loadLevelState, NO_CLUSTER_SPRITES } from '../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import { CAPTURE_DIR, VANILLA, freshRom, hasCaptures, hasRom } from '../support/corpus'
 import { runnerId, timelineFor } from '../support/gradeTimeline'
@@ -895,6 +895,7 @@ describe.skipIf(!hasRom(VANILLA) || !hasCaptures())('gradeCaptures on the corpus
         const t = timelineFor(rec, anchorFrame, marioStart)
         const seed = withSeed({
           loaded: lvl.ok ? lvl.wram : undefined,
+          ram: NO_CLUSTER_SPRITES, // as levelSeed and gradeCaptures do (#809, #980)
           slot: rec.slot,
           mainPasses: t.mainPasses,
           ...t.seedExtra,

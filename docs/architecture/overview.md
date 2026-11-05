@@ -83,12 +83,11 @@ never the base bytes. That is what makes a palette edit show up immediately
 in an already-open GFX sheet: both read the same `WorkingRom` instance,
 handed out by `WorkingRomRegistry`.
 
-Palette, GFX and Map16 are migrated. The Maps view is **not**:
-`project-server.ts`'s `mapDetails` and `loadMaps` still call
-`RomFile.load` directly, which is why
-`test/suite/gates/workingCopyGate.test.ts` exempts that one file by name.
-So it is a rule with one outstanding exception, not a description of the
-current code. See [../glossary.md](../glossary.md), "Working copy".
+Palette, GFX, Map16 and Maps all read the working copy through
+`WorkingRomRegistry`. There is no exception: since #421 step 3
+`test/suite/gates/workingCopyGate.test.ts` bans `RomFile.load(` and
+`RomRegistry` in every `*-server.ts`, `project-server.ts` included. See
+[../glossary.md](../glossary.md), "Working copy".
 
 ## The edit model is a flux loop
 

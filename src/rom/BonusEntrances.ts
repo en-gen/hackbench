@@ -14,6 +14,7 @@
  * the primary-exit branch's landing. Assumes that path: with `UseSecondaryExit`
  * set (bank_0D.asm:1438) the destination comes from `DATA_05F800` instead.
  */
+import { formatAddr } from './addressing'
 import type { RomFile } from './RomFile'
 import { matchesBytes, WILD, type BytePattern } from './BytePattern'
 import {
@@ -84,8 +85,6 @@ const BONUS_Y = 1
 const YOSHI_Y = 8
 const TABLE = 20
 
-const hex6 = (addr: number): string => `$${addr.toString(16).toUpperCase().padStart(6, '0')}`
-
 /** @param fingerprints Replaces BONUS_CALL's recognized builds; for a synthetic ROM. */
 export function findBonusEntrances(
   rom: RomFile,
@@ -100,12 +99,12 @@ export function findBonusEntrances(
   const bank = BONUS_CALL.addr & 0xff0000
   const landing = PRIMARY_BEQ + 2 + ((rom.readByte(PRIMARY_BEQ + 1)! << 24) >> 24)
   if (!matchesBytes(rom.readAt(landing, BONUS_LOAD_JMP.length), BONUS_LOAD_JMP)) {
-    return refuse(`the primary-exit branch lands on ${hex6(landing)}, not JMP CODE_05D8B7.`)
+    return refuse(`the primary-exit branch lands on ${formatAddr(landing)}, not JMP CODE_05D8B7.`)
   }
   const pickAt = bank | rom.readWord(JSR_AT)!
   const pick = rom.readAt(pickAt, BONUS_PICK.length)
   if (!matchesBytes(pick, BONUS_PICK))
-    return refuse(`the JSR reaches ${hex6(pickAt)}, not CODE_05DBAC.`)
+    return refuse(`the JSR reaches ${formatAddr(pickAt)}, not CODE_05DBAC.`)
   const high = readSubmapHigh(rom, SCREEN_EXIT_HIGH_AT)
   if (typeof high === 'string') return refuse(high)
 
@@ -117,9 +116,9 @@ export function findBonusEntrances(
     ['yoshi-heaven', pick![YOSHI_Y]!],
   ] as const) {
     const low = rom.readByte(table + y)
-    if (low === null) return refuse(`DATA_05DBA9 at ${hex6(table + y)} is not readable.`)
+    if (low === null) return refuse(`DATA_05DBA9 at ${formatAddr(table + y)} is not readable.`)
     for (const index of new Set([low, (high << 8) | low])) {
-      maps.push({ index, role, foundAt: hex6(table + y) })
+      maps.push({ index, role, foundAt: formatAddr(table + y) })
     }
   }
   return { maps, notes: [] }

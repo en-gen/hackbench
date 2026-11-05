@@ -240,15 +240,18 @@ describe('blockIndicators: what is drawn', () => {
 
   it('surfaces a table refusal, a per-block refusal and a drawing refusal, never as raw keys', () => {
     const reason = 'DATA_00F080 (36 bytes at $00F080) runs past the end of this ROM'
-    expect(blockIndicators(model([]), { kind: 'unavailable', unavailable: reason }, stubArt().art)).toEqual({ status: 'unavailable', reason }) // prettier-ignore
+    expect(blockIndicators(model([]), { kind: 'unavailable', unavailable: reason }, stubArt().art)).toEqual({ status: 'unavailable', reason: "this ROM's block contents could not be read.", detail: reason }) // prettier-ignore
     const short = { ...TABLES, statusOfSprInBlk: new Uint8Array(0) }
     const refused = ok(blockIndicators(model([[0, 0, 0x115]]), short, stubArt().art))
     expect(refused.indicators).toEqual([])
-    expect(refused.note).toMatch(/^Block contents not shown: 1 block .*past the end/)
+    expect(refused.note).toBe('Block contents not shown: 1 block whose contents could not be read from this ROM.') // prettier-ignore
+    expect(refused.noteDetail).toMatch(/past the end/)
+    expect(refused.note).not.toMatch(/past the end|\$/)
     const drew = ok(blockIndicators(model([[0, 0, 0x115], [1, 0, 0x115]]), TABLES, stubArt({ 0x43: 'charsNotLoaded' }).art)) // prettier-ignore
     expect(drew.indicators).toEqual([])
     expect(drew.note).toBe('Block contents not shown: 2 blocks whose graphics are not loaded in this map.') // prettier-ignore
-    expect(plainWhy('refused: step budget spent')).toBe('whose sprite code was refused (step budget spent)') // prettier-ignore
+    expect(plainWhy('refused: step budget spent')).toBe('whose sprite code was refused on this ROM') // prettier-ignore
+    expect(plainWhy('odd thing at $02:8000')).toBe('whose item could not be drawn')
     expect(plainWhy('drew no OAM tile in 64 passes')).toBe('whose item draws nothing in its first frames') // prettier-ignore
   })
 })
@@ -389,14 +392,19 @@ describe('mapBlockContents on a synthetic cart', () => {
     expect(mapBlockContents(cache, b, 'a.sfc', 2)).toBe(mapBlockContents(cache, b, 'a.sfc', 2))
   })
 
-  it('names the coin gate in the note when the coin draw is not the traced one', () => {
+  it('names the coin gate in the note detail, plain words in the note, when the coin draw is not the traced one', () => {
     const grid = hGrid(1)
     grid[0]![0] = 0x11c
     const bad = [...COIN_SITE]
     bad[17] = 0x00
     const r = mapBlockContents(build(grid), cartBytes({ coin: bad }), 'b.sfc', 3)
     expect(r.status === 'ok' && r.indicators).toEqual([])
-    expect(r.status === 'ok' && r.note).toContain('the coin sprite draw (bank_02.asm:3432-3441)')
+    expect(r.status === 'ok' && r.note).toBe(
+      'Block contents not shown: 1 block whose item could not be drawn.',
+    )
+    expect(r.status === 'ok' && r.noteDetail).toContain(
+      'the coin sprite draw (bank_02.asm:3432-3441)',
+    )
   })
 })
 

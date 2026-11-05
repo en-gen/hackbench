@@ -13,6 +13,9 @@
   ],
   "scripts": {
     "prepare": "lerna run prepare",
+    "prebuild": "node ../tools/scripts/check-theia-install.mjs",
+    "prebuild:browser": "node ../tools/scripts/check-theia-install.mjs",
+    "prebuild:electron": "node ../tools/scripts/check-theia-install.mjs",
     "build:browser": "yarn --cwd browser-app bundle && node browser-app/stamp-build.cjs",
     "start:browser": "yarn --cwd browser-app start",
     "watch:browser": "yarn --cwd browser-app watch",

@@ -14,6 +14,7 @@
 import { existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { SmwRom } from '../../src/rom/SmwRom'
+import { hexs } from '../../src/rom/hex'
 import {
   BOSS_ARENA_SCREENS,
   SWITCH_FLAGS_UNCLEARED,
@@ -69,8 +70,6 @@ export function deriveOk(
 ): boolean {
   return unavailable === undefined && mismatches.length === 0
 }
-
-export const hex = (n: number, w = 0) => '$' + n.toString(16).toUpperCase().padStart(w, '0')
 
 /**
  * A SHA-256 of one table's mismatch set, order-independent (sorted by cell
@@ -157,7 +156,7 @@ export function checkGrid(
       const capId = D.map16Id(grid, meta, c, r)
       const romId = row[c]!
       if (capId !== romId) {
-        mismatches.push({ table: 'grid', cell: `${c},${r}`, expected: hex(capId), actual: hex(romId) }) // prettier-ignore
+        mismatches.push({ table: 'grid', cell: `${c},${r}`, expected: hexs(capId), actual: hexs(romId) }) // prettier-ignore
       }
     }
   }
@@ -189,7 +188,7 @@ export function checkDefs(
       const rom = quadWords(tiles[id]!)
       const known = pipeVariants.some(v => quadWords(v[id - PIPE_LO]!).every((w, q) => w === rom[q])) // prettier-ignore
       if (!known) {
-        out.push({ table: 'defs', cell: `${hex(id)} (compiled default)`, expected: 'one of the 4 MAP16AppTable variants', actual: rom.map(w => hex(w)).join(',') }) // prettier-ignore
+        out.push({ table: 'defs', cell: `${hexs(id)} (compiled default)`, expected: 'one of the 4 MAP16AppTable variants', actual: rom.map(w => hexs(w)).join(',') }) // prettier-ignore
       }
       continue
     }
@@ -197,7 +196,7 @@ export function checkDefs(
     for (let q = 0; q < 4; q++) {
       const cap = D.defWord(defs, order, id, q & 1, q >> 1)
       if (rom[q] !== cap) {
-        out.push({ table: 'defs', cell: `${hex(id)} q${q}`, expected: hex(cap), actual: hex(rom[q]!) }) // prettier-ignore
+        out.push({ table: 'defs', cell: `${hexs(id)} q${q}`, expected: hexs(cap), actual: hexs(rom[q]!) }) // prettier-ignore
       }
     }
   }
@@ -302,7 +301,7 @@ export function checkPipes(
 ): { mismatches: GateMismatch[]; allowed: AllowedDifference[] } {
   if (writes.lo !== PIPE_LO || writes.hi !== PIPE_HI) {
     return {
-      mismatches: [{ table: 'pipes', cell: 'range', expected: `${hex(PIPE_LO)}..${hex(PIPE_HI)}`, actual: `${hex(writes.lo)}..${hex(writes.hi)}` }], // prettier-ignore
+      mismatches: [{ table: 'pipes', cell: 'range', expected: `${hexs(PIPE_LO)}..${hexs(PIPE_HI)}`, actual: `${hexs(writes.lo)}..${hexs(writes.hi)}` }], // prettier-ignore
       allowed: [],
     }
   }
@@ -365,7 +364,7 @@ export function checkPipes(
   for (const b of writes.builds) {
     const naive = wordsFor(b.strip) // "as today": f(strip), the load-loop/horizontal-scroll rule
     if (!naive) {
-      mismatches.push({ table: 'pipes', cell: `strip ${b.strip}`, expected: b.words.map(w => hex(w)).join(','), actual: 'unavailable: no MAP16AppTable' }) // prettier-ignore
+      mismatches.push({ table: 'pipes', cell: `strip ${b.strip}`, expected: b.words.map(w => hexs(w)).join(','), actual: 'unavailable: no MAP16AppTable' }) // prettier-ignore
       continue
     }
     let expected = naive
@@ -412,7 +411,7 @@ export function checkPipes(
       if (b.words[i] !== expected[i]) {
         const id = writes.lo + Math.floor(i / 4)
         const q = i % 4
-        mismatches.push({ table: 'pipes', cell: `strip ${b.strip} ${hex(id)} q${q}`, expected: hex(b.words[i]!), actual: hex(expected[i]!) }) // prettier-ignore
+        mismatches.push({ table: 'pipes', cell: `strip ${b.strip} ${hexs(id)} q${q}`, expected: hexs(b.words[i]!), actual: hexs(expected[i]!) }) // prettier-ignore
       }
     }
   }
@@ -511,7 +510,7 @@ export function checkChars(
     if (!matched) {
       out.push({
         table: 'chars',
-        cell: hex(ch),
+        cell: hexs(ch),
         expected: [...capPixels].join(','),
         actual: romPixels ? [...romPixels].join(',') : 'unavailable',
       })
@@ -539,7 +538,12 @@ export function checkPalette(
       const rom = colors[idx]!.slice(0, 3)
       if (same(rom, cap)) continue
       if ((animByIdx.get(idx) ?? []).some(f => same(f, cap))) continue
-      out.push({ table: 'palette', cell: hex(idx), expected: cap.join(','), actual: rom.join(',') })
+      out.push({
+        table: 'palette',
+        cell: hexs(idx),
+        expected: cap.join(','),
+        actual: rom.join(','),
+      })
     }
   }
   return out

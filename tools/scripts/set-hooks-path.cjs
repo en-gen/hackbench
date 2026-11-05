@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Run by the npm `prepare` lifecycle script so the content gate and style
-// gate are wired up automatically (issue #678). Plain CommonJS + node
+// Run by the npm `prepare` lifecycle script so the pre-push content gate
+// is wired up automatically (issue #678). Plain CommonJS + node
 // built-ins only, and never `bash`: on Windows, `bash` on PATH can resolve
 // to WSL's bash.exe, which cannot see this checkout and breaks `npm install`.
 //

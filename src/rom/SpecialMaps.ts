@@ -45,6 +45,7 @@
  * candidate sites means we cannot say which one the game runs, and picking
  * the first would be a guess dressed as a reading.
  */
+import { hex, hex2s } from './hex'
 import { RomFile } from './RomFile'
 import { BytePattern, WILD, findPattern } from './BytePattern'
 
@@ -103,7 +104,7 @@ function findLoadSites(rom: RomFile, pattern: BytePattern): Match[] {
 function snesAddress(offset: number): string {
   const bank = offset >> 15
   const addr = (offset & 0x7fff) | 0x8000
-  return `$${bank.toString(16).padStart(2, '0').toUpperCase()}:${addr.toString(16).toUpperCase()}`
+  return `${hex2s(bank)}:${hex(addr)}`
 }
 
 export function findSpecialMaps(rom: RomFile): SpecialMaps {

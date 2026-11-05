@@ -4,6 +4,7 @@
  *   npx tsx tools/scripts/dump_level.ts 00a
  */
 import { SmwRom } from '../../src/rom/SmwRom'
+import { formatAddr } from '../../src/rom/addressing'
 import { parseLevelObjects } from '../../src/rom/LevelParser'
 import { STANDARD_HANDLERS, EXTENDED_HANDLERS } from '../../src/rom/objectHandlers/dispatch'
 import {
@@ -66,7 +67,7 @@ for (const [i, o] of objects.entries()) {
   const rawStr = o.raw.map(b => b.toString(16).padStart(2, '0')).join(' ')
   if (o.type === 'standard') {
     const info = resolveStandard(o.objectNumber)
-    const addrStr = info ? `$${info.snesAddr.toString(16).padStart(6, '0').toUpperCase()}` : '---'
+    const addrStr = info ? formatAddr(info.snesAddr) : '---'
     const flag = info?.ported ? 'OK' : 'MISSING'
     console.log(
       `  [${i.toString().padStart(3)}] std  obj=$${o.objectNumber.toString(16).padStart(2, '0')}  set=$${o.settings.toString(16).padStart(2, '0')}  pos=(${o.x},${o.y})  screen=${o.screen}  raw=[${rawStr}]  -> ${addrStr} ${flag}`,
@@ -78,7 +79,7 @@ for (const [i, o] of objects.entries()) {
     }
   } else {
     const info = resolveExtended(o.settings)
-    const addrStr = info ? `$${info.snesAddr.toString(16).padStart(6, '0').toUpperCase()}` : '---'
+    const addrStr = info ? formatAddr(info.snesAddr) : '---'
     const flag = info?.ported ? 'OK' : 'MISSING'
     console.log(
       `  [${i.toString().padStart(3)}] ext  ext=$${o.settings.toString(16).padStart(2, '0')}  pos=(${o.x},${o.y})  screen=${o.screen}  raw=[${rawStr}]  -> ${addrStr} ${flag}`,
@@ -95,12 +96,12 @@ console.log()
 console.log(`Unimplemented standard handlers used by this level:`)
 for (const [addr, info] of [...missingStd.entries()].sort((a, b) => b[1].count - a[1].count)) {
   console.log(
-    `  $${addr.toString(16).padStart(6, '0').toUpperCase()}  obj=$${info.objNo.toString(16).padStart(2, '0')}  x${info.count}`,
+    `  ${formatAddr(addr)}  obj=$${info.objNo.toString(16).padStart(2, '0')}  x${info.count}`,
   )
 }
 console.log(`Unimplemented extended handlers used by this level:`)
 for (const [addr, info] of [...missingExt.entries()].sort((a, b) => b[1].count - a[1].count)) {
   console.log(
-    `  $${addr.toString(16).padStart(6, '0').toUpperCase()}  ext=$${info.extNo.toString(16).padStart(2, '0')}  x${info.count}`,
+    `  ${formatAddr(addr)}  ext=$${info.extNo.toString(16).padStart(2, '0')}  x${info.count}`,
   )
 }

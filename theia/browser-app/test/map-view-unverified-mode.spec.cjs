@@ -7,6 +7,7 @@
  * and rebuild: the 1E assertions fail.
  */
 const { test, expect } = require('@playwright/test')
+const { viewSettled } = require('./strip-gone.cjs')
 
 const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const WARNING = 'Level mode 1E: sprite layering not verified'
@@ -41,9 +42,7 @@ async function openSynthetic(page, index, levelMode) {
         {},
         {
           get: (_, name) =>
-            name === 'mapDetails'
-              ? async () => ({ index, name: 'Synthetic', screens: 1, levelMode })
-              : async () => unavailable,
+            name === 'mapDetails' ? async () => ({ index, levelMode }) : async () => unavailable,
         },
       )
       await w.open({ manifestPath: 'synthetic.hbproj', index, label: `s${index}`, iconClass: '' })
@@ -67,10 +66,27 @@ test('mode 1E shows the warning, with an explanatory tooltip', async ({ page }) 
   expect(await w.getAttribute('title')).not.toMatch(/github/i)
 })
 
+/**
+ * The details reply for the tab's current open has been painted: the view says `done` for the
+ * generation the open started, so an absence checked after it is not the previous open's DOM.
+ */
+async function expectDetailsLanded(page, index) {
+  const generation = await page.evaluate(
+    id => getSvc('ApplicationShell').getWidgetById(`hackbench.map-view:${id}`).generation,
+    index,
+  )
+  await expect(
+    page.locator(
+      `${root(index)} .hb-map-view-main[data-details="done"][data-generation="${generation}"]`,
+    ),
+  ).toBeAttached()
+  await viewSettled(page, `hackbench.map-view:${index}`)
+}
+
 test('another mode shows no warning', async ({ page }) => {
   await openSynthetic(page, 0x1e1, 0x0e)
-  // The details reply has landed once the name shows, so absence is checked after it.
-  await expect(page.locator(`${root(0x1e1)} .hb-map-name`)).toHaveText('Synthetic')
+  // The details reply has been painted, so absence is checked after it.
+  await expectDetailsLanded(page, 0x1e1)
   await expect(page.locator(warning(0x1e1))).toHaveCount(0)
 })
 
@@ -85,12 +101,12 @@ test('reusing one tab for a 1E level, then a normal one, hides the warning', asy
       {
         get: (_, name) =>
           name === 'mapDetails'
-            ? async () => ({ index: 0x1e2, name: 'Normal', screens: 1, levelMode: 0x01 })
+            ? async () => ({ index: 0x1e2, levelMode: 0x01 })
             : async () => ({ status: 'unavailable', reason: 'synthetic level' }),
       },
     )
     await w.open({ manifestPath: 'synthetic.hbproj', index: 0x1e2, label: 'n', iconClass: '' })
   })
-  await expect(page.locator(`${root(0x1e2)} .hb-map-name`)).toHaveText('Normal')
+  await expectDetailsLanded(page, 0x1e2)
   await expect(page.locator(warning(0x1e2))).toHaveCount(0)
 })

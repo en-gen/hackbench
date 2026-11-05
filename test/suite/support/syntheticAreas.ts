@@ -1,41 +1,43 @@
 /** Vanilla-shaped overworld area routines for synthetic ROMs (OverworldAreas gates). */
 import { RomFile } from '../../../src/rom/RomFile'
+import { AREA_SPANS, type AreaFingerprints } from '../../../src/rom/OverworldAreas'
+import { spanFingerprint } from '../../../src/rom/SubmapFlagGate'
 
-// Routine bytes as the vanilla ROM holds them (SMWDisX bank_00.asm:4250-4333;
-// bank_04.asm:527-581, :1753-1774, :2356-2361, :2835-2885). '??' is an operand the
-// module reads or ignores. Kept apart from the module's patterns on purpose.
-export const HEX = {
-  camera: '0a aa c2 20 bd ?? ?? 85 1a 85 1e bd ?? ?? 85 1c 85 20 e2 20',
-  scan:
-    'ac b3 0d b9 11 1f 85 01 64 00 c2 20 ae d6 0d a0 ?? b9 ?? ?? 45 00 c9 00 02 b0 0d dd 1f 1f ' +
-    'd0 08 bd 21 1f d9 ?? ?? f0 04 88 88 10 e5 8c f6 1d',
-  dest:
-    '8b 4b ab c2 20 ae d6 0d ac f6 1d b9 ?? ?? 48 29 ff 01 9d 17 1f 4a 4a 4a 4a 9d 1f 1f b9 ?? ?? ' +
-    '9d 19 1f 4a 4a 4a 4a 9d 21 1f 68 4a eb 29 0f 00 8d c3 13',
-  path:
-    'c2 20 ad d6 0d 4a 4a aa bd 11 1f 29 ff 00 8d c3 13 a9 ?? 00 85 02 a0 ?? ae d6 0d bd 19 1f ' +
-    'd9 ?? ?? d0 3e bd 17 1f d9 ?? ?? d0 36 b9 ?? ?? 29 ff 00 cd c3 13 d0 2b b9 ?? ?? 9d 19 1f ' +
-    'b9 ?? ?? 9d 17 1f b9 ?? ?? 29 ff 00 8d c3 13 a4 02 b9 ?? ?? 29 ff 00 9d 21 1f b9 ?? ?? ' +
-    '29 ff 00 9d 1f 1f 80 0b c6 02 c6 02 88 88 88 88 88 10 af e2 20',
-  jsl: 'ad 9c 1b f0 04 22 ?? ?? ?? 20 a6 a1',
-  jsrPath: 'dd 26 94 d0 2a 5a 20 ?? ?? 7a a9 01',
-  jsrStar: 'c9 5f d0 18 20 ?? ?? d0 2e 9c f7 1d',
-  jsrPipe: 'c9 5b d0 11 20 ?? ?? d0 0b ee 9c 1b',
-}
-export type Name = keyof typeof HEX
+export type Name = keyof typeof AREA_SPANS
+
+// The area routines as hand-written stand-ins, not the cart's code: each span is the module's
+// length and operand offsets, its anchor opcode, NOPs between and zeroed operand slots.
+// The module recognizes them through SYNTHETIC_AREA_FPS, the way OverworldDecode's
+// SYNTHETIC_FPS recognizes its NOP spans. Citations for the real routines are in the module.
+export const NAMES = Object.keys(AREA_SPANS) as Name[]
+/** Span length, so tests size their flips and planted copies from the module, not a copy. */
+export const LEN = (n: Name): number => AREA_SPANS[n].length
+export const CODE = Object.fromEntries(
+  NAMES.map(n => {
+    const s = AREA_SPANS[n]
+    const bytes = new Array<number>(s.length).fill(0xea)
+    bytes[0] = s.anchor
+    for (const i of s.mask) bytes[i] = 0
+    return [n, bytes]
+  }),
+) as Record<Name, number[]>
+export const SYNTHETIC_AREA_FPS = Object.fromEntries(
+  NAMES.map(n => [n, [spanFingerprint(Buffer.from(CODE[n]), AREA_SPANS[n].mask)!]]),
+) as AreaFingerprints
 // SNES addresses; `moves` sites follow the routine bank.
 export const WHERE: Record<Name, { at: number; moves?: true }> = {
-  camera: { at: 0x00a130 },
-  scan: { at: 0x048509, moves: true },
-  dest: { at: 0x04853b, moves: true },
-  path: { at: 0x049a24, moves: true },
-  jsl: { at: 0x00a08a },
-  jsrPath: { at: 0x049616, moves: true },
-  jsrStar: { at: 0x049161, moves: true },
-  jsrPipe: { at: 0x049184, moves: true },
+  camera: { at: 0x00a300 },
+  scan: { at: 0x04c500, moves: true },
+  dest: { at: 0x04c600, moves: true },
+  path: { at: 0x04c700, moves: true },
 }
+// Call instructions planted by `call`, not fingerprinted: the module reads their operands.
+export const CALLS = { jsl: 0x00a08a, jsrPath: 0x049616, jsrStar: 0x049161, jsrPipe: 0x049184 }
+export type CallName = keyof typeof CALLS
 // Operand offsets inside the routines above.
 export const OP = {
+  camX: 26,
+  camY: 33,
   pathCounter: 18,
   pathLdy: 23,
   pathSrc: 44,
@@ -46,7 +48,6 @@ export const OP = {
 }
 export const T = { warpSrc: 0x8431, warpDst: 0x849d, pathSrc: 0x9968, pathDst: 0x99ae }
 
-export const tokens = (s: string): string[] => s.split(' ')
 export const inBank = (at: number, bank: number): number => (bank << 16) | (at & 0xffff)
 export const siteAt = (n: Name, bank = 4): number =>
   WHERE[n].moves ? inBank(WHERE[n].at, bank) : WHERE[n].at
@@ -78,18 +79,58 @@ export const word = (base: number, v: number): Record<number, number> => ({
   [base]: v & 0xff,
   [base + 1]: v >> 8,
 })
-/** Plant routine or caller `n` from HEX at its address in `bank`, operands filled from `ops`. */
+/** Plant routine or caller `n` from CODE at its address in `bank`, operands filled from `ops`. */
 export function plant(rom: RomFile, n: Name, bank: number, ops: Record<number, number> = {}): void {
-  const b = tokens(HEX[n]).map(t => (t === '??' ? 0 : parseInt(t, 16)))
+  const b = [...CODE[n]]
   for (const [i, v] of Object.entries(ops)) b[Number(i)] = v
   rom.writeAt(siteAt(n, bank), b)
 }
 
-/** Plants vanilla-shaped routines, callers and tables (from HEX) into `rom`. */
+/** Where a planted call sits: JSL in bank 0, JSRs in the routine bank. */
+export const callAt = (n: CallName, bank = 4): number =>
+  n === 'jsl' ? CALLS[n] : inBank(CALLS[n], bank)
+/** Compare immediates planted before the two scan callers: any two different values. */
+export const TILE = { jsrStar: 0x11, jsrPipe: 0x22 }
+const I = { jsr: 0x20, jsl: 0x22, beq: 0xf0, bne: 0xd0, cmpImm: 0xc9, phy: 0x5a, ldaAbs: 0xad }
+/** Made-up load of an address no check reads: it only has to be an absolute load. */
+const ldaAbs = (addr: number): number[] => [I.ldaAbs, addr & 0xff, addr >> 8]
+/** A JSL to `lo` in `bank`; the module reads this operand to find the callee. */
+const jsl = (lo: number, bank: number): number[] => [I.jsl, lo & 0xff, lo >> 8, bank]
+/** A JSR to `lo`; same-bank by construction, as the module requires. */
+const jsr = (lo: number): number[] => [I.jsr, lo & 0xff, lo >> 8]
+/** A BEQ over `over`, its displacement derived from the skipped length like the module's check. */
+const skip = (over: number[]): number[] => [I.beq, over.length]
+/** A BNE with a made-up displacement; only the opcode matters to the check. */
+const branch = (): number[] => [I.bne, 0]
+/**
+ * Plants a call to `target` (low word) at `n`. Each call is built instruction by instruction from
+ * named opcodes, the way the module checks them, with made-up operands: the JSL with a skip
+ * over it, the path JSR after a push and a branch, a scan JSR after a compare and a branch.
+ * `bank` is the JSL's bank byte; `at` overrides the site.
+ */
+export function call(
+  rom: RomFile,
+  n: CallName,
+  target: number,
+  bank = 4,
+  at: number = callAt(n, bank),
+): void {
+  const shape: Record<CallName, number[]> = {
+    jsl: [...ldaAbs(0x1234), ...skip(jsl(0, 0)), ...jsl(target, bank)],
+    jsrPath: [...branch(), I.phy, ...jsr(target)],
+    jsrStar: [I.cmpImm, TILE.jsrStar, ...branch(), ...jsr(target)],
+    jsrPipe: [I.cmpImm, TILE.jsrPipe, ...branch(), ...jsr(target)],
+  }
+  rom.writeAt(at, shape[n])
+}
+/** Bytes a planted call occupies, to blank it. */
+export const CALL_LEN: Record<CallName, number> = { jsl: 9, jsrPath: 6, jsrStar: 7, jsrPipe: 7 }
+
+/** Plants vanilla-shaped routines, callers and tables (from CODE) into `rom`. */
 export function plantAreas(rom: RomFile, bank = 4): void {
   const put = (n: Name, ops: Record<number, number> = {}): void => plant(rom, n, bank, ops)
   const low = (n: Name): number => siteAt(n, bank) & 0xffff
-  put('camera', { ...word(5, 0xa06b), ...word(12, 0xa079) })
+  put('camera', { ...word(OP.camX, 0xa06b), ...word(OP.camY, 0xa079) })
   put('scan', { [OP.warpLdy]: (WARP_SRC.length - 1) * 2, ...word(OP.warpSrc, T.warpSrc) })
   put('dest', word(OP.warpDst, T.warpDst))
   put('path', {
@@ -98,10 +139,10 @@ export function plantAreas(rom: RomFile, bank = 4): void {
     ...word(OP.pathSrc, T.pathSrc),
     ...word(OP.pathDst, T.pathDst),
   })
-  put('jsl', { ...word(6, low('dest')), 8: bank })
-  put('jsrPath', word(7, low('path')))
-  put('jsrStar', word(5, low('scan')))
-  put('jsrPipe', word(5, low('scan')))
+  call(rom, 'jsl', low('dest'), bank)
+  call(rom, 'jsrPath', low('path'), bank)
+  call(rom, 'jsrStar', low('scan'), bank)
+  call(rom, 'jsrPipe', low('scan'), bank)
   WARP_SRC.forEach((a, i) => warpSrc(rom, i, a, bank))
   WARP_DST.forEach((a, i) => warpDst(rom, i, a, bank))
   PATH_SRC.forEach((a, i) => pathSrc(rom, i, a, bank))

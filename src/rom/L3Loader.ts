@@ -29,8 +29,9 @@
  *
  * Layer3TilemapSettings (3 bytes per tileset × 16 tilesets at $009F8D):
  *   Each byte encodes the tide behaviour / initial Y position.
- *   If bit 7 = 0: !Tide_UpAndDown ($01) or !Tide_Stationary ($00) → tide effect.
- *     Layer3YPos = $70 (up-and-down) or $40 (stationary).
+ *   If bit 7 = 0: $01 is !Tide_UpAndDown (Layer3YPos = $70, sweeps); $02-$7F are
+ *     stationary tides (Layer3YPos = $40, static); $00 skips the tide handler
+ *     (CODE_05C40C), so it is not a tide (Layer3YPos = $70 at load).
  *   If bit 7 = 1 and bit 6 = 0 ($80/$81): non-tide overlay.
  *     $80 / $C0: Layer3YPos = $D0 (fixed, scroll type incremented).
  *     $81 Castle1/Underground1: Layer3YPos = $C0 (fixed via CODE_009FFA).
@@ -126,16 +127,38 @@ const DATA_05D708_ADDR = 0x05d708
  *
  * The game reads the primary entrance (DATA_05F000.. by map) when the overworld or a screen exit
  * without UseSecondaryExit enters the map, and a secondary entrance's row only when the flag is
- * set (bank_05.asm:7111-7162 vs 7300-7337). So: overworld or primary-exit entered, primary; else the
- * lowest secondary index that enters it; else (filler such as $100) primary. `via` is the exit
- * graph's `MapEntrances` for the map. Undefined means the graph is unavailable (a hooked hack):
- * primary, never the stock destination formula applied to tables whose reader may not be stock.
- * The destination of an entrance is decided by the graph (bit 8 of the index, then DATA_05F800,
- * :7103-7118), not here.
+ * set (bank_05.asm:7111-7162 vs 7300-7337). A sub area uses the entrance the normal route reaches
+ * it by (`MapEntrances.route`), not the lowest id (#945). `via` is the exit graph's `MapEntrances`
+ * for the map. Undefined means the graph is unavailable (a hooked hack): primary, never the stock
+ * destination formula applied to tables whose reader may not be stock. The destination of an
+ * entrance is decided by the graph (bit 8 of the index, then DATA_05F800, :7103-7118), not here.
  */
 export function chooseEntrance(via?: MapEntrances): number | null {
-  if (!via || via.overworld || via.primary) return null
-  return via.secondary.length > 0 ? Math.min(...via.secondary) : null
+  return chooseEntranceNoted(via).entrance
+}
+
+/**
+ * `chooseEntrance` plus a note when the route could not be found (D66 call 1, #945). An overworld
+ * entry map is primary. For any other map the route decides, even when a primary exit also enters
+ * it later: `via.route` is the entrance the exit-graph walk reached it by first (null: a primary
+ * exit got there first). A graph that never reached the map gives an empty record with no route:
+ * primary, with a note that the map opens at the first screen (screen 0, D78 call 2: only the scroll stays
+ * at screen 0; the layer 2 and 3 heights still read the map's own primary entrance row), never silent.
+ */
+export function chooseEntranceNoted(via?: MapEntrances): {
+  entrance: number | null
+  note?: string
+} {
+  if (!via || via.overworld) return { entrance: null }
+  if (via.route !== undefined) return { entrance: via.route }
+  // A hand-built record with entries but no `route` (the walk always sets one): the earlier
+  // lowest-id rule, no note, since the record does not show that no route exists.
+  const hasEntries = via.primary || via.secondary.length > 0
+  if (hasEntries) return { entrance: via.primary ? null : Math.min(...via.secondary) }
+  return {
+    entrance: null,
+    note: 'No route from the overworld reaches this map, so it opens at the first screen.',
+  }
 }
 
 /** DATA_05FA00 for an entrance, or null when the ROM ends before it (never a phantom 0). */
@@ -224,8 +247,8 @@ export function applyInitialTimer(rom: RomFile, tilemap: Uint16Array, timeLimit:
 
 /**
  * Return the initial Layer1YPos (camera Y) in pixels for a map, from the entrance
- * `chooseEntrance(via)` picks: the primary entrance, or the lowest secondary one when no
- * overworld tile or primary-entrance exit enters the map.
+ * `chooseEntrance(via)` picks: the primary entrance, or the route's secondary one for a
+ * sub area (#945).
  *
  * Primary entrance (bank_05.asm:7323-7335):
  *   Layer1YPos = DATA_05D708[bits 3:2 of DATA_05F400[level]]
@@ -353,7 +376,7 @@ export interface L3RoutineSummary {
    * concrete static initial value.
    */
   initialYPx: number | null
-  /** True when the byte is < $80 with bit 0 set (Tide_UpAndDown). */
+  /** True only for byte $01 (Tide_UpAndDown), the one tide byte that sweeps Y. */
   isTideUpAndDown: boolean
 }
 
@@ -375,8 +398,9 @@ export interface ClassifyL3Input {
  *                            CODE_05C494 falls through when TideSetting-1 == 0)
  *   - byte === $00        → 'fixed' (CODE_05C40C BEQ skips JMP CODE_05C494, so
  *                            no animation; init Y = $70 per ASM)
- *   - byte $02..$7F       → 'fixed' (Tide_Stationary; CODE_05C494 BNE jumps to
- *                            CODE_05C4EC which only updates Layer3XPos, not Y)
+ *   - byte $02..$7F       → 'tide' (Tide_Stationary; CODE_05C494 BNE jumps to
+ *                            CODE_05C4EC, the same X path as $01, but Y stays
+ *                            static, so isTideUpAndDown is false; #808)
  *   - byte === $80        → 'fixed' (static at $D0)
  *   - byte === $81 + tileset 1 (Castle1) or 3 (Underground1) → 'fixed' (static at $C0)
  *   - byte === $81 + other tileset → 'camera-tracked' (Layer3YPos = Layer1YPos)
@@ -397,12 +421,22 @@ export function classifyL3Routine(input: ClassifyL3Input): L3RoutineSummary {
     }
   }
   // Only byte $01 reaches the Y-animating path. Byte $00 short-circuits at
-  // CODE_05C40C; byte $02..$7F takes CODE_05C4EC which only scrolls X.
+  // CODE_05C40C; byte $02..$7F takes CODE_05C4EC which only scrolls X (a tide
+  // too).
   if (settingsByte === 0x01) {
     return { layer3Setting, settingsByte, kind: 'tide', initialYPx: 0x70, isTideUpAndDown: true }
   }
+  if (settingsByte >= 0x02 && settingsByte < 0x80) {
+    return {
+      layer3Setting,
+      settingsByte,
+      kind: 'tide',
+      initialYPx: l3InitialYPx(settingsByte),
+      isTideUpAndDown: false,
+    }
+  }
   if (settingsByte < 0x80) {
-    // Byte $00 or $02..$7F - no Y animation. Treat as fixed.
+    // Byte $00: CODE_05C40C skips the tide handler. Treat as fixed.
     return {
       layer3Setting,
       settingsByte,
@@ -459,8 +493,10 @@ export const L3_TIDE_YPOS_MAX = 0xa0
 export interface L3ScrollRange {
   /**
    * Animation kind:
-   *   - tide:           Layer3YPos sweeps L3_TIDE_YPOS_MIN..MAX every frame.
-   *   - fixed:          Layer3YPos stays at initialYPx (no animation).
+   *   - tide:           byte $01 sweeps Layer3YPos L3_TIDE_YPOS_MIN..MAX every
+   *                     frame; bytes $02-$7F keep it at initialYPx (static Y).
+   *   - fixed:          byte $00, $80, or $81 on tileset 1/3: Layer3YPos stays
+   *                     at initialYPx (no animation).
    *   - camera-tracked: Layer3YPos = Layer1YPos every frame; cells sit at
    *                     fixed level Y = row*8.
    *   - none:           no L3 background or no gameplay-area content.
@@ -472,7 +508,7 @@ export interface L3ScrollRange {
   yMin: number
   yMax: number
   /**
-   * For `kind: 'tide'` - Y-coordinate of the wave-surface row (top of band)
+   * For byte $01 (the sweeping tide) - Y-coordinate of the wave-surface row (top of band)
    * at the extremes of the BG3VOFS sweep. Designers see the wave-surface
    * position at high tide (Layer3YPos = L3_TIDE_YPOS_MAX) and low tide
    * (Layer3YPos = L3_TIDE_YPOS_MIN). Equal to yMin / (yMin + sweep) when
@@ -551,19 +587,20 @@ function findLastDataRow(tilemap: Uint16Array, dataEndRow: number): number {
  * so the designer can see where BG3 will be visible during play.
  *
  * Animation rules (from CODE_05C40C / CODE_05C494, bank_05.asm:5504-5630):
- *   - Tide (settings byte < $80):
+ *   - Tide, byte $01:
  *       Layer3YPos oscillates [L3_TIDE_YPOS_MIN..MAX].
  *       pixelY = row*8 - liveYPos + initialCamY for liveYPos ∈ [MIN..MAX].
  *       So yMin = firstRow*8 - YPOS_MAX + initialCamY
  *          yMax = (lastRow+1)*8 - YPOS_MIN + initialCamY
- *   - Fixed (settings byte $80, or $81 with tileset 1/3):
- *       pixelY = row*8 - initialYPx + initialCamY (no animation).
+ *   - Tide, bytes $02-$7F, and Fixed (byte $00, $80, or $81 with tileset 1/3):
+ *       pixelY = row*8 - initialYPx + initialCamY (static Y; the tide kind
+ *       draws no HIGH/LOW lines).
  *   - Camera-tracked (settings byte $81 with tileset != 1, 3):
  *       Layer3YPos = Layer1YPos every frame → pixelY = row*8 in level coords.
  *   - None (settings byte $C0+, or no gameplay content): no overlay.
  *
- * X is full level width: tide scrolls 1:1 with camera (Layer3XPos +=
- * Layer1DXPos, CODE_05C4EC), fixed/camera-tracked tile across the level.
+ * X is the full level width for every kind: a tide covers the whole map width,
+ * and a tide's real BG3 X is a phase, see docs/rom/level-rendering.md "Tide X".
  */
 export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
   const { tilemap, initialYPx, initialCameraYPx, levelPixelW, settingsByte, tileset } = input
@@ -577,9 +614,9 @@ export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
     return { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 }
   }
 
-  // Y animation only happens for byte $01 (Tide_UpAndDown). Bytes $00 and
-  // $02..$7F look superficially "tide-like" (byte < $80) but don't update
-  // Layer3YPos at runtime - see classifyL3Routine for the ASM trace.
+  // Y animation only happens for byte $01 (Tide_UpAndDown). Byte $00 skips the
+  // tide handler; $02..$7F scroll X like a tide but never update Layer3YPos
+  // at runtime - see classifyL3Routine for the ASM trace.
   const isAnimatedTide = settingsByte === 0x01
   const dataEndRow = isAnimatedTide ? findTideDataEndRow(tilemap, firstDataRow) : L3_TILEMAP_ROWS
   const lastDataRow = findLastDataRow(tilemap, dataEndRow)
@@ -604,7 +641,7 @@ export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
     }
   }
 
-  // settingsByte in [$80, $C0)
+  // settingsByte in [$80, $C0), $00, or a stationary tide ($02..$7F)
   const isCameraTracked = settingsByte === 0x81 && tileset !== 1 && tileset !== 3
   if (isCameraTracked) {
     return {
@@ -617,7 +654,7 @@ export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
   }
 
   return {
-    kind: 'fixed',
+    kind: settingsByte !== 0 && settingsByte < 0x80 ? 'tide' : 'fixed',
     xMin,
     xMax,
     yMin: firstDataRow * 8 - initialYPx + initialCameraYPx,

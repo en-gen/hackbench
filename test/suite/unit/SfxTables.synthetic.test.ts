@@ -17,38 +17,10 @@
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
+import { fileOffset, uploadRoutine, u16, block } from '../support/syntheticSpcUpload'
 import { readSfxTable, buildSfxSpc, SfxPort } from '../../../src/rom/SfxTables'
 
 const CART_SIZE = 0x80000
-const fileOffset = (snes: number): number => ((snes >> 16) & 0x7f) * 0x8000 + (snes & 0x7fff)
-
-/** LDA #lo : STA $0000 : LDA #hi : STA $0001 : LDA #bank : STA $0002 */
-const uploadRoutine = (romAddr: number): number[] => [
-  0xa9,
-  romAddr & 0xff,
-  0x8d,
-  0x00,
-  0x00,
-  0xa9,
-  (romAddr >> 8) & 0xff,
-  0x8d,
-  0x01,
-  0x00,
-  0xa9,
-  (romAddr >> 16) & 0xff,
-  0x8d,
-  0x02,
-  0x00,
-]
-
-const u16 = (n: number): number[] => [n & 0xff, (n >> 8) & 0xff]
-
-/** An upload block: [size, aramDest] then the data. */
-const block = (dest: number, bytes: number[]): number[] => [
-  ...u16(bytes.length),
-  ...u16(dest),
-  ...bytes,
-]
 
 const TERMINATOR = [...u16(0), ...u16(0)]
 

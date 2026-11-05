@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Protocol state for the agentic workflow: parse docs/protocols/*.md, keep
-// .hackbench-state/protocols.json and protocols.log in the main checkout, and
+// .overwatch/protocols.json and protocols.log in the main checkout, and
 // register sessions. Pure functions are exported for tests; the CLI is at
 // the bottom. Spec: docs/superpowers/specs/2026-10-07-agentic-protocols-design.md
 // section 3. Why a script rather than prose: the group invariant (exactly one
@@ -13,15 +13,25 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  lstatSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { status as runLockStatus } from './run-lock.mjs'
+import {
+  OLD_STATE_DIR_NAME,
+  SESSIONS_FILE,
+  STATE_DIR_NAME,
+  mainCheckoutDir,
+  resolveStateDir,
+} from './state-dir.mjs'
 
 export const HEADINGS = ['Purpose', 'Group', 'Activation', 'Changes', 'Unchanged', 'Exit']
 export const MAX_CHANGES_LINES = 15
@@ -314,24 +324,15 @@ export function writeState(stateDir, state, logLine, { rename = renameSync } = {
   appendFileSync(path.join(stateDir, LOG_FILE), logLine + '\n')
 }
 
-const SESSIONS_FILE = 'sessions.json'
 const ROLES = new Set(['ba', 'tech-lead', 'both'])
 const DESKTOP_ID = /^local_[0-9a-f-]{36}$/
 export const TEAM_NAME = /^[a-z][a-z0-9-]{0,31}$/
 
-export function mainCheckoutDir(cwd) {
-  const r = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd, encoding: 'utf8' })
-  if (r.status !== 0 || !r.stdout.trim()) return cwd
-  return path.dirname(path.resolve(cwd, r.stdout.trim()))
-}
-
-// The desktop app guards .claude/ against session writes from a worktree, so
-// shared state lives in a folder of its own in the main checkout.
-export const STATE_DIR_NAME = '.hackbench-state'
+export { mainCheckoutDir, resolveStateDir, STATE_DIR_NAME, OLD_STATE_DIR_NAME }
 const LEGACY_STATE_DIR = path.join('.claude', 'state')
 
-export function stateDirFor(cwd) {
-  return process.env.HACKBENCH_STATE_DIR || path.join(mainCheckoutDir(cwd), STATE_DIR_NAME)
+export function stateDirFor(cwd, env = process.env) {
+  return resolveStateDir(mainCheckoutDir(cwd), env)
 }
 
 export function protocolsDirFor(cwd) {
@@ -502,7 +503,105 @@ export function unregisterSession(stateDir, desktopId, { rename = renameSync, lo
 const BY = /^(owner|schedule|session:local_[0-9a-f-]{36})$/
 const BY_MESSAGE = '--by must be owner, schedule or session:<desktop id>'
 const USAGE =
-  'usage: protocol.mjs <name> on|off --by <owner|schedule|session:<desktop id>> | status | register <desktopId> <role> [team] | handoff <team|ba> (file text on stdin) | migrate-state | unregister <desktopId>'
+  'usage: protocol.mjs <name> on|off --by <owner|schedule|session:<desktop id>> | status | register <desktopId> <role> [team] | handoff <team|ba> (file text on stdin) | migrate-state | cutover-state | unregister <desktopId>'
+
+const isLink = p => {
+  try {
+    return lstatSync(p).isSymbolicLink() // a Windows junction reports true too
+  } catch {
+    return false
+  }
+}
+// A junction on Windows (no privilege needed), a relative symlink elsewhere.
+const defaultLink = (oldDir, newDir) =>
+  process.platform === 'win32'
+    ? symlinkSync(newDir, oldDir, 'junction')
+    : symlinkSync(STATE_DIR_NAME, oldDir, 'dir')
+
+// #1202: .hackbench-state becomes .overwatch, and the old name stays as a link
+// so a session still running old-path code reads and writes the same files.
+// Refuses while a run-lock slot is held (any slot): a process with a file open
+// in the folder can also make the rename fail on Windows. Check-then-rename is
+// not atomic; run it when no session is mid-acquire. Re-runnable: a run that
+// stopped after the rename finishes by creating the link. An EMPTY .overwatch
+// (a stray mkdir) counts as absent; a non-empty one is never touched.
+export function cutoverState(main, { rename = renameSync, link = defaultLink } = {}) {
+  const oldDir = path.join(main, OLD_STATE_DIR_NAME)
+  const newDir = path.join(main, STATE_DIR_NAME)
+  const fail = message => ({ ok: false, message })
+  const done = message => ({ ok: true, message })
+  const makeLink = () => {
+    try {
+      link(oldDir, newDir)
+      return null
+    } catch (err) {
+      return err
+    }
+  }
+  if (isLink(oldDir)) {
+    const same = (() => {
+      try {
+        return realpathSync(oldDir) === realpathSync(newDir)
+      } catch {
+        return false // dangling, or no .overwatch to compare with
+      }
+    })()
+    return same
+      ? done(`already cut over: ${OLD_STATE_DIR_NAME} links to ${STATE_DIR_NAME}`)
+      : fail(`${OLD_STATE_DIR_NAME} is a link, but not to ${newDir}; fix or remove it by hand`)
+  }
+  if (!existsSync(oldDir)) {
+    if (!existsSync(newDir)) return fail(`no ${OLD_STATE_DIR_NAME} in ${main}; nothing to cut over`)
+    const err = makeLink() // an interrupted run: the folder moved, the link did not
+    return err
+      ? fail(`${STATE_DIR_NAME} exists but the link could not be made: ${err.message}`)
+      : done(`finished: left a link at ${OLD_STATE_DIR_NAME} pointing to ${STATE_DIR_NAME}`)
+  }
+  // (A live .overwatch beside it gets the reconcile message below instead.)
+  if (
+    !existsSync(path.join(oldDir, SESSIONS_FILE)) &&
+    !existsSync(path.join(newDir, SESSIONS_FILE))
+  ) {
+    // The resolvers treat sessions.json as the sign of a live folder; moving one without it can orphan state after a crash.
+    return fail(
+      `${OLD_STATE_DIR_NAME} has no ${SESSIONS_FILE}, so it is not a live state folder; nothing moved (docs/runbooks/state-cutover.md, "What it refuses")`,
+    )
+  }
+  const lock = runLockStatus(oldDir)
+  if (lock.held) {
+    return fail(`a run-lock slot is held; release it first: ${lock.lines.join(' ')}`)
+  }
+  if (existsSync(newDir)) {
+    if (existsSync(path.join(newDir, SESSIONS_FILE))) {
+      return fail(
+        `${STATE_DIR_NAME} is the live state (it holds ${SESSIONS_FILE}) and a real ${OLD_STATE_DIR_NAME} was recreated; nothing moved; reconcile by hand (docs/runbooks/state-cutover.md, "Recovery")`,
+      )
+    }
+    if (readdirSync(newDir).length) {
+      return fail(
+        `${OLD_STATE_DIR_NAME} is the live state and ${STATE_DIR_NAME} is a stray (no ${SESSIONS_FILE}); nothing moved. Look inside ${STATE_DIR_NAME}, remove it, re-run cutover-state (docs/runbooks/state-cutover.md, "Recovery")`,
+      )
+    }
+    rmSync(newDir, { recursive: true }) // empty: a stray mkdir, not state
+  }
+  try {
+    rename(oldDir, newDir)
+  } catch (err) {
+    return fail(`could not rename ${OLD_STATE_DIR_NAME}; it was left in place: ${err.message}`)
+  }
+  const linkErr = makeLink()
+  if (!linkErr) {
+    return done(`moved ${OLD_STATE_DIR_NAME} to ${STATE_DIR_NAME}, left a link at the old name`)
+  }
+  try {
+    rename(newDir, oldDir)
+  } catch {
+    return fail(
+      `moved to ${STATE_DIR_NAME}, but the link failed (${linkErr.message}) and so did restoring the old name; re-run cutover-state to finish the link (if a real ${OLD_STATE_DIR_NAME} has appeared meanwhile it refuses; see "Recovery" in docs/runbooks/state-cutover.md)`,
+    )
+  }
+  return fail(`could not link ${OLD_STATE_DIR_NAME}; rename undone: ${linkErr.message}`)
+}
 
 function cli(argv, cwd) {
   const stateDir = stateDirFor(cwd)
@@ -524,6 +623,17 @@ function cli(argv, cwd) {
   if (a === 'migrate-state') {
     const from = path.join(mainCheckoutDir(cwd), LEGACY_STATE_DIR)
     return { code: 0, out: migrateState(from, stateDir) }
+  }
+  if (a === 'cutover-state') {
+    const main = mainCheckoutDir(cwd)
+    if (process.env.HACKBENCH_STATE_DIR) {
+      return { code: 1, out: 'HACKBENCH_STATE_DIR is set; cutover moves the in-repo folder only' }
+    }
+    if (realpathSync(main) !== realpathSync(cwd)) {
+      return { code: 1, out: `run cutover-state from the main checkout (${main}), not a worktree` }
+    }
+    const r = cutoverState(main)
+    return { code: r.ok ? 0 : 1, out: r.message }
   }
   if (a === 'handoff') {
     if (!b) return { code: 1, out: USAGE }

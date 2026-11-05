@@ -21,7 +21,9 @@ function blank(): RomFile {
 /** Slot `slot` with its own room at `ptr`, primary exits to the given low bytes. */
 function room(rom: RomFile, slot: number, ptr: number, exits: number[]): void {
   rom.writeAt(ADDR.LEVEL_L1_PTR + slot * 3, [ptr & 0xff, (ptr >> 8) & 0xff, (ptr >> 16) & 0xff])
-  const body = exits.length ? exits.flatMap(b => [0x00, 0x01, 0x00, b]) : [0x42]
+  if (exits.length > 32) throw new Error('a map has 32 screens')
+  // Exit i on screen i: the game keeps one exit per screen (bank_0D.asm:1428-1435).
+  const body = exits.length ? exits.flatMap((b, i) => [i, 0x01, 0x00, b]) : [0x42]
   rom.writeAt(ptr, [0, 0, 0, 0, 0, ...body, 0xff])
 }
 

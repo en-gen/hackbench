@@ -574,8 +574,9 @@ against 5). None was investigated beyond this; the cause is not known.
   check, not followed. The sprite loop (12.3) and HandleSprite are
   byte-checked, and so are InitSpriteTables at `$07:F7D2` and GetRand at
   `$01:ACF9` (13.1), each before it is called.
-- `dependsOn` is only `marioX`; RNG and the frame counters are inputs too and
-  are not diffed. Measured, not claimed: 71 of 197 depended on Mario in the
+- `dependsOn` is `marioX` and, since #841, `neighbours` (a second run that
+  puts the map's other sprites in the slots, taken only when it adds parts);
+  RNG and the frame counters are inputs too and are not diffed. Measured, not claimed: 71 of 197 depended on Mario in the
   spike.
 - Spawn fixtures use level `$0BD` state; the layers_v5 tier seeds from each
   map's level-load image. Neither proves custom (hack) sprites.
@@ -601,7 +602,7 @@ seed is now:
 | `$1404`                                                           | ScreenScrollAtWill, incremented by GM11's screen setup (`bank_00.asm:2655`) (#648)                                                                                                                                                                                                             |
 | `$1462-$1469`, `$1E`, `$20` (graphics-layer positions)            | `$1462-$1469` from GM11's copy loop (`bank_00.asm:2645-2649`); `$1E` `$20` from CODE_00A796 (5089) and UpdateScreenPosition (13631), called at 2654, 2656 (#648); evidence scope as under the table                                                                                            |
 | `$5E` (last screen)                                               | GM11's screen setup stores `$20` to `$5E` (`bank_00.asm:2652`); the later level-data load CODE_0584E3 overwrites it from the header (`bank_05.asm:560`), so the final value is the header's. Vanilla, every map with a recorded WRAM image: `$5E` never mismatched Mesen, before or after #648 |
-| the level's own sprite list                                       | the loader calls CODE_02A751 at `bank_05.asm:72` when GameMode is below `$22` (compare at 69-71); its body is run as ROM code, not traced here; the runner zeroes all 12 status bytes, so only the sprite under test is initially active; sprites it spawns may run in the same frame (12.4)   |
+| the level's own sprite list                                       | the loader calls CODE_02A751 at `bank_05.asm:72` when GameMode is below `$22` (compare at 69-71); its body is run as ROM code, not traced here; the runner zeroes all 12 status bytes, so only the sprite under test is initially active (a sprite that scans the slot tables gets a second run with the map's neighbors placed, #841); sprites it spawns may run in the same frame (12.4)   |
 | placement, camera, Mario X/Y, `$13/$14`, pass count               | the caller's seed (a fixture or UI supplies them)                                                                                                                                                                                                                                              |
 | `$148B/C` RNGCalc                                                 | the ROM's own GetRand, run once on the core (CODE_01AD07, `bank_01.asm:6101-6121`, its only writer; see below)                                                                                                                                                                                 |
 | `$76` Mario direction                                             | the loaded image's value; the seed default is a fallback                                                                                                                                                                                                                                       |
@@ -690,11 +691,9 @@ spawn fixtures carry only for level `$0BD`.
 
 ### 13.1 What changed
 
-- Every fixed entry is byte-checked and refused with a reason when it differs:
-  the sprite loop (already), InitSpriteTables `$07:F7D2`, GetRand `$01:ACF9`,
-  and the level loader's four: the bytes leading into the mid-routine entry
-  (`$05:D8AE`, "an entry that exists is not an entry that is reached"), the
-  entry `$05:D8B7`, `$00:A635` and `$05:801E`. The loader also runs under the
+- Every fixed entry is checked and refused with a reason when it differs: the sprite loop (already),
+  InitSpriteTables `$07:F7D2`, GetRand `$01:ACF9` are byte-checked; the level loader's are checked one
+  instruction at a time (14.1), and the routines then run from the ROM's own bytes. The loader also runs under the
   same instruction guard as the runner (no BRK/COP/WDM/STP, no leaving ROM).
 - Corpus: all four hacks (Grand Poo World 2, Grand Poo World 1.2, Invictus,
   Seven Vanilla Levels) now REFUSE the loader with a reason; before, it returned
@@ -784,13 +783,17 @@ the sublevel branch of CODE_05D796, not the overworld lead-in at `$05:D8AE-D8B6`
 that 13.1 byte-checked. Round 1's attribution ("all four first fail on Lunar
 Magic's JSL at `$05:D8B1`") described that lead-in, which the sublevel path
 never executes; it was the wrong thing to check and is gone. Now checked, in
-order: GM11's three calls (`$00:96F4` JSL CODE_05D796, `$00:9705` JSR CODE_00A635,
-`$00:9716` JSL CODE_05801E), the GM11 code between them (`$00:96F8` and `$00:9708`,
-both now RUN from the ROM's bytes since #648, with CODE_00A796 and UpdateScreenPosition
-checked at `$00:A796` and `$00:F6DB`; the music upload between the first two is not
-modelled and not checked),
-CODE_05D796's prologue and sublevel branch (`$05:D796`), the JMP into the pointer
-loader (`$05:D83B`), and the four entries of 13.1. The first failure per corpus ROM:
+order: GM11's three calls (`$00:96F4`, `$00:9705`, `$00:9716`, each by the target its operand
+names, which the loader then follows), the opening instruction of the screen setup and its call to
+UpdateScreenPosition, the opening instructions of CODE_05D796, the jump into the pointer loader
+(`$05:D83B`), and the opening instructions of each entry of 13.1. CODE_05D796's prologue is then run on the core
+from its entry to the instruction after its overworld jump (`$05:D7B3` on vanilla); a hook that leaves the
+routine, or a prologue that does not narrow the registers to 8 bits, is refused with a reason (#1081). Nothing
+longer than one instruction is stated (before #1081, runs of 9 to 29 bytes were compared, then hashed, which the
+fingerprint minimum rejected as too short to hide anything). The GM11 spans (`$00:96F8`, `$00:9708`),
+CODE_00A796 and UpdateScreenPosition run from the ROM's bytes. Two gaps are unchecked, as on develop: the music
+upload call at `$00:9702`, and CODE_05D796's screen-exit code from `$05:D7B3` to the jump at `$05:D83B`, which the
+loader skips by entering CODE_05D8B7 with the level number in place. The first failure per corpus ROM:
 
 | ROM                   | First failing check                    |
 | --------------------- | -------------------------------------- |
@@ -799,12 +802,12 @@ loader (`$05:D83B`), and the four entries of 13.1. The first failure per corpus 
 | Invictus 1.0          | GM11 code at `$00:9708`                |
 | Seven Vanilla Levels  | GM11 code at `$00:9708` (its JSL hook) |
 
-Since #648 the UpdateScreenPosition shape is the 9 bytes `$00:F6DB-F6E3` (PHB PHK PLB REP LDA
-SEC, `bank_00.asm:13632-13637`), stopping before the SBC at `$00:F6E4` (13638), where 86 of the 107
-corpus ROMs (20 are vanilla; 9678 is all zeros there) have a JML hook; the hook runs on the core like the rest of the routine, under
+Since #648 UpdateScreenPosition is run, not compared, so the common JML hook at `$00:F6E4` (86 of the 107
+corpus ROMs have one; 20 are vanilla; 9678 is all zeros there) is accepted; the hook runs on the core like the rest of the routine, under
 the same step cap and a stack guard that also refuses a return to `$00:9716` in another bank. Shape acceptance over the 107 corpus ROMs (one machine,
 2026-10-07): 14 with the old shapes, 7 with a 12-byte shape that covered `$F6E4`, 14 with the
-9-byte shape; the four ROMs above keep their first failure. Of the seven that flipped
+9-byte shape; the four ROMs above keep their first failure. Over the 146 store hacks (2026-10-18, one machine): develop's
+byte shapes accepted 22 (17 load level `$105`, 5 are refused while running); the single-instruction sites accept exactly those 22, with the same load or refusal outcome for each (#1081). Of the seven that flipped
 (10186, 5559, 6161, 6416, 6593, 6764, 9535), 5559, 6416 and 6593 load and run the
 new spans (`$1404` = 1, `$1462-$1469` populated, Map16 identical to the old loader on
 levels `$105` and `$000-$004`, bar 6416 level 0 whose data loader hits the step cap in both);
@@ -850,7 +853,7 @@ oracle images in test support, not by the type.
 
 `theia/extension/src/node/map-sprites.ts` now serves `interpDrawer`: per map,
 `loadLevelState` once (the ROM's own level loader), then per stream sprite one
-`runOnce` (INIT plus up to 64 passes, no `dependsOn` second run). Seeds: the
+`runOnce` (INIT plus up to 64 passes; a second run with the map's neighbors only for a sprite that scans the slot tables, #841). Seeds: the
 ROM-run loader's WRAM (including the Mario position the loader left, at
 `$94`/`$96`, so a sprite that reads Mario sees the loader's, not a table's);
 sprite = stream position in level pixels; camera centred on the sprite and
@@ -916,7 +919,7 @@ frame has none; the run's last upload equals the table engine's resting-entry
 splice (test). That is the frame policy's doing (this section notes it), not a missing
 route.
 
-Not modelled here: neighbours or player actions (each sprite runs alone).
+Not modelled here: player actions, and neighbors other than for a sprite that scans the slot tables (those run alone; the scanners get the map's entries on their screen and the one each side, #841).
 
 ### 15.1 A refused level loader is shown, flagged
 

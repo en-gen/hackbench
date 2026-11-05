@@ -134,8 +134,8 @@ describe('writeAtomic', () => {
     const dir = fresh()
     const path = join(dir, 'f.json')
     writeFileSync(path, 'old')
-    mkdirSync(`${path}.tmp`)
-    expect(() => writeAtomic(path, 'new')).toThrow()
+    mkdirSync(`${path}.${process.pid}.tmp`)
+    expect(() => writeAtomic(path, 'new')).toThrow(expect.objectContaining({ code: 'EEXIST' }))
     expect(readFileSync(path, 'utf8')).toBe('old')
   })
   it('replaces the file and leaves no temp file', () => {

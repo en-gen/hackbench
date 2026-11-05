@@ -11,6 +11,7 @@
  *
  * No VS Code or Theia imports, same rule as the rest of src/rom/.
  */
+import { formatAddr } from './addressing'
 import { cachedByVersion, type RomFile } from './RomFile'
 import { ENTRY_STANDARD } from './objectHandlers/interpret'
 
@@ -32,27 +33,27 @@ const LOADER_CALL_SITE = 0x0586cf
 const LOADER_BRANCH = 0x0586c5
 const LOADER_BRANCH_BYTES = [0xa5, 0x5a, 0xd0, 0x06]
 
-const hex6 = (n: number): string => '$' + n.toString(16).toUpperCase().padStart(6, '0')
-
 /** Reads bytes at the three loader sites; the bank is the JSL operand's bank byte. */
 export function locateObjectCodeBank(rom: RomFile): BankResult {
   const branch = rom.readAt(LOADER_BRANCH, LOADER_BRANCH_BYTES.length)
   if (!branch || LOADER_BRANCH_BYTES.some((v, i) => branch[i] !== v))
     return {
-      notFound: `the loader's branch to its standard-object call at ${hex6(LOADER_BRANCH)} is not LDA $5A, BNE +6`,
+      notFound: `the loader's branch to its standard-object call at ${formatAddr(LOADER_BRANCH)} is not LDA $5A, BNE +6`,
     }
   const call = rom.readAt(LOADER_CALL_SITE, 3)
   if (!call || call[0] !== 0x20 || (call[1] | (call[2] << 8)) !== (LOADER_ROUTINE & 0xffff))
     return {
-      notFound: `the loader's call at ${hex6(LOADER_CALL_SITE)} is not JSR ${hex6(LOADER_ROUTINE)}`,
+      notFound: `the loader's call at ${formatAddr(LOADER_CALL_SITE)} is not JSR ${formatAddr(LOADER_ROUTINE)}`,
     }
   const b = rom.readAt(LOADER_ROUTINE, LOADER_LEN)
   if (!b || b[0] !== 0xe2 || b[1] !== 0x30 || b[2] !== 0x22 || b[6] !== 0x60)
-    return { notFound: `the loader's routine at ${hex6(LOADER_ROUTINE)} is not SEP, JSL, RTS` }
+    return {
+      notFound: `the loader's routine at ${formatAddr(LOADER_ROUTINE)} is not SEP, JSL, RTS`,
+    }
   const to = b[3] | (b[4] << 8) | (b[5] << 16)
   if ((to & 0xffff) !== ENTRY_LOW)
     return {
-      notFound: `the loader's JSL at ${hex6(LOADER_ROUTINE + 2)} reaches ${hex6(to)}, not offset $A40F in any bank`,
+      notFound: `the loader's JSL at ${formatAddr(LOADER_ROUTINE + 2)} reaches ${formatAddr(to)}, not offset $A40F in any bank`,
     }
   return { bank: b[5] }
 }

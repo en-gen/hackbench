@@ -10,9 +10,16 @@
  *
  * @param activeWidgetId `ApplicationShell.activeWidget`'s id, or undefined.
  * @param hasProject     Whether there is a layer stack to act on at all.
+ * @param textFieldFocused Whether an input or textarea holds focus. Ctrl+Z there
+ *   is the field's own text undo (the explorer find box is one, inside a
+ *   hackbench widget); taking it would drop a ROM edit layer instead.
  */
-export function handlesEditStack(activeWidgetId: string | undefined, hasProject: boolean): boolean {
-  if (!hasProject || !activeWidgetId) return false
+export function handlesEditStack(
+  activeWidgetId: string | undefined,
+  hasProject: boolean,
+  textFieldFocused = false,
+): boolean {
+  if (!hasProject || !activeWidgetId || textFieldFocused) return false
   // Every widget this application contributes is registered under this prefix.
   return activeWidgetId.startsWith('hackbench.')
 }

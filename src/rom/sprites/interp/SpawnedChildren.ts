@@ -1,0 +1,88 @@
+/**
+ * SpawnedChildren.ts -- what ThreePlatforms.ts ($E0) runs on: a run-once loader command whose
+ * ROM spawner makes N children, each drawn by the ordinary sprite runner (the $E0 issue, #1015). Only the constants
+ * (spawner, child sprite, count) and the per-sprite gate differ, so they stay in the two files with their citations.
+ */
+import type { RomFile } from '../../RomFile'
+import { SPAWN_SHORT, type RunOptions, type SpriteModel, type SpritePart } from './SpriteRunner'
+import type { SpriteSeed } from './SpriteSeed'
+
+/** SpriteLock ($9D, SMWDisX rammap.asm:914): while it is set the game's own sprite code skips its per-frame move. */
+const SPRITE_LOCK = 0x9d
+
+/** The sprite slots a spawner can fill. */
+const SLOTS = 12
+
+/** The entry as the loader hands it over: X in $00/$01, list index in $02, offset of its first byte in $03. */
+export interface SpawnerEntry {
+  x: number
+  y: number
+  index: number
+  streamOffset: number
+  /** The entry's map position in px when the loader hands the spawner something else as X (a vertical map: the Y boundary). Defaults to (x, y). */
+  at?: { x: number; y: number }
+}
+
+export interface SpawnedChild {
+  /** The child's map position at the drawn pass, in px. */
+  x: number
+  y: number
+  /** Relative to the entry. */
+  parts: SpritePart[]
+}
+
+export interface SpawnedChildren {
+  children: SpawnedChild[]
+  /** Calls, of the `count` the game makes, that found no free slot (the game's own shortfall). */
+  missing: number
+  /** Children the spawner placed, drawn or not: more than `count` when an edited spawner makes extra (capped at the 12 slots). */
+  spawned: number
+  /** First reason a spawned child did not draw; empty when all drew. */
+  why: string
+}
+
+/**
+ * Each child is its own run of the spawner (a fresh machine) with the nth spawned sprite drawn alone, so the children
+ * do not add to each other's OAM. `passes` is how many MAIN passes each child runs; the first drawing one is shown.
+ * `spawnFrame` (D137): draw each child where the parent's spawn code put it, with no travel. SpriteLock is set for the
+ * run, so the child's own MAIN skips its move and draws the spawn-frame state; nothing is moved or zeroed here.
+ * The loop runs past `count` (to the 12 slots) so a spawner that makes more than the game's does is still drawn in full.
+ * A child the spawner stored under another sprite number is refused (`expectNumber`), because the handler is chosen from
+ * `spec.sprite` before the spawner runs and would otherwise draw that sprite's art for it.
+ */
+export function runSpawnedChildren(
+  rom: RomFile,
+  seed: SpriteSeed,
+  e: SpawnerEntry,
+  spec: { sprite: number; count: number; routine: number; spawnFrame?: boolean },
+  passes: number,
+  run: (rom: RomFile, id: number, seed: SpriteSeed, opts?: RunOptions) => SpriteModel,
+): SpawnedChildren {
+  const inputs = { 0x00: e.x & 0xff, 0x01: (e.x >> 8) & 0xff, 0x02: e.index, 0x03: e.streamOffset }
+  const children: SpawnedChild[] = []
+  let [missing, spawned, why] = [0, 0, '']
+  for (let n = 0; n < SLOTS; n++) {
+    const m = run(rom, spec.sprite, { ...seed, mainPasses: passes, ram: spec.spawnFrame ? { ...seed.ram, [SPRITE_LOCK]: 1 } : seed.ram }, { spawn: { inputs, routine: spec.routine, nth: n, expectNumber: spec.sprite } }) // prettier-ignore
+    if (m.refusal?.startsWith(SPAWN_SHORT)) {
+      missing = Math.max(0, spec.count - n)
+      break
+    }
+    // Past the game's `count` we only look for children an edited spawner made: stop at the first that did not get placed.
+    if (m.spawnPos === undefined && n >= spec.count) break
+    if (m.spawnPos !== undefined) spawned++
+    const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
+    if (!m.anchor || !pass) {
+      why ||= m.refusal ?? m.emptyReason ?? 'drew no tile'
+      continue
+    }
+    // The run's parts are relative to the child's own position when its passes began; re-anchor them to the entry.
+    const at = e.at ?? e
+    const [ox, oy] = [m.anchor.x - at.x, m.anchor.y - at.y]
+    children.push({
+      x: pass.pos.x,
+      y: pass.pos.y,
+      parts: pass.parts.map(p => ({ ...p, dx: p.dx + ox, dy: p.dy + oy })),
+    })
+  }
+  return { children, missing, spawned, why }
+}

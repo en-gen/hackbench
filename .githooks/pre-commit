@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-# Enabled by: git config core.hooksPath .githooks
-set -uo pipefail
-root="$(git rev-parse --show-toplevel)"
-
-# Content policy first: it guards the copyright rule, which is the one failure
-# that matters even if the style checks would also have stopped the commit.
-"$root/tools/scripts/check-staged-content.sh" staged || exit 1
-"$root/tools/scripts/check-staged-style.sh" || exit 1

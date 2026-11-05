@@ -9,7 +9,8 @@
 import { beforeAll, describe, it, expect } from 'vitest'
 import { existsSync, readFileSync } from 'fs'
 import { SmwRom } from '../../../src/rom/SmwRom'
-import { loadAnimationData } from '../../../src/rom/AnimationLoader'
+import { decodeTilesAt, loadAnimationData } from '../../../src/rom/AnimationLoader'
+import { decode4bpp } from '../../../src/rom/GraphicsDecoder'
 import {
   loadVram,
   VRAM_SLOT_NAMES,
@@ -293,5 +294,38 @@ describe.skipIf(!romPresent)('AnimationLoader berry tiles', () => {
         .join(', ')
       console.log(`  frame ${frame}: ${tileSummary}`)
     }
+  })
+})
+
+// ── decodeTilesAt (synthetic, no ROM) ────────────────────────────────────────
+
+describe('decodeTilesAt', () => {
+  // Tile t is 32 bytes of value t + 1, so each slot's pixels are distinct.
+  const tileBytes = (t: number): Uint8Array => new Uint8Array(32).fill(t + 1)
+  const buffer = (tiles: number): Uint8Array => {
+    const b = new Uint8Array(tiles * 32)
+    for (let t = 0; t < tiles; t++) b.set(tileBytes(t), t * 32)
+    return b
+  }
+  const empty = new Uint8Array(64)
+
+  it('decodes consecutive tiles into consecutive slots, from the given offset', () => {
+    const tiles = decodeTilesAt(buffer(6), 32)
+    expect(tiles).toHaveLength(4)
+    tiles.forEach((px, slot) => {
+      expect(px).toEqual(decode4bpp(tileBytes(slot + 1)))
+    })
+  })
+
+  it('a buffer ending exactly on a tile boundary decodes every tile', () => {
+    const tiles = decodeTilesAt(buffer(4), 0)
+    expect(tiles[3]).toEqual(decode4bpp(tileBytes(3)))
+    expect(tiles[3]).not.toEqual(empty)
+  })
+
+  it('a buffer one byte short of the last tile yields an empty tile there', () => {
+    const tiles = decodeTilesAt(buffer(4).subarray(0, 4 * 32 - 1), 0)
+    expect(tiles[2]).toEqual(decode4bpp(tileBytes(2)))
+    expect(tiles[3]).toEqual(empty)
   })
 })

@@ -55,7 +55,8 @@ cannot be told from invented values by content, so the claim is the signal;
 say "invented values" instead, or add the pragma. A decimal array with `0x`
 elements mixed in counts toward `byte-tokens` too.
 
-Modes: `staged` (pre-commit), `range BASE HEAD` (CI), `push REMOTE`
+Modes: `staged` (no hook runs it since #1183), `range BASE HEAD` (CI),
+`push REMOTE`
 (`.githooks/pre-push`, reading stdin ref-updates and querying the remote
 live via `git ls-remote` rather than trusting local, possibly stale,
 remote-tracking refs), and `history [REF]` (the repo-migration oracle, run
@@ -86,8 +87,50 @@ after a person checks it. It exempts that message for that rule only; file
 content is never exempt, and a malformed line or unknown rule exits 2.
 
 `npm install` sets `core.hooksPath` to `.githooks` automatically
-(`tools/scripts/set-hooks-path.cjs`). The only bypass is
-`git commit --no-verify` / `git push --no-verify`.
+(`tools/scripts/set-hooks-path.cjs`). The only local bypass is
+`git push --no-verify`, which skips the pre-push hook only; CI has no bypass.
+
+### The 8-byte window rule (synthetic carts)
+
+A synthetic cart must not carry the game's code. The rule is mechanical: no 8 consecutive bytes with at least 3
+distinct values may also occur anywhere in the vanilla ROM. `test/suite/support/vanillaWindows.ts` holds the
+checker (it reports each hit as an SNES address) and `test/suite/unit/sprites/SyntheticSpriteRomNoVanilla.test.ts`
+applies it to the sprite cart, the default and each `SyntheticOptions` value on its own; it needs the vanilla ROM and
+skips without it. `CastleFlames.test.ts` applies it to the bytes its fixtures write over the plain cart.
+
+Where a reader in `src/` fixes the game's opcodes (or a fixture keeps the game's operand values on purpose), the
+window stays and the gate's allow list names the region and why. Each region spans at most 64 bytes and lists its
+exact hit count: a count that rises, drops or reaches zero fails until the list is updated, and planted cases prove
+those checks go red.
+
+ExecutePtr, CallSpriteInit and the grinder handler (#1082) were removed by running them instead: a stock-code
+SHA-256 needs at least 24 unknown bytes (not masked, not stated elsewhere in the working tree), and each of those had
+fewer. The runs follow the stock-code exception in `.claude/rules/rom-interpretation.md` (added in #1030): a fixed
+entry, a step budget, a refusal that names why. Entries are reached from HandleSprite through the ROM's own operands
+and tables: ExecutePtr from its JSL operand, CallSpriteInit from its status table, the grinder handler from the MAIN
+pointer table.
+
+- `checkExecutePtr` calls the routine as a JSL with a table of its own in WRAM, for all 256 indices, and requires
+  the landing, the popped frame, the kept registers and no register or SRAM write.
+- `resolveTables` runs CallSpriteInit for every sprite number in three slots and requires the JSL frame at
+  ExecutePtr, the number as the index and the run status as the only write besides the frame; the INIT table is read
+  from that frame.
+- `grinderDrawsBeforeSnap` runs the handler in every slot, then in slot 3 with each WRAM cell it reads set to every
+  value, one cell at a time, and requires the draw, the interact and the line step in that order; it returns a
+  reason, which the runner puts in `lineGateReason`. Known limit: a hook that needs two cells set together (for
+  example `LDA $9D / AND $13 / BNE`) is not caught. The three expected routine addresses are the old `targets`,
+  fixed for vanilla; a relocated routine fails closed.
+- Register and SRAM writes are refused in all three runs (the bus reports SRAM stores through `onSramWrite`).
+  Evidence scope: the vanilla USA ROM and the synthetic cart, one machine, 2026-10-18.
+- The block spawn dispatcher, slot search and status write are one 81-byte span (`BLOCK_SPAWN_DISPATCHER`).
+
+Planted defects for each are in `test/suite/unit/sprites/ShapeRuns.test.ts`.
+
+The fix for an allowed region is to make the reader recognize the code by SHA-256 (as
+`CastleFlames.ts` and `SubmapFlagGate.ts` do), then delete the region.
+
+Source-text probes read the file text only, so they miss runs built from helpers, named opcodes or spread
+arrays. The assembled gate, run against the built cart, is the oracle; a clean probe alone proves nothing.
 
 ## Where the corpus lives
 
@@ -95,7 +138,8 @@ The ROM corpus is **outside the repo**, beside the clone:
 
 ```
 <projects>/
-  hackbench/              the clone (and <projects>/.worktrees/hackbench/* )
+  hackbench/              the clone (and hackbench/.worktrees/*; older worktrees
+                          may still sit in <projects>/.worktrees/hackbench/*)
   hackbench-tools/
     roms/                 the cartridges
     mesen/                Mesen.exe, Saves/, Debugger/, GameConfig/
@@ -260,6 +304,14 @@ is registered on every machine and the skip count names it.
 Reading the corpus INSIDE a case body stays fine: the case exists either
 way. Put a tripwire on the listing so it cannot pass vacuously, as
 `Map16.tileCount.test.ts` does with `expect(carts.length).toBeGreaterThan(0)`.
+
+Nest no `describe.skipIf` inside a suite that is itself `skipIf`: when the
+outer suite skips, the inner tests end `pending`, and the summary line counts
+`pending` as neither passed nor skipped, so the totals no longer add up. Put
+every condition on ONE `describe.skipIf` (`!romPresent || !fs.existsSync(csv)`)
+and leave the outer suite a plain `describe`. Evidence: vitest ^5.0.3,
+2026-10-18, a synthetic probe (nested gave `pending`, flat gave `skipped`);
+27 scrollSim capture tests showed it before this change.
 
 ## Writing new tests
 
@@ -506,8 +558,8 @@ sides drew only parked pieces, at matching positions: agreement), late (the
 model had not drawn yet at the target pass, the capture had), lagged (target
 pass past the pass count, drew or not) and refused, per sprite and per id
 (`SPRITE_POSITION_OUT=<file>` dumps the records), and holds a bound per verdict
-with 1% headroom (vanilla, one machine, 2026-10-10 measured: 1366 exact, 469
-off, 23 missing, 18 parked, 1 late, 80 lagged, 0 refused of 1957). All 80
+with 1% headroom (vanilla, one machine, 2026-10-17 measured on the #842 head: 1396 exact, 461
+off, 1 missing, 18 parked, 1 late, 80 lagged, 0 refused of 1957; 1366, 469 and 23 before #842). All 80
 lagged records are captures whose first draw came 31 to 89 frames after the
 first MAIN (likely the level fade-in, not traced); it is not re-aligned to the
 first draw.
@@ -592,7 +644,7 @@ directly.
 ## Sweeping the hack store
 
 `tools/scripts/hack-sweep.ts` runs the readers behind each view (map tree,
-map details for every real map, overworld, graphics, Map16, palettes, music,
+map details for every real map (the level mode, plus the object parser, name lookup and graphics notes behind the future Properties panel, and the sprite parser on maps with readable level data and a readable sprite pointer), overworld, graphics, Map16, palettes, music,
 SFX) over every patched ROM in the hack store, and records `ok`, `unavailable`
 with every failing gate it can see, or `crash` with the error and its top
 frame. The summary ranks each gate by how many hacks it alone blocks. It also
@@ -815,12 +867,107 @@ private to the test file.
 - `HB_CORE_JS` is the absolute path to `snes9x_libretro.js` (its `.wasm` must sit beside it). `emulator-view` and `emulator-gamepad` read it; unset, they fall back to the documented path (`vendor/cores/snes9x-wasm/` inside the worktree) and skip only if the core is missing there too, which in a worktree it usually is; a skipped run still exits 0. Set it, e.g. `HB_CORE_JS=C:/Projects/hackbench-cores/snes9x-wasm/snes9x_libretro.js`, and check the run reports passed, not skipped. `[EST]`
 - Nightly cost is why e2e is not per-PR. `[EST]`
 
+## ROM-window probe
+
+`node tools/scripts/rom-window-probe.mjs` reports 8-byte windows of text or
+assembled bytes that also occur in the vanilla ROM, so a synthetic ROM,
+fixture or detection pattern can be checked before pushing. It is
+report-only and local-only: no hook, CI job or `check-content.mjs` runs it,
+and CI has no ROM to run it against.
+
+```
+node tools/scripts/rom-window-probe.mjs <files...>        text scan (PARTIAL, below)
+node tools/scripts/rom-window-probe.mjs --git-range <spec> files the range touches
+node tools/scripts/rom-window-probe.mjs --bin <files...>  assembled bytes
+```
+
+`--rom <file>` skips the lookup. `--repo <dir>` names the repo `--git-range`
+diffs; the ROM lookup always uses the checkout the script lives in, as
+`test/suite/support/corpus.cjs` does. `--git-range` takes `a..b` (post-image
+`b`), `a...b` (from `merge-base(a,b)`) or one rev (that rev against the
+WORKTREE, so uncommitted edits count, and untracked files are scanned whole). It
+scans each touched text file whole and keeps runs that overlap an added line;
+binary files go through the bytes check; deleted lines and deleted files are
+never scanned, but a touched file whose post-image cannot be read is an error.
+
+**The text scan is partial.** It reads `0x..`, `$..`, bare two-digit hex and
+decimal 0-255 tokens, with comments blanked: `//` and block comments in
+JS/TS files, `;` in `.asm`/`.inc`/`.s` files, nothing in any other file
+type (no Lua `--`, no markdown). Quoted strings are skipped when blanking, so
+`'http://x'` hides nothing. It does not see 16-bit words, hex strings,
+quoted-byte arrays, per-byte writes (`buf[a] = 0xa9`), split strings, or values
+behind `as number`. Comment blanking can desync on a regex literal with an escaped slash or an
+unterminated backtick, and `.c`/`.h` files get none. A comma-separated list of bare hex pairs (also in asm, e.g. `.db a9, 10, 85`), or a
+space-separated decimal list, is not read reliably (a two-digit number beside
+a comma is taken as decimal, otherwise as hex). Wildcard bytes (a fingerprint's
+zeroed operands) split runs on purpose, so a pattern with wildcards is checked
+per fixed stretch. **`--bin` on the assembled bytes is the authoritative
+check:** have the fixture builder write its bytes to a scratch file
+(`writeFileSync(scratch, builder())`), then run
+`rom-window-probe.mjs --bin <scratch>`.
+
+Windows with fewer than 3 distinct values are ignored (they match any ROM):
+43,597 of 524,281 positions and 2,982 of 442,994 distinct windows in the
+vanilla ROM (one machine). A 512-byte copier header is stripped, so no window
+straddles it. Output is `HIT path:line windows=N` (`offset=0x..` for bytes) and
+a `TOTAL` line, never ROM bytes. Exit codes: 0 no hit, 1 a hit, 2 nothing was
+checked (no input, no ROM found, a missing `--rom` file, a git or file error;
+HIT lines found before an error are still printed, the message goes to stderr
+and starts `SKIP:` when no ROM exists). Exit 2 on a missing ROM is deliberate:
+"probe exit 0" is cited as proof, so a run that checked nothing must not exit 0.
+
+`bytesHits` in `tools/scripts/lib/rom-windows.mjs` is the shared in-memory
+finder. The assembled-ROM tests (`SyntheticEeriesNoVanilla` and the like) and
+`test/suite/support/romWindows.ts` can adopt it; that is a follow-up for their
+owners.
+
+## Nested folders and `git clean` (#1202)
+
+Task worktrees live in `<repo>/.worktrees/<task>` and session state in
+`<repo>/.overwatch`; both are gitignored. `test/suite/gates/nestedFoldersGate.test.ts`
+plants a file in each and goes red if vitest, ESLint, Prettier, tsc (`tsconfig.json` and
+`tsconfig.test.json`; `tsconfig.webview.json` is not checked), the content gate's inputs or GitNexus's ignore rules pick it up. Each
+assertion was proven able to fail by removing its own ignore (smoke, one run
+each, 2026-11-03): the vitest include and excludes, the ESLint `ignores`, the
+`.gitignore` lines (turns Prettier, content and GitNexus red together), and the
+tsconfig excludes (with an explicit include of the folders; tsc's `**` skips dot
+folders on its own). GitNexus is checked through the `ignore` rules it loads
+(1.6.9 source), not by running its indexer. The ROM corpus resolver still finds
+`hackbench-tools` from `<repo>/.worktrees/<task>` (a case in `corpusResolver.test.ts`).
+
+`git clean -x` deletes ignored files, which is why the corpus left the repo. What
+it does to the two folders, run on a scratch repo with a real clean worktree and a
+real worktree holding a modified file, an untracked file and ignored files
+(`node_modules/`, `*.log`), plus a `.overwatch` holding a session file and a lock
+slot. Git 2.54.0.windows.1, Windows 11 (Git Bash), one machine, 2026-11-03. Nothing
+here ran in a real checkout.
+
+| Command | `.overwatch/` | `.worktrees/<task>` (clean and dirty alike) |
+| --- | --- | --- |
+| `git clean -nx` | not listed (no `-d`) | not listed |
+| `git clean -ndx` | "Would remove .overwatch/" | "Would skip repository" for each |
+| `git clean -fdx` | **deleted**, sessions, handoffs and lock slots with it | skipped, untouched |
+| `git clean -ffdx` | deleted | **deleted whole**, uncommitted and ignored files included; branches survive, `git worktree list` then shows each as prunable |
+
+A `.hackbench-state` junction to `.overwatch` (the layout after `cutover-state`)
+behaves the same: `-ndx` lists it, `-fdx` removes the link and the folder, and no
+file outside the repo was touched. So: `-fdx` costs the state folder (`sessions.json`, `protocols.json`,
+`protocols.log`, the handoffs and any held lock slots all go; the registry rebuilds on the next
+session start, the handoffs and the protocol history do not), and only the double `-ff` reaches a
+worktree, where it destroys uncommitted work. Do not run `git clean -x` in the main
+checkout.
+
+A nested worktree that has no `node_modules` of its own resolves packages upward to the
+main checkout's, because Node walks parent folders. A forgotten install in a new worktree
+no longer fails loudly; run the install, or `npm run lint` will use main's tools against
+the worktree's files. (Without `-x`, ignored files are not candidates; that case was not run.)
+
 ## Run lock
 
 Full unit runs, Theia builds and Playwright runs share a counting semaphore
 of 3 lock slots, so at most 3 overlap (timeouts in #485, #771). ("Slot" in
 the glossary is a ROM pointer-table index; a lock slot is a different thing.) A lock slot is
-a directory under `<main checkout>/.hackbench-state/locks/`: `run` (lock
+a directory under `<main checkout>/.overwatch/locks/` (or `.hackbench-state/locks/` until `protocol.mjs cutover-state` runs, #1202): `run` (lock
 slot 1, the original single lock, so an older script's lock is slot 1),
 `run-2` and `run-3`. Worktrees resolve the main checkout through git, and
 `HACKBENCH_STATE_DIR` overrides it. `HACKBENCH_RUN_SLOTS` sets how many lock
@@ -868,9 +1015,19 @@ node "$MAIN_CHECKOUT/tools/scripts/run-lock.mjs" release --owner "<team> <worktr
   `test:unit` only: the corpus and timing vitest configs and Theia builds are
   uncapped. The value is a starting point, not measured under 3 concurrent
   runs.
-- Known limit: worktrees whose `theia/node_modules` is a junction to the main
-  checkout share build state, so they must not build Theia concurrently even
-  with separate lock slots.
+- Shared installs are refused (#1038). `tools/scripts/check-theia-install.mjs`
+  runs as the Theia `prebuild*` hooks and at the top of the Playwright config
+  (unless `HB_APP_URL` or `HB_SKIP_INSTALL_GUARD` is set; the unit gates that
+  only load the config set the latter). It fails when the `theia` folder or
+  `theia/node_modules` is a junction or link, a
+  `hackbench-*` workspace link resolves outside the checkout, or a package
+  `node_modules` or `theia/node_modules/.cache` is a link out. Such a worktree
+  would bundle another checkout's extension and share its nx cache. Fix for a
+  junction: remove it WITHOUT a recursive delete (`cmd /c rmdir`, with
+  backslashes: `theia\node_modules`), then `yarn --cwd theia install` in that
+  worktree. For a linked `theia` folder, remove the link, `git checkout -- theia`,
+  then install. Evidence: synthetic layouts, one Windows machine; 8.3 short
+  paths compare through native realpath but are untested. The checkout is found from INIT_CWD, a PWD equal to the cwd, or the cwd, because POSIX cwd is the symlink target; that path is simulated on Windows (cwd in the target, logical path in the env) and never run on POSIX.
 - `owner.txt` holds `owner:`, `purpose:` and `started:` (UTC) lines.
 - Only the owner removes a lock slot, with `release` and the exact same id (no
   prefix, no padding; only the slot whose `owner:` matches is freed; blank ids and line breaks (CR, LF, U+2028, U+2029) are refused). A wrong or

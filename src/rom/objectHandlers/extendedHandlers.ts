@@ -511,9 +511,12 @@ export function handle_0DA71B(cur: Cursor): void {
   //   +22 LDA.L DATA_0DA6EE,X         (4 bytes)   operand at +23
   const tableAddr = readLongOperand(cur, cur.handlerAddr + 23)
 
-  const cols = 9 // _0 = 8, loop `DEC _2; BPL -` runs while _2 >= 0 → 9 iters
-  const rows = 5 // _1 = 4, same pattern → 5 iters
+  // _0 = 8, loop `DEC _2; BPL -` runs while _2 >= 0 → 9 iters; _1 = 4 → 5 rows.
+  stampHillside(cur, tableAddr, 9, 5)
+}
 
+/** Shared body of CODE_0DA71B and CODE_0DA760: they differ only in table and grid size. */
+function stampHillside(cur: Cursor, tableAddr: number, cols: number, rows: number): void {
   saveBookmark(cur) // CODE_0DA6B1
   let x = 0
   for (let r = 0; r < rows; r++) {
@@ -542,20 +545,7 @@ export function handle_0DA760(cur: Cursor): void {
   // the table address).
   const tableAddr = readLongOperand(cur, cur.handlerAddr + 23)
 
-  const cols = 6 // _0 = 5 → 6 iters
-  const rows = 4 // _1 = 3 → 4 iters
-
-  saveBookmark(cur)
-  let x = 0
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      setPage0(cur)
-      const tile = cur.rom.readByte(tableAddr + x) ?? 0
-      hillsideMergeWriteAdvance(cur, tile)
-      x++
-    }
-    if (r < rows - 1) nextRow(cur)
-  }
+  stampHillside(cur, tableAddr, 6, 4) // _0 = 5 → 6 iters, _1 = 3 → 4 iters
 }
 
 /**
