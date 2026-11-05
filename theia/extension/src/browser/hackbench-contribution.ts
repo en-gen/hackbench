@@ -412,6 +412,7 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
 
     explorer.onMapOpened(async ({ index, label, pinned, iconClass, isNew }) => {
       const manifestPath = this.currentManifest
+      // One closure for both paths: a pinned tab and a preview tab must open the map with the same options.
       const apply = (w: MapViewWidget) => w.open({ manifestPath, index, label, iconClass, isNew })
       if (pinned) {
         await this.previews.pin<MapViewWidget>(

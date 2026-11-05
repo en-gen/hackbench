@@ -159,6 +159,7 @@ export function buildMapTree(
   const maps = new Set(catalog.entries.filter(e => e.isReal).map(e => e.index))
   const shared = catalog.entries.filter(e => e.sharedPointer).map(e => e.index)
   const noPointers = catalog.entries.filter(e => !e.pointed).map(e => e.index)
+  /** Flags a slot whose pointer is valid but whose data ends in no marker, so the tree can warn instead of hiding it. */
   const unreadable = (index: number): { unreadable?: true } =>
     catalog.entries[index]!.pointed && !catalog.entries[index]!.terminated
       ? { unreadable: true }
@@ -170,6 +171,7 @@ export function buildMapTree(
   // OverworldEntrances; unreadable on a ROM whose overworld another editor
   // rebuilt, and reported as unknown.
   const entranceIndex = deriveOverworldEntrances(rom, catalog, fingerprints)
+  /** Roots are the translevels the overworld grants, not every slot the ROM could list first. */
   const isRoot = (index: number): boolean => isOverworldLevel(index, entranceIndex.roots)
 
   const {
@@ -178,7 +180,9 @@ export function buildMapTree(
     unreadableMaps: graphCut,
   } = rom.buildLevelExitGraph(entranceIndex.roots, fingerprints.entry)
 
+  /** The display name comes from the ROM's own tables; null when it has none, never a guess. */
   const name = (index: number): string | null => rom.getLevelName(index, entranceIndex)
+  /** Other slots whose Layer 1 pointer is shared with this one, so the row can name its twins. */
   const aliasesOf = (index: number): number[] => catalog.entries[index]?.l1Aliases ?? []
 
   // Roots come from the map set, not from classifyLevels, so a slot the
@@ -186,6 +190,7 @@ export function buildMapTree(
   const roots = [...maps].filter(isRoot).sort((a, b) => a - b)
 
   const placed = new Set<number>()
+  /** Records the slot as placed so the Unassigned sweep later skips it, and builds its map node. */
   const adopt = (index: number, children: MapNode[] = []): MapNode => {
     placed.add(index)
     return {

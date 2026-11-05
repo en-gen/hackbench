@@ -163,6 +163,7 @@ function AfterCommit({ run }: { run: () => void }): null {
   return null
 }
 
+/** Capitalizes a palace key for its switch's label. */
 const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
 @injectable()
@@ -359,6 +360,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     )
   }
 
+  /** Starts a map in this widget; a reused tab drops the earlier map's replies via the open counter. */
   async open(options: MapViewOptions): Promise<void> {
     perfStart('open-maps')
     this.options = options
@@ -775,6 +777,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return Array.from({ length: last - first + 1 }, (_, i) => first + i)
   }
 
+  /** Asks for the screens now in view, skipping any already requested. */
   protected requestVisible(): void {
     // A New slot shows a note, not a map: no screen is ever asked for.
     if (this.options?.isNew) return

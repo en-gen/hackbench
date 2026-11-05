@@ -175,6 +175,7 @@ const iconFor = (node: MapTreeNode): string =>
 const groupName = (n: MapTreeNode): string =>
   n.id === 'group:unassigned' ? 'Unassigned' : n.id.replace(/^group:user:/, '')
 
+/** The `$0F3` form hackers use for a slot id; fixed width so rows sort and align. */
 export const slotLabel = (index: number): string =>
   `$${index.toString(16).toUpperCase().padStart(3, '0')}`
 
