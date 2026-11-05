@@ -200,3 +200,45 @@ That list of nine is not folklore: it is every sprite ID other than `$1F` whose
 `Sprite166EVals` entry (`bank_07.asm:792`, read at `bank_07.asm:977`, ROM
 `$07:F3FE`) selects OBJ palette 7, i.e. `(val & $0F) >> 1 == 7`. Enumerated over
 all 256 IDs on the vanilla ROM.
+
+## 5. Map view colors (#1097)
+
+Symptom: on map `$11C` the map view drew the Magikoopa in the level's pink row
+15 where the game shows blue.
+
+Cause, measured on the vanilla ROM (one machine): the map view runs the cart's
+own sprite code at rest and draws the FIRST pass that draws a tile, taking the
+CGRAM writes made up to that pass. For `$1F` that pass is state 1, the fade-in
+(`bank_01.asm:8480`), which draws before the first rung is uploaded
+(`CODE_01C028`, `bank_01.asm:8733-8755`; the upload comes on the pass after). It
+had written nothing, so row 15 fell back to the level's colors. The pass at the
+end of the run had written all eight rungs; the last one stays in CGRAM.
+
+| | CGRAM row 15 columns 0-7 |
+|---|---|
+| map view before | the level's row (no sprite write) |
+| game (capture `layers_v5/11c`, `windows/screen_00`) | `MagiKoopaPals` entry `CMP imm - 2` = entry 7 |
+| map view after | the same entry: the run's last drawn pass |
+
+Columns 8-15 are never written, so they keep the level's colors (composited,
+not replaced). In the capture the sprite is OAM entries 116 and 117 on
+palette 7.
+
+Fix (`theia/extension/src/node/map-sprites.ts`, `paletteFor`): for `$1F` only,
+the writes of the run's last drawn pass are used. They are the cart's own
+operands, so a hack that shortens the fade rests on its own rung, as in
+section 4. `$C5` (`BooBossPals`, same CGRAM slot, 512 writes in 64 passes on map
+`$0E4`) cycles and has no single resting rung; it is unchanged.
+
+Sweep: `$1F` is placed on two vanilla maps. `$11C`: 262 of 387 opaque pixels
+were not a color of the captured row 15 before, 0 after. `$1FE` draws no tile at
+rest (a placeholder), so it has no pixels to compare and was never wrong. No
+other map was affected: for every sprite on every vanilla map that builds, the
+only ones whose CGRAM writes differ between the drawn pass and the end of the
+run are `$1F` on `$11C` and `$C5` on `$0E4`. The pose is still the fade-in
+frame, which is a separate matter from the colors.
+
+Tests: `MapSpritesMagikoopaPalette.test.ts` (synthetic, no ROM),
+`MapSpritesMagikoopaPalette.corpus.test.ts` (capture comparison),
+`theia/browser-app/test/map-magikoopa-palette.spec.cjs` (Playwright, not run
+by the implementer).

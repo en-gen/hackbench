@@ -64,6 +64,7 @@ import {
   RAM,
   type SpriteModel as BaseModel,
   type PaletteWrite,
+  type PassResult,
   type SpritePart,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
@@ -412,6 +413,25 @@ export function runWithUploads(rom: RomFile, id: number, seed: SpriteSeed): RunM
   return Object.assign(runOnce(rom, id, seed, { atRest: true, probe: p.probe }), { uploads: p.byPass }) // prettier-ignore
 }
 
+/** Sprite $1F, the Magikoopa. */
+const MAGIKOOPA_ID = 0x1f
+
+/**
+ * The CGRAM writes a picture is drawn with. The chosen pass is a pose policy (the first drawn frame); the Magikoopa's
+ * first drawn frame is its fade-in, which runs BEFORE the first palette upload (state 1, bank_01.asm:8480; upload
+ * CODE_01C028, bank_01.asm:8733-8755), so that pass has written nothing and the level's row 15 showed (#1097).
+ * The game leaves the fade's last rung in CGRAM, so its colors are the writes of the run's last drawn pass: the
+ * cart's own operands, so a hack that shortens the fade rests on its own rung. Other sprites keep the chosen
+ * pass's (BooBossPals, $C5, cycles and has no such rung: not changed here). Evidence scope: the 64-pass run on
+ * vanilla map $11C; the upload covers CGRAM $F0-$F7 only, so columns 8-15 keep the level's colors.
+ * Derivation: docs/sprites/sprite-1f-magikoopa.md section 4.
+ */
+function paletteFor(m: RunModel, chosen: PassResult): PaletteWrite[] {
+  if (m.id !== MAGIKOOPA_ID) return chosen.palette
+  const drawn = m.passes.filter(p => p.parts.length > 0)
+  return drawn[drawn.length - 1]?.palette ?? chosen.palette
+}
+
 /** What the interpreter shows for one sprite: its model, as the drawer's reply. */
 export function modelResult(m: RunModel): SpriteDrawResult {
   const generic = m.seedSource === 'generic'
@@ -431,7 +451,7 @@ export function modelResult(m: RunModel): SpriteDrawResult {
           note: 'The game lays this sprite out itself, at fixed spots of the map; it does not follow where the list places it.',
         }
       : {}),
-    runtimePalette: pass.palette,
+    runtimePalette: paletteFor(m, pass),
     ...(pass.drew
       ? { children: pass.drew.children.map(c => ({ index: c.index, parts: interpParts(pass.parts.filter(p => c.oam.includes(p.oam))) })) } // prettier-ignore
       : {}),
