@@ -62,6 +62,7 @@ import { readMarioStartPos } from '../../../../src/rom/MarioStartPos'
 import {
   runOnce,
   RAM,
+  drawnParts,
   type SpriteModel as BaseModel,
   type PaletteWrite,
   type SpritePart,
@@ -268,15 +269,22 @@ export function drawSprites(
         unverified = unverified ? `${unverified}; ${why}` : why
       }
     }
-    const pixels = res.parts.map(p => upload?.get(p.charNum) ?? getCharPixels(model.vram, p.charNum)) // prettier-ignore
-    // One missing char would draw as a hole, so the whole sprite is marked.
-    if (pixels.some(p => !p)) return placeholder(s, 'charsNotLoaded')
+    const art = res.parts.map(p => upload?.get(p.charNum) ?? getCharPixels(model.vram, p.charNum)) // prettier-ignore
+    // A missing char would draw as a hole: draw the pieces that have art (the sprite's own and its companions alike),
+    // say how many do not, and keep the marker only when none does. `parts` and `pixels` stay index-aligned.
+    const parts = res.parts.filter((_, i) => art[i])
+    const pixels = art.filter(a => a)
+    if (parts.length === 0) return placeholder(s, 'charsNotLoaded')
+    if (parts.length < res.parts.length) {
+      const why = `${res.parts.length - parts.length} of ${res.parts.length} pieces are not drawn: their graphics are not in this map's loaded sprite graphics` // prettier-ignore
+      unverified = unverified ? `${unverified}; ${why}` : why
+    }
     const [ax, ay] = 'anchor' in res && res.anchor ? [res.anchor.x, res.anchor.y] : [pixelX(s), s.y * TILE] // prettier-ignore
     const box = {
-      x0: ax + Math.min(...res.parts.map(p => p.dx)),
-      y0: ay + Math.min(...res.parts.map(p => p.dy)),
-      x1: ax + Math.max(...res.parts.map(p => p.dx)) + 8,
-      y1: ay + Math.max(...res.parts.map(p => p.dy)) + 8,
+      x0: ax + Math.min(...parts.map(p => p.dx)),
+      y0: ay + Math.min(...parts.map(p => p.dy)),
+      x1: ax + Math.max(...parts.map(p => p.dx)) + 8,
+      y1: ay + Math.max(...parts.map(p => p.dy)) + 8,
     }
     const width = box.x1 - box.x0
     const out = new Uint8ClampedArray(width * (box.y1 - box.y0) * 4)
@@ -289,7 +297,7 @@ export function drawSprites(
     // The sprite's own CGRAM writes (WRAM upload list, palette mirror, direct), per sprite.
     const runtime = new Map<number, number>()
     for (const w of ('runtimePalette' in res && res.runtimePalette) || []) runtime.set(w.index, w.bgr555) // prettier-ignore
-    res.parts.forEach((p, i) => {
+    parts.forEach((p, i) => {
       const note = res.paletteNote
       const row = (c: number): RgbaColor => {
         // Only the parts on the row the handler uploads to; another row keeps the level's colors.
@@ -311,7 +319,7 @@ export function drawSprites(
       ...('stored' in res && res.stored ? { stored: res.stored } : {}),
       ...('afterInit' in res && res.afterInit ? { afterInit: res.afterInit } : {}),
       ...('onLine' in res && res.onLine ? { onLine: res.onLine } : {}),
-      parts: res.parts.map(p => ({ char: p.charNum, palette: p.palette, flipX: p.flipX, flipY: p.flipY, dx: p.dx, dy: p.dy })), // prettier-ignore
+      parts: parts.map(p => ({ char: p.charNum, palette: p.palette, flipX: p.flipX, flipY: p.flipY, dx: p.dx, dy: p.dy })), // prettier-ignore
       priority: base64(new Uint8ClampedArray(prio.buffer)),
       status: 'drawn',
       ...(unverified ? { unverified } : {}),
@@ -448,7 +456,7 @@ function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
   // Guards the loops below and keeps hand-built models of a few passes from being marked; no production run is that short.
   if (last < SETTLE_TAIL) return { writes }
   const end = 'so its colors may differ in the game'
-  const first = m.passes.findIndex(p => p.parts.length > 0)
+  const first = m.passes.findIndex(p => drawnParts(p).length > 0)
   if (first >= last - SETTLE_TAIL)
     return { writes, why: `it only appeared when the check ended, ${end}` }
   const changed = (p: number) => !sameColors(netColors(m, p), netColors(m, p - 1))
@@ -459,11 +467,11 @@ function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
   if (events.length === 1) return { writes, why: `its colors changed only once, ${end}` }
   if (quiet < SETTLE_TAIL || quiet <= gap)
     return { writes, why: `its colors were still changing when the check ended, ${end}` }
-  const away = m.passes.map((_, p) => p).filter(p => p > first && !m.passes[p]!.parts.length)
+  const away = m.passes.map((_, p) => p).filter(p => p > first && !drawnParts(m.passes[p]!).length)
   if (
     away.length &&
     (away.some(changed) ||
-      [first, ...away.filter(p => m.passes[p - 1]!.parts.length).map(p => p - 1)].some(
+      [first, ...away.filter(p => drawnParts(m.passes[p - 1]!).length).map(p => p - 1)].some(
         p => !sameColors(net, netColors(m, p)),
       ))
   )
@@ -504,7 +512,7 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     : {}
   return {
     ok: true,
-    parts: interpParts(pass.parts),
+    parts: interpParts(drawnParts(pass)),
     anchor: { x: m.anchor.x, y: m.anchor.y },
     ...stored,
     ...(m.neverAppears ? { note: 'never appears in play' } : {}),
@@ -792,7 +800,7 @@ export function interpRunner(
     for (const k of [1, -1]) {
       const shifted = { x: camera.x + dir[0]! * k, y: camera.y + dir[1]! * k }
       const probe = run(rom, s.spriteId, seed(shifted, { mainPasses: at + 1 }))
-      if (!probe.passes[at]?.parts.length) continue
+      if (!probe.passes[at] || !drawnParts(probe.passes[at]!).length) continue
       const fixed = fixOffsets(m, probe, loaderCam, w)
       return { m: fixed ?? m, fixed: !!fixed }
     }
@@ -816,8 +824,12 @@ function fixOffsets(
   loaded: Uint8Array,
 ): RunModel | null {
   const at = m.chosen
-  const pass = at === undefined ? undefined : m.passes[at]
-  const other = at === undefined ? undefined : probe.passes[at]
+  // Compared and rewritten as one list: a screen-fixed companion piece is fixed like the sprite's own.
+  const flat = (r: RunModel) => {
+    const q = at === undefined ? undefined : r.passes[at]
+    return q && { ...q, parts: drawnParts(q) }
+  }
+  const [pass, other] = [flat(m), flat(probe)]
   if (!m.anchor || !pass || !other) return null
   const anchor = m.anchor
   // Residue: the loader's entry is the part's X and Y, in an entry that is not all zero. Tile and
@@ -846,7 +858,7 @@ function fixOffsets(
       dy: f.y ? (p.oy >= 0xe0 ? p.oy - 256 : p.oy) + cam.y - anchor.y : p.dy,
     }
   })
-  return { ...m, passes: m.passes.map((q, i) => (i === at ? { ...q, parts } : q)) }
+  return { ...m, passes: m.passes.map((q, i) => (i === at ? { ...q, parts, companions: [] } : q)) }
 }
 
 /** Sprite $E6, whose spawn puts the castle flames on Layer 2 (CODE_02AAC0, SMWDisX bank_02.asm:5636-5637). */
@@ -1106,7 +1118,7 @@ export function framesOf(
   if ('direct' in run) return { frames: [], reason: 'it is drawn by a special routine' }
   const { m, fixed } = run
   const ref = m.chosen === undefined ? undefined : m.passes[m.chosen]
-  if (!ref || !ref.parts.length) {
+  if (!ref || !drawnParts(ref).length) {
     const r = modelResult(m)
     return { frames: [], reason: 'reason' in r ? r.reason : 'drew no tile' }
   }
@@ -1114,22 +1126,19 @@ export function framesOf(
   const drawAt = (q: typeof ref) => (m.snaps ? q.origin : q.pos)
   const seen = new Set<string>()
   const frames: MapSpriteDto[] = []
-  for (const pass of m.passes.filter(q => q.pass >= ref.pass && q.parts.length > 0)) {
+  for (const pass of m.passes.filter(q => q.pass >= ref.pass && drawnParts(q).length > 0)) {
     // dx' places the art where it stands relative to the sprite, on the chosen pass's anchor.
     const [ax, ay] = [pass.origin.x - drawAt(pass).x + drawAt(ref).x - ref.origin.x, pass.origin.y - drawAt(pass).y + drawAt(ref).y - ref.origin.y] // prettier-ignore
-    const parts = pass.parts.map(p => ({ ...p, dx: p.dx + ax, dy: p.dy + ay }))
-    const drawnParts = interpParts(parts)
-    const [mx, my] = [
-      Math.min(...drawnParts.map(p => p.dx)),
-      Math.min(...drawnParts.map(p => p.dy)),
-    ]
-    const key = drawnParts.map(p => [p.charNum, p.palette, +p.flipX, +p.flipY, p.dx - mx, p.dy - my].join()).sort().join(';') // prettier-ignore
+    const parts = drawnParts(pass).map(p => ({ ...p, dx: p.dx + ax, dy: p.dy + ay }))
+    const pieces = interpParts(parts)
+    const [mx, my] = [Math.min(...pieces.map(p => p.dx)), Math.min(...pieces.map(p => p.dy))]
+    const key = pieces.map(p => [p.charNum, p.palette, +p.flipX, +p.flipY, p.dx - mx, p.dy - my].join()).sort().join(';') // prettier-ignore
     if (seen.has(key)) continue
     seen.add(key)
     const shifted = {
       ...m,
       chosen: pass.pass,
-      passes: m.passes.map(q => (q === pass ? { ...q, parts } : q)),
+      passes: m.passes.map(q => (q === pass ? { ...q, parts, companions: [] } : q)),
     }
     const [f] = drawSprites([s], model, () => modelResult(shifted), dynamic)
     if (f!.status !== 'drawn') continue

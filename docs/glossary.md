@@ -127,6 +127,13 @@ the low byte subtracts `$24` at or above `$25`, and the high byte comes from
 the submap, NOT from the translevel (`bank_05.asm:7217-7226`). Conflating
 those two gates is correct on vanilla and wrong in principle.
 
+## The sprite words
+
+**Companion.** A piece drawn by code other than the sprite's own turn in a plain run: a sprite its INIT spawned (a
+$61 skull, the $1E Lakitu cloud), or any other write made while `$15E9` named another slot. The grader does not count
+companions as the sprite's parts; the map view draws them with it (D52). A neighbor placed from the map's list (#841)
+is not a companion.
+
 ## The connection words
 
 **Sub-screen.** One half of a screen. A horizontal map's screen (16 x 27

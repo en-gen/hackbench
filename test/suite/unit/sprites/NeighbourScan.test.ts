@@ -12,11 +12,15 @@ import { romWindowHits } from '../../support/romWindows'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
 import { Refusal } from '../../../../src/rom/cpu/call'
-import { Machine, RAM, runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { drawnParts, Machine, RAM, runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { shellLoad } from '../../../../src/rom/sprites/ShellSprites'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
-import { drawSprites, interpDrawer } from '../../../../theia/extension/src/node/map-sprites'
+import {
+  drawSprites,
+  interpDrawer,
+  interpParts,
+} from '../../../../theia/extension/src/node/map-sprites'
 import { COLORS } from '../../support/mapInputs'
 import { buildSyntheticRom, SYNTHETIC_INIT_TABLE_OFFSET } from '../../support/syntheticSpriteRom'
 
@@ -46,7 +50,7 @@ const CHILD_FIRST = 61
 const planted: number[][] = []
 
 function cart(
-  opts: { breakShellLoader?: boolean; travel?: { x: number; y: number } } = {},
+  opts: { breakShellLoader?: boolean; travel?: { x: number; y: number }; spawnInit?: boolean } = {},
 ): RomFile {
   const bytes = new Uint8Array(buildSyntheticRom().buffer)
   const off = (snes: number) => (snes >>> 16) * 0x8000 + ((snes & 0xffff) - 0x8000)
@@ -129,6 +133,8 @@ function cart(
   word(0x018320 + 9, SHELLSCAN, 0x9f00)
   word(0x018320 + 9, BARE, 0x9f80)
   main(SCANNER, 0x9800)
+  // The scanner's INIT spawns id 81 into the slot below it (syntheticCompanion.ts: id 80's INIT).
+  if (opts.spawnInit) word(0x018170 + SYNTHETIC_INIT_TABLE_OFFSET, SCANNER, 0xa600)
   main(DRAWS, 0x8640)
   main(SHIFTS, 0x9900)
   main(TRAVELS, 0xa000)
@@ -401,3 +407,26 @@ describe.skipIf(!hasRom(VANILLA))(
     })
   },
 )
+
+// #840: the neighbor run draws the sprite's own writes alone (#841); a companion is a plain-run notion. The map
+// view's cell count is what a viewer sees (a 16 x 16 piece is 4 cells).
+describe('companions and the neighbor run (#840)', () => {
+  const cells = (m: ReturnType<typeof runOnce>) =>
+    interpParts(drawnParts(m.passes[m.chosen!]!)).length
+  const nb = (id: number, x: number) => ({ id, x, y: 0x70 })
+
+  it('neighbors whose own INIT spawns something add no companions: 8 cells, not 12', () => {
+    const seed = withSeed({ slot: 5, sprite: { x: 0x80, y: 0x80 }, neighbours: [nb(QUIET, 0x90), nb(83, 0xa0)] }) // prettier-ignore
+    const m = runOnce(cart(), SCANNER, seed)
+    expect(m.passes[m.chosen!]!.companions ?? []).toEqual([])
+    expect(cells(m)).toBe(8)
+  })
+
+  it("a sprite's own companion keeps the run alone: the neighbor run that cannot draw it is not adopted", () => {
+    const m = runOnce(cart({ spawnInit: true }), SCANNER, withSeed({ slot: 5, sprite: { x: 0x80, y: 0x80 }, neighbours: [nb(QUIET, 0x90)] })) // prettier-ignore
+    expect(m.scansSlots).toBe(true)
+    expect(m.neighbourRun).toBe('same')
+    expect(m.passes[m.chosen!]!.companions).toHaveLength(1)
+    expect(cells(m)).toBe(8)
+  })
+})
