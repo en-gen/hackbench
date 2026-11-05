@@ -19,7 +19,8 @@ import {
   type StockOp,
   type StockSpan,
 } from '../../../src/rom/SubmapFlagGate'
-import { formatAddr } from '../../../src/rom/addressing'
+import { formatAddr, loromToOffset } from '../../../src/rom/addressing'
+import { RomFile } from '../../../src/rom/RomFile'
 import { OP } from '../support/asm65'
 import { blankStockRom, flip, SYNTHETIC_FINGERPRINTS } from '../support/syntheticRom'
 
@@ -84,12 +85,17 @@ describe('named-opcode checks on the overworld entry path', () => {
     },
   )
 
-  it('a read past the end of the image is a refusal, not a pass', () => {
-    const rom = blankStockRom()
-    for (let addr = 0xffffe0; addr <= 0xffffff; addr++) {
-      expect(stockCodeMismatch(rom, [{ ...OPS[0]!, addr }]), formatAddr(addr)).toContain('not readable') // prettier-ignore
-    }
-  })
+  // Hand lengths, so a wrong SIZE in the source goes red: cut inside the instruction is refused, whole is not.
+  const LEN = new Map([[OP.SEC, 1], [OP.BCC, 2], [OP.BEQ, 2], [OP.BNE, 2], [OP.LDA_IMM, 2], [OP.CMP_IMM, 2], [OP.SBC_IMM, 2], [OP.STA_DP, 2], [OP.LDA_ABS, 3], [OP.LDA_ABSY, 3], [OP.STA_ABS, 3], [OP.LDA_LONGX, 4], [OP.JSL, 4]]) // prettier-ignore
+  it.each([...OPS, LM_ENTRY_SITE_OPS[7]!].map(o => [o.what, o] as const))(
+    '%s: an image cut inside the instruction is refused',
+    (_w, o) => {
+      const rom = blankStockRom()
+      const cut = (n: number): RomFile => new RomFile('cut.sfc', Buffer.from(rom.readAtFileOffset(0, loromToOffset(o.addr, rom.romSize)! + n)!)) // prettier-ignore
+      for (let n = 1; n < LEN.get(o.op)!; n++) expect(stockCodeMismatch(cut(n), [o]), `${n} bytes`).toContain('not readable') // prettier-ignore
+      expect(stockCodeMismatch(cut(LEN.get(o.op)!), [o]) ?? '').not.toContain('not readable')
+    },
+  )
 })
 
 describe('the digests', () => {

@@ -14,6 +14,7 @@ import {
   ENTRY_RAM,
   LM_ENTRY_SITE_OPS,
   OVERWORLD_ENTRY,
+  entryPathMismatches,
   operandBytes,
   readTranslevelBias,
   stockCodeMismatch,
@@ -79,6 +80,18 @@ describe('the RAM table on the overworld entry path (D185)', () => {
     expect(r.wrongReason).toEqual([])
     expect(r.tried).toBe(13 * 255)
     expect(r.refused).toBe(3315)
+  })
+
+  it('the whole path refuses each: readEntrySite via readTranslevelBias, and entryPathMismatches on its own', () => {
+    const bias = (rom: RomFile): string | null => {
+      const b = readTranslevelBias(rom, FP)
+      return b.ok ? null : b.reason
+    }
+    const path = (rom: RomFile): string | null => entryPathMismatches(rom, FP, [], []).find(r => r !== null) ?? null // prettier-ignore
+    const r = sweep(blankStockRom, RAM_OPS, bias)
+    expect(r).toMatchObject({ refused: 3315, wrongReason: [] })
+    // The guard's and the table load's operands (7 bytes) sit before the site, so only this path check owns them.
+    expect(sweep(blankStockRom, RAM_OPS.filter(o => o.addr < 0x05d8a2), path)).toMatchObject({ refused: 7 * 255, wrongReason: [] }) // prettier-ignore
   })
 
   it('under the Lunar Magic hook, the site operands it keeps are checked: every alternative is refused', () => {
