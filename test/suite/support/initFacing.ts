@@ -86,7 +86,9 @@ export function oursFor(
 
 /**
  * Records with an `initFacing` whose INIT, run with `marioFor(record)`, disagrees; key is `map:slot:id`.
- * INIT runs under the PLACED list id where the loader keeps it (placedInitId), as the map view does: the capture's id is the number at the end of INIT's frame, and an Exploding Block ($4C) swaps in its own later one (bank_02.asm:13281-13283, #1243).
+ * INIT runs under the PLACED list id where the loader keeps it (placedInitId), as the map view does:
+ * the capture's id is the number at the end of INIT's frame, and an Exploding Block ($4C) swaps in
+ * its own later one (bank_02.asm:13281-13283, #1243).
  * The slot is the hardware's: the cloud's MAIN writes Lakitu's rider's $157C (docs/sprites/lakitu-facing.md), so the rider's facing depends on the cloud's slot.
  */
 export function facingMismatches(
