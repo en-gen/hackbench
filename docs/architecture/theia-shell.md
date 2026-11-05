@@ -234,7 +234,8 @@ sprite of a map as one RGBA bitmap in map pixels (`MapSpriteDto`: index, id,
 anchor, `box`, base64 `rgba`, `status` of `drawn` or `placeholder`, and the
 reason a marker is a marker: the interpreter's refusal (`refused: ...`), an
 empty run (`drew no OAM tile`), or `extraBits` / `charsNotLoaded`), plus the
-screen size and orientation. A drawn sprite may carry `unverified`: the level
+screen size and orientation. A drawn sprite may carry `unverified`: some of its pieces have no graphics in the map's loaded sprite set
+(they are left out and the count said; `charsNotLoaded` is the marker only when none has), or the level
 loader refused this ROM, so the sprite ran from a placement-only seed, not the
 level's state. The reply's `note` joins two caveats: the stream has no end
 marker in the bytes read (sprites past them are not drawn), and, once per map,

@@ -32,6 +32,7 @@ import {
   type RunOptions,
   type SpriteModel,
   type SpritePart,
+  drawnParts,
 } from './SpriteRunner'
 import type { SpriteSeed } from './SpriteSeed'
 
@@ -205,7 +206,7 @@ export function fiveEeries(
     placed.push({
       x: sx,
       y: sy,
-      parts: pass.parts.map(p => ({ ...p, dx: p.dx + ox, dy: p.dy + oy })),
+      parts: drawnParts(pass).map(p => ({ ...p, dx: p.dx + ox, dy: p.dy + oy })),
     })
   }
   if (placed.length === 0)

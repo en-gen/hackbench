@@ -67,6 +67,8 @@ export interface SpriteSeed {
    * `runOnce` makes then; the first run is always alone. `index` is the entry's place in the map's sprite list.
    */
   neighbours?: { id: number; x: number; y: number; index?: number }[]
+  /** The map's own loader placed this sprite at map load (its SpriteLoadStatus byte is set): it also spawns at the map-load camera. */
+  opening?: boolean
 }
 
 export const SPRITE_SEED: SpriteSeed = {
