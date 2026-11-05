@@ -505,7 +505,7 @@ function opMismatch(rom: RomFile, c: StockOp, ram: RamTable): string | null {
   if (c.ram !== undefined) {
     const found = at.subarray(1).reduce((v, b, i) => v | (b << (8 * i)), 0)
     const want = ram[c.ram]
-    const show = (v: number): string => `$${v.toString(16).toUpperCase().padStart(2 * operandBytes(c.op), '0')}` // prettier-ignore
+    const show = (v: number): string => hexs(v, 2 * operandBytes(c.op))
     if (found !== want) return `${name} addresses ${show(found)}, not ${c.ram} at ${show(want)}.`
   }
   if (c.lands === undefined) return null
