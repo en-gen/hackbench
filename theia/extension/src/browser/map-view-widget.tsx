@@ -124,7 +124,7 @@ export interface MapViewOptions {
 }
 
 /** The map note when the layers past the end could not be read: the map itself drew, so it only says so. */
-const GUTTER_UNREAD = 'The layers past the end of the map could not be drawn.'
+const GUTTER_UNREAD = 'The graphics layers past the end of the map could not be drawn.'
 
 /** The one-line note an opened New slot shows until its empty editor exists (#950). */
 export const NEW_SLOT_NOTE = 'This slot is new. It has no map yet.'

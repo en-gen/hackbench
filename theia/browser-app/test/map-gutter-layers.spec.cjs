@@ -449,7 +449,7 @@ test('a failed gutter read says so as a map note, draws nothing there, and is no
   await openSynthetic(page, { screens: 2, mode: 'fail' })
   await scrollEnd(page, false)
   const note = page.locator(`${root} [data-note="gutter-layers"]`)
-  await expect(note).toHaveText('The layers past the end of the map could not be drawn.')
+  await expect(note).toHaveText('The graphics layers past the end of the map could not be drawn.')
   await expect(note).toHaveAttribute('title', 'synthetic detail')
   for (let i = 0; i < 3; i++) {
     await scrollEnd(page, false)
