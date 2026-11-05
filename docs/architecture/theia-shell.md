@@ -392,9 +392,9 @@ tooltip; the `aria-label` is the same text, prefixed `<n> issues.` with 2+. The 
 
 Owner rulings: D76 call 2 ("draw it off the map where the game indicates it is drawn. the canvas can and
 should extend beyond the map bounds"), D145 ("no matter what. the user needs ways to extend the size of the
-map") and, since #1228 (D172), "I don't want any gutter to the left of the map, only to the right for the
-purpose of leaving space to add more map to the right" with "the gutter should be 1 screen wide"
-(`decisions/2026-11-04-map-gutter-far-end-only.md`). That replaces the left half of D48 part 2 ("half a
+map") and, since #1228 (R36 and R41, plan gate D172), "I don't want any gutter to the left of the map, only
+to the right for the purpose of leaving space to add more map to the right" with "I think "the gutter" should
+be 1 screen wide" (`decisions/2026-11-04-map-gutter-far-end-only.md`). That replaces the left half of D48 part 2 ("half a
 screen width of gutter on each end with ui to add a screen") and R24 (the back color fades in the gutter):
 the fade stays, over the far-end gutter only.
 
@@ -430,7 +430,8 @@ With the pad the widget:
 - confines the checkerboard (`.hb-checkerboard`, "nothing here") to the strip without the far-end gutter: it
   reaches the near canvas edge and stops at the gutter, so where the back color fades out the panel shows
   behind it, not the checkerboard [PROP];
-- marks the map's edge with a 1 px outline (`data-control="map-edge"`) [PROP], and runs the grid
+- marks the map's edge with a 1 px outline (`data-control="map-edge"`) [PROP]; on a side with no pad (the near
+  side of most maps since #1228) that line falls on the canvas edge and is not visible there; and runs the grid
   (`MapGridOverlay`, `map-grid.ts` `pad`) on across the pad.
 
 Everything that turns a pointer or scroll offset into a map position subtracts the leading pad: hover

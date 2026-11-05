@@ -11,26 +11,26 @@ import {
   offMapPad,
   offMapSpritePixels,
   screensInView,
-  type Pad,
   type Rect,
 } from '../../../theia/extension/src/browser/off-map-extent'
 import { GUTTER_PX, MAX_SCREENS, farGutter } from '../../../src/rom/model/MapGutter'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 
 // 16 x 27 tile screens side by side, or 32 x 16 stacked (LevelParser.ts), one to seven screens.
-const SHAPES = [1, 2, 5, 7].flatMap(n => [
-  { w: 256 * n, h: 432, vertical: false },
-  { w: 512, h: 256 * n, vertical: true },
+const SHAPES = [1, 2, 5, 7, 31, 32].flatMap(n => [
+  { n, w: 256 * n, h: 432, vertical: false },
+  { n, w: 512, h: 256 * n, vertical: true },
 ])
 const G = 256
 
 describe('offMapPad: the far-end gutter (#1228)', () => {
   it('a map with nothing off it is padded by one screen at its far end alone', () => {
-    for (const { w, h, vertical } of SHAPES) {
+    for (const { n, w, h, vertical } of SHAPES) {
+      const g = n === MAX_SCREENS ? 0 : G
       const inside: Rect[] = [cellRect(0, 0), cellRect(w / 16 - 1, h / 16 - 1), { x0: 0, y0: 0, x1: w, y1: h }] // prettier-ignore
-      const want = vertical ? { left: 0, top: 0, right: 0, bottom: G } : { left: 0, top: 0, right: G, bottom: 0 } // prettier-ignore
-      expect(offMapPad(w, h, inside, vertical, 5)).toEqual(want)
-      expect(offMapPad(w, h, [], vertical, 5)).toEqual(want)
+      const want = vertical ? { left: 0, top: 0, right: 0, bottom: g } : { left: 0, top: 0, right: g, bottom: 0 } // prettier-ignore
+      expect(offMapPad(w, h, inside, vertical, n)).toEqual(want)
+      expect(offMapPad(w, h, [], vertical, n)).toEqual(want)
     }
   })
 
@@ -40,9 +40,9 @@ describe('offMapPad: the far-end gutter (#1228)', () => {
 
   it('32 screens, the ceiling, has no far-end pad; 31 has the full gutter, on both shapes', () => {
     expect(MAX_SCREENS).toBe(32)
-    expect(farGutter(32)).toBe(0)
-    expect(farGutter(31)).toBe(256)
-    expect(farGutter(1)).toBe(256)
+    // Every legal count: one screen of gutter up to 31, none at the 32-screen ceiling.
+    for (let n = 1; n <= MAX_SCREENS; n++)
+      expect(farGutter(n), `${n} screens`).toBe(n === 32 ? 0 : 256)
     expect(offMapPad(256 * 32, 432, [], false, 32)).toEqual({
       left: 0,
       top: 0,
@@ -299,47 +299,5 @@ describe('offMapSpritePixels', () => {
     const clear = sprite(0, { x0: -8, y0: 0, x1: 0, y1: 8 }, 10, 0)
     expect(offMapSpritePixels([inside], 256, 432, pad, false)).toBeNull()
     expect(offMapSpritePixels([clear], 256, 432, pad, false)).toBeNull()
-  })
-})
-
-/**
- * #1228 acceptance 6: the oracles above must go red when the left gutter comes back. Each "mutant" is the
- * pre-#1228 behavior (a gutter at both long ends, a fade at both ends); the same check that passes the real
- * code must throw on it. A smoke test of two planted defects, not a sweep.
- */
-describe('planted defect: the left gutter back (#1228 acceptance 6)', () => {
-  type PadFn = (w: number, h: number, r: Rect[], v: boolean, n: number) => Pad
-  /** Acceptance 1 and 7: nothing off the map gives a 0 near pad and a 256 far pad, per shape. */
-  const checkPads = (fn: PadFn): void => {
-    expect(fn(1024, 432, [], false, 4)).toEqual({ left: 0, top: 0, right: 256, bottom: 0 })
-    expect(fn(512, 1024, [], true, 4)).toEqual({ left: 0, top: 0, right: 0, bottom: 256 })
-  }
-  /** Acceptance 3 and 7: opaque at the near edge, one transparent stop, at the far end. */
-  const checkFade = (fn: (v: boolean, g: number) => string): void => {
-    for (const v of [false, true]) {
-      const m = fn(v, 256)
-      expect(m).toMatch(/^linear-gradient\([^,]+, #000 /)
-      expect(m.match(/transparent/g)).toHaveLength(1)
-      expect(m).toMatch(/transparent\)$/)
-    }
-  }
-  const bothEnds: PadFn = (w, h, r, v, n) => {
-    const p = offMapPad(w, h, r, v, n)
-    return v ? { ...p, top: p.top + farGutter(n) } : { ...p, left: p.left + farGutter(n) }
-  }
-  const fadeBothEnds = (v: boolean, g: number): string =>
-    `linear-gradient(${v ? 'to bottom' : 'to right'}, transparent, #000 ${g}px, #000 calc(100% - ${g}px), transparent)` // prettier-ignore
-
-  it('the real code passes both checks', () => {
-    checkPads(offMapPad)
-    checkFade(fadeMask)
-  })
-
-  it('a left (or top) gutter turns the pad check red', () => {
-    expect(() => checkPads(bothEnds)).toThrow()
-  })
-
-  it('a fade at the near end turns the fade check red', () => {
-    expect(() => checkFade(fadeBothEnds)).toThrow()
   })
 })

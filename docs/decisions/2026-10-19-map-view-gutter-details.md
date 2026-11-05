@@ -41,3 +41,5 @@ wording not recorded. The BA accepted these as defaults for #1032; the owner may
 ## Applies to
 
 `docs/architecture/theia-shell.md` (section "The map strip's pad (#1004)"). Refines owner rulings D48 part 2, D145, R24 and D76 (calls 2 and 3), cited there; their text is not repeated here. Issue count semantics apply to the refused-object marks of #1005.
+
+Update 2026-11-04: #1228 moved the gutter to the far end only, one screen wide (`2026-11-04-map-gutter-far-end-only.md`). Options 1 to 3 above assumed a gutter at both ends; read them for the far-end gutter and for content bands.

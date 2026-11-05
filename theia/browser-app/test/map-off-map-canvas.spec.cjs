@@ -2,7 +2,7 @@
  * The map view's canvas around the map, en-gen/hackbench#1004. Owner rulings: D76 call 2 ("draw it off the
  * map where the game indicates it is drawn. the canvas can and should extend beyond the map bounds"), D48
  * part 2 ("half a screen width of gutter on each end with ui to add a screen. The background should fade in
- * a gradient to the edges") and D145 ("no matter what. the user needs ways to extend the size of the map").
+ * a gradient to the edges", replaced since #1228) and D145 ("no matter what. the user needs ways to extend the size of the map").
  *
  * #1228 (owner, 2026-11-04) replaced the left half of D48 part 2 and R24: every map has ONE 256 px gutter (a
  * screen) at its FAR end only (right of a horizontal map, bottom of a vertical one), none before position 0 and
@@ -545,6 +545,15 @@ test('the grid runs across the far-end gutter and the growth band', async ({ pag
   let lines = JSON.parse(await grid.getAttribute('data-grid-lines'))
   // Scrolled to 0 the map starts at the canvas edge: the map's first screen line is at 0, with no gutter before it.
   expect(lines.x.find(l => l.pos === 0).weight).toBe(5)
+  // Scrolled to the end, tile lines run on across the far-end gutter, well past the map's last screen line.
+  const screens = (await rects(page, 0x102)).screens
+  await page.evaluate(sel => {
+    const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+    s.scrollLeft = s.scrollWidth
+  }, root(0x102))
+  await page.waitForTimeout(500)
+  lines = JSON.parse(await grid.getAttribute('data-grid-lines'))
+  expect(Math.max(...lines.x.map(l => l.pos))).toBeGreaterThan(screens * 256 + G / 2)
   // The bottom growth band (48 px below the map) has lines too, once scrolled to it.
   await page.evaluate(sel => {
     const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
@@ -652,7 +661,7 @@ for (const { index, screenW, vertical } of [
     const toggle = page.locator(`${root(index)} [data-control="grid-toggle"]`)
     if ((await toggle.getAttribute('aria-pressed')) === 'true') await toggle.click()
     await page.waitForTimeout(500)
-    // Scroll to the map origin (past the gutter on the branch; the strip start on develop, which has no mapOrigin()).
+    // Scroll to the map origin (past the leading pad, content only since #1228, on the branch; the strip start on develop, which has no mapOrigin()).
     const clip = await page.evaluate(
       async ({ i, sel }) => {
         const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {

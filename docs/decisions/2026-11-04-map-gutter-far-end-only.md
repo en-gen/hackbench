@@ -16,11 +16,11 @@ D48 part 2 and R24 gave the map view a gutter of half a screen at each long end 
 
 Option 3. The owner, 2026-11-04, in #1228: "I don't want any gutter to the left of the map, only to the right for the purpose of leaving space to add more map to the right. adding to the left would be problematic as position (0,0) would have to move and shift all tiles to the right".
 
-On width: "I think "the gutter" should be 1 screen wide."
+On width (R41): "I think "the gutter" should be 1 screen wide."
 
 On vertical maps: "the purpose of the "gutter" is it will allow a user to add tiles to extend the map. but, we can't extend the map to negative "x" coordinates." and "remove the gutter such that a user can't add tiles at a negative X coordinate".
 
-Approved as D172. This replaces the left half of D48 part 2 and R24 ("half a screen of width to the left and right of a horizontal map").
+Recorded as R36 (the first three quotes) and R41 (the width), both 2026-11-04, direct to Planning. The plan was gated and ruled as D172 (agreed with the recommendation). R41 also asks that the background layers extend through the gutter and fade; that is #1197 and is not part of this change. This replaces the left half of D48 part 2 and R24 ("half a screen of width to the left and right of a horizontal map").
 
 ## Why
 
