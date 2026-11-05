@@ -85,8 +85,11 @@ function SpriteSubject({
     <div className="hb-props-sprite" data-subject="sprite">
       {p.notes.map(n => {
         const detail = noteTitle(n, p)
-        // A note with detail is a native disclosure: the plain line stays the summary, the engine's text opens beneath
-        // it by keyboard or touch, with the title kept for the mouse on the summary, not the group, so the group's accessible name never becomes the cause (#1166). One without detail is a plain line.
+        // A note with detail is a native <details>, so keyboard, touch and screen readers can open it with no handlers:
+        // the plain line is the <summary>, the engine's text the body (#1166).
+        // The mouse tooltip is on the <summary>, not the <details>: a title on <details> becomes the group's accessible
+        // name, which would have assistive tech read the raw cause while the note is closed.
+        // A note without detail stays a plain line.
         return detail ? (
           <details key={n} className="hb-props-note" data-field="note">
             <summary title={detail}>{n}</summary>
