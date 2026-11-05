@@ -14,9 +14,13 @@ import {
   runWithUploads,
   type SpriteDrawResult,
 } from '../../../theia/extension/src/node/map-sprites'
+import { composeScreen } from '../../../src/rom/model/ColorMath'
 import {
-  compositeSpriteScreen,
+  doorIdAt,
+  liftIfCovered,
+  spriteDoors,
   spriteName,
+  spritePlanes,
 } from '../../../theia/extension/src/browser/map-view-model'
 import { notDrawnText } from '../../../theia/extension/src/browser/sprite-props'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
@@ -30,12 +34,12 @@ const entry = (spriteId: number): LevelSprite =>
   ({ screen: 0x10, x: 0x100, y: 0x12, spriteId, extraBit: false, raw: [0, 0, 0], index: 0, streamOffset: 0 }) as LevelSprite // prettier-ignore
 
 /** A loaded level image with Mario at x = 0x80 (his $94), the camera on the sprite. */
-const base = (): SpriteSeed => {
+const base = (marioX = 0x80): SpriteSeed => {
   const loaded = new Uint8Array(0x20000)
-  loaded.set([0x80, 0, 0x20, 1], 0x94)
+  loaded.set([marioX & 0xff, marioX >> 8, 0x20, 1], 0x94)
   return withSeed({}, { ...SPRITE_SEED, loaded })
 }
-const drawer = (run = runWithUploads) => interpDrawer(rom, 0x105, model, run, base)
+const drawer = (run = runWithUploads, marioX = 0x80) => interpDrawer(rom, 0x105, model, run, () => base(marioX)) // prettier-ignore
 const ok = (r: SpriteDrawResult) => {
   if (!r.ok) throw new Error(`not drawn: ${JSON.stringify(r)}`)
   return r
@@ -54,6 +58,15 @@ describe('the served drawer reveals hidden sprites', () => {
 
   it('marks a sprite no condition shows, with its own reason code', () => {
     expect(drawer()(entry(5))).toMatchObject({ ok: false, reason: 'unrevealed' })
+  })
+
+  it('keeps the real-start picture in the door when it drew, hides under a probe, and nothing reveals it (id 56)', () => {
+    // Mario starts $40 px right of the sprite, the only place it draws.
+    const r = ok(drawer(runWithUploads, 0x1040)(entry(56)))
+    expect(r.reveal).toBe('none-found')
+    expect(r.anchor).toEqual({ x: 0x1000, y: 0x120 })
+    // A start elsewhere never draws it: still a marker with its reason.
+    expect(drawer()(entry(56))).toMatchObject({ ok: false, reason: 'unrevealed' })
   })
 
   it('searches only the map view runs: a custom run (the block spawn) keeps the old answer', () => {
@@ -117,6 +130,12 @@ describe('the picture and its hover', () => {
     }
   })
 
+  it('claims no condition for a sprite nothing reveals, and no Mario state', () => {
+    const d = drawSprites([spr], m, () => ({ ok: true, parts: [part], identity: ident, reveal: 'none-found' }) as SpriteDrawResult)[0]! // prettier-ignore
+    expect(d).toMatchObject({ screenDoor: true, reveal: 'is not always there, and the app could not tell what hides it' }) // prettier-ignore
+    expect(d.reveal).not.toMatch(/appears|Mario/)
+  })
+
   it('names the sprite from the app name table, then the condition', () => {
     const d = { ...shown('mario-at-sprite'), name: 'Invisible mushroom' }
     expect(spriteName(d)).toBe(
@@ -125,20 +144,36 @@ describe('the picture and its hover', () => {
     expect(spriteName({ id: 0x33, name: 'Podoboo' })).toBe('Podoboo')
   })
 
-  it('draws a door sprite through the screen door on every screen and a plain one solid', () => {
+  describe('the whole-sprite door goes through the door map and composeScreen', () => {
     const geometry = { orientation: 'horizontal' as const, width: 256, height: 224 }
-    const alphas = (d: MapSpriteDto) => {
-      const px = compositeSpriteScreen([d], 0, geometry)!
+    /** The alpha of the sprite's 16 x 8 pixels as composeScreen gives them, optionally with the sprite lifted. */
+    const alphas = (d: MapSpriteDto, lifted = false) => {
+      const doors = spriteDoors({ ...geometry, sprites: [d] }, 0)!
+      const planes = spritePlanes({ ...geometry, sprites: [d] }, 0)
+      const id = doorIdAt(doors, 256, 0, 0)
+      const px = composeScreen({ width: 256, height: 224, planes, lists: { main: ['sprites2'], sub: [] }, math: null, doors, lift: lifted ? id : undefined }) // prettier-ignore
       const out: number[] = []
       for (let y = 0; y < 8; y++) for (let x = 0; x < 16; x++) out.push(px[(y * 256 + x) * 4 + 3]!)
-      return out
+      return { out, id }
     }
-    expect(new Set(alphas(shown()))).toEqual(new Set([255]))
-    const door = alphas(shown('mario-at-sprite'))
-    // Squares alternate full and dim, and the dim ones are not clear.
-    expect(new Set(door).size).toBe(2)
-    expect(door[0]).not.toBe(door[1])
-    expect(Math.min(...door)).toBeGreaterThan(0)
+
+    it('draws a plain sprite solid and a revealed one on alternating squares, none clear', () => {
+      expect(new Set(alphas(shown()).out)).toEqual(new Set([255]))
+      const { out } = alphas(shown('mario-at-sprite'))
+      expect(new Set(out).size).toBe(2)
+      expect(out[0]).not.toBe(out[1])
+      expect(Math.min(...out)).toBeGreaterThan(0)
+    })
+
+    it('lifts the hovered revealed sprite to solid (#879), which a baked alpha could not', () => {
+      expect(new Set(alphas(shown('mario-at-sprite'), true).out)).toEqual(new Set([255]))
+    })
+
+    it('lifts a whole-door sprite wherever it is, with no tile over it', () => {
+      const { id } = alphas(shown('mario-at-sprite'))
+      expect(liftIfCovered(id, [])).toBe(id)
+      expect(liftIfCovered(alphas(shown()).id, [])).toBeUndefined()
+    })
   })
 
   it('words the new marker reason', () => {

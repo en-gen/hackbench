@@ -11,6 +11,7 @@
  *  44 draws tile $30 (a swapper's target)                     49 rises 1 px every pass, draws on touch from frame 3
  *  50 draws while the blue P-switch timer is nonzero          51 draws while the ON/OFF cell is nonzero
  *  52 mole: draws unless Mario's low-byte distance is 96-159  53 INIT faces Mario; draws on touch, flipped as INIT left it
+ *  56 draws only with Mario exactly $40 px right of it
  *  54 touch: creates a sprite in slot 1 and draws nothing itself   55 draws from frame 100 on (a slow timer)
  */
 const RTS = 0x60
@@ -105,6 +106,8 @@ export function putRevealSprites(put: (snes: number, bytes: number[]) => void): 
     [53, gated([sees], piece(0x24, [0xbd, 0x7c, 0x15, 0x09, 0x0a]))],
     // On touch writes a sprite into slot 1 (status 8, number 0: the plain drawer) at its own spot, and draws nothing.
     [54, gated([sees], [0xa9, 0x08, 0x8d, 0xc9, 0x14, 0xa9, 0x00, 0x85, 0x9f, 0xa5, 0xe4, 0x85, 0xe5, 0xa5, 0xd8, 0x85, 0xd9])], // prettier-ignore
+    // Draws only at exactly 64 px right of it: shown from a real start there, blank at every other probe, shown by no condition.
+    [56, gated([[[...diff, 0xc9, 0x40], BNE]], piece(0x24))],
     [55, gated([[[0xa5, 0x14, 0xc9, 0x64], BCC]], piece(0x24))],
   ]
   const main: Record<number, number> = {}

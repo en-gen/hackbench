@@ -418,7 +418,7 @@ export function runWithUploads(
   rom: RomFile,
   id: number,
   seed: SpriteSeed,
-  opts: Pick<RunOptions, 'ownOamOnly' | 'stopAtDraw'> = {},
+  opts: Pick<RunOptions, 'ownOamOnly' | 'stopAtDraw' | 'trackInputs'> = {},
 ): RunModel {
   // prettier-ignore
   const p = uploadProbe()
@@ -432,15 +432,16 @@ export const UNREVEALED = 'unrevealed'
 const MARIO_SAID = 'small Mario, on foot'
 
 /** The tooltip line for each condition. Keyed by the condition the search found, never by a sprite id. */
-const REVEAL_TEXT: Record<RevealCondition, string> = {
+export const REVEAL_TEXT: Record<RevealCondition, string> = {
   'mario-at-sprite': 'appears when Mario touches this spot',
   'mario-left': 'appears when Mario is just left of this spot',
   'mario-right': 'appears when Mario is just right of this spot',
   'more-frames': 'appears after a while',
   'p-switch': 'appears while a P-switch is active',
   'on-off': 'appears when the ON/OFF switch is flipped',
+  'none-found': 'is not always there, and the app could not tell what hides it',
 }
-const revealText = (c: RevealCondition) => `${REVEAL_TEXT[c]} (${MARIO_SAID})`
+const revealText = (c: RevealCondition) => c === 'none-found' ? REVEAL_TEXT[c] : `${REVEAL_TEXT[c]} (${MARIO_SAID})` // prettier-ignore
 
 /** What the interpreter shows for one sprite: its model, as the drawer's reply. */
 export function modelResult(m: RunModel): SpriteDrawResult {
@@ -676,7 +677,7 @@ export function interpRunner(
   rom: RomFile,
   index: number,
   model: { isVertical: boolean; screenCount: number },
-  run: (rom: RomFile, id: number, seed: SpriteSeed, opts?: Pick<RunOptions, 'ownOamOnly' | 'stopAtDraw'>) => RunModel = runWithUploads, // prettier-ignore
+  run: (rom: RomFile, id: number, seed: SpriteSeed, opts?: Pick<RunOptions, 'ownOamOnly' | 'stopAtDraw' | 'trackInputs'>) => RunModel = runWithUploads, // prettier-ignore
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
   ringRoutines: RingRoutines = VANILLA_RING_ROUTINES,
   eeriesRoutines: EeriesRoutines = VANILLA_EERIES_ROUTINES,
@@ -714,7 +715,7 @@ export function interpRunner(
     if (s.spriteId === FIVE_EERIES) return { direct: eeriesResult(rom, seed(camera), s, model.isVertical, eeriesRoutines) } // prettier-ignore
     if (s.spriteId === THREE_PLATFORMS) return { direct: platformsResult(rom, seed(camera), s, model.isVertical, platformRoutines) } // prettier-ignore
     if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
-    let m = run(rom, s.spriteId, seed(camera))
+    let m = run(rom, s.spriteId, seed(camera), reveal ? { trackInputs: true } : undefined)
     // A sprite placed at the game's own layout (the bonus game) was replayed in the loader's top slot; an earlier loaded sprite
     // may have taken it, which moves one block by a pixel and changes its item (measured on $000, slots 9 vs 8): drawn, marked.
     if (
@@ -729,6 +730,9 @@ export function interpRunner(
         run(rom, s.spriteId, q, { ownOamOnly: true, stopAtDraw: probe }),
       )
       if (rv.status === 'hidden') return { m: rv.model, fixed: false }
+      // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.
+      if (rv.status === 'unrevealed' && rv.drewAtRest)
+        return { m: { ...m, reveal: 'none-found' }, fixed: false }
       if (rv.status === 'unrevealed') return { m: { ...m, chosen: undefined, emptyReason: UNREVEALED }, fixed: false } // prettier-ignore
     }
     const at = m.chosen

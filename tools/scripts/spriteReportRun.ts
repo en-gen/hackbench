@@ -21,6 +21,7 @@ import {
 import { tmpdir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { runSprite, type SpriteModel } from '../../src/rom/sprites/interp/SpriteRunner'
+import { getSpriteMetadata } from '../../src/rom/model/sprites/SpriteMetadata'
 import { drew } from '../../src/rom/sprites/interp/RevealSearch'
 import { RomFile } from '../../src/rom/RomFile'
 import { SmwRom } from '../../src/rom/SmwRom'
@@ -625,7 +626,7 @@ export function revealRows(bytes: Uint8Array, romFile: string, map: number): Rev
   const [plain, served] = [runner(false), runner(true)]
   return stream.map((s): RevealRow => {
     const [a, b] = [plain(s), served(s)]
-    const row = { map: map.toString(16), index: s.index, id: s.spriteId }
+    const row = { map: map.toString(16), index: s.index, id: s.spriteId, column: s.x, row: s.y, ...(getSpriteMetadata(s.spriteId)?.displayName ? { name: getSpriteMetadata(s.spriteId)!.displayName } : {}) } // prettier-ignore
     if ('direct' in a || 'direct' in b) return { ...row, rest: 'special', hidden: false }
     const rest = a.m.refusal ? 'refused' : drew(a.m) ? 'drew' : 'blank'
     const r = modelResult(b.m)

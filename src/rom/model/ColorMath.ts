@@ -43,6 +43,12 @@ export interface ScreenInput {
   lift?: number
 }
 
+/**
+ * Set on a door id (the word's bits above the parity) for a sprite that is in the screen door whole (#1132): every
+ * pixel of it, covered by a tile or not, is drawn at the door's strength, and counted for its swap decision.
+ */
+export const WHOLE_DOOR = 1 << 20
+
 const LAYER_BIT = { l1: 0x01, l2: 0x02, l3: 0x04 } as const
 const BACKDROP_BIT = 0x20
 const SUBTRACT = 0x80
@@ -75,8 +81,17 @@ function top(i: ScreenInput, list: readonly SourceKey[], at: number, flips?: Map
   let k = list.length - 1
   for (; k >= 0 && cover < 1; k--) {
     const data = i.planes[list[k]!]
-    const a = data ? data[at + 3]! / 255 : 0
+    let a = data ? data[at + 3]! / 255 : 0
     if (!data || a === 0) continue
+    // A whole-door sprite pixel is see-through at the door's strength (lifted: solid), over what lies beneath it.
+    const d = i.doors?.[at / 4] ?? 0
+    if (
+      flips &&
+      (d >> 1) & WHOLE_DOOR &&
+      list[k]!.startsWith('sprites') &&
+      !list[k]!.startsWith('spritesL2')
+    )
+      a *= d >> 1 === i.lift ? 1 : hiddenPixelStrength(d & 1, 0, flips.get(d >> 1))
     // Sprites take no part in color math yet: palettes 4-7 only (snes9x gfx.cpp:819) needs the
     // sprite palette split, which #564's pixels do not carry.
     if (cover === 0) bit = list[k]!.startsWith('sprites') ? 0 : LAYER_BIT[list[k]!.slice(0, 2) as keyof typeof LAYER_BIT] // prettier-ignore
@@ -124,6 +139,12 @@ export function doorFlips(i: ScreenInput): Map<number, boolean> | undefined {
   const counts = new Map<number, [number, number]>()
   for (let p = 0; p < doors.length; p++) {
     if (!doors[p]) continue
+    if ((doors[p]! >> 1) & WHOLE_DOOR) {
+      const c = counts.get(doors[p]! >> 1) ?? [0, 0]
+      c[hiddenPixelStrength(doors[p]! & 1, 0) === 1 ? 0 : 1]++
+      counts.set(doors[p]! >> 1, c)
+      continue
+    }
     const list = i.lists.main
     let k = list.length - 1
     for (let cover = 0; k >= 0 && cover < 1; k--) cover += (i.planes[list[k]!]?.[p * 4 + 3] ?? 0) / 255 * (1 - cover) // prettier-ignore

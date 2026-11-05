@@ -22,8 +22,11 @@ export type RevealResult =
   | { status: 'visible' }
   /** The sprite draws nothing under some probe: `model` is the first drawn frame of the first condition that draws. */
   | { status: 'hidden'; condition: RevealCondition; model: SpriteModel }
-  /** Hidden, and no condition within the bound drew it. */
-  | { status: 'unrevealed' }
+  /**
+   * Hidden, and no condition within the bound drew it. `drewAtRest`: the real-start run did draw it, and that
+   * picture stands (the caller draws it in the screen door and claims no condition).
+   */
+  | { status: 'unrevealed'; drewAtRest: boolean }
   /** Not searched: the run was refused or the sprite removed itself, so there is nothing to reveal. */
   | { status: 'skipped'; reason: string }
 
@@ -66,6 +69,24 @@ const BESIDE = 16
  */
 const STANDING_ON = -16
 
+/**
+ * The cells a probe changes: Mario's position (Next $94-$97, Now $D1-$D4), his fixed state, the P-switch timer and
+ * the ON/OFF cell. A run that never read one before writing it cannot react to any probe.
+ */
+const PROBED_CELLS: ReadonlySet<number> = new Set([
+  0x94,
+  0x95,
+  0x96,
+  0x97,
+  0xd1,
+  0xd2,
+  0xd3,
+  0xd4,
+  0x14ad,
+  0x14af,
+  ...Object.keys(MARIO_STATE).map(Number),
+])
+
 /** Whether a run completed and drew at least one tile of the sprite's own on its chosen pass. */
 export function drew(m: SpriteModel): boolean {
   return !m.refusal && m.chosen !== undefined && (m.passes[m.chosen]?.parts.length ?? 0) > 0
@@ -92,12 +113,16 @@ export function findReveal(
   })
   const rerun = (o: SeedOverride, probe = false) => run(withSeed(o, seed), probe)
   // Blank under any probe (even if the real start drew it) means hidden; the first blank ends the check.
+  // `first.inputs` (RunOptions.trackInputs) lists the cells it read before writing; none probed means every probe
+  // would repeat it, so a sprite that drew needs none. Without the list (not tracked) the probes run.
+  const blind = first.inputs !== undefined && !first.inputs.some(c => PROBED_CELLS.has(c))
   const hidden =
     !drew(first) ||
-    DISTANCES.some(d => {
-      const m = rerun(at(d), true)
-      return !m.refusal && !drew(m)
-    })
+    (!blind &&
+      DISTANCES.some(d => {
+        const m = rerun(at(d), true)
+        return !m.refusal && !drew(m)
+      }))
   if (!hidden) return { status: 'visible' }
   const onOff = (seed.loaded?.[0x14af] ?? seed.onOff ?? 0) ^ 1
   const tries: [RevealCondition, SeedOverride][] = [
@@ -108,9 +133,12 @@ export function findReveal(
     ['p-switch', { pSwitch: P_SWITCH_ON, ram: MARIO_STATE }],
     ['on-off', { onOff, ram: MARIO_STATE }],
   ]
-  for (const [condition, o] of tries) {
+  // Mario's position is what a probe changed. The other three reruns start from the real Mario, so for a sprite that
+  // drew there they would only draw the same frame again and call that a reveal.
+  const startedDrawn = drew(first)
+  for (const [condition, o] of startedDrawn ? tries.slice(0, 3) : tries) {
     const model = rerun(o)
     if (drew(model)) return { status: 'hidden', condition, model: { ...model, reveal: condition } }
   }
-  return { status: 'unrevealed' }
+  return { status: 'unrevealed', drewAtRest: startedDrawn }
 }

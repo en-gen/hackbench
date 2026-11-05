@@ -32,14 +32,21 @@ interface Search {
 }
 
 /** The search over sprite id at x with real Mario at marioX; own false lets a created sprite OAM count. */
-function search(id: number, x = SX, marioX = 0x80, own = true, extra: SeedOverride = {}): Search {
+function search(
+  id: number,
+  x = SX,
+  marioX = 0x80,
+  own = true,
+  extra: SeedOverride = {},
+  track = false,
+): Search {
   const seed = seedAt(x, marioX, extra)
   const calls: SpriteSeed[] = []
   const run = (q: SpriteSeed, probe: boolean) => {
     calls.push(q)
     return runOnce(rom, id, q, { atRest: true, ownOamOnly: own, stopAtDraw: probe })
   }
-  const first = runOnce(rom, id, seed, { atRest: true })
+  const first = runOnce(rom, id, seed, { atRest: true, trackInputs: track })
   return { result: findReveal(seed, first, run), calls }
 }
 
@@ -71,6 +78,20 @@ describe('the reveal search finds what shows a hidden sprite, in the D142 order'
     const { result, calls } = search(0)
     expect(result.status).toBe('visible')
     expect(calls).toHaveLength(DISTANCES.length)
+  })
+
+  it('probes nothing for a sprite whose run never read Mario or a switch, and still probes one that did', () => {
+    // Id 0 draws from its own spot and the camera only; id 2 flips by Mario's side ($D1).
+    expect(search(0, SX, 0x80, true, {}, true).calls).toHaveLength(0)
+    expect(search(0, SX, 0x80, true, {}, true).result.status).toBe('visible')
+    expect(search(2, SX, 0x80, true, {}, true).calls).toHaveLength(DISTANCES.length)
+    // Control: untracked, the same sprite is probed, so the skip is what removed them.
+    expect(search(0).calls).toHaveLength(DISTANCES.length)
+  })
+
+  it('still searches a blank sprite that read nothing of Mario (the skip is for sprites that drew)', () => {
+    expect(search(5, SX, 0x80, true, {}, true).result.status).toBe('unrevealed')
+    expect(condition(search(55, SX, 0x80, true, {}, true).result)).toBe('more-frames')
   })
 
   it('stops at the first blank run: a hidden sprite needs no further probes', () => {
@@ -181,6 +202,20 @@ describe('created sprites do not count as drawing (D106A)', () => {
   })
   it('control: counted without the filter, the created sprite would pass for the sprite drawing', () => {
     expect(search(54, SX, 0x80, false).result.status).toBe('hidden')
+  })
+})
+
+describe('a sprite that drew at rest, is found hidden, and no condition reveals', () => {
+  // Id 56 draws only with Mario exactly $40 px right of it: the real start below puts him there.
+  it('is reported unrevealed, remembering that it drew from the real start', () => {
+    const { result } = search(56, SX, SX + 0x40)
+    expect(result).toEqual({ status: 'unrevealed', drewAtRest: true })
+  })
+  it('control: a sprite that never drew is unrevealed with drewAtRest false', () => {
+    expect(search(5).result).toEqual({ status: 'unrevealed', drewAtRest: false })
+  })
+  it('control: with Mario elsewhere at the start, the same sprite never drew', () => {
+    expect(search(56, SX, 0x80).result).toEqual({ status: 'unrevealed', drewAtRest: false })
   })
 })
 

@@ -11,15 +11,19 @@ the PR, not here.
 
 ```mermaid
 flowchart TD
-  A[at-rest run, real Mario] -->|refused or erased| Z[no search: marker as today]
+  A[at-rest run, real Mario, inputs tracked] -->|refused or erased| Z[no search: marker as today]
   A --> B{drew?}
   B -->|no| H[hidden]
-  B -->|yes| C[rerun with Mario at 10 distances]
+  B -->|yes| K{read a Mario or switch cell?}
+  K -->|no| V[visible: no probes]
+  K -->|yes| C[rerun with Mario at 10 distances]
   C -->|any run blank| H
-  C -->|all drew| V[visible: nothing changes]
+  C -->|all drew| V
   H --> S[search, D142 order]
   S --> S1[Mario at the sprite]
-  S1 --> S2[just left] --> S3[just right] --> S4[more frames, cap 256]
+  S1 --> S2[just left] --> S3[just right]
+  S3 -->|drew at rest| N[keep the real-start picture in the door, no condition]
+  S3 -->|never drew| S4[more frames, cap 256]
   S4 --> S5[P-switch active] --> S6[ON/OFF flipped]
   S1 -->|first run that draws wins| P[picture = first drawn frame]
   S6 -->|none drew| M[marker: could not tell what reveals it]
@@ -43,6 +47,20 @@ flowchart TD
   MAIN pointer is code (`resolvePointer`) and refuses with a reason when it is not.
 - Created sprites do not count as drawing (D106A): the probes keep only the OAM entries written while `$15E9` is
   the sprite's own slot (`RunOptions.ownOamOnly`).
+
+## Shortcuts and the third outcome
+
+- The at-rest run is tracked (`RunOptions.trackInputs`: cells read before written). A sprite that drew and never read
+  Mario's position, his fixed state, `$14AD` or `$14AF` is visible with no probe reruns: every probe would repeat it.
+  A blank sprite always goes to the search.
+- The more-frames, P-switch and ON/OFF reruns start from the real Mario. For a sprite that drew from the real start
+  they would draw the same frame and call it a reveal, so they run only for a sprite that never drew.
+- A sprite that drew from the real start, is blank under some probe, and no Mario position reveals keeps its real-start
+  picture, drawn in the screen door, with the hover "is not always there, and the app could not tell what hides it".
+  No condition is claimed (`none-found`). A sprite that never drew under any run is the marker, reason `unrevealed`.
+- The door: the sprite's door id carries `WHOLE_DOOR` (ColorMath), so `composeScreen` draws every pixel at the door's
+  strength through the existing door map, `doorFlips` counts its swap over all its pixels, and the hover lift (#879)
+  makes it solid wherever it is.
 
 ## Why ten distances
 
