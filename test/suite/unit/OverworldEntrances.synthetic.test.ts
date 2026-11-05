@@ -25,7 +25,9 @@ import { OVERWORLD_INDEX_BODY } from '../../../src/rom/SubmapFlagGate'
 import {
   plantLmEntryHook,
   plantStockSubmapCode,
+  SYNTHETIC_BIAS,
   SYNTHETIC_FINGERPRINTS,
+  SYNTHETIC_THRESHOLD,
 } from '../support/syntheticRom'
 
 /**
@@ -191,16 +193,16 @@ describe('deriveOverworldEntrances: the translevel walk', () => {
 })
 
 describe('deriveOverworldEntrances: CODE_05D8A2 gates', () => {
-  it('subtracts $24 only at or above translevel $25', () => {
-    // $25 main-map tiles: translevels $01..$25.
+  it('subtracts the bias only at or above the threshold translevel', () => {
+    // THRESHOLD main-map tiles: translevels $01..THRESHOLD.
     const tiles: Record<number, number> = {}
-    for (let i = 0; i < 0x25; i++) tiles[i] = 0x6e
+    for (let i = 0; i < SYNTHETIC_THRESHOLD; i++) tiles[i] = 0x6e
     const result = derive(buildRom(tiles))
     const bySlot = new Map(result.entrances.map(e => [e.translevel, e.slot]))
     expect(bySlot.get(0x01)).toBe(0x001)
-    expect(bySlot.get(0x24)).toBe(0x024)
+    expect(bySlot.get(SYNTHETIC_BIAS)).toBe(SYNTHETIC_BIAS)
     // Two independent gates: the subtract fires, the submap gate does not.
-    expect(bySlot.get(0x25)).toBe(0x001)
+    expect(bySlot.get(SYNTHETIC_THRESHOLD)).toBe(0x001)
     expect(result.notes.some(n => n.includes('main-map entrances have a translevel'))).toBe(true)
   })
 
@@ -213,14 +215,14 @@ describe('deriveOverworldEntrances: CODE_05D8A2 gates', () => {
     expect(result.entrances.map(e => e.slot)).toEqual([0x101, 0x102])
   })
 
-  it('applies both gates together for sub-map translevels above $25', () => {
+  it('applies both gates together for sub-map translevels at the threshold', () => {
     const tiles: Record<number, number> = {}
-    for (let i = 0; i < 0x24; i++) tiles[i] = 0x6e // translevels $01..$24
-    tiles[0x400] = 0x6e // translevel $25
-    tiles[0x401] = 0x6e // translevel $26
+    for (let i = 0; i < SYNTHETIC_BIAS; i++) tiles[i] = 0x6e // translevels $01..BIAS
+    tiles[0x400] = 0x6e // translevel THRESHOLD
+    tiles[0x401] = 0x6e // translevel THRESHOLD + 1
     const result = derive(buildRom(tiles))
     const tail = result.entrances.slice(-2)
-    expect(tail.map(e => e.translevel)).toEqual([0x25, 0x26])
+    expect(tail.map(e => e.translevel)).toEqual([SYNTHETIC_THRESHOLD, SYNTHETIC_THRESHOLD + 1])
     expect(tail.map(e => e.slot)).toEqual([0x101, 0x102])
   })
 
@@ -277,9 +279,9 @@ describe('deriveOverworldEntrances: what actually starts a map', () => {
   })
 
   it('reports each entry map once even when two tiles start the same slot', () => {
-    // Two main-map tiles with translevels $01 and $25 collide on slot $001.
+    // Two main-map tiles with translevels $01 and THRESHOLD collide on slot $001.
     const tiles: Record<number, number> = {}
-    for (let i = 0; i < 0x25; i++) tiles[i] = 0x6e
+    for (let i = 0; i < SYNTHETIC_THRESHOLD; i++) tiles[i] = 0x6e
     const result = derive(buildRom(tiles))
     expect(result.entrances.filter(e => e.slot === 0x001)).toHaveLength(2)
     expect(result.entryMaps.filter(m => m === 0x001)).toHaveLength(1)
@@ -482,7 +484,7 @@ describe('deriveOverworldEntrances: roots', () => {
   }
 
   it('reads each range from the slots its own buffer half produced', () => {
-    // Translevels 1-5 main, 6-8 sub: none reaches the stock $25 threshold.
+    // Translevels 1-5 main, 6-8 sub: none reaches the threshold.
     const result = deriveOverworldEntrances(
       buildRom(tiles(5, 3)),
       undefined,
@@ -547,7 +549,7 @@ describe('deriveOverworldEntrances: roots', () => {
       undefined,
       SYNTHETIC_FINGERPRINTS,
     ).roots
-    expect(Math.max(...roots!.main)).toBe(0x024)
+    expect(Math.max(...roots!.main)).toBe(SYNTHETIC_BIAS)
     for (let s = 0x100; s < 0x200; s++) expect(isOverworldLevel(s, roots)).toBe(false)
   })
 

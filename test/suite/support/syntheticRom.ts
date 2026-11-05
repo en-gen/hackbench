@@ -156,9 +156,13 @@ export function plantScreenExitFiling(rom: RomFile): void {
   }
 }
 
-/** The entry site's operands. Left at the game's values: 20 tests in 4 files pin the derived numbers (#1061 A6a, deferred). */
-const SYNTHETIC_THRESHOLD = 0x25
-const SYNTHETIC_BIAS = 0x24
+/**
+ * The entry site's operands, invented. A translevel at the threshold is the
+ * first sub-map tile and lands on slot $01, so the threshold is the bias plus
+ * one; plantOverworldTiles and the tests that name tile counts rely on that.
+ */
+export const SYNTHETIC_BIAS = 0x2a
+export const SYNTHETIC_THRESHOLD = SYNTHETIC_BIAS + 1
 
 /**
  * The stock code SubmapFlagGate and OverworldEntrances check, at vanilla's
@@ -244,12 +248,12 @@ export function plantBonusCode(rom: RomFile): void {
 }
 
 /**
- * $24 main-map and 28 sub-map launch tiles: with the stock bias the derived
- * ranges are $000-$024 and $101-$11C, past any submap root a test names and
- * short of any submap destination ($140 and up).
+ * SYNTHETIC_BIAS main-map and 28 sub-map launch tiles: the derived ranges are
+ * $000 to the bias and $101-$11C, past any submap root a test names and short
+ * of any submap destination ($140 and up).
  */
 export function plantOverworldTiles(rom: RomFile): void {
-  for (let i = 0; i < 0x24; i++) rom.writeAt(OW_ADDR.L1_TILEDATA + i, [0x6e])
+  for (let i = 0; i < SYNTHETIC_BIAS; i++) rom.writeAt(OW_ADDR.L1_TILEDATA + i, [0x6e])
   for (let i = 0; i < 28; i++) rom.writeAt(OW_ADDR.L1_TILEDATA + 0x400 + i, [0x6e])
 }
 

@@ -167,7 +167,7 @@ describe('the Maps tree', () => {
   })
 
   it('lists $000 once when the walk also roots it', () => {
-    // Threshold $10, bias $24: translevel $24 wraps to slot $000.
+    // Threshold $10, the synthetic bias: translevel BIAS wraps to slot $000.
     const t = tree(rom => rom.writeAt(0x05d8a3, [0x10]))
     const top: MapNode[] = [...t.special, ...t.bonus, ...t.overworld, ...t.unassigned]
     expect(top.filter(n => n.index === 0x000)).toHaveLength(1)

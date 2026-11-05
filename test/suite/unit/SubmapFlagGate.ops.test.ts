@@ -145,11 +145,12 @@ describe('the digests', () => {
 // Corpus-gated: the game's own bytes are the oracle. Scoped to this PR's plants (the opcodes and the span
 // heads, $05:D83E-$05:D8B6) so the cart's older fixtures are not reported.
 describe.skipIf(!hasRom(VANILLA))('the planted stock cart against the game, window width 5', () => {
-  it('has only the known windows at the entry site: a ratchet for A6a, not an approval', () => {
+  it('has only the known windows at the entry site: a ratchet, not an approval', () => {
     const cart = Uint8Array.from(blankStockRom().readAtFileOffset(0, 0x80000)!)
     const hits = vanillaHits(cart, windowSet(loadVanillaBytes(romPath(VANILLA)), 5), 5)
     const mine = hits.filter(h => h >= '$05:D83E' && h <= '$05:D8B6' && h.startsWith('$05:D8'))
-    // The threshold and bias operands (and the high byte the cart must keep at 0 or 1) still equal the game's.
-    expect(mine).toEqual(['$05:D8A2', '$05:D8A3', '$05:D8A4', '$05:D8A5', '$05:D8B0', '$05:D8B1'])
+    // The threshold and bias are invented, so the D8A2 windows are gone. The high byte the cart must keep
+    // at 0 or 1 still equals the game's: that is what leaves D8B0 and D8B1.
+    expect(mine).toEqual(['$05:D8B0', '$05:D8B1'])
   })
 })
