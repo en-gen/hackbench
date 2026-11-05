@@ -1,16 +1,17 @@
 /**
- * How far the map view's canvas reaches past the map (owner rulings D48 part 2, D76 call 2, D145,
- * #1004). Pure (no DOM, no Theia).
+ * How far the map view's canvas reaches past the map (owner rulings D76 call 2, D145, #1004, #1228).
+ * Pure (no DOM, no Theia).
  *
  * Each side's pad is the content the data places off the map there (a refused-object mark, a sprite),
- * rounded up to whole 16 px tiles, and at each LONG end (left and right of a horizontal map, top and
- * bottom of a vertical one) a fixed 128 px gutter BEYOND that content, always, even for a map with
- * nothing off it. The short sides get the content alone. This is the single place the canvas grows:
- * every pointer and overlay consumer reads the resulting `Pad` as one origin.
+ * rounded up to whole 16 px tiles. The FAR end only (right of a horizontal map, bottom of a vertical one)
+ * adds a 256 px gutter BEYOND that content, even for a map with nothing off it, unless the map is at the
+ * 32-screen ceiling. There is no gutter before position 0 (growing that way would move (0,0)), and the
+ * short sides get the content alone. This is the single place the canvas grows: every pointer and
+ * overlay consumer reads the resulting `Pad` as one origin.
  */
 import type { MapSpriteDto } from '../common/project-protocol'
 import { decodeRgba } from './map16-pixels'
-import { GUTTER_PX } from '../../../../src/rom/model/MapGutter'
+import { farGutter } from '../../../../src/rom/model/MapGutter'
 
 /** One map tile in map pixels; the pad is whole tiles so the grid runs on across the margin. */
 export const TILE = 16
@@ -37,14 +38,16 @@ export const NO_PAD: Pad = { left: 0, top: 0, right: 0, bottom: 0 }
 const tiles = (px: number): number => (px > 0 ? Math.ceil(px / TILE) * TILE : 0)
 
 /**
- * The padding that holds every rect, plus the gutter at the long ends. `vertical` says which ends are
- * long. A rect inside the map adds nothing: a map with no off-map content is padded by the gutter alone.
+ * The padding that holds every rect, plus the far-end gutter. `vertical` says which end is far (right or
+ * bottom) and `screenCount` whether it has one (none at 32). A rect inside the map adds nothing: a map
+ * with no off-map content is padded by the far-end gutter alone.
  */
 export function offMapPad(
   mapW: number,
   mapH: number,
   rects: Iterable<Rect>,
   vertical: boolean,
+  screenCount: number,
 ): Pad {
   let [l, t, r, b] = [0, 0, 0, 0]
   for (const q of rects) {
@@ -53,25 +56,27 @@ export function offMapPad(
     r = Math.max(r, q.x1 - mapW)
     b = Math.max(b, q.y1 - mapH)
   }
-  /** The gutter a side gets: only the long ends have one. */
-  const g = (long: boolean): number => (long ? GUTTER_PX : 0)
+  const gutter = farGutter(screenCount)
   return {
-    left: tiles(l) + g(!vertical),
-    top: tiles(t) + g(vertical),
-    right: tiles(r) + g(!vertical),
-    bottom: tiles(b) + g(vertical),
+    left: tiles(l),
+    top: tiles(t),
+    right: tiles(r) + (vertical ? 0 : gutter),
+    bottom: tiles(b) + (vertical ? gutter : 0),
   }
 }
 
 /**
- * The alpha mask that fades the back area (owner R24): opaque across the map and its content bands,
- * fading linearly to transparent over the GUTTER only, at each long end ("to right" on a horizontal
- * map, "to bottom" on a vertical one). A band the content grew on a short side is not a gutter and
- * stays opaque [PROP]. A mask rather than a gradient background keeps the back area's own
- * `background-color` the map's back color, which tests and tools read. `gutterPx` is 128 * zoom.
+ * The alpha mask that fades the back area (owner R24, #1228): opaque from the near edge across the map
+ * and any content band, fading linearly to transparent over the far-end gutter only ("to right" on a
+ * horizontal map, "to bottom" on a vertical one). A content band is not a gutter and stays opaque
+ * [PROP]. With no gutter (a 32-screen map) there is no mask. A mask rather than a gradient background
+ * keeps the back area's own `background-color` the map's back color, which tests and tools read.
+ * `gutterPx` is the far-end gutter times the zoom.
  */
 export const fadeMask = (vertical: boolean, gutterPx: number): string =>
-  `linear-gradient(${vertical ? 'to bottom' : 'to right'}, transparent, #000 ${gutterPx}px, #000 calc(100% - ${gutterPx}px), transparent)` // prettier-ignore
+  gutterPx > 0
+    ? `linear-gradient(${vertical ? 'to bottom' : 'to right'}, #000 calc(100% - ${gutterPx}px), transparent)`
+    : 'none'
 
 /**
  * Which screens of an N-screen map a scroll window touches, `margin` either side, as an inclusive

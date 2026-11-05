@@ -153,6 +153,12 @@ export type SpriteDrawResult =
   | (Omit<Extract<EngineResult, { ok: true }>, 'parts'> & {
       parts: DrawPart[]
       anchor?: { x: number; y: number }
+      /** Where the level stores the sprite, when the picture is drawn elsewhere (INIT shifts it before its first frame, R16). */
+      stored?: { x: number; y: number }
+      /** With `stored`: where the sprite's start-up code left it, before its first step. */
+      afterInit?: { x: number; y: number }
+      /** With `stored`: how the sprite got onto its line from where start-up left it (its first steps, or a fall). */
+      onLine?: 'step' | 'fell'
       /** The list spot the DTO reports (hover, selection, drag) when the picture stands elsewhere: the game lays it out itself (D158 / Decision 124, InitLatches.ts). */
       listPos?: { x: number; y: number }
       /** CGRAM colors the sprite's own code set by its drawn frame (interpreter only). */
@@ -302,6 +308,9 @@ export function drawSprites(
       y: at.y,
       box,
       rgba: base64(out),
+      ...('stored' in res && res.stored ? { stored: res.stored } : {}),
+      ...('afterInit' in res && res.afterInit ? { afterInit: res.afterInit } : {}),
+      ...('onLine' in res && res.onLine ? { onLine: res.onLine } : {}),
       parts: res.parts.map(p => ({ char: p.charNum, palette: p.palette, flipX: p.flipX, flipY: p.flipY, dx: p.dx, dy: p.dy })), // prettier-ignore
       priority: base64(new Uint8ClampedArray(prio.buffer)),
       status: 'drawn',
@@ -462,6 +471,21 @@ function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
   return { writes }
 }
 
+const UNCHECKED_LOADER = "HackBench could not check whether this sprite appears in play (the map's sprite loader is not the stock one)" // prettier-ignore
+
+function unverifiedOf(m: RunModel, generic: string | undefined): { unverified?: string } {
+  const why = [
+    generic,
+    (m.shifted || m.neverAppears) && m.lineInitReason,
+    m.initMoved &&
+      m.lineGateReason &&
+      `drawn on its map tile although its start-up code moves it: ${m.lineGateReason}`,
+    m.spawnUnchecked && UNCHECKED_LOADER,
+    m.noLineReason,
+  ].filter(Boolean)
+  return why.length ? { unverified: why.join('; ') } : {}
+}
+
 /** What the interpreter shows for one sprite: its model, as the drawer's reply. */
 export function modelResult(m: RunModel): SpriteDrawResult {
   const generic = m.seedSource === 'generic'
@@ -474,10 +498,17 @@ export function modelResult(m: RunModel): SpriteDrawResult {
   if (!pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
   const uploads = m.chosen === undefined ? undefined : m.uploads?.[m.chosen]
   if (!m.anchor) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
+  // The at-rest picture of a sprite whose INIT shifts it is drawn where INIT left it; its list position is the stored tile.
+  const stored = m.shifted
+    ? { stored: { x: m.anchor.rawX, y: m.anchor.rawY }, afterInit: m.initAt }
+    : {}
   return {
     ok: true,
     parts: interpParts(pass.parts),
     anchor: { x: m.anchor.x, y: m.anchor.y },
+    ...stored,
+    ...(m.neverAppears ? { note: 'never appears in play' } : {}),
+    ...(m.shifted && m.onLine ? { onLine: m.onLine } : {}),
     ...(m.absolutePlacement
       ? {
           listPos: { x: m.anchor.rawX, y: m.anchor.rawY },
@@ -490,6 +521,9 @@ export function modelResult(m: RunModel): SpriteDrawResult {
       : {}),
     ...(uploads?.length ? { uploads } : {}),
     ...u,
+    // Every reason the picture is not fully checked stands: the generic seed, a patched INIT that moved the sprite, a refused gate
+    // that left it on its tile, a loader that could not be read, a line it never reached.
+    ...unverifiedOf(m, u.unverified),
     identity: { spriteId: m.id, mainHandler: 0, initHandler: 0, status: 'vanilla' },
   }
 }
@@ -734,7 +768,9 @@ export function interpRunner(
     if (s.spriteId === FIVE_EERIES) return { direct: eeriesResult(rom, seed(camera), s, model.isVertical, eeriesRoutines) } // prettier-ignore
     if (s.spriteId === THREE_PLATFORMS) return { direct: platformsResult(rom, seed(camera), s, model.isVertical, platformRoutines) } // prettier-ignore
     if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
-    let m = run(rom, s.spriteId, seed(camera))
+    // The map's own loader placed it at map load (D156): it also spawns at the map-load camera.
+    const opening = !!w && s.index >= 0 && s.index < 128 && !!w[SPRITE_LOAD_STATUS + s.index]
+    let m = run(rom, s.spriteId, seed(camera, { opening }))
     // A sprite placed at the game's own layout (the bonus game) was replayed in the loader's top slot; an earlier loaded sprite
     // may have taken it, which moves one block by a pixel and changes its item (measured on $000, slots 9 vs 8): drawn, marked.
     if (

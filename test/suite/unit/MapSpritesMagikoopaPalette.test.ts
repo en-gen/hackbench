@@ -259,4 +259,12 @@ describe('runtime palette on the map (#1097)', () => {
     const w = { 2: rung(0), 5: rung(1), 35: rung(2), 38: rung(3) }
     expect(draw(run(0x1f, { first: 1, writes: w })).unverified).toMatch(/still changing/)
   })
+
+  it('keeps a color reason and a line-guided reason (#987) together in the final unverified text', () => {
+    const m = { ...run(0x1f, { first: 60, writes: {} }), noLineReason: 'it never reaches its line' }
+    const d = draw(m)
+    expect(d.unverified).toMatch(/only appeared/)
+    expect(d.unverified).toMatch(/never reaches its line/)
+    expect(d.unverified!.match(/only appeared/g)).toHaveLength(1)
+  })
 })
