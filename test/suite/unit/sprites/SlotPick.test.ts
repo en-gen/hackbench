@@ -17,8 +17,10 @@ describe('slotWalk (synthetic loader)', () => {
     expect(walk(1, SPECIAL, 0x20)).toEqual({ status: 'ok', long: 5, short: 0 })
   })
   it('reads the parity from the coordinate bit the loader masks, nothing else', () => {
-    for (const a of [0x10, 0x30, 0x110, 0x1f0]) expect(walk(1, SPECIAL, a), `${a}`).toMatchObject({ long: 7 })
-    for (const a of [0x00, 0x20, 0x100, 0x2f]) expect(walk(1, SPECIAL, a), `${a}`).toMatchObject({ long: 5 })
+    for (const a of [0x10, 0x30, 0x110, 0x1f0])
+      expect(walk(1, SPECIAL, a), `${a}`).toMatchObject({ long: 7 })
+    for (const a of [0x00, 0x20, 0x100, 0x2f])
+      expect(walk(1, SPECIAL, a), `${a}`).toMatchObject({ long: 5 })
   })
   it('a slot the ordinary sprites share has a short case: every ordinary slot busy but the last the search reaches', () => {
     expect(walk(2, 0x01, 0)).toEqual({ status: 'ok', long: 7, short: 1 })
@@ -34,7 +36,9 @@ describe('slotWalk (synthetic loader)', () => {
   it('refuses a setting past the tables, a loader that is not the fingerprinted one and unreadable bytes, each with a status', () => {
     expect(walk(4, SPECIAL, 0)).toMatchObject({ status: 'setting' })
     expect(walk(0xff, SPECIAL, 0)).toMatchObject({ status: 'setting' })
-    expect(slotWalk(rom, 1, SPECIAL, 0, { ...spec, sha256: 'x' })).toMatchObject({ status: 'unrecognized' })
+    expect(slotWalk(rom, 1, SPECIAL, 0, { ...spec, sha256: 'x' })).toMatchObject({
+      status: 'unrecognized',
+    })
     const bad = slotCart(s => ((s[19] = s[4]), (s[20] = s[5])))
     expect(slotWalk(bad.rom, 1, SPECIAL, 0, bad.spec)).toMatchObject({ status: 'unrecognized' })
     const big = slotCart(s => { s[4] = 0; s[5] = 0 }) // prettier-ignore

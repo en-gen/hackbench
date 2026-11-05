@@ -11,12 +11,14 @@ import { ROWS, slotCart, SPECIAL } from '../../support/slotPickCart'
 
 const part = (dx: number, extra: Partial<SpritePart> = {}): SpritePart => ({ oam: 0, char: 0, size: 16, palette: 8, priority: 2, flipX: false, flipY: false, dx, dy: 0, attr: 0, ox: 0, oy: 0, ...extra }) as SpritePart // prettier-ignore
 /** The stand-in draw: tiles in a row; `setting` and `slot` choose the count the way the game's own test would. */
-const drawer = (setting: number, seen: number[] = [], anchorX = (_s: number) => 100) => (slot: number): SpriteModel => {
-  seen.push(slot)
-  const n = slot >= 6 && setting !== 0 ? 9 : 5
-  const parts = Array.from({ length: n }, (_, i) => part(i * 16))
-  return { chosen: 0, anchor: { x: anchorX(slot), y: 50 }, passes: [{ pass: 0, parts, companions: [] }] } as unknown as SpriteModel // prettier-ignore
-}
+const drawer =
+  (setting: number, seen: number[] = [], anchorX = (_s: number) => 100) =>
+  (slot: number): SpriteModel => {
+    seen.push(slot)
+    const n = slot >= 6 && setting !== 0 ? 9 : 5
+    const parts = Array.from({ length: n }, (_, i) => part(i * 16))
+    return { chosen: 0, anchor: { x: anchorX(slot), y: 50 }, passes: [{ pass: 0, parts, companions: [] }] } as unknown as SpriteModel // prettier-ignore
+  }
 const { rom, spec } = slotCart()
 const at = (o: Partial<RopeAt>): RopeAt => ({ id: SPECIAL, setting: 1, x: 0x10, y: 0x20, vertical: false, spec, door: true, ...o }) // prettier-ignore
 const tiles = (m: SpriteModel) => m.passes[0]!.parts.length
@@ -60,7 +62,11 @@ describe('ropeModel', () => {
     expect(past.unverifiedReason).toMatch(/setting 4/)
   })
   it('reports it when the two slots start the rope at different spots, and shows the short length', () => {
-    const m = ropeModel(rom, at({ setting: 2, id: 0x01 }), drawer(2, [], s => 100 + s))
+    const m = ropeModel(
+      rom,
+      at({ setting: 2, id: 0x01 }),
+      drawer(2, [], s => 100 + s),
+    )
     expect(tiles(m)).toBe(5)
     expect(m.unverifiedReason).toMatch(/different spot/)
   })

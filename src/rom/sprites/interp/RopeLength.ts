@@ -20,7 +20,8 @@ export const alongScroll = (x: number, y: number, vertical: boolean): number => 
 export const DOOR_WIRED = false
 
 /** The ids whose line-guided arm calls the rope draw (`VANILLA_DISPATCH`, hash-gated in the runner), not an id list of this module. */
-export const isRopeId = (id: number): boolean => VANILLA_DISPATCH.byId?.[id]?.includes('rope') === true
+export const isRopeId = (id: number): boolean =>
+  VANILLA_DISPATCH.byId?.[id]?.includes('rope') === true
 
 export interface RopeAt {
   id: number
@@ -55,11 +56,19 @@ function withExtras(short: SpriteModel, long: SpriteModel): SpriteModel {
  * The rope's model. `runAt(slot)` runs the sprite in that slot. A loader or setting the pick cannot read keeps slot 0 and
  * says so; a pick whose two slots draw the same parts (setting 0, the reserved slots) is one solid run.
  */
-export function ropeModel<M extends SpriteModel>(rom: RomFile, at: RopeAt, runAt: (slot: number) => M): M {
+export function ropeModel<M extends SpriteModel>(
+  rom: RomFile,
+  at: RopeAt,
+  runAt: (slot: number) => M,
+): M {
   const w = slotWalk(rom, at.setting, at.id, alongScroll(at.x, at.y, at.vertical), at.spec)
   if (w.status !== 'ok') {
     const m = runAt(0)
-    return { ...m, unverifiedReason: m.unverifiedReason ?? `${w.reason}, so the rope is shown at its short length` }
+    return {
+      ...m,
+      unverifiedReason:
+        m.unverifiedReason ?? `${w.reason}, so the rope is shown at its short length`,
+    }
   }
   const long = runAt(w.long)
   if (w.short === w.long) return long

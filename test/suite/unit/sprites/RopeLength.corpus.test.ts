@@ -51,7 +51,11 @@ describe.skipIf(!hasRom(VANILLA))('the rope on the vanilla ROM', () => {
     const at = (slot: number) => runWithUploads(rom.rom, 0x64, withSeed({ slot, sprite: { x: 164 * 16, y: 0x40 }, camera: { x: 164 * 16 - 128, y: 0 } }, base)) // prettier-ignore
     const [short, long] = [at(5), at(7)]
     expect(short.refusal).toBeUndefined()
-    expect([long.chosen, long.anchor?.x, long.anchor?.y]).toEqual([short.chosen, short.anchor?.x, short.anchor?.y])
+    expect([long.chosen, long.anchor?.x, long.anchor?.y]).toEqual([
+      short.chosen,
+      short.anchor?.x,
+      short.anchor?.y,
+    ])
     const key = (p: { dx: number; dy: number }) => `${p.dx},${p.dy}`
     const [s, l] = [drawnParts(short.passes[short.chosen!]!).map(key), drawnParts(long.passes[long.chosen!]!).map(key)] // prettier-ignore
     expect([s.length, l.length]).toEqual([5, 9])

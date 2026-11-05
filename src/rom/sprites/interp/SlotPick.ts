@@ -102,13 +102,18 @@ export function slotWalk(
   if (setting < 0 || setting >= t.size) return { status: 'setting', reason: `the sprite memory setting ${setting} is outside the loader's ${t.size} tables` } // prettier-ignore
   const mine = rangeOf(rom, t, setting, id, along)
   // An id neither reserved list names on this setting: what an ordinary sprite does.
-  const named = new Set([bytesAt(rom, t.res1 + setting, 1)?.[0], bytesAt(rom, t.res2 + setting, 1)?.[0]])
+  const named = new Set([
+    bytesAt(rom, t.res1 + setting, 1)?.[0],
+    bytesAt(rom, t.res2 + setting, 1)?.[0],
+  ])
   const plain = Array.from({ length: 256 }, (_, i) => i).find(i => !named.has(i))
   const ordinary = plain === undefined ? null : rangeOf(rom, t, setting, plain, 0)
-  if (!mine || !ordinary) return { status: 'unreadable', reason: 'the loader tables could not be read' }
+  if (!mine || !ordinary)
+    return { status: 'unreadable', reason: 'the loader tables could not be read' }
   const mineSlots = slotsOf(mine)
   const long = mineSlots[0]!
-  if (long >= SLOTS) return { status: 'unreadable', reason: 'the loader gives a slot outside the sprite table' }
+  if (long >= SLOTS)
+    return { status: 'unreadable', reason: 'the loader gives a slot outside the sprite table' }
   const reachable = new Set(slotsOf(ordinary))
   const last = mineSlots[mineSlots.length - 1]!
   // Never null: the last slot of the range is not in `busy`.
