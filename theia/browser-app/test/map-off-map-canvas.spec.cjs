@@ -2,12 +2,14 @@
  * The map view's canvas around the map, en-gen/hackbench#1004. Owner rulings: D76 call 2 ("draw it off the
  * map where the game indicates it is drawn. the canvas can and should extend beyond the map bounds"), D48
  * part 2 ("half a screen width of gutter on each end with ui to add a screen. The background should fade in
- * a gradient to the edges") and D145 ("no matter what. the user needs ways to extend the size of the map").
+ * a gradient to the edges", replaced since #1228) and D145 ("no matter what. the user needs ways to extend the size of the map").
  *
- * Every map has a 128 px gutter at each LONG end (left and right of a horizontal map, top and bottom of a
- * vertical one), none on the short sides. Content the data places off the map (a sprite, a refused-object
- * mark) is never clamped: the canvas grows to hold it, rounded up to whole 16 px tiles, and on a long end the
- * gutter sits BEYOND it. The back color is solid across the map and fades to transparent over the gutter only.
+ * #1228 (owner, 2026-11-04) replaced the left half of D48 part 2 and R24: every map has ONE 256 px gutter (a
+ * screen) at its FAR end only (right of a horizontal map, bottom of a vertical one), none before position 0 and
+ * none on the short sides, and none at all on a 32-screen map (map-far-end-gutter.spec.cjs, synthetic maps).
+ * Content the data places off the map (a sprite, a refused-object mark) is never clamped: the canvas grows to
+ * hold it, rounded up to whole 16 px tiles, and at the far end the gutter sits BEYOND it. The back color is
+ * solid from the near edge and fades to transparent over the far-end gutter only.
  *
  * Injection uses the RPC intercept pattern (docs/testing.md "Playwright and RPC"; the widget's own
  * `projects` swapped for a Proxy, as map-refused-cells.spec.cjs does).
@@ -38,7 +40,7 @@ const GET_SVC = `function getSvc(name) {
   return null
 }`
 
-const G = 128
+const G = 256
 const WHY = 'HackBench cannot draw this object type yet.'
 const root = index => `[id="hackbench.map-view:${index}"]`
 let tmp
@@ -237,7 +239,7 @@ const canvasPixels = (page, index) =>
   }, root(index))
 
 // $105 is horizontal (256 x 432 px screens), $109 vertical (512 x 256): map-refused-cells.spec.cjs.
-test('$105: a horizontal map has a 128 px gutter left and right and none above or below, at two zooms', async ({
+test('$105: a horizontal map has a 256 px gutter on the right only and none left, above or below, at two zooms', async ({
   page,
 }) => {
   await openMap(page, 0x105)
@@ -246,17 +248,17 @@ test('$105: a horizontal map has a 128 px gutter left and right and none above o
     await zoomAt(page, 0x105, step)
     const r = await rects(page, 0x105)
     const zoom = r.screen.w / 256
-    expectPad(pads(r, zoom), { left: G, top: 0, right: G, bottom: 0 })
-    expect(r.strip.w).toBeCloseTo((r.screens * 256 + 2 * G) * zoom, 0)
+    expectPad(pads(r, zoom), { left: 0, top: 0, right: G, bottom: 0 })
+    expect(r.strip.w).toBeCloseTo((r.screens * 256 + G) * zoom, 0)
     expect(r.strip.h).toBeCloseTo(432 * zoom, 0)
     expect(r.screen.left - r.edge.left).toBeCloseTo(0, 0)
-    // The checkerboard stops at the gutters, so the fade runs over the panel behind the strip.
-    expect(r.checker.left - r.strip.left).toBeCloseTo(G * zoom, 0)
+    // The checkerboard reaches the left edge and stops at the gutter, so the fade runs over the panel behind the strip.
+    expect(r.checker.left - r.strip.left).toBeCloseTo(0, 0)
     expect(r.strip.right - r.checker.right).toBeCloseTo(G * zoom, 0)
   }
 })
 
-test('$109: a vertical map has a 128 px gutter above and below and none at the sides', async ({
+test('$109: a vertical map has a 256 px gutter below only and none above or at the sides', async ({
   page,
 }) => {
   await openMap(page, 0x109)
@@ -265,9 +267,9 @@ test('$109: a vertical map has a 128 px gutter above and below and none at the s
     await zoomAt(page, 0x109, step)
     const r = await rects(page, 0x109)
     const zoom = r.screen.w / 512
-    expectPad(pads(r, zoom), { left: 0, top: G, right: 0, bottom: G })
+    expectPad(pads(r, zoom), { left: 0, top: 0, right: 0, bottom: G })
     expect(r.strip.w).toBeCloseTo(512 * zoom, 0)
-    expect(r.strip.h).toBeCloseTo((r.screens * 256 + 2 * G) * zoom, 0)
+    expect(r.strip.h).toBeCloseTo((r.screens * 256 + G) * zoom, 0)
   }
 })
 
@@ -275,7 +277,7 @@ for (const { index, screenW, vertical } of [
   { index: 0x105, screenW: 256, vertical: false },
   { index: 0x109, screenW: 512, vertical: true },
 ]) {
-  test(`$${index.toString(16)}: the back color is solid across the map and fades to transparent over the gutter only, at two zooms`, async ({
+  test(`$${index.toString(16)}: the back color is solid from the near edge and fades to transparent over the far-end gutter only, at two zooms`, async ({
     page,
   }) => {
     await openMap(page, index)
@@ -285,11 +287,11 @@ for (const { index, screenW, vertical } of [
       await zoomAt(page, index, step)
       const r = await rects(page, index)
       const zoom = r.screen.w / screenW
-      // The back area spans the whole strip, so the gradient's outer stops are the gutters' outer edges.
+      // The back area spans the whole strip, so the gradient's far stop is the gutter's outer edge.
       expect(r.backArea.w).toBeCloseTo(r.strip.w, 0)
       expect(r.backArea.h).toBeCloseTo(r.strip.h, 0)
       // The back area's own background-color is the map's back color (what tests and tools read); the fade is a
-      // mask, opaque across the map and fading over the gutter only. Polled: the style lands with the render.
+      // mask, opaque from the near edge and fading over the far-end gutter only. Polled: the style lands with the render.
       const style = () =>
         page.evaluate(sel => {
           const cs = getComputedStyle(document.querySelector(`${sel} [data-layer="back-area"]`))
@@ -299,20 +301,20 @@ for (const { index, screenW, vertical } of [
       const { mask } = await style()
       // Chromium drops the default direction ("to bottom") when it serializes the vertical gradient.
       const dir = vertical ? '(?:to bottom, )?' : 'to right, '
-      expect(mask).toMatch(new RegExp(`^linear-gradient\\(${dir}rgba\\(0, 0, 0, 0\\)`))
-      // The two opaque stops sit one gutter in from each end (the computed value keeps the zoom's fraction).
+      expect(mask).toMatch(new RegExp(`^linear-gradient\\(${dir}rgb\\(0, 0, 0\\)`))
+      // The one transparent stop is the far end; the opaque stop sits one gutter in from it (the computed value keeps the zoom's fraction).
       const g = String(Math.round(G * zoom))
-      expect(mask).toMatch(new RegExp(`rgb\\(0, 0, 0\\) ${g}(\\.\\d+)?px`))
-      expect(mask).toMatch(/calc\(100% - \d+(\.\d+)?px\)/)
+      expect(mask).toMatch(new RegExp(`rgb\\(0, 0, 0\\) calc\\(100% - ${g}(\\.\\d+)?px\\)`))
+      expect(mask.match(/rgba\(0, 0, 0, 0\)/g)).toHaveLength(1)
       expect(mask).toMatch(/rgba\(0, 0, 0, 0\)(?: 100%)?\)$/)
     }
   })
 }
 
 // The ghost houses (sweep of the 488 vanilla maps, one machine): each has sprite $8D with its door 8 px left of
-// the map, which pads 16 px left (one tile) plus the gutter. $C4 has a second sprite ($7B) inside the map.
+// the map, which pads 16 px left (one tile) and has no left gutter. $C4 has a second sprite ($7B) inside the map.
 for (const index of [0xc4, 0xeb, 0xf0, 0xfb, 0x1da, 0x1e6, 0x1e7, 0x1f9]) {
-  test(`$${index.toString(16)} (ghost house): the left pad is the door (one tile) plus the gutter; $8D sits at its door`, async ({
+  test(`$${index.toString(16)} (ghost house): the left pad is the door alone (one tile, no left gutter); $8D sits at its door`, async ({
     page,
   }) => {
     const mp = await openMap(page, index)
@@ -328,18 +330,18 @@ for (const index of [0xc4, 0xeb, 0xf0, 0xfb, 0x1da, 0x1e6, 0x1e7, 0x1f9]) {
     await zoomAt(page, index, 'zoom-actual')
     const r = await rects(page, index)
     const zoom = r.screen.w / 256
-    expectPad(pads(r, zoom), { left: 16 + G, top: 0, right: G, bottom: 0 })
+    expectPad(pads(r, zoom), { left: 16, top: 0, right: G, bottom: 0 })
     const px = await canvasPixels(page, index)
     expect(px.left).toBeGreaterThan(0)
     expect(px.minX).toBeGreaterThanOrEqual(-8)
     expect(px.maxX).toBeLessThan(0)
     // Nothing above, below or over the map: the screens draw the map's own pixels.
     expect([px.above, px.below, px.right, px.map]).toEqual([0, 0, 0, 0])
-    expect(px.padL).toBe(16 + G)
+    expect(px.padL).toBe(16)
   })
 }
 
-test('$C4: hovering the door in the gutter shows the sprite tooltip anchor at the door', async ({
+test('$C4: hovering the door left of the map shows the sprite tooltip anchor at the door', async ({
   page,
 }) => {
   await openMap(page, 0xc4)
@@ -379,7 +381,7 @@ test('$C4: hovering the door in the gutter shows the sprite tooltip anchor at th
   expect(a.left - r.edge.left).toBeCloseTo(-8 * zoom, 0)
 })
 
-test('$DD: platform pixels land in the left pad: 8 px rounds up to one 16 px tile, plus the gutter', async ({
+test('$DD: platform pixels land in the left pad: 8 px rounds up to one 16 px tile, with no gutter', async ({
   page,
 }) => {
   await openMap(page, 0xdd)
@@ -387,7 +389,7 @@ test('$DD: platform pixels land in the left pad: 8 px rounds up to one 16 px til
   await zoomAt(page, 0xdd, 'zoom-actual')
   const r = await rects(page, 0xdd)
   const zoom = r.screen.w / 256
-  expectPad(pads(r, zoom), { left: 16 + G, top: 0, right: G, bottom: 0 })
+  expectPad(pads(r, zoom), { left: 16, top: 0, right: G, bottom: 0 })
   const px = await canvasPixels(page, 0xdd)
   expect(px.left).toBeGreaterThan(0)
   expect(px.minX).toBeGreaterThanOrEqual(-8)
@@ -402,7 +404,7 @@ test('$102: sprites 24 px below the map grow the bottom by 32 px (24 rounds up t
   await zoomAt(page, 0x102, 'zoom-actual')
   const r = await rects(page, 0x102)
   const zoom = r.screen.w / 256
-  expectPad(pads(r, zoom), { left: G, top: 0, right: G, bottom: 32 })
+  expectPad(pads(r, zoom), { left: 0, top: 0, right: G, bottom: 32 })
   const px = await canvasPixels(page, 0x102)
   expect(px.below).toBeGreaterThan(0)
   expect(px.above).toBe(0)
@@ -428,7 +430,7 @@ test('$102: Fit frames the map and its bottom band: the whole strip fits the vie
   expect(r.strip.h / zoom).toBeCloseTo(432 + 32, 0)
 })
 
-test('marks far past the end draw raw, in a canvas grown to hold them with the gutter beyond', async ({
+test('marks far past the end draw raw, in a canvas grown to hold them with the far-end gutter beyond', async ({
   page,
 }) => {
   await openMap(page, 0x105, { cells: [cell(1, 1, 1)] })
@@ -451,9 +453,9 @@ test('marks far past the end draw raw, in a canvas grown to hold them with the g
       expect(r.marks[i].left - r.edge.left).toBeCloseTo(c.x * 16 * zoom, 0)
       expect(r.marks[i].top - r.edge.top).toBeCloseTo(c.y * 16 * zoom, 0)
     }
-    // 30 tiles of overflow left (480) and 41 tiles right (656), each with the gutter beyond.
-    expectPad(pads(r, zoom), { left: 480 + G, top: 0, right: 656 + G, bottom: 0 })
-    expect(r.marks[0].left).toBeGreaterThanOrEqual(r.strip.left + G * zoom - 1)
+    // 30 tiles of overflow left (480, no gutter) and 41 tiles right (656, the gutter beyond).
+    expectPad(pads(r, zoom), { left: 480, top: 0, right: 656 + G, bottom: 0 })
+    expect(r.marks[0].left).toBeGreaterThanOrEqual(r.strip.left - 1)
     expect(r.marks[1].right).toBeLessThanOrEqual(r.strip.right - G * zoom + 1)
   }
   await expect(
@@ -481,11 +483,15 @@ for (const { index, screenW, vertical } of [
   { index: 0x105, screenW: 256, vertical: false },
   { index: 0x109, screenW: 512, vertical: true },
 ]) {
-  test(`$${index.toString(16)}: hover, click and the sprite anchor use the pad offset (${vertical ? 'top and bottom' : 'left and right'} gutters)`, async ({
+  test(`$${index.toString(16)}: hover, click and the sprite anchor use the pad offset (32 px of content before the map)`, async ({
     page,
   }) => {
-    // An item block at map px (32, 48) and an opaque 16 x 16 sprite at (64, 100).
-    await page.evaluate(() => (window.__hbExtra = [{ x0: 64, y0: 100, x1: 80, y1: 116 }]))
+    // An item block at map px (32, 48), an opaque 16 x 16 sprite at (64, 100), and a second sprite 32 px before
+    // the map (no gutter there since #1228, so this content is what makes the strip origin differ from the map's).
+    const before = vertical
+      ? { x0: 60, y0: -32, x1: 76, y1: -16 }
+      : { x0: -32, y0: 60, x1: -16, y1: 76 }
+    await page.evaluate(b => (window.__hbExtra = [{ x0: 64, y0: 100, x1: 80, y1: 116 }, b]), before)
     await openMap(page, index, { block: { x: 32, y: 48 } })
     await spritesLanded(page, index)
     await zoomAt(page, index, 'zoom-actual')
@@ -494,7 +500,7 @@ for (const { index, screenW, vertical } of [
     const hoverBlock = () => inWidget(page, index, w => (w.hover ? [w.hover.x, w.hover.y] : null))
     const hoverSprite = () => inWidget(page, index, w => w.hoverSprite?.index ?? null)
     const selected = () => inWidget(page, index, w => w.selectedSprite?.index ?? null)
-    // Over the block, measured from the MAP's origin: found. From the STRIP's origin it is a gutter short.
+    // Over the block, measured from the MAP's origin: found. From the STRIP's origin it is the 32 px of content short.
     await page.mouse.move(r.edge.left + 40 * zoom, r.edge.top + 56 * zoom)
     await expect.poll(hoverBlock, { timeout: 10000 }).toEqual([32, 48])
     await page.mouse.move(r.strip.left + 40 * zoom, r.strip.top + 56 * zoom)
@@ -515,7 +521,7 @@ for (const { index, screenW, vertical } of [
     await expect.poll(selected).toBe(900)
     await page.mouse.click(r.strip.left + 72 * zoom, r.strip.top + 108 * zoom)
     await expect.poll(selected).toBeNull()
-    // The ends of the strip and the gutter: no throw, no hit.
+    // The ends of the strip and the pad: no throw, no hit.
     await page.mouse.move(r.strip.left + 2, r.strip.top + 2)
     await page.mouse.move(r.strip.right - 2, r.strip.bottom - 2)
     expect(await hoverSprite()).toBeNull()
@@ -524,7 +530,7 @@ for (const { index, screenW, vertical } of [
   })
 }
 
-test('the grid runs across the gutters and the growth band', async ({ page }) => {
+test('the grid runs across the far-end gutter and the growth band', async ({ page }) => {
   await openMap(page, 0x102)
   await spritesLanded(page, 0x102)
   await zoomAt(page, 0x102, 'zoom-actual')
@@ -537,9 +543,17 @@ test('the grid runs across the gutters and the growth band', async ({ page }) =>
   await expect(grid).toHaveCount(1, { timeout: 15000 })
   await page.waitForTimeout(500)
   let lines = JSON.parse(await grid.getAttribute('data-grid-lines'))
-  // Scrolled to 0 the left gutter is in view: tile lines at 0, 16 ... 112, then the map's screen line at 128.
-  expect(lines.x.filter(l => l.pos < G).length).toBeGreaterThanOrEqual(G / 16 - 1)
-  expect(lines.x.find(l => l.pos === G).weight).toBe(5)
+  // Scrolled to 0 the map starts at the canvas edge: the map's first screen line is at 0, with no gutter before it.
+  expect(lines.x.find(l => l.pos === 0).weight).toBe(5)
+  // Scrolled to the end, tile lines run on across the far-end gutter, well past the map's last screen line.
+  const screens = (await rects(page, 0x102)).screens
+  await page.evaluate(sel => {
+    const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
+    s.scrollLeft = s.scrollWidth
+  }, root(0x102))
+  await page.waitForTimeout(500)
+  lines = JSON.parse(await grid.getAttribute('data-grid-lines'))
+  expect(Math.max(...lines.x.map(l => l.pos))).toBeGreaterThan(screens * 256 + G / 2)
   // The bottom growth band (48 px below the map) has lines too, once scrolled to it.
   await page.evaluate(sel => {
     const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
@@ -609,7 +623,7 @@ for (const { index, screenW, vertical, box } of [
 
 /**
  * #1004 criterion 3: with nothing off the map, the map's own area is pixel-identical to before and the gutter
- * shows at both long ends. $105 and $109 have nothing off the map (the vanilla sweep in theia-shell.md).
+ * shows at the far end (since #1228 only there). $105 and $109 have nothing off the map (the vanilla sweep in theia-shell.md).
  *
  * Two tests per map. The gutter half runs unconditionally. The pixel half compares a real screenshot of the map's
  * own rect (the edge element on the branch, the strip on develop, scrolled to the map origin at Actual size, grid
@@ -622,7 +636,7 @@ for (const { index, screenW, vertical } of [
   { index: 0x109, screenW: 512, vertical: true },
 ]) {
   const name = `$${index.toString(16)}: with nothing off the map`
-  test(`${name}, the gutter shows at both long ends and nothing on the short sides`, async ({
+  test(`${name}, the gutter shows at the far end only and nothing before the map or on the short sides`, async ({
     page,
   }) => {
     await openMap(page, index)
@@ -630,7 +644,7 @@ for (const { index, screenW, vertical } of [
     await zoomAt(page, index, 'zoom-actual')
     const r = await rects(page, index)
     const zoom = r.screen.w / screenW
-    expectPad(pads(r, zoom), vertical ? { left: 0, top: G, right: 0, bottom: G } : { left: G, top: 0, right: G, bottom: 0 }) // prettier-ignore
+    expectPad(pads(r, zoom), vertical ? { left: 0, top: 0, right: 0, bottom: G } : { left: 0, top: 0, right: G, bottom: 0 }) // prettier-ignore
   })
 
   test(`${name}, the map's own area is pixel-identical to the develop baseline (criterion 3)`, async ({
@@ -647,7 +661,7 @@ for (const { index, screenW, vertical } of [
     const toggle = page.locator(`${root(index)} [data-control="grid-toggle"]`)
     if ((await toggle.getAttribute('aria-pressed')) === 'true') await toggle.click()
     await page.waitForTimeout(500)
-    // Scroll to the map origin (past the gutter on the branch; the strip start on develop, which has no mapOrigin()).
+    // Scroll to the map origin (past the leading pad, content only since #1228, on the branch; the strip start on develop, which has no mapOrigin()).
     const clip = await page.evaluate(
       async ({ i, sel }) => {
         const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {

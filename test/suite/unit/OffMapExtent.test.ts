@@ -11,71 +11,115 @@ import {
   offMapPad,
   offMapSpritePixels,
   screensInView,
-  type Pad,
   type Rect,
 } from '../../../theia/extension/src/browser/off-map-extent'
+import { GUTTER_PX, MAX_SCREENS, farGutter } from '../../../src/rom/model/MapGutter'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 
-// 16 x 27 tile screens side by side, or 32 x 16 stacked (LevelParser.ts), one to seven screens.
-const SHAPES = [1, 2, 5, 7].flatMap(n => [
-  { w: 256 * n, h: 432, vertical: false },
-  { w: 512, h: 256 * n, vertical: true },
+// 16 x 27 tile screens side by side, or 32 x 16 stacked (LevelParser.ts), one to 32 screens, the 5-bit ceiling.
+const SHAPES = [1, 2, 5, 7, 31, 32].flatMap(n => [
+  { n, w: 256 * n, h: 432, vertical: false },
+  { n, w: 512, h: 256 * n, vertical: true },
 ])
-const G = 128
+const G = 256
 
-describe('offMapPad: the gutter (D48 part 2, D145)', () => {
-  it('a map with nothing off it is padded by the gutter alone, at its long ends only', () => {
-    for (const { w, h, vertical } of SHAPES) {
+describe('offMapPad: the far-end gutter (#1228)', () => {
+  it('a map with nothing off it is padded by one screen at its far end alone', () => {
+    for (const { n, w, h, vertical } of SHAPES) {
+      const g = n === MAX_SCREENS ? 0 : G
       const inside: Rect[] = [cellRect(0, 0), cellRect(w / 16 - 1, h / 16 - 1), { x0: 0, y0: 0, x1: w, y1: h }] // prettier-ignore
-      const want = vertical ? { left: 0, top: G, right: 0, bottom: G } : { left: G, top: 0, right: G, bottom: 0 } // prettier-ignore
-      expect(offMapPad(w, h, inside, vertical)).toEqual(want)
-      expect(offMapPad(w, h, [], vertical)).toEqual(want)
+      const want = vertical ? { left: 0, top: 0, right: 0, bottom: g } : { left: 0, top: 0, right: g, bottom: 0 } // prettier-ignore
+      expect(offMapPad(w, h, inside, vertical, n)).toEqual(want)
+      expect(offMapPad(w, h, [], vertical, n)).toEqual(want)
     }
+  })
+
+  it('the gutter is one 256 px screen', () => {
+    expect(GUTTER_PX).toBe(256)
+  })
+
+  it('32 screens, the ceiling, has no far-end pad; 31 has the full gutter, on both shapes', () => {
+    expect(MAX_SCREENS).toBe(32)
+    // Every legal count: one screen of gutter up to 31, none at the 32-screen ceiling.
+    for (let n = 1; n <= MAX_SCREENS; n++)
+      expect(farGutter(n), `${n} screens`).toBe(n === 32 ? 0 : 256)
+    expect(offMapPad(256 * 32, 432, [], false, 32)).toEqual({
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+    })
+    expect(offMapPad(256 * 31, 432, [], false, 31)).toEqual({
+      left: 0,
+      top: 0,
+      right: 256,
+      bottom: 0,
+    })
+    expect(offMapPad(512, 256 * 32, [], true, 32)).toEqual({ left: 0, top: 0, right: 0, bottom: 0 })
+    expect(offMapPad(512, 256 * 31, [], true, 31)).toEqual({
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 256,
+    })
+  })
+
+  it('a map at the ceiling still grows by its off-map content, with no gutter beyond it', () => {
+    expect(offMapPad(256 * 32, 432, [cellRect(-2, 5), cellRect(256 * 32 / 16 + 1, 5)], false, 32)).toEqual({ left: 32, top: 0, right: 32, bottom: 0 }) // prettier-ignore
   })
 })
 
 describe('offMapPad: content growth', () => {
   const H = { w: 256 * 5, h: 432, vertical: false }
   const V = { w: 512, h: 256 * 5, vertical: true }
-  const pad = (m: typeof H, rects: Rect[]) => offMapPad(m.w, m.h, rects, m.vertical)
+  const pad = (m: typeof H, rects: Rect[]) => offMapPad(m.w, m.h, rects, m.vertical, 5)
 
-  it('on a long end the gutter sits BEYOND the tile-rounded content', () => {
-    // Cell at tile -2 overflows by 32 px: 32 + the 128 gutter.
-    expect(pad(H, [cellRect(-2, 5)])).toEqual({ left: 32 + G, top: 0, right: G, bottom: 0 })
-    expect(pad(H, [cellRect(H.w / 16 + 1, 5)])).toEqual({ left: G, top: 0, right: 32 + G, bottom: 0 }) // prettier-ignore
-    expect(pad(V, [cellRect(5, -1)])).toEqual({ left: 0, top: 16 + G, right: 0, bottom: G })
-    expect(pad(V, [cellRect(5, V.h / 16)])).toEqual({ left: 0, top: G, right: 0, bottom: 16 + G }) // prettier-ignore
+  it('at the far end the gutter sits BEYOND the tile-rounded content; the near end is content alone', () => {
+    // Cell at tile -2 overflows by 32 px: content alone on the near end, the gutter only at the far end.
+    expect(pad(H, [cellRect(-2, 5)])).toEqual({ left: 32, top: 0, right: G, bottom: 0 })
+    expect(pad(H, [cellRect(H.w / 16 + 1, 5)])).toEqual({ left: 0, top: 0, right: 32 + G, bottom: 0 }) // prettier-ignore
+    expect(pad(V, [cellRect(5, -1)])).toEqual({ left: 0, top: 16, right: 0, bottom: G })
+    expect(pad(V, [cellRect(5, V.h / 16)])).toEqual({ left: 0, top: 0, right: 0, bottom: 16 + G }) // prettier-ignore
   })
 
-  it('on a short side the content alone, no gutter and no extra margin', () => {
-    expect(pad(H, [cellRect(5, -1)])).toEqual({ left: G, top: 16, right: G, bottom: 0 })
-    expect(pad(H, [cellRect(5, 27)])).toEqual({ left: G, top: 0, right: G, bottom: 16 })
-    expect(pad(V, [cellRect(-3, 5)])).toEqual({ left: 48, top: G, right: 0, bottom: G })
-    expect(pad(V, [cellRect(32, 5)])).toEqual({ left: 0, top: G, right: 16, bottom: G })
+  it('on the short sides the content alone, no gutter and no extra margin', () => {
+    expect(pad(H, [cellRect(5, -1)])).toEqual({ left: 0, top: 16, right: G, bottom: 0 })
+    expect(pad(H, [cellRect(5, 27)])).toEqual({ left: 0, top: 0, right: G, bottom: 16 })
+    expect(pad(V, [cellRect(-3, 5)])).toEqual({ left: 48, top: 0, right: 0, bottom: G })
+    expect(pad(V, [cellRect(32, 5)])).toEqual({ left: 0, top: 0, right: 16, bottom: G })
   })
 
   it('a partial tile of overflow rounds up to a whole tile', () => {
-    expect(pad(H, [{ x0: -1, y0: 0, x1: 8, y1: 8 }]).left).toBe(16 + G)
+    expect(pad(H, [{ x0: -1, y0: 0, x1: 8, y1: 8 }]).left).toBe(16)
     expect(pad(H, [{ x0: 0, y0: 0, x1: H.w + 1, y1: 8 }]).right).toBe(16 + G)
     expect(pad(H, [{ x0: 0, y0: 0, x1: 8, y1: 433 }]).bottom).toBe(16)
     expect(pad(H, [{ x0: 0, y0: -17, x1: 8, y1: 8 }]).top).toBe(32)
   })
 
-  it('content far beyond the old gutter still gets the gutter past it (no clamp, no cap)', () => {
-    expect(pad(H, [cellRect(-100, 5)]).left).toBe(1600 + G)
+  it('content far beyond the gutter still gets the gutter past it (no clamp, no cap)', () => {
+    expect(pad(H, [cellRect(-100, 5)]).left).toBe(1600)
     expect(pad(V, [cellRect(5, V.h / 16 + 300)]).bottom).toBe(4816 + G)
   })
 
   it('takes the farthest rect on each side, and all four sides at once', () => {
     const p = pad(H, [cellRect(-1, 0), cellRect(-3, 0), cellRect(0, -2), cellRect(H.w / 16 + 1, 0), cellRect(0, 28)]) // prettier-ignore
-    expect(p).toEqual({ left: 48 + G, top: 32, right: 32 + G, bottom: 32 })
+    expect(p).toEqual({ left: 48, top: 32, right: 32 + G, bottom: 32 })
   })
 })
 
-describe('fadeMask (owner R24)', () => {
-  it('fades along the scroll axis: to the right on a horizontal map, to the bottom on a vertical one', () => {
-    expect(fadeMask(false, 128)).toBe('linear-gradient(to right, transparent, #000 128px, #000 calc(100% - 128px), transparent)') // prettier-ignore
-    expect(fadeMask(true, 256)).toBe('linear-gradient(to bottom, transparent, #000 256px, #000 calc(100% - 256px), transparent)') // prettier-ignore
+describe('fadeMask (owner R24, #1228)', () => {
+  it('opaque from the near edge, fading to transparent across the far-end gutter only', () => {
+    expect(fadeMask(false, 256)).toBe(
+      'linear-gradient(to right, #000 calc(100% - 256px), transparent)',
+    )
+    expect(fadeMask(true, 512)).toBe(
+      'linear-gradient(to bottom, #000 calc(100% - 512px), transparent)',
+    )
+  })
+
+  it('with no gutter (a 32-screen map) there is no fade at all', () => {
+    expect(fadeMask(false, 0)).toBe('none')
+    expect(fadeMask(true, 0)).toBe('none')
   })
 })
 
@@ -157,8 +201,8 @@ describe('offMapSpritePixels', () => {
   })
 
   it('the $8D door: a box starting 8 px left of the map keeps its left-gutter pixels, and none over the map', () => {
-    // Vanilla ghost houses (#1016): sprite $8D, box (-8, 287) to (56, 383); pad 144 left (one tile plus the gutter).
-    const pad = { left: 144, top: 0, right: 128, bottom: 0 }
+    // Vanilla ghost houses (#1016): sprite $8D, box (-8, 287) to (56, 383); pad 16 left (one tile of content, no left gutter).
+    const pad = { left: 16, top: 0, right: 256, bottom: 0 }
     const out = offMapSpritePixels([sprite(0, { x0: -8, y0: 287, x1: 56, y1: 383 })], 256, 432, pad, false) // prettier-ignore
     const at = reader(out, 256, pad)
     expect(at(-8, 287)).toEqual([10, 255])
@@ -194,7 +238,7 @@ describe('offMapSpritePixels', () => {
         [{ x0: 40, y0: h - 4, x1: 50, y1: h + 6 }, [45, h + 3]],
       ]
       for (const [box, probe] of boxes) {
-        const pad = offMapPad(w, h, [box], vertical)
+        const pad = offMapPad(w, h, [box], vertical, 5)
         const at = reader(offMapSpritePixels([sprite(0, box)], w, h, pad, vertical), w, pad)
         expect(at(...probe)).toEqual([10, 255])
         // The in-map part of the same sprite is left to the screens.
