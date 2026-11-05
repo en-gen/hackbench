@@ -336,8 +336,10 @@ export interface MapSpriteDto {
    */
   fixedTo?: 'layer2'
   /**
-   * Present when the sprite was run from a placement-only seed because the
-   * level loader refused this ROM: drawn, but not run from the level's state.
+   * Present when the sprite may not be drawn exactly as in the game: the level loader refused this ROM
+   * (run from a placement-only seed), the map's memory setting differs from the one checked, or an earlier
+   * sprite may hold its slot. The engine's own words, causes joined by `; `: for tooltips only. The map's
+   * note and the Properties line say it in plain words (#1166).
    */
   unverified?: string
   /** A plain-words line about what the map shows of this sprite, not a flaw (for example fewer Eeries than the placement asks for); the map's note line carries it too. */

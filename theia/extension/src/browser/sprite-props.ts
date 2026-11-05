@@ -90,6 +90,17 @@ export interface SpriteProps {
 /** The Unverified line in plain words; the engine's cause rides on its tooltip (#1166). */
 export const UNVERIFIED_NOTE = 'Unverified: this sprite may not be drawn exactly as in the game.'
 
+/** The tooltip for one Properties note: the engine's text behind it, or none when that note has no detail (#1166). */
+export const noteTitle = (
+  note: string,
+  p: Pick<SpriteProps, 'rawReason' | 'rawUnverified'>,
+): string | undefined =>
+  note.startsWith('Not drawn')
+    ? p.rawReason
+    : note === UNVERIFIED_NOTE
+      ? p.rawUnverified
+      : undefined
+
 export function spriteProps(s: MapSpriteDto): SpriteProps {
   const parts = s.status === 'drawn' && s.parts ? s.parts : null
   const notes: string[] = []

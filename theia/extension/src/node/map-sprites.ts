@@ -965,6 +965,23 @@ const dynamicOf = (rom: RomFile) => (n: PaletteNote) => {
   return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore
 }
 
+/**
+ * The sprite layer with the castle flames folded in: their sprites appended, their note after the layer's on the
+ * visible line, and the two technical details kept apart, one per line, so neither is lost (#1166).
+ */
+export function withFlames(
+  layer: Extract<MapSpritesResult, { status: 'ok' }>,
+  flames: ReturnType<typeof castleFlameSprites>,
+): Extract<MapSpritesResult, { status: 'ok' }> {
+  const detail = [layer.noteDetail, flames.noteDetail].filter(Boolean).join('\n')
+  return {
+    ...layer,
+    sprites: [...layer.sprites, ...flames.sprites],
+    note: [layer.note, flames.note].filter(Boolean).join(' ') || undefined,
+    ...(detail ? { noteDetail: detail } : {}),
+  }
+}
+
 /** Runs the sprite interpreter at rest for every placed sprite on one map and folds the results into the served model; a Layer 1 refusal passes through as plain words with detail (#967). */
 function compute(
   cache: L1ModelCache,
@@ -993,15 +1010,7 @@ function compute(
     const layer = spriteLayer(data, withUploads, draw, dynamic)
     const flames = castleFlameSprites(rom.rom, base, stream, model, model.l2?.ok ? model.l2.l2.dy : undefined, dynamic) // prettier-ignore
     if (flames.sprites.length === 0 && !flames.note) return layer
-    return {
-      ...layer,
-      sprites: [...layer.sprites, ...flames.sprites],
-      note: [layer.note, flames.note].filter(Boolean).join(' ') || undefined,
-      // Both layers may carry a detail; neither is lost.
-      ...(layer.noteDetail || flames.noteDetail
-        ? { noteDetail: [layer.noteDetail, flames.noteDetail].filter(Boolean).join('\n') }
-        : {}),
-    }
+    return withFlames(layer, flames)
   } catch (err) {
     return unreadable((err as Error).message)
   }
