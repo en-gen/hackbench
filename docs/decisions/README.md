@@ -6,6 +6,7 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 
 | File | State | Decides |
 | --- | --- | --- |
+| [2026-11-05-gutter-layers-through-band.md](2026-11-05-gutter-layers-through-band.md) | Proposed | Layers 2 and 3 also run through an off-map content band before the gutter; an object-stream Layer 2 shows only tiles the stream wrote past the edge, usually none (#1197) |
 | [2026-11-04-map-gutter-far-end-only.md](2026-11-04-map-gutter-far-end-only.md) | Ruled | the map view gutter is one screen (256 px) at the far end only, none before position 0 and none at 32 screens; replaces the left half of D48 part 2 and R24 (D172) |
 | [2026-11-04-state-inside-repo-cutover.md](2026-11-04-state-inside-repo-cutover.md) | Proposed | hooks and settings stay unchanged and the cutover leaves a junction at the old state folder name |
 | [2026-11-03-gm12-gate-window-hooks.md](2026-11-03-gm12-gate-window-hooks.md) | Ruled | a hook in GM12PrepLevel before the $0D9B test is an accepted limit, no guard; the warn path is follow-up #1205 (D159) |

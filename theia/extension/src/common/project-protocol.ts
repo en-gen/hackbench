@@ -601,6 +601,18 @@ export interface ProjectService {
     switches: SwitchStateDto,
   ): Promise<MapScreenResult>
 
+  /**
+   * One screen PAST the map's last (screen >= screenCount), L2 and L3 planes only, for the gutter (#1197).
+   * Read from the same working-copy model as `mapScreen`; a screen number outside the screens past the end is refused.
+   */
+  mapBeyond(
+    manifestPath: string,
+    index: number,
+    screen: number,
+    switchFlags: SwitchFlagsDto,
+    switches: SwitchStateDto,
+  ): Promise<MapScreenResult>
+
   /** Every sprite of a map, drawn by the sprite interpreter or marked, from the working copy (#564, #585). */
   mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult>
   /** The distinct poses of one sprite of a map (its stream `index`), run on demand from the working copy (#984). */

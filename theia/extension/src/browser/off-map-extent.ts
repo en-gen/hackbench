@@ -11,7 +11,7 @@
  */
 import type { MapSpriteDto } from '../common/project-protocol'
 import { decodeRgba } from './map16-pixels'
-import { farGutter } from '../../../../src/rom/model/MapGutter'
+import { MAX_BEYOND_SCREENS, farGutter } from '../../../../src/rom/model/MapGutter'
 
 /** One map tile in map pixels; the pad is whole tiles so the grid runs on across the margin. */
 export const TILE = 16
@@ -77,6 +77,54 @@ export const fadeMask = (vertical: boolean, gutterPx: number): string =>
   gutterPx > 0
     ? `linear-gradient(${vertical ? 'to bottom' : 'to right'}, #000 calc(100% - ${gutterPx}px), transparent)`
     : 'none'
+
+/**
+ * How many screens past the last one the layers must be fetched for, to fill `farPad` map px of far-end
+ * canvas (off-map content band plus gutter, #1197) with screens `screenLen` px long on the scroll axis.
+ */
+export const beyondScreens = (farPad: number, screenLen: number): number =>
+  farPad > 0 ? Math.min(Math.ceil(farPad / screenLen), MAX_BEYOND_SCREENS) : 0
+
+/**
+ * Fades the layers that continue through the far end (#1197): opaque from the map's edge across any
+ * off-map content band, then linear to alpha 0 over the last `gutter` px of the far axis, the same ramp
+ * as `fadeMask` (opaque to `length - gutter`, clear at `length`, sampled at pixel centers). `gutter` is
+ * `farGutter(screenCount)`, so the two cannot drift. Done on the pixels, not a CSS mask, so a toggle or an
+ * edit repaints one canvas. Multiplies alpha in place; `vertical` picks the far axis (y, else x).
+ */
+export function fadeFarEnd(
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  vertical: boolean,
+  gutter: number,
+): void {
+  if (gutter <= 0) return
+  const length = vertical ? height : width
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const into = (vertical ? y : x) + 0.5 - (length - gutter)
+      if (into <= 0) continue
+      const a = y * width * 4 + x * 4 + 3
+      rgba[a] = Math.round(rgba[a]! * Math.max(0, 1 - into / gutter))
+    }
+  }
+}
+
+/**
+ * Clears the alpha of every pixel none of `sources` covers. `composeScreen` can fill a pixel no layer drew
+ * (color math against the black backdrop); in the gutter that pixel must stay clear so the back area,
+ * which has its own fade, is not faded a second time (#1197).
+ */
+export function clearUncovered(
+  out: Uint8ClampedArray,
+  sources: Iterable<Uint8ClampedArray | null | undefined>,
+): void {
+  const planes = [...sources].filter((p): p is Uint8ClampedArray => !!p)
+  for (let a = 3; a < out.length; a += 4) {
+    if (planes.every(p => p[a] === 0)) out[a] = 0
+  }
+}
 
 /**
  * Which screens of an N-screen map a scroll window touches, `margin` either side, as an inclusive

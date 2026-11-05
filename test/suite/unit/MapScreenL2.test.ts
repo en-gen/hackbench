@@ -387,7 +387,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     ])
     expect(l2.dy).toBe(0x20 - 0xc0)
     expect(l2.tiles[1]).toEqual(m.map16.tiles[1]) // L1's own table, not vanilla's
-    expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls[0]!.slice(2)).toEqual([1, 0, false])
+    expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls[0]!.slice(2)).toEqual([1, 0, false, 32]) // 32: room for what the stream writes past the edge (#1197)
   })
 
   it('an object build dispatch notes ride on the L2 inputs (#493)', () => {
@@ -405,7 +405,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       ok(buildL2Inputs(smw(entry(f600, d710), vertical), LEVEL, inp(vertical ? vGrid(1) : hGrid(1), vertical, 1))).dy // prettier-ignore
     expect(dy(0x23, 3)).toBe(0x320 - 0xc0) // L1 gets the high byte, L2's stays 0
     expect(dy(0x23, 1)).toBe(0x320 - 0x3c0) // both have it
-    expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls[0]!.slice(2)).toEqual([1, 0, true])
+    expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls[0]!.slice(2)).toEqual([1, 0, true, 32])
     // The VerticalTable (the map's isVertical) is not what the entry code tests.
     expect(dy(0x03, 3)).toBe(0x20 - 0xc0) // F600 bit 5 clear: no high bytes, though the map is vertical
     expect(dy(0x23, 3, false)).toBe(0x320 - 0xc0)

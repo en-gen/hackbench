@@ -427,6 +427,22 @@ With the pad the widget:
   padded strip rather than the pad bands (simpler) and is mounted only when `offMapSpritePixels` returns
   pixels, so a map whose sprites all lie inside it has no such element. Like the refused overlay it is not
   drawn while the tab shows a screen error;
+- continues Layers 2 and 3 through the far end (#1197; `decisions/2026-11-05-gutter-layers-through-band.md`,
+  [PROP]): one canvas (`data-layer="gutter-layers"`, z 110: over the back area, under the off-map sprites at
+  120, the refused overlay at 150, the edge line and the collision overlay), from the map's far edge to the
+  canvas's far end, so through any off-map content band and the gutter. Mounted only where `farGutter` is
+  above 0, so a 32-screen map has none. Its pixels come from the new `mapBeyond` RPC (screens
+  `screenCount ..`, bounded by `MAX_BEYOND_SCREENS`; L2 and L3 planes only, through the same model cache as
+  `mapScreen`, whose range check is unchanged) and are fetched once the map's last screen is in view, under
+  `fetchScreen`'s cache key and generation rules. They are composed with `composeScreen` from the shown planes
+  only (`layerShown`, so toggles 2 and 3 apply; no Layer 1, sprites or flames), pixels no layer covered
+  cleared (`clearUncovered`, so the back area is not faded twice) and faded by `fadeFarEnd`: opaque across a
+  content band, then linear to clear over the last `farGutter` px, derived from the same number as `fadeMask`.
+  Layer 2: an image is one fixed 512 px plane (`L2Inputs.plane`), so it has content at any position; an object
+  stream has only the tiles it wrote past the last screen (`L2Inputs.beyond`, from `loadL2Objects`' extra
+  room), usually none, never a repeat of the last screen. Layer 3 repeats by x as on a screen (one copy when
+  it follows the camera); a vertical map has none (L3Model). The map's own grid is untouched, so no pixel of
+  its screens changes;
 - confines the checkerboard (`.hb-checkerboard`, "nothing here") to the strip without the far-end gutter: it
   reaches the near canvas edge and stops at the gutter, so where the back color fades out the panel shows
   behind it, not the checkerboard [PROP];

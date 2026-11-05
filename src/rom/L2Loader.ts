@@ -28,7 +28,7 @@
 
 import { RomFile } from './RomFile'
 import { decompressRle1 } from './LcRle1'
-import { parseL2Objects, SCREEN_W, SCREEN_H, type LevelSprite } from './LevelParser'
+import { parseL2Objects, SCREEN_W, SCREEN_H, SCREEN_H_VERT, type LevelSprite } from './LevelParser'
 import { expandObject, createGrid, SWITCH_FLAGS_UNCLEARED } from './ObjectExpander'
 import { OWNER_NONE } from './objectHandlers/cursor'
 import { chooseEntrance, secondaryHighByte, secondaryRow } from './L3Loader'
@@ -285,6 +285,9 @@ export function tilePresetGrid(
  * We still call parseLevelObjects on the raw L2 bytes because it reads a
  * 5-byte "header" then an object stream - the same layout L2 data has. We
  * discard the parsed header and use only `.objects`.
+ *
+ * `extraScreens` (#1197) expands the stream into a grid that many screens longer and returns the part
+ * past the last screen as `beyond`; `grid` is the same as without it. Default 0: no `beyond`.
  */
 export function loadL2Objects(
   rom: RomFile,
@@ -292,7 +295,8 @@ export function loadL2Objects(
   screens: number,
   objectTileset: number,
   isVertical = false,
-): { grid: number[][]; unverified: string[] } | null {
+  extraScreens = 0,
+): { grid: number[][]; unverified: string[]; beyond?: number[][] } | null {
   if (isPresetPtr(ptr)) return null
 
   const snesAddr = ptr & 0xffffff
@@ -305,7 +309,7 @@ export function loadL2Objects(
   // re-running LoadLevelData with LayerProcessing=1). The vertical flag
   // mirrors L1's - in vanilla SMW, L2 verticality tracks L1 closely.
   const objects = parseL2Objects(raw, screens, isVertical)
-  const grid = createGrid(screens, isVertical)
+  const grid = createGrid(screens + extraScreens, isVertical)
   // Returning false from draw preserves the null-sink grid. A sink without a draw callback would
   // record 'no interpreter was supplied' for an interpreted handler, a spurious note on stock maps.
   const unverified: string[] = []
@@ -323,7 +327,13 @@ export function loadL2Objects(
       isVertical,
     )
   }
-  return { grid, unverified }
+  if (extraScreens === 0) return { grid, unverified }
+  // The map's own screens keep exactly the grid a plain call builds; what the stream wrote past the last
+  // screen (#1197) is split off, and what it did not write stays TILE_EMPTY, never filled in.
+  const cut = screens * (isVertical ? SCREEN_H_VERT : SCREEN_W)
+  return isVertical
+    ? { grid: grid.slice(0, cut), unverified, beyond: grid.slice(cut) }
+    : { grid: grid.map(r => r.slice(0, cut)), unverified, beyond: grid.map(r => r.slice(cut)) }
 }
 
 // Re-export for callers that want the canonical grid dimensions without
