@@ -47,7 +47,7 @@ const ok = (r: SpriteDrawResult) => {
 
 describe('the served drawer reveals hidden sprites', () => {
   it('draws a touch sprite where it is placed and says what showed it', () => {
-    const r = ok(drawer()(entry(40)))
+    const r = ok(drawer()(entry(140)))
     expect(r.reveal).toBe('mario-at-sprite')
     expect(r.anchor).toEqual({ x: 0x1000, y: 0x120 })
   })
@@ -62,15 +62,15 @@ describe('the served drawer reveals hidden sprites', () => {
 
   it('keeps the real-start picture in the door when it drew, hides under a probe, and nothing reveals it (id 56)', () => {
     // Mario starts $40 px right of the sprite, the only place it draws.
-    const r = ok(drawer(runWithUploads, 0x1040)(entry(56)))
+    const r = ok(drawer(runWithUploads, 0x1040)(entry(156)))
     expect(r.reveal).toBe('none-found')
     expect(r.anchor).toEqual({ x: 0x1000, y: 0x120 })
     // A start elsewhere never draws it: still a marker with its reason.
-    expect(drawer()(entry(56))).toMatchObject({ ok: false, reason: 'unrevealed' })
+    expect(drawer()(entry(156))).toMatchObject({ ok: false, reason: 'unrevealed' })
   })
 
   it('searches only the map view runs: a custom run (the block spawn) keeps the old answer', () => {
-    const plain = drawer((r, id, seed) => runOnce(r, id, seed, { atRest: true }))(entry(40))
+    const plain = drawer((r, id, seed) => runOnce(r, id, seed, { atRest: true }))(entry(140))
     expect(plain).toMatchObject({ ok: false })
     expect((plain as { reason: string }).reason).not.toBe('unrevealed')
   })
@@ -85,7 +85,7 @@ describe('the served drawer reveals hidden sprites', () => {
 
   it('takes the position from the same model the at-rest path gives, even when it moved before it drew', () => {
     // Id 49 rises every pass and draws from frame 3. Rebuild the revealing seed the way the search does.
-    const got = ok(drawer()(entry(49)))
+    const got = ok(drawer()(entry(149)))
     const seed = withSeed(
       {
         sprite: { x: 0x1000, y: 0x120 },
@@ -101,7 +101,7 @@ describe('the served drawer reveals hidden sprites', () => {
         base(),
       ),
     )
-    const m = runWithUploads(rom, 49, seed, { ownOamOnly: true })
+    const m = runWithUploads(rom, 149, seed, { ownOamOnly: true })
     expect(m.chosen).toBeGreaterThan(0)
     const want = ok(modelResult(m))
     expect(got.anchor).toEqual(want.anchor)
