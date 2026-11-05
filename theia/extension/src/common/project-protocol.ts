@@ -68,11 +68,10 @@ export interface MapNodeDto {
   index: number
   name: string | null
   kind: 'map' | 'loop' | 'truncated'
-  /** The slot uses the shared placeholder room, which `sharedCount` slots share. */
-  placeholder?: true
-  sharedCount?: number
-  /** The slot's Layer 1 pointer is zero or unreadable: no map data, nothing to open. */
+  /** A New slot: its Layer 1 pointer is zero or points outside the ROM file, so there is no map data. */
   noPointer?: true
+  /** A map whose data could not be read back; the row warns and opening it says so. */
+  unreadable?: true
   children: MapNodeDto[]
 }
 
@@ -87,9 +86,7 @@ export interface SpecialMapNodeDto extends MapNodeDto {
 export interface MapTreeCountsDto {
   entrances: number | null
   unassigned: number
-  /** Placeholder slots, listed beside the unassigned maps but counted apart. */
-  placeholders: number
-  /** Slots with no Layer 1 pointer, listed beside the unassigned maps but counted apart. */
+  /** New slots, listed beside the unassigned maps but counted apart. */
   noPointer: number
 }
 
@@ -276,8 +273,8 @@ export type MapScreenResult =
       /** The back area (CGRAM color 0), RGB: its own layer under L1. */
       backdrop: [number, number, number]
     }
-  /** `detail`: exception text for the tooltip and log, never the visible message. `screenCount`: set by `mapBeyond` on every range refusal, so a caller with a stale count can tell (a screen inside the map has a number below it) (#1197). */
-  | { status: 'unavailable'; reason: string; detail?: string; screenCount?: number }
+  /** `detail`: exception text for the tooltip and log, never the visible message. */
+  | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /** One part of a drawn sprite, as the interpreter placed it (#984). */

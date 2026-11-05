@@ -441,7 +441,6 @@ export function beyondResult(
     return {
       status: 'unavailable',
       reason: `Screen ${screen} is not one of the ${MAX_BEYOND_SCREENS} past this map's ${model.screenCount} screens`,
-      screenCount: model.screenCount,
     }
   }
   const l2 = model.l2?.ok ? model.l2.l2 : null

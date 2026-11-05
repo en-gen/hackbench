@@ -292,11 +292,6 @@ describe('beyondResult', () => {
     }
   })
 
-  it('a refusal for a screen inside the map carries the screen count, so a caller with a stale count can tell', () => {
-    expect(beyondResult(map(3), 2)).toMatchObject({ status: 'unavailable', screenCount: 3 })
-    expect(beyondResult(map(3), 3 + MAX_BEYOND_SCREENS)).toMatchObject({ status: 'unavailable', screenCount: 3 }) // prettier-ignore
-  })
-
   it('the map own range check is unchanged: the first screen past the end is still refused', () => {
     expect(screenResult(map(2), 2).status).toBe('unavailable')
     expect(screenResult(map(2), 1).status).toBe('ok')

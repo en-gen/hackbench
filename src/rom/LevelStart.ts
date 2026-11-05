@@ -172,9 +172,10 @@ export function readLevelStart(
     const bad = stockCodeMismatch(rom.rom, [span], fp)
     if (bad) return fail(CODE_CHANGED, bad)
   }
-  // A filler slot's tables belong to no map: whatever they hold is padding.
+  // A New slot, or one on the most common pointer, has no entrance tables of its own:
+  // whatever they hold is padding, so there is no start to show.
   if (!buildLevelCatalog(rom).entries[mapIndex]?.isReal) {
-    return fail('No map is stored in this slot.')
+    return fail('This slot has no entrance, so there is no start position to show.')
   }
 
   const entrances = deriveOverworldEntrances(rom, undefined, fingerprints)
