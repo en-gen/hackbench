@@ -274,7 +274,7 @@ export function buildMapTree(
     notes.push(
       `${unassignedMaps} of ${mapCount} maps are unassigned: no overworld root ` +
         'reaches them through the exit graph. They are listed flat because an ' +
-        "orphan's own exits are left unresolved by design (SmwRom.buildLevelExitGraph).",
+        "orphan's own screen exits are left unresolved by design (SmwRom.buildLevelExitGraph).",
     )
   }
 

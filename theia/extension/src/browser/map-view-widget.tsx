@@ -362,7 +362,6 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Starts a map in this widget; a reused tab drops the earlier map's replies via the open counter. */
   async open(options: MapViewOptions): Promise<void> {
-    perfStart('open-maps')
     this.options = options
     this.id = `${MAP_VIEW_ID}:${options.index}`
     this.title.label = options.label
@@ -405,6 +404,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       this.update()
       return
     }
+    // Started here, not at the top: only a map that draws a screen ends it, and a New slot never does.
+    perfStart('open-maps')
     void this.loadStart(++this.startSeq)
     this.update()
     this.refresh()
