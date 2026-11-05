@@ -24,15 +24,15 @@ describe.each(CORPUS)('%s', name => {
     () => {
       const rom = RomFile.load(romPath(name))
       const flames = pathMismatches(rom, FLAME_PATH)
-      const ring = ringGate(rom).filter(x => !/ring (spawn|draw|contact)|helpers/.test(x))
+      const ring = ringGate(rom).filter(x => !/ring (spawn routine|draw|contact)|helpers/.test(x))
       if (hooked) {
         expect(names(flames)).toEqual(['the cluster loop'])
         expect(names(ring)).toEqual(['the cluster loop'])
         expect(flames[0]).toMatch(/runs code at \$[0-9A-F]{6}/)
       } else if (name === 'Seven_Vanilla_Levels.sfc') {
-        // Its ring spawn is hooked (develop flagged 'the ring spawn routine'); the run now also names the foreign fetch.
+        // Its ring spawn is hooked (develop flagged 'the ring spawn routine'); the run now also names the foreign fetch, under the ring's own stage (it happens inside the spawn).
         expect(flames).toEqual([])
-        expect(names(ring)).toEqual(['the loader route to the sprite spawn'])
+        expect(names(ring)).toEqual(['the $E2/$E3 branch to the ring spawn'])
         expect(ring[0]).toMatch(/runs code at \$[0-9A-F]{6}/)
       } else {
         expect(flames).toEqual([])
@@ -54,13 +54,13 @@ describe.skipIf(!hasRom(CORPUS[0]!))('a one-byte change in the vanilla dispatch 
   it('is flagged for the flames (type 5) and for the ring (type 4), naming the fetch', () => {
     expect(names(pathMismatches(planted(5), FLAME_PATH))).toEqual(['the cluster loop'])
     expect(
-      names(ringGate(planted(4)).filter(x => !/ring (spawn|draw|contact)|helpers/.test(x))),
+      names(ringGate(planted(4)).filter(x => !/ring (spawn routine|draw|contact)|helpers/.test(x))),
     ).toEqual(['the cluster loop'])
   })
   it('leaves the other sprite alone', () => {
     expect(pathMismatches(planted(4), FLAME_PATH)).toEqual([])
-    expect(ringGate(planted(5)).filter(x => !/ring (spawn|draw|contact)|helpers/.test(x))).toEqual(
-      [],
-    )
+    expect(
+      ringGate(planted(5)).filter(x => !/ring (spawn routine|draw|contact)|helpers/.test(x)),
+    ).toEqual([])
   })
 })

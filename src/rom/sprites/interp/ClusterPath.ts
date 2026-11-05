@@ -5,22 +5,36 @@
  *
  * Runs, each over three WRAM states and each ended at a named address:
  * - the loader route (CODE_02A8C0, bank_02.asm:5348-5355), entered with the sprite id in A, a stream offset
- *   in Y and a hand-off in _0.._2, must reach the spawn dispatcher (CODE_02AAC0, :5631-5641) with the
- *   hand-off kept and `_3` set; the dispatcher must reach the spawn with the activate flag stored and the id
- *   still in A; the spawn must return into the route, which must hand back to LoadNextSprite (:5267) with
- *   the stack, X and Y as it found them. Every id of the cart is run.
- * - the cluster loop (CODE_02F808, :15942-15958), entered with DB and X wrong, must reach the draw of the type for
- *   a sprite in slot 0 and in slot 19, with DB = 2, X = the slot and CurSpriteProcess = the slot.
- * - the same loop with no cluster sprite must return and restore DB.
+ *   in Y and a hand-off in _0.._2, must reach the spawn dispatcher (CODE_02AAC0, :5631-5641) with `_3` set
+ *   and the id in A; the dispatcher must reach the spawn with the activate flag stored (run with the cell
+ *   preset to 0 and to $FF, so only a store makes it 1); the spawn must return into the route, which must hand
+ *   back to LoadNextSprite (:5267) with the stack, X and Y as it found them. X and Y are swept (0, a low
+ *   value, $80 and up) so a branch on a register flag is taken both ways. Every id of the cart is run.
+ * - the cluster loop (CODE_02F808, :15942-15958), entered with DB and X wrong and every slot holding the type,
+ *   must draw each of the 20 slots once, in order up or down, with DB = 2, X = the slot and CurSpriteProcess
+ *   = the slot; after each draw the draw's RTS is carried out, so the loop's own return path runs, and the
+ *   loop must return with DB and the stack restored.
+ * - the same loop with no cluster sprite must draw nothing and return.
  *
  * Every instruction fetch between an entry and its target must lie in `ClusterLayout`'s spans (the route,
  * the dispatcher, the spawn, the loop, the dispatch block and ExecutePtr). A fetch anywhere else is a hook
- * or a wrapper: the stage is flagged and the address named. A hacked path is not followed past that point.
+ * or a wrapper: the stage is flagged and the address named. Beyond the spawn, three more checks, each
+ * a seeded fill used only to catch a stray effect (D126, fourth exception): every conditional branch of the
+ * route, dispatcher and loop must fall through into a span and go to a span or an `exits` address (taken or
+ * not, so a branch on game state to foreign code is flagged without a seed that takes it); WRAM writes are
+ * limited to the stack, the hand-off cells, the activate flag, CurSpriteProcess and ExecutePtr's scratch
+ * (the spawn's own writes are not limited: they are its job).
+ * GAP, stated and not closed: the callers of these fixed entries are not run. The long call to the loop
+ * (bank_01.asm:130) and the $E7 threshold before the route (bank_02.asm:5290) are reached only by entering at
+ * the routine, so a hack that blanks that call or lowers that threshold is not seen here; reaching them would
+ * mean running the sprite-list loader and the main sprite loop on seeded level data.
+ * The seeded fill covers $0000-$1FFF; cells above are zero. A hacked path is not followed past its first
+ * foreign fetch.
  * Evidence scope: vanilla USA ROM, one machine, 2026-11-03; the three corpus hacks that hook the loop are
  * pinned in ClusterPathGate.corpus.test.ts.
  */
 import { formatAddr, mirror } from '../../addressing'
-import { callSubroutine, nativeReset, Refusal, runUntil, type Regs } from '../../cpu/call'
+import { nativeReset, Refusal, runUntil, SENTINEL, type Regs } from '../../cpu/call'
 import type { Cpu65816 } from '../../cpu/Cpu65816'
 import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
@@ -41,32 +55,44 @@ const EXEC_SPAN = 0x30
 /** Marks "this cell must be written by the code under test": a value no check expects. */
 const UNSET = 0xa5
 const HAND_OFF = [0x91, 0x42, 0x17]
-const X0 = 5
-const Y0 = 7
+/** The eight conditional branches (BPL BMI BVC BVS BCC BCS BNE BEQ) are the opcodes with these five low bits; BRA is not. */
+const isBranch = (op: number): boolean => (op & 0x1f) === 0x10
 
 export type Span = readonly [from: number, to: number]
 
 /**
  * Where a cart keeps the path code a run may fetch from. Addresses, not bytes; a test cart supplies its own.
  * `route` lists the route's spans, `entry` the dispatcher's, `loop` the cluster loop's, and `dispatch` is the
- * dispatch block: a long call to ExecutePtr, then the word table.
+ * dispatch block: a long call to ExecutePtr, then the word table. `scratch` is the span of direct-page cells
+ * ExecutePtr writes; `exits` the addresses a conditional branch may go to without the run fetching there
+ * (the other spawns the dispatcher compares against, the next routine after the route's threshold).
  */
 export interface ClusterLayout {
   route: readonly Span[]
   entry: Span
   loop: Span
   dispatch: number
+  scratch: Span
+  exits: readonly number[]
+  /** The loop calls the dispatch block with a JSL (a mirror-bank test cart), so the draw ends in an RTL. */
+  longCall?: boolean
 }
-/** CODE_02A8C0.., CODE_02A89A, CODE_02AAC0.., CODE_02F808.. and CODE_02F821 (bank_02.asm:5348, 5631, 15942, 15962). */
+/** CODE_02A8C0.., CODE_02A89A, CODE_02AAC0.., CODE_02F808.. and CODE_02F821 (bank_02.asm:5348, 5321-5322, 5631, 15942, 15962). */
 export const VANILLA_LAYOUT: ClusterLayout = {
-  // CODE_02A89A is the BRA the route's own BRA lands on, one hop short of LoadNextSprite (:5285-5290).
+  // CODE_02A89A is the BRA the route's own BRA lands on, one hop short of LoadNextSprite (:5321-5322).
   route: [
     [0x02a8c0, 0x02a8d0],
     [0x02a89a, 0x02a89c],
   ],
-  entry: [0x02aac0, 0x02aad5],
+  // Through the instruction after the last compare, which the last branch falls through to (ids below $E2).
+  entry: [0x02aac0, 0x02aad7],
   loop: [0x02f808, 0x02f821],
   dispatch: 0x02f821,
+  // ExecutePtr's _0.._3 (bank_00.asm:847-862).
+  scratch: [0, 4],
+  // CODE_02A8D0 (the route's `< $E1` branch); the dispatcher's targets that are not the sprite's own spawn: the
+  // JMP before it (:5628), CODE_02AA6C, CODE_02AA8D and CODE_02AB11 (:5631-5641).
+  exits: [0x02a8d0, 0x02aabd, 0x02aa6c, 0x02aa8d, 0x02ab11],
 }
 
 export interface ClusterPath {
@@ -90,17 +116,34 @@ export function clusterPath(
 }
 
 interface Stop {
-  at: number
+  /** One address, or several of which any ends the stop (the loop's draw, or its return). */
+  at: number | readonly number[]
   what: string
-  check?: (cpu: Cpu65816) => string | null
+  check?: (cpu: Cpu65816, addr: number) => string | null
 }
 interface Failure {
   what: string
   why: string
 }
+interface Limits {
+  spans: readonly Span[]
+  /** Spans whose conditional branches are checked (not the spawn: its branches are its own). */
+  checked: readonly Span[]
+  exits: readonly number[]
+  /** The WRAM offsets the code may write now. */
+  allow: (off: number) => boolean
+  /** The stage name for a failure right after a fetch at `addr`, when it is not the stop's. */
+  stageAt?: (addr: number) => string | undefined
+  /** Enter through a JSL frame whose return is SENTINEL. */
+  frame?: boolean
+  /** Continue from the CPU as it is. */
+  resume?: boolean
+}
 
-/** Deterministic WRAM states: all zero, and two pseudo-random fills of the low pages (a route that depends on game state fails one). */
-const SEEDS = [0, 1, 2] as const
+/**
+ * Deterministic WRAM states: seed 0 is all zero, the others pseudo-random fills of $0000-$1FFF (a route that
+ * depends on game state fails one).
+ */
 function seedWram(w: Uint8Array, k: number): void {
   w.fill(0)
   if (k === 0) return
@@ -119,6 +162,8 @@ const inSpans = (addr: number, spans: readonly Span[]): boolean => {
   const m = mirror(addr)
   return spans.some(([a, b]) => m >= mirror(a) && m < mirror(b))
 }
+const isStack = (off: number): boolean => off >= 0x100 && off < 0x200
+const first = (at: number | readonly number[]): number => (typeof at === 'number' ? at : at[0]!)
 
 /** Runs from `entry` until every stop is reached in order; the first thing that goes wrong is returned. */
 function trace(
@@ -127,54 +172,98 @@ function trace(
   entry: number,
   regs: Regs,
   stops: readonly Stop[],
-  spans: readonly Span[],
+  o: Limits,
 ): Failure | null {
   const guard = bus.onInstruction
+  const wguard = bus.onWramWrite
+  const ats = stops.map(s => (typeof s.at === 'number' ? [s.at] : s.at).map(mirror))
   let idx = 0
   let done = false
+  let prev = entry
   let failure: Failure | null = null
+  const stage = (): string => o.stageAt?.(prev) ?? stops[idx]!.what
   const fail = (why: string): never => {
-    failure = { what: stops[idx]!.what, why }
+    failure = { what: stage(), why }
     throw new Refusal(why)
   }
+  bus.onWramWrite = (off, v) => {
+    if (!o.allow(off)) fail(`writes WRAM $${hex(off).padStart(4, '0')}`)
+    wguard?.(off, v)
+  }
   bus.onInstruction = (addr, op) => {
-    const stop = stops[idx]
-    if (stop && mirror(addr) === mirror(stop.at)) {
-      const bad = stop.check?.(cpu)
-      if (bad) fail(bad)
+    if (ats[idx]?.includes(mirror(addr))) {
+      const bad = stops[idx]!.check?.(cpu, addr)
+      if (bad) {
+        failure = { what: stops[idx]!.what, why: bad }
+        throw new Refusal(bad)
+      }
       if (++idx === stops.length) {
         done = true
         throw new Refusal('path complete')
       }
-    } else if (!inSpans(addr, spans)) fail(`runs code at ${formatAddr(addr)}`)
+    } else if (!inSpans(addr, o.spans)) fail(`runs code at ${formatAddr(addr)}`)
+    else if (isBranch(op) && inSpans(addr, o.checked)) {
+      const bank = addr & 0xff0000
+      const next = bank | ((addr + 2) & 0xffff)
+      const to = bank | ((addr + 2 + ((bus.read(addr + 1) << 24) >> 24)) & 0xffff)
+      if (!inSpans(next, o.spans))
+        fail(`a branch at ${formatAddr(addr)} falls through to ${formatAddr(next)}`)
+      if (!inSpans(to, o.spans) && !o.exits.some(e => mirror(e) === mirror(to)))
+        fail(`a branch at ${formatAddr(addr)} goes to ${formatAddr(to)}`)
+    }
+    prev = addr
     guard?.(addr, op)
   }
   try {
-    nativeReset(cpu)
-    for (const k of ['a', 'x', 'y', 'db'] as const) if (regs[k] !== undefined) cpu[k] = regs[k]!
-    cpu.pb = entry >>> 16
-    cpu.pc = entry & 0xffff
+    if (!o.resume) {
+      nativeReset(cpu)
+      for (const k of ['a', 'x', 'y', 'db'] as const) if (regs[k] !== undefined) cpu[k] = regs[k]!
+      if (o.frame) {
+        for (const b of [0, (SENTINEL - 1) >> 8, (SENTINEL - 1) & 0xff]) {
+          bus.write(cpu.s, b)
+          cpu.s = (cpu.s - 1) & 0xffff
+        }
+      }
+      cpu.pb = entry >>> 16
+      cpu.pc = entry & 0xffff
+    }
     const r = runUntil(cpu, BUDGET, () => false)
     if (done) return null
     if (failure) return failure
-    const stop = stops[idx]!
-    if (r.kind === 'budget') {
-      return { what: stop.what, why: `did not reach ${formatAddr(stop.at)} in ${BUDGET} steps` }
-    }
+    const to = formatAddr(first(stops[idx]!.at))
     return {
-      what: stop.what,
-      why: r.kind === 'refused' ? r.reason : `ended before ${formatAddr(stop.at)}`,
+      what: stage(),
+      why:
+        r.kind === 'budget'
+          ? `did not reach ${to} in ${BUDGET} steps`
+          : r.kind === 'refused'
+            ? r.reason
+            : `ended before ${to}`,
     }
   } finally {
     bus.onInstruction = guard
+    bus.onWramWrite = wguard
   }
 }
+
+/** One setting of a run: the WRAM seed, X and Y at the route's entry, and what the activate flag holds before. */
+type Setting = readonly [seed: number, x: number, y: number, marker: number]
+/**
+ * X is 0, low, $80 and up, and Y 0, 1, low and $80 and up, so a branch on a register flag goes both ways; the
+ * marker is 0 and $FF (only a store makes either 1). Each of these settings is needed by a row of PATH_HACKS.
+ */
+const SETTINGS: readonly Setting[] = [
+  [0, 5, 7, 0],
+  [1, 0, 128, 255],
+  [2, 128, 0, 0],
+  [0, 5, 1, 255],
+]
 
 /** The route, dispatcher and spawn for sprite `id`: see the file comment. */
 function routeRun(
   p: ClusterPath,
   id: number,
-  seed: number,
+  [seed, x0, y0, marker]: Setting,
   bus: SpriteBus,
   cpu: Cpu65816,
 ): Failure | null {
@@ -182,39 +271,51 @@ function routeRun(
   seedWram(w, seed)
   clearCluster(w)
   w.set(HAND_OFF, 0)
-  w[ACTIVATE_CLUSTER] = UNSET
+  w[ACTIVATE_CLUSTER] = marker
+  // Until the spawn runs, only the stack, the stream offset the route hands over and the flag may be written.
+  let spawned = false
   const handedOff = (c: Cpu65816): string | null =>
-    HAND_OFF.some((v, i) => w[i] !== v)
-      ? 'the hand-off cells _0.._2 changed'
-      : w[3] !== Y0 - 1
-        ? 'the hand-off cell _3 is not the stream offset'
-        : (c.a & 0xff) !== id
-          ? `A is $${hex(c.a & 0xff)}, not the sprite id`
-          : null
+    w[3] !== ((y0 - 1) & 0xff)
+      ? 'the hand-off cell _3 is not the stream offset'
+      : (c.a & 0xff) !== id
+        ? `A is $${hex(c.a & 0xff)}, not the sprite id`
+        : null
   const stops: Stop[] = [
     { at: SPAWN_ENTRY, what: ROUTE_WHAT, check: handedOff },
     {
       at: p.spawn,
       what: p.dispatchWhat,
-      check: c =>
-        handedOff(c) ?? (w[ACTIVATE_CLUSTER] === 1 ? null : 'the activate flag is not stored'),
+      check: c => {
+        spawned = true
+        return (
+          handedOff(c) ?? (w[ACTIVATE_CLUSTER] === 1 ? null : 'the activate flag is not stored')
+        )
+      },
     },
     {
       at: LOAD_NEXT_SPRITE,
       what: ROUTE_WHAT,
       check: c =>
-        c.s === 0x1ff && c.x === X0 && c.y === Y0 ? null : 'the stack, X or Y is not restored',
+        c.s === 0x1ff && c.x === x0 && c.y === y0 ? null : 'the stack, X or Y is not restored',
     },
   ]
   const l = p.layout
-  const spans = [...l.route, l.entry, [p.spawn, p.spawn + p.spawnLength] as const]
-  return trace(bus, cpu, l.route[0]![0], { a: id, x: X0, y: Y0, db: 2 }, stops, spans)
+  const own = [p.spawn, p.spawn + p.spawnLength] as const
+  const o: Limits = {
+    spans: [...l.route, l.entry, own],
+    checked: [...l.route, l.entry],
+    exits: l.exits,
+    allow: off => spawned || isStack(off) || off === 3 || off === ACTIVATE_CLUSTER,
+    // A failure inside the spawn is the spawn's, not the loader route's.
+    stageAt: a => (inSpans(a, [own]) ? p.dispatchWhat : undefined),
+  }
+  return trace(bus, cpu, l.route[0]![0], { a: id, x: x0, y: y0, db: 2 }, stops, o)
 }
 
-/** The loop with a sprite of the type in `slot`, or (slot < 0) with none, when it must simply return. */
+/** The loop with `filled` slots holding the type (all of them, or none), drawing each slot once; see the file comment. */
 function loopRun(
   p: ClusterPath,
-  slot: number,
+  filled: number,
   seed: number,
   bus: SpriteBus,
   cpu: Cpu65816,
@@ -224,45 +325,56 @@ function loopRun(
   seedWram(w, seed)
   clearCluster(w)
   w[CUR_SPRITE_PROCESS] = UNSET
-  if (slot >= 0) w[CLUSTER_NUMBER + slot] = p.type
+  w.fill(p.type, CLUSTER_NUMBER, CLUSTER_NUMBER + filled)
   // Read through the bus so a cached verdict depends on these ROM bytes too.
   const exec =
     bus.read(l.dispatch + 1) | (bus.read(l.dispatch + 2) << 8) | (bus.read(l.dispatch + 3) << 16)
-  const spans: Span[] = [l.loop, [l.dispatch, l.dispatch + 4], [exec, exec + EXEC_SPAN]]
-  if (slot >= 0) {
-    const check = (c: Cpu65816): string | null =>
-      c.db !== 2
-        ? `DB is $${hex(c.db)}, not 2`
-        : c.x !== slot || w[CUR_SPRITE_PROCESS] !== slot
-          ? `slot ${slot} is not the slot drawn`
-          : null
-    return trace(
-      bus,
-      cpu,
-      l.loop[0],
-      { a: 0, x: 0x0b, y: 0x0c, db: 0 },
-      [{ at: p.draw, what: LOOP_WHAT, check }],
-      spans,
-    )
+  const drawn: number[] = []
+  let ended = false
+  const stop: Stop = {
+    at: [p.draw, SENTINEL],
+    what: LOOP_WHAT,
+    check: (c, addr) => {
+      if (mirror(addr) !== SENTINEL) {
+        drawn.push(c.x)
+        return c.db !== 2
+          ? `DB is $${hex(c.db)}, not 2`
+          : w[CUR_SPRITE_PROCESS] !== c.x
+            ? `slot ${c.x} is not the slot drawn`
+            : drawn.length > filled
+              ? 'the loop draws more slots than it has'
+              : null
+      }
+      ended = true
+      // Up from slot 0 or down from the last, each once.
+      const down = drawn[0] !== 0
+      return drawn.length !== filled || drawn.some((v, i) => v !== (down ? filled - 1 - i : i))
+        ? `drew slots ${drawn.join(' ') || 'none'}`
+        : c.db !== 0
+          ? 'DB is not restored'
+          : c.s !== 0x1ff
+            ? 'the stack is not restored'
+            : null
+    },
   }
-  const guard = bus.onInstruction
-  let foreign: string | null = null
-  bus.onInstruction = (addr, op) => {
-    if (!inSpans(addr, spans)) {
-      foreign = `runs code at ${formatAddr(addr)}`
-      throw new Refusal(foreign)
-    }
-    guard?.(addr, op)
+  const o: Limits = {
+    spans: [l.loop, [l.dispatch, l.dispatch + 4], [exec, exec + EXEC_SPAN]],
+    checked: [l.loop],
+    exits: l.exits,
+    allow: off =>
+      isStack(off) || off === CUR_SPRITE_PROCESS || (off >= l.scratch[0] && off < l.scratch[1]),
+    frame: true,
   }
-  try {
-    const r = callSubroutine(cpu, l.loop[0], { kind: 'jsl', maxSteps: BUDGET, regs: { db: 0 } })
-    if (foreign) return { what: LOOP_WHAT, why: foreign }
-    if (r.kind !== 'returned')
-      return { what: LOOP_WHAT, why: `an empty loop does not return (${r.kind})` }
-    return cpu.db === 0 ? null : { what: LOOP_WHAT, why: 'DB is not restored' }
-  } finally {
-    bus.onInstruction = guard
+  let f = trace(bus, cpu, l.loop[0], { a: 0, x: 0x0b, y: 0x0c, db: 0 }, [stop], o)
+  while (!f && !ended) {
+    // The draw is not run; its RTS is, so the loop's own path back is.
+    const at = cpu.s + 1
+    cpu.pc = (bus.read(at) | (bus.read(at + 1) << 8)) + 1
+    if (l.longCall) cpu.pb = bus.read(at + 2)
+    cpu.s = (cpu.s + (l.longCall ? 3 : 2)) & 0xffff
+    f = trace(bus, cpu, l.loop[0], {}, [stop], { ...o, resume: true })
   }
+  return f
 }
 
 const cache = new RunCache<string[]>()
@@ -280,9 +392,9 @@ export function pathMismatches(rom: RomFile, p: ClusterPath): string[] {
   const note = (f: Failure | null): void => {
     if (f && !bad.has(f.what)) bad.set(f.what, f.why)
   }
-  for (const seed of SEEDS) {
-    for (const id of p.ids) note(routeRun(p, id, seed, bus, cpu))
-    for (const slot of [0, CLUSTER_SLOTS - 1, -1]) note(loopRun(p, slot, seed, bus, cpu))
+  for (const st of SETTINGS) {
+    for (const id of p.ids) note(routeRun(p, id, st, bus, cpu))
+    for (const filled of [CLUSTER_SLOTS, 0]) note(loopRun(p, filled, st[0], bus, cpu))
   }
   const out = [...bad].map(([what, why]) => `${what} (${why})`)
   // The caller appends to the verdict: hand out a copy, keep the cached one.

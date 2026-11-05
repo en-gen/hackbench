@@ -205,8 +205,9 @@ In practice:
   with the state the code reads, plus probe fills used only to detect stray writes; a step
   budget; a refusal with a reason; only the result the check needs is read back. Users:
   the CODE_0DA512 screen-exit gate, `src/rom/ScreenExitFiling.ts` (#1030), entered at
-  LevLoadExtObj; #1082's three runs (ExecutePtr, CallSpriteInit, the grinder); and #1079's
-  Mode 7 helper, `src/rom/Mode7Gfx.ts`.
+  LevLoadExtObj; #1082's three runs (ExecutePtr, CallSpriteInit, the grinder); #1079's
+  Mode 7 helper, `src/rom/Mode7Gfx.ts`; and the cluster call path of the castle flames and the
+  rotating ring, `src/rom/sprites/interp/ClusterPath.ts` (#1061).
 - A derivation that truly cannot be read must be NAMED as a hack-fragility
   point and paired with honest degradation: compare the handler against its
   vanilla bytes and DECLINE TO ASSERT when it diverges, rather than rendering

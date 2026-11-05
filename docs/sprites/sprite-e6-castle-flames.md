@@ -34,19 +34,31 @@ How the map view draws them, and what each step rests on.
   (SHA-256 of each), and the call path, which is RUN on the core, not matched
   (`ClusterPath.ts`, D126). The loader route (`bank_02.asm:5348-5355`) is run with the sprite
   id, a stream offset and a hand-off in `_0.._2` and must reach `CODE_02AAC0` (`5631-5637`),
-  the spawn (with the activate flag stored and the id still in A) and `LoadNextSprite` (with
-  the stack, X and Y restored), over three WRAM states. The cluster loop (`15942-15958`),
-  entered with DB wrong, must reach the draw for type 5 from slot 0 and slot 19 through the
-  dispatch block and ExecutePtr (`15962-15972`), with DB 2, X and `CurSpriteProcess` the slot,
-  and must return when no cluster sprite exists. Every fetch on the way must lie in the
-  expected code (the route, dispatcher, spawn, loop, dispatch block, ExecutePtr); a fetch
-  elsewhere (a hook or wrapper) flags the stage and names the address. A hacked call path is
-  not followed past that point (that would be an emulator): the flames come from the routines
-  as they stand, and the note says the path to them is unverified. Evidence scope: the
-  vanilla USA ROM passes, and Grand Poo World 2 1.1, Grand Poo World 1.2 and Invictus 1.0
-  are flagged for the loop at a foreign address (one machine, 2026-11-03,
-  `ClusterPathGate.corpus.test.ts`). The cart's `ExecutePtr` shape is checked on its own
-  (`the cluster dispatch call target`).
+  the spawn (with the activate flag stored, from a preset of 0 and of $FF, and the id still
+  in A) and `LoadNextSprite` (with the stack, X and Y restored), over four settings that
+  sweep X and Y (0, low, $80 and up) and three WRAM fills (zero and two pseudo-random fills
+  of `$0000-$1FFF`; cells above stay zero). The cluster loop (`15942-15958`), entered with DB
+  and X wrong, must draw all 20 slots of type 5 once each, in order, through the dispatch
+  block and ExecutePtr (`15962-15972`), with DB 2, X and `CurSpriteProcess` the slot; the
+  draw's RTS is carried out after each, so the loop's own return runs, and it must return
+  with DB restored. With no cluster sprite it must draw nothing and return. Every fetch on the
+  way must lie in the expected code (the route, dispatcher, spawn, loop, dispatch block,
+  ExecutePtr); a fetch elsewhere (a hook or wrapper) flags the stage and names the address.
+  Every conditional branch of the route, dispatcher and loop must fall through into that code
+  and go to it or to a listed exit, taken or not, so a branch on game state to foreign code is
+  flagged without a seed that takes it. WRAM writes before the spawn are limited to the stack,
+  `_3` and the activate flag, and the loop's to the stack, `CurSpriteProcess` and ExecutePtr's
+  scratch. A failure inside the spawn is named under the dispatcher's stage, not the loader
+  route's. A hacked call path is not followed past that point (that would be an emulator): the
+  flames come from the routines as they stand, and the note says the path to them is
+  unverified. Evidence scope: the vanilla USA ROM and the magic ROM pass, and Grand Poo World
+  2 1.1, Grand Poo World 1.2 and Invictus 1.0 are flagged for the loop at a foreign address;
+  Seven_Vanilla_Levels passes for the flames and is flagged for the ring at a foreign fetch
+  inside the ring spawn (one machine, 2026-11-04, `ClusterPathGate.corpus.test.ts`). The cart's
+  `ExecutePtr` shape is checked on its own (`the cluster dispatch call target`). Not checked,
+  a gap: the callers of the two fixed entries (the long call to the loop at `bank_01.asm:130`,
+  the `$E7` threshold before the route at `bank_02.asm:5290`), so a hack that blanks that call
+  or lowers that threshold is not seen here.
   The data tables the routines read are not part of any check.
 - What still refuses, with the reason in the map note: no level image, a run that does not
   return or executes BRK/COP/WDM/WAI/STP or leaves ROM, and a `GetRand` that is not the

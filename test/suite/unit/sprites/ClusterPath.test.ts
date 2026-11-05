@@ -10,9 +10,11 @@ import { clusterPath, pathMismatches } from '../../../../src/rom/sprites/interp/
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 import {
   clusterPathStandIn,
+  COUNT_DOWN,
   LOOP,
   PATH_HACKS,
   ROUTE,
+  SPAWN_STUB,
   STANDIN,
   STANDIN_LAYOUT,
   tableWord,
@@ -20,9 +22,9 @@ import {
 } from '../../support/clusterPathStandIn'
 
 const off = (snes: number) => (snes >>> 16) * 0x8000 + ((snes & 0xffff) - 0x8000)
-/** LDX #0 / LDY #0 / RTS: a spawn that, like the game's, leaves X and Y changed for the route to restore. */
-const SPAWN_STUB = [0xa2, 0x00, 0xa0, 0x00, 0x60]
 const RTS = [0x60]
+const lo = (a: number) => a & 0xff
+const hi = (a: number) => (a >> 8) & 0xff
 
 const FLAMES = clusterPath({
   ids: [0xe6],
@@ -88,7 +90,8 @@ describe('the call-path gate on the stand-in path', () => {
   it('a dispatch through the FastROM mirror of the bank is the same code (a verdict keyed on the raw address would flag it)', () => {
     // The loop calls the block by a long call through $82; the block and the draw are reached at $82:xxxx.
     const rom = cart(() => {}, { fastRom: true })
-    expect(pathMismatches(rom, FLAMES)).toEqual([])
+    const layout = { ...STANDIN_LAYOUT, longCall: true }
+    expect(pathMismatches(rom, { ...FLAMES, layout })).toEqual([])
   })
 
   it('a HiROM-flagged cart is refused: every stage is named, nothing throws', () => {
@@ -140,6 +143,46 @@ describe('the call-path gate on the stand-in path', () => {
   })
 })
 
+describe('what the gate must accept and where its limits sit', () => {
+  const edit = (...es: [number, number[]][]) =>
+    cart(b => es.forEach(([at, v]) => b.set(v, off(at))))
+  const LP = STANDIN.loop
+
+  it('a loop that counts down from slot 19 is accepted as well as one that counts up', () => {
+    const rom = edit([LP + 6, [0x13]], [LP + 12, COUNT_DOWN])
+    expect(pathMismatches(rom, FLAMES)).toEqual([])
+  })
+
+  it('a spawn that needs a free cluster slot is accepted: the route run clears the table first', () => {
+    // LDA table / BEQ over / BRA here (spins when the table is not empty) / LDX #0 / LDY #0 / RTS
+    const spawn = [0xad, 0x92, 0x18, 0xf0, 0x02, 0x80, 0xfe, 0xa2, 0x00, 0xa0, 0x00, 0x60]
+    const rom = edit([STANDIN.ringSpawn, spawn])
+    expect(pathMismatches(rom, { ...RING, spawnLength: spawn.length })).toEqual([])
+  })
+
+  it('a spawn that runs on past its length is flagged under the spawn, not the route', () => {
+    // The stub's own span is 5 bytes: a jump to a copy 16 bytes on leaves it, though it stays near.
+    const at = STANDIN.flameSpawn
+    const rom = edit([at, [0x4c, lo(at + 16), hi(at + 16)]], [at + 16, SPAWN_STUB])
+    expect(pathMismatches(rom, FLAMES)).toEqual([
+      expect.stringMatching(/^the \$E6 branch.*runs code at/),
+    ])
+  })
+
+  it('a span ends before its last address: a fetch at the end is foreign', () => {
+    const tight = { ...STANDIN_LAYOUT, loop: [LP, LP + 25] as const }
+    expect(names(pathMismatches(cart(), { ...FLAMES, layout: tight }))).toEqual([LOOP])
+  })
+
+  it('a conditional branch whose fall-through leaves the span is flagged though no run falls through', () => {
+    // BVC for the loop's closing BRA: V is never set, so it always branches. The span ends at the fall-through.
+    const tight = { ...STANDIN_LAYOUT, loop: [LP, LP + 27] as const }
+    expect(pathMismatches(cart(), { ...FLAMES, layout: tight })).toEqual([])
+    const r = pathMismatches(edit([LP + 25, [0x50, 0xf1]]), { ...FLAMES, layout: tight })
+    expect(r).toEqual([expect.stringMatching(/falls through to/)])
+  })
+})
+
 describe('each hacked path, for both carts', () => {
   const STAGE = (flame: boolean) => ({
     route: ROUTE,
@@ -181,8 +224,8 @@ describe('every byte of the stand-in path', () => {
 })
 
 // Bytes whose flip (xor $40) leaves both paths clean, measured on one machine over the stand-in as committed.
-// Each is an equivalent change or code the gate never reaches: the BNE after the compare for $04 and its operand (never taken for $E2/$E6), the two bytes of the
-// entry's final PLA/RTS (only reached for an id the cart does not name), the loop's BCC (BNE acts the same on
-// the counter's last step), the loop's BRA after the dispatch call (the draw is not run, so it never returns),
-// and the dispatch JSL's bank byte (a mirror of the same bank).
-const QUIET = '2aad5 2aad6 2aadb 2aadc 2f817 2f821 2f822 2f903'
+// Each is an equivalent change or code the gate never reaches: the NOP after the route's PHX (a flip makes it TAX,
+// and the PLX restores X), the opcode of the BNE after the compare for $04 (as BCC it is not taken
+// for $E2/$E6 either) and the entry's final PLA/RTS (only reached for an id the cart does not name), the loop's BCC (BNE acts the same on
+// the counter's last step), and the dispatch JSL's bank byte (a mirror of the same bank).
+const QUIET = '2f8a1 2aad5 2aadb 2aadc 2f817 2f903'

@@ -309,7 +309,10 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
     it.each([0x02ab11, 0x02ab11 + 102])(
       'a refused opcode at $%s names the spawn and the route that cannot return',
       at => {
-        expect(names(ringGate(changed(at, 0x42), clean))).toEqual([ROUTE, 'the ring spawn routine'])
+        expect(names(ringGate(changed(at, 0x42), clean))).toEqual([
+          'the $E2/$E3 branch to the ring spawn',
+          'the ring spawn routine',
+        ])
       },
     )
     it.each([

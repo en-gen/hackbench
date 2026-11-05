@@ -7,6 +7,7 @@
  * Evidence scope: synthetic bytes; the vanilla ROM's own path is proven in the corpus blocks.
  */
 import type { ClusterLayout } from '../../../src/rom/sprites/interp/CastleFlames'
+import { SYNTHETIC_EXECUTE_PTR_CODE } from './syntheticSpriteRom'
 
 const lo = (a: number): number => a & 0xff
 const hi = (a: number): number => (a >> 8) & 0xff
@@ -43,6 +44,9 @@ export const STANDIN_LAYOUT: ClusterLayout = {
   entry: [STANDIN.entry, STANDIN.entry + 29],
   loop: [STANDIN.loop, STANDIN.loop + 28],
   dispatch: STANDIN.dispatch,
+  // The cart's ExecutePtr keeps its pointer and index in $08-$0D (the game's uses $00-$03).
+  scratch: [0x08, 0x0e],
+  exits: [],
 }
 
 export interface StandInOptions {
@@ -69,21 +73,21 @@ export function clusterPathStandIn(o: StandInOptions = {}): [number, number[]][]
     0x80, o.fastRom ? 0xf0 : 0xf1,              // BRA nx
   ]
   return [
-    // route: four NOPs, then a jump to the body, which keeps X in a scratch cell, hands Y less one to the
+    // route: four NOPs, then a jump to the body, which keeps X on the stack, hands Y less one to the
     // spawn in $03, and restores both
     [s.route, [0xea, 0xea, 0xea, 0xea, ...jmp(s.routeBody)]],
     [
       s.routeBody,
       [
-        0x86,
-        0x0c,
+        0xda,
+        0xea,
         0x84,
         0x03,
         0xc6,
         0x03,
         ...jsr(s.entry),
-        0xa6,
-        0x0c,
+        0xfa,
+        0xea,
         0xa4,
         0x03,
         0xc8,
@@ -143,10 +147,22 @@ export interface PathHack {
 }
 
 const nop = (n: number): number[] => Array<number>(n).fill(0xea)
+/** DEX / BPL lp / NOP / NOP: the loop's tail counting down. */
+export const COUNT_DOWN = [0xca, 0x10, 0xf8, 0xea, 0xea]
 const WRAPPER = 0x02f980
 const FOREIGN = 0x03a000
 const LP = STANDIN.loop + 7
 const END = STANDIN.loop + 17
+/** LDX #0 / LDY #0 / RTS: a spawn that, like the game's, leaves X and Y changed for the route to restore. */
+export const SPAWN_STUB = [0xa2, 0x00, 0xa0, 0x00, 0x60]
+/** Loop offsets the loop hacks edit: the LDX operand, and the INX/CPX/BCC tail. */
+const INIT = STANDIN.loop + 5
+const TAIL = STANDIN.loop + 12
+/** The dispatch JSL's operand, and a place for a wrapper before and one after the cart's ExecutePtr. */
+const JSL_OPERAND = STANDIN.dispatch + 1
+const WRAP_NEAR = STANDIN.execPtr + 0x100
+const WRAP_FAR = STANDIN.execPtr - 0x100
+const long = (to: number): number[] => [lo(to), hi(to), to >> 16]
 
 /** The hacked paths a run-to-the-target gate lets through (adversarial review of #1061): each must be flagged. */
 export const PATH_HACKS: readonly PathHack[] = [
@@ -159,13 +175,13 @@ export const PATH_HACKS: readonly PathHack[] = [
   {
     name: 'loop skips slot 0',
     stage: 'loop',
-    why: /runs code at \$000001/,
+    why: /drew slots 1 2 3/,
     edits: () => [[STANDIN.loop + 6, [1]]],
   },
   {
     name: 'loop visits only 4 slots',
     stage: 'loop',
-    why: /runs code at \$000001/,
+    why: /drew slots 0 1 2 3\)/,
     edits: () => [[STANDIN.loop + 14, [4]]],
   },
   {
@@ -257,6 +273,107 @@ export const PATH_HACKS: readonly PathHack[] = [
           0x02,
         ],
       ],
+    ],
+  },
+
+  {
+    name: 'route leaves a byte on the stack',
+    stage: 'route',
+    why: /stack, X or Y/,
+    edits: () => [[STANDIN.routeBody + 1, [0xda]]],
+  },
+  {
+    name: 'route writes a cell before the spawn',
+    stage: 'route',
+    why: /writes WRAM \$0020/,
+    edits: () => [[STANDIN.route, [0x64, 0x20, 0xea, 0xea]]],
+  },
+  {
+    name: 'route has a branch to foreign code that no seed takes',
+    stage: 'route',
+    why: /branch at \$02F862 goes to \$02F8E2/,
+    edits: () => [[STANDIN.route, [0xc0, 0x55, 0xf0, 0x7e]]],
+  },
+  {
+    // Seed 2 alone sets bit 7 of $25: the branch lands in the jump's operand, inside the span.
+    name: 'route branches on game state into its own jump',
+    stage: 'route',
+    why: /BRK executed/,
+    edits: () => [[STANDIN.route, [0x24, 0x25, 0x30, 0x01]]],
+  },
+  {
+    // CPX / BEQ over the jump's opcode: only the setting with X = 0 takes it, into the jump's operand.
+    name: 'route branches when X is zero into its own jump',
+    stage: 'route',
+    why: /BRK executed/,
+    edits: () => [[STANDIN.route, [0xe0, 0x00, 0xf0, 0x01]]],
+  },
+  {
+    name: 'route branches when X is $80 or more into its own jump',
+    stage: 'route',
+    why: /BRK executed/,
+    edits: () => [[STANDIN.route, [0xe0, 0x80, 0xb0, 0x01]]],
+  },
+  {
+    name: 'route branches when Y is 1 into its own jump',
+    stage: 'route',
+    why: /BRK executed/,
+    edits: () => [[STANDIN.route, [0xc0, 0x01, 0xf0, 0x01]]],
+  },
+  {
+    // Only a store makes the cell 1 from both 0 and $FF: an increment gets one of them.
+    name: 'activate flag incremented, not stored',
+    stage: 'dispatch',
+    why: /activate flag is not stored/,
+    edits: () => [[STANDIN.entry + 3, [0xee, 0xb8, 0x18]]],
+  },
+  {
+    name: 'loop calls the draw by a jump',
+    stage: 'loop',
+    why: /./,
+    edits: () => [[STANDIN.loop + 22, [0x4c]]],
+  },
+  {
+    name: 'loop steps two slots at a time',
+    stage: 'loop',
+    why: /drew slots 19 17 15/,
+    edits: () => [
+      [INIT + 1, [0x13]],
+      [TAIL, [0xca, 0xca, 0x10, 0xf7, 0xea]],
+    ],
+  },
+  {
+    name: 'loop counts down from the X it was entered with',
+    stage: 'loop',
+    why: /drew slots 11 10 9/,
+    edits: () => [
+      [STANDIN.loop + 1, [0x4b, 0xab, 0xea, 0xea]],
+      [INIT, nop(2)],
+      [TAIL, COUNT_DOWN],
+    ],
+  },
+  {
+    name: 'loop does not restore DB',
+    stage: 'loop',
+    why: /DB is not restored/,
+    edits: () => [[STANDIN.loop + 17, [0x68]]],
+  },
+  {
+    name: 'dispatch call goes to a wrapper that writes a cell, then runs a copy of ExecutePtr',
+    stage: 'loop',
+    why: /writes WRAM \$0FF0/,
+    edits: () => [
+      [JSL_OPERAND, long(WRAP_NEAR)],
+      [WRAP_NEAR, [0xee, 0xf0, 0x0f, ...SYNTHETIC_EXECUTE_PTR_CODE]],
+    ],
+  },
+  {
+    name: 'dispatch call goes to a wrapper that jumps to ExecutePtr from outside its span',
+    stage: 'loop',
+    why: /runs code at \$0086FA/,
+    edits: () => [
+      [JSL_OPERAND, long(WRAP_FAR)],
+      [WRAP_FAR, jmp(STANDIN.execPtr)],
     ],
   },
 ]
