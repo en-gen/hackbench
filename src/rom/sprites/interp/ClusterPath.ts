@@ -39,7 +39,7 @@ import { nativeReset, Refusal, runUntil, SENTINEL, type Regs } from '../../cpu/c
 import type { Cpu65816 } from '../../cpu/Cpu65816'
 import { hex, hex4s } from '../../hex'
 import type { RomFile } from '../../RomFile'
-import { mapperProblem } from './Guards'
+import { bytesAt, mapperProblem } from './Guards'
 import { RunCache, smwMachine } from './Machine'
 import type { SpriteBus } from './SpriteBus'
 
@@ -54,6 +54,13 @@ const LOAD_NEXT_SPRITE = 0x02a846
 const BUDGET = 3000
 /** The ExecutePtr routine is a few instructions; its span is generous because foreign code inside it is reported as a loop hook (a ROM that patches ExecutePtr gets the note). */
 const EXEC_SPAN = 0x30
+const OP_JSL = 0x22
+
+/** The 3-byte call target of the dispatch JSL at `l.dispatch`; null when that byte is another opcode (no operand to read). */
+export function dispatchTarget(rom: RomFile, l: ClusterLayout): number[] | null {
+  const site = bytesAt(rom, l.dispatch, 4)
+  return site && site[0] === OP_JSL ? site.slice(1) : null
+}
 /** Marks "this cell must be written by the code under test": a value no check expects. */
 const UNSET = 0xa5
 /** The eight conditional branches (BPL BMI BVC BVS BCC BCS BNE BEQ) are the opcodes with these five low bits; BRA is not. */
@@ -326,8 +333,10 @@ function loopRun(
   w[CUR_SPRITE_PROCESS] = UNSET
   w.fill(p.type, CLUSTER_NUMBER, CLUSTER_NUMBER + filled)
   // Read through the bus so a cached verdict depends on these ROM bytes too.
-  const exec =
-    bus.read(l.dispatch + 1) | (bus.read(l.dispatch + 2) << 8) | (bus.read(l.dispatch + 3) << 16)
+  const isJsl = bus.read(l.dispatch) === OP_JSL
+  const exec = isJsl
+    ? bus.read(l.dispatch + 1) | (bus.read(l.dispatch + 2) << 8) | (bus.read(l.dispatch + 3) << 16)
+    : 0
   const drawn: number[] = []
   let ended = false
   const stop: Stop = {
@@ -357,7 +366,11 @@ function loopRun(
     },
   }
   const o: Limits = {
-    spans: [l.loop, [l.dispatch, l.dispatch + 4], [exec, exec + EXEC_SPAN]],
+    spans: [
+      l.loop,
+      [l.dispatch, l.dispatch + 4],
+      ...(isJsl ? [[exec, exec + EXEC_SPAN] as const] : []),
+    ],
     checked: [l.loop],
     exits: l.exits,
     allow: off =>

@@ -32,6 +32,7 @@ import {
   CLUSTER_NUMBER,
   clusterPath,
   pathMismatches,
+  dispatchTarget,
   VANILLA_LAYOUT,
   type ClusterLayout,
   type ClusterPath,
@@ -105,7 +106,7 @@ export function ringGate(
   spans: typeof RING_SPANS = RING_SPANS,
 ): string[] {
   const out = pathMismatches(rom, ringPath(routines.layout))
-  const callee = bytesAt(rom, (routines.layout ?? VANILLA_LAYOUT).dispatch + 1, 3)
+  const callee = dispatchTarget(rom, routines.layout ?? VANILLA_LAYOUT)
   if (!callee || !checkExecutePtr(rom, [callee]).ok) out.push('the cluster dispatch call target')
   // A span that will not read is "unreadable", not a changed routine: hashing the spans that did read would blur the two.
   const check = (name: string, parts: readonly (readonly [number, number])[], want: string) => {

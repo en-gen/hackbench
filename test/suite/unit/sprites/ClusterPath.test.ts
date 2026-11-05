@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { RomFile } from '../../../../src/rom/RomFile'
+import { ringGate, VANILLA_RING_ROUTINES } from '../../../../src/rom/sprites/interp/RotatingRing'
 import { clusterPath, pathMismatches } from '../../../../src/rom/sprites/interp/ClusterPath'
 import { hi, lo } from '../../support/syntheticCart'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
@@ -253,3 +254,17 @@ describe('every byte of the stand-in path', () => {
 // final PLA/RTS (reached only for an id the cart does not name), the loop's BCC (BNE acts the same on the
 // counter's last step) and the dispatch JSL's bank byte (a mirror of the same bank).
 const QUIET = '2f8a1 2aad5 2aadb 2aadc 2f817 2f903'
+
+// The call target is read only behind a JSL: any other opcode at the dispatch site has no operand to admit.
+describe('the dispatch call target needs a JSL at the site', () => {
+  const gate = (rom: RomFile) =>
+    ringGate(rom, { ...VANILLA_RING_ROUTINES, layout: STANDIN_LAYOUT }).filter(x =>
+      x.includes('call target'),
+    )
+  it('names no target problem when the site is a JSL', () => expect(gate(cart())).toEqual([]))
+  // JSR, JMP, JML, NOP, BRK, LDA #, RTL: none is a call through an operand.
+  it.each([0x20, 0x4c, 0x5c, 0xea, 0x00, 0xa9, 0x6b])('opcode $%s at the site is reported', op => {
+    const rom = cart(b => (b[off(STANDIN.dispatch)] = op))
+    expect(gate(rom)).toEqual(['the cluster dispatch call target'])
+  })
+})

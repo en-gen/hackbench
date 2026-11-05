@@ -36,6 +36,7 @@ import {
   CLUSTER_NUMBER,
   clusterPath,
   pathMismatches,
+  dispatchTarget,
   VANILLA_LAYOUT,
   type ClusterLayout,
   type ClusterPath,
@@ -134,7 +135,7 @@ export function castleFlames(
 ): FlamesResult {
   if (!seed.loaded) return { ok: false, reason: seed.loadRefusal ?? 'no level image' }
   const unverified = pathMismatches(rom, flamePath(routines.layout))
-  const callee = bytesAt(rom, (routines.layout ?? VANILLA_LAYOUT).dispatch + 1, 3)
+  const callee = dispatchTarget(rom, routines.layout ?? VANILLA_LAYOUT)
   if (!callee || !checkExecutePtr(rom, [callee]).ok) unverified.push('the cluster dispatch call target') // prettier-ignore
   const sha = (at: number, n: number) => spanFingerprint(Uint8Array.from(bytesAt(rom, at, n) ?? []))
   if (sha(SPAWN, 33) !== routines.spawn) unverified.push('the flame spawn routine')

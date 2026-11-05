@@ -331,7 +331,7 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
       [0x02fd48 + 111, 'the ring draw helpers'],
       [0x02fe71, 'the ring contact test'],
       [0x02fe71 + 83, 'the ring contact test'],
-      [STANDIN.dispatch, LOOP, 1], // the dispatch call's opcode
+      [STANDIN.dispatch, `${LOOP}|the cluster dispatch call target`, 1], // the dispatch call's opcode: no JSL, no target
       [STANDIN.loop + 1, LOOP, 0x10], // the loop starts at slot 16: slot 0 is never visited
       [STANDIN.routeBody + 7, ROUTE, 0x20],
       [STANDIN.entry + 17, 'the $E2/$E3 branch to the ring spawn', 0x40],
@@ -339,7 +339,7 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
       [tableWord(4) + 1, LOOP, 0x40],
     ])('a changed byte at $%s names %s', (at, what, delta = 1) => {
       const rom = ringRom(b => (b[off(at)] = (b[off(at)]! + delta) & 0xff))
-      expect(names(ringGate(rom, clean))).toEqual([what])
+      expect(names(ringGate(rom, clean))).toEqual(what.split('|'))
     })
     const STAGE = { route: ROUTE, dispatch: 'the $E2/$E3 branch to the ring spawn', loop: LOOP }
     it.each(PATH_HACKS.map(h => [h.name, h] as const))(
