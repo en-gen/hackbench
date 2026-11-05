@@ -41,8 +41,8 @@ describe('no vanilla code bytes in the companion routines', () => {
     expect(matches(hay, [...run.slice(0, 7), 0x00])).toBe(0)
   })
 
-  it('writes the four routines, each long enough to hold a window', () => {
-    expect(spans().map(([, b]) => b.length >= WINDOW)).toEqual([true, true, true, true])
+  it('writes the five routines, each long enough to hold a window', () => {
+    expect(spans().map(([, b]) => b.length >= WINDOW)).toEqual([true, true, true, true, true])
   })
 
   describe.skipIf(!hasRom(VANILLA))('against the vanilla ROM, ROM-wide', () => {

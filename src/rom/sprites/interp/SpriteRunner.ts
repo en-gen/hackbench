@@ -1083,8 +1083,9 @@ function runCore(
  * Whether no spawn the loader allows shows the sprite (D156): it spawns at the right or left edge (offsets read from the
  * ROM, `loaderWindow`) or, if the map's loader placed it, at the map-load camera. Each is run from that camera with
  * the sprite where the loader puts it, and the side of the scroll it starts on decides (`neverAppears`).
+ * Exported for the companion tests, which run it on a non-line-guided synthetic id.
  */
-function startsBehind(
+export function startsBehind(
   rom: RomFile,
   id: number,
   seed: SpriteSeed,

@@ -456,7 +456,7 @@ function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
   // Guards the loops below and keeps hand-built models of a few passes from being marked; no production run is that short.
   if (last < SETTLE_TAIL) return { writes }
   const end = 'so its colors may differ in the game'
-  const first = m.passes.findIndex(p => p.parts.length > 0)
+  const first = m.passes.findIndex(p => drawnParts(p).length > 0)
   if (first >= last - SETTLE_TAIL)
     return { writes, why: `it only appeared when the check ended, ${end}` }
   const changed = (p: number) => !sameColors(netColors(m, p), netColors(m, p - 1))
@@ -467,11 +467,11 @@ function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
   if (events.length === 1) return { writes, why: `its colors changed only once, ${end}` }
   if (quiet < SETTLE_TAIL || quiet <= gap)
     return { writes, why: `its colors were still changing when the check ended, ${end}` }
-  const away = m.passes.map((_, p) => p).filter(p => p > first && !m.passes[p]!.parts.length)
+  const away = m.passes.map((_, p) => p).filter(p => p > first && !drawnParts(m.passes[p]!).length)
   if (
     away.length &&
     (away.some(changed) ||
-      [first, ...away.filter(p => m.passes[p - 1]!.parts.length).map(p => p - 1)].some(
+      [first, ...away.filter(p => drawnParts(m.passes[p - 1]!).length).map(p => p - 1)].some(
         p => !sameColors(net, netColors(m, p)),
       ))
   )

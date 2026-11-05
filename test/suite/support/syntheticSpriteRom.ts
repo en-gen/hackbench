@@ -17,7 +17,7 @@
  * loader entries ($05:D8B7, $00:A635, $05:801E and the rest) are small routines of our own,
  * with the few single instructions the loader checks (LevelLoader.ts SITES) at their offsets. Ids 20, 21 and 22 draw like id 0 and set one CGRAM color
  * in INIT: 20 through the NMI upload list ($0681/$0682), 21 through a MainPalette list
- * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 34 draws, moves X by +4, then draws again; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move; 98 and 104 (JMP entry) and 101 and 102 (prelude entry) reach the same dispatch, 100 has the prelude but is not admitted; 80's INIT spawns id 81 into the slot below (both draw one piece like id 0), 82 draws two pieces itself, 83 is 80 but spawns id 81 into the slot above, 84 writes one OAM entry under a $15E9 that names no slot, 85 spawns as 80 does and draws nothing itself. Options plant a defect for the oracle tests.
+ * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 34 draws, moves X by +4, then draws again; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move; 98 and 104 (JMP entry) and 101 and 102 (prelude entry) reach the same dispatch, 100 has the prelude but is not admitted; 80's INIT spawns id 81 into the slot below (both draw one piece like id 0), 82 draws two pieces itself, 83 is 80 but spawns id 81 into the slot above, 84 writes one OAM entry under a $15E9 that names no slot, 85 spawns as 80 does and draws nothing itself, 86 is 80 but its companion stands 96 px to the right. Options plant a defect for the oracle tests.
  */
 import { RomFile } from '../../../src/rom/RomFile'
 import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
@@ -309,6 +309,8 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[83] = 0x8640
   mainTable[84] = 0xa780
   initTable[85] = 0xa600
+  initTable[86] = 0xa800
+  mainTable[86] = 0x8640
   if (o.id31IsGrinder) mainTable[31] = 0x9500
   for (const id of [20, 21, 22, 23, 24, 25]) mainTable[id] = 0x8640
   const words = (t: number[]) => t.flatMap(w => [w & 0xff, w >> 8])

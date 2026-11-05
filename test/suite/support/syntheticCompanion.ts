@@ -1,5 +1,5 @@
 /**
- * The synthetic cart's ids 80 to 85 (#840): see the Ids list in syntheticSpriteRom.ts. Hand-written
+ * The synthetic cart's ids 80 to 86 (#840): see the Ids list in syntheticSpriteRom.ts. Hand-written
  * test opcodes, no ROM bytes. Split out to keep that file under the content gate's byte-token limit.
  */
 
@@ -27,6 +27,18 @@ const SPAWN_ABOVE: number[] = [
   0x60,
 ]
 
+/** INIT of id 86: id 80's, but the companion stands 96 px to the right (X low + $60; the sprite sits at a low byte under $A0). */
+// prettier-ignore
+const SPAWN_BELOW_FAR: number[] = [
+  0xca,                   // DEX: the slot below
+  0xa9, 0x51, 0x95, 0x9e, // LDA #81 / STA $9E,X
+  0xa9, 0x08, 0x9d, 0xc8, 0x14, // LDA #8 / STA $14C8,X
+  0xe8, 0xb5, 0xe4, 0x18, 0x69, 0x60, 0xca, 0x95, 0xe4, // X low: INX / LDA $E4,X / CLC / ADC #$60 / DEX / STA $E4,X
+  0xe8, 0xb5, 0xd8, 0xca, 0x95, 0xd8, // Y low, the same way
+  0xe8,                   // INX: back to this slot
+  0x60,
+]
+
 /** MAIN of id 82: two 8x8 pieces, at OAM index and index + 4, from the sprite's own slot. */
 // prettier-ignore
 const DRAW_TWO: number[] = [
@@ -51,10 +63,11 @@ const WRITE_UNSPAWNED: number[] = [
   0x60,
 ]
 
-/** Writes ids 80 to 85's routines at $01:A600-A780, apart from the main cart so that file stays under the content gate. */
+/** Writes ids 80 to 86's routines at $01:A600-A780, apart from the main cart so that file stays under the content gate. */
 export function putCompanionRoutines(put: (snes: number, bytes: number[]) => void): void {
   put(0x01a600, SPAWN_BELOW)
   put(0x01a680, DRAW_TWO)
   put(0x01a700, SPAWN_ABOVE)
   put(0x01a780, WRITE_UNSPAWNED)
+  put(0x01a800, SPAWN_BELOW_FAR)
 }
