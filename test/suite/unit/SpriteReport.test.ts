@@ -198,6 +198,7 @@ const io = (over: Partial<Io> = {}): Io & { out: string[] } => {
     exists: () => true,
     sha: () => ({ sha: 'deadbeef', dirty: false }),
     grade: () => graded(),
+    reveal: () => [],
     env: {},
     log: s => out.push(s),
     out,

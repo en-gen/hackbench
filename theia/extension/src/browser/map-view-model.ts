@@ -17,6 +17,7 @@ import {
   type ScreenInput,
 } from '../../../../src/rom/model/ColorMath'
 import { SPRITE_KEYS, type FlameKey, type SpriteKey } from '../../../../src/rom/model/ScreenPlanes'
+import { doorFlip, hiddenPixelStrength } from '../../../../src/rom/render/HiddenTiles'
 import { decodeBase64Bytes, decodeRgba } from './map16-pixels'
 import { SWITCH_ORDER } from './map16-view-model'
 
@@ -66,6 +67,24 @@ function bitmapOf(s: MapSpriteDto): { rgba: Uint8ClampedArray; prio: Uint8Array 
   return bmp
 }
 
+/**
+ * The swap decision of a whole-sprite screen door (#1132): the same rule the covered-pixel door uses (`doorFlip`,
+ * D52), counted over every opaque pixel of the sprite on its own grid, so the sprite looks the same on every screen.
+ */
+function wholeDoorFlip(s: MapSpriteDto): boolean {
+  const { x0, y0, x1, y1 } = s.box
+  const { rgba } = bitmapOf(s)
+  let full = 0
+  let dim = 0
+  for (let y = 0; y < y1 - y0; y++)
+    for (let x = 0; x < x1 - x0; x++)
+      if (rgba[(y * (x1 - x0) + x) * 4 + 3] !== 0) {
+        if (hiddenPixelStrength(x, y) === 1) full++
+        else dim++
+      }
+  return doorFlip(full, dim)
+}
+
 /** Whether `s` has an opaque pixel at map pixel (px, py). */
 function opaqueAt(s: MapSpriteDto, px: number, py: number): boolean {
   const { x0, y0, x1, y1 } = s.box
@@ -101,8 +120,9 @@ export const hoverPlacementKey = (zoom: number, rect: { left: number; top: numbe
   `${zoom}:${Math.round(rect.left)}:${Math.round(rect.top)}`
 
 /** What the hover shows for a sprite (#981): its plain name only, or nothing when the name table has none. */
-export function spriteName(s: Pick<MapSpriteDto, 'name'>): string | undefined {
-  return s.name || undefined
+export function spriteName(s: Pick<MapSpriteDto, 'name' | 'reveal' | 'id'>): string | undefined {
+  if (!s.reveal) return s.name || undefined
+  return `${s.name || `Sprite $${s.id.toString(16).toUpperCase().padStart(2, '0')}`}: ${s.reveal}`
 }
 
 /**
@@ -131,6 +151,7 @@ function spriteLayer(
     const [cy0, cy1] = [Math.max(y0, top), Math.min(y1, top + g.height)]
     if (cx0 >= cx1 || cy0 >= cy1) continue
     const bmp = bitmapOf(s)
+    const flip = s.screenDoor ? wholeDoorFlip(s) : false
     out ??= { rgba: new Uint8ClampedArray(g.width * g.height * 4), prio: new Uint8Array(g.width * g.height), door: new Uint32Array(g.width * g.height) } // prettier-ignore
     for (let y = cy0; y < cy1; y++) {
       for (let x = cx0; x < cx1; x++) {
@@ -138,6 +159,8 @@ function spriteLayer(
         if (bmp.rgba[from * 4 + 3] === 0) continue
         const to = (y - top) * g.width + (x - left)
         out.rgba.set(bmp.rgba.subarray(from * 4, from * 4 + 4), to * 4)
+        // A screen-door sprite (a hidden one, drawn where it would appear) is see-through on its dim squares everywhere, not only under a tile.
+        if (s.screenDoor) out.rgba[to * 4 + 3] = Math.round(bmp.rgba[from * 4 + 3]! * hiddenPixelStrength(x - x0, y - y0, flip)) // prettier-ignore
         // No priority: a placeholder, at the pre-#795 slot.
         out.prio[to] = bmp.prio ? bmp.prio[from]! : 2
         out.door[to] = ((n + 1) << 1) | ((x - x0 + (y - y0)) & 1)

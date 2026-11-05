@@ -268,3 +268,43 @@ export function isInside(path: string, root: string): boolean {
   const rel = relative(real(root), real(path))
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
+
+/** One placed sprite in the reveal audit (#1132): what the at-rest run did, and what the reveal search made of it. */
+export interface RevealRow {
+  map: string
+  index: number
+  id: number
+  /** The at-rest run: drew a tile, drew none, was refused, or is drawn by a special routine. */
+  rest: 'drew' | 'blank' | 'refused' | 'special'
+  /** The search found it hidden (it draws nothing under some probe), whether or not it drew at rest. */
+  hidden: boolean
+  /** What revealed it; absent when it is not hidden or nothing did. */
+  condition?: string
+  /** The marker's reason code when the served answer is a marker. */
+  marker?: string
+}
+
+/**
+ * The audit as text: one line per sprite in list order, the counts, and the sprites that drew at rest and are now
+ * hidden (acceptance 10). Pure and sorted, so two runs over the same ROM are byte-identical.
+ */
+export function revealReport(rows: readonly RevealRow[]): string {
+  const sorted = [...rows].sort((a, b) => a.map.localeCompare(b.map) || a.index - b.index)
+  const id = (r: RevealRow) => `map ${r.map} #${r.index} $${hex2(r.id)}`
+  const line = (r: RevealRow) =>
+    `${id(r)}: rest ${r.rest}, ${r.hidden ? 'hidden' : 'not hidden'}${r.condition ? `, revealed by ${r.condition}` : ''}${r.marker ? `, marker ${r.marker}` : ''}`
+  const count = (f: (r: RevealRow) => boolean) => sorted.filter(f).length
+  const flipped = sorted.filter(r => r.rest === 'drew' && r.hidden)
+  return [
+    `Reveal audit: ${sorted.length} placed sprites`,
+    `drew at rest ${count(r => r.rest === 'drew')}, blank ${count(r => r.rest === 'blank')}, refused ${count(r => r.rest === 'refused')}, special ${count(r => r.rest === 'special')}`,
+    `hidden ${count(r => r.hidden)}, revealed ${count(r => !!r.condition)}, marker for lack of a reveal ${count(r => r.marker === 'unrevealed')}`,
+    '',
+    'Drew at rest, now hidden:',
+    ...(flipped.length ? flipped.map(line) : ['none']),
+    '',
+    'All sprites:',
+    ...sorted.map(line),
+    '',
+  ].join('\n')
+}

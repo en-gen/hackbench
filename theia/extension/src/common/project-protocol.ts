@@ -342,6 +342,10 @@ export interface MapSpriteDto {
   unverified?: string
   /** A plain-words line about what the map shows of this sprite, not a flaw (for example fewer Eeries than the placement asks for); the map's note line carries it too. */
   note?: string
+  /** Every pixel of the sprite is drawn in the screen door: it draws nothing in play until something happens (#1132). */
+  screenDoor?: boolean
+  /** What makes it appear, in words, for the hover; present with `screenDoor`. */
+  reveal?: string
 }
 
 /**

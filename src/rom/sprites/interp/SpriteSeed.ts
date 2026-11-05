@@ -67,6 +67,15 @@ export interface SpriteSeed {
    * `runOnce` makes then; the first run is always alone. `index` is the entry's place in the map's sprite list.
    */
   neighbours?: { id: number; x: number; y: number; index?: number }[]
+  /**
+   * Mario's position once INIT has run, written to the same cells as `mario`. INIT keeps the position the entrance gave
+   * (so the facing it sets is the at-rest one); only the MAIN passes see this one. The reveal search's probes use it.
+   */
+  marioMain?: { x: number; y: number }
+  /** $14AD BluePSwitchTimer (rammap.asm:1665): nonzero means the P-switch is active. Absent: the loaded image's value. */
+  pSwitch?: number
+  /** $14AF OnOffSwitch (rammap.asm:1667): the ON/OFF switch state. Absent: the loaded image's value. */
+  onOff?: number
 }
 
 export const SPRITE_SEED: SpriteSeed = {
