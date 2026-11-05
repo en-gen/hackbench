@@ -3527,9 +3527,9 @@ test('a note on the sprites carries its technical text on the title only (#967)'
   await expect(el).toHaveAttribute('title', 'the flame spawn routine is not the vanilla shape')
 })
 
-/** Two different causes, one per flagged sprite (#1166); the first holds a `; ` on purpose. */
+/** Two different causes, so a tooltip that kept only the first would fail; the first holds a `; ` because real causes do and the list must not split on it (#1166). */
 const UNVERIFIED_CAUSES = ['planted cause one; with a semicolon', 'planted cause two']
-/** A served sprites reply with two sprites flagged for different causes, a 1x1 clear bitmap each (#1166). */
+/** Distinct causes plus 1x1 clear bitmaps isolate the tooltip and accessible-name checks from pixel rendering (#1166). */
 const unverifiedReply = () => ({
   status: 'ok',
   orientation: 'horizontal',
@@ -3610,6 +3610,15 @@ test('a selected unverified sprite shows the plain Properties line, the cause op
   await expect(summary).toHaveText(
     'Unverified: this sprite may not be drawn exactly as in the game.',
   )
+  // Selecting the other unverified sprite shows a closed note: its line is the same text, so the disclosure must not carry over.
+  await page.evaluate(async () => {
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+      index: 0x105,
+    })
+    w.selectSprite(w.sprites.sprites[1])
+  })
+  await expect(summary).toHaveAttribute('title', UNVERIFIED_CAUSES[1])
+  await expect(detail).toBeHidden()
 })
 
 test('a start position that cannot be worked out shows no note (#1008)', async ({ page }) => {

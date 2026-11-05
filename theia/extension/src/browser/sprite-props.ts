@@ -81,7 +81,7 @@ export interface SpriteProps {
   paletteRows: number[]
   /** The engine's own reason for a placeholder, for a tooltip only; the words are in `notes`. */
   rawReason?: string
-  /** The engine's own cause for an Unverified note, for that line's tooltip only (#1166). */
+  /** Kept off `notes` so the raw cause can never reach the visible text or an accessible name; it is shown only on request (#1166). */
   rawUnverified?: string
   /** Anything the pane knows it is not showing (interpret, else warn). */
   notes: string[]
@@ -126,10 +126,10 @@ export function shiftNote(
   return `${cause}, so the map draws it ${there}, as the game does. The highlighted tile is where the map stores it.`
 }
 
-/** The Unverified line in plain words; the engine's cause rides on its tooltip (#1166). */
+/** The engine's cause is not for a first read, so the visible line is fixed plain words and the cause is shown only on request (#1166). */
 export const UNVERIFIED_NOTE = 'Unverified: this sprite may not be drawn exactly as in the game.'
 
-/** The tooltip for one Properties note: the engine's text behind it, or none when that note has no detail (#1166). */
+/** Decides which notes get a disclosure: only a note with engine text behind it, so a plain line never shows an empty control (#1166). */
 export const noteTitle = (
   note: string,
   p: Pick<SpriteProps, 'rawReason' | 'rawUnverified'>,
@@ -140,7 +140,7 @@ export const noteTitle = (
       ? p.rawUnverified
       : undefined
 
-/** What the Properties panel shows for one sprite: label, position, parts and the notes, each in plain words with the engine's text kept apart (#1166). */
+/** The engine's wording is for diagnosis and is long and technical, so the notes stay plain words and the raw text is carried apart for a tooltip or disclosure (#1166). */
 export function spriteProps(s: MapSpriteDto): SpriteProps {
   const parts = s.status === 'drawn' && s.parts ? s.parts : null
   const notes: string[] = []

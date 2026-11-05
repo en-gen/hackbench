@@ -71,7 +71,7 @@ function framesView(f: Extract<FramesState, { kind: 'playing' }>) {
   return { pixels: out, w, h }
 }
 
-/** The panel body for a selected sprite: its notes first (a note with detail opens as a disclosure), then its facts and preview. */
+/** Notes come first because they say what the picture cannot be trusted for, which a reader should know before reading the facts and preview below. */
 function SpriteSubject({
   subject,
   frames,
@@ -90,9 +90,15 @@ function SpriteSubject({
         // the plain line is the <summary>, the engine's text the body (#1166).
         // The mouse tooltip is on the <summary>, not the <details>: a title on <details> becomes the group's accessible
         // name, which would have assistive tech read the raw cause while the note is closed.
+        // The key names the sprite, not just the text: every unverified sprite has the same line, and a shared key would
+        // reuse the element and keep a previous sprite's disclosure open on the next one.
         // A note without detail stays a plain line.
         return detail ? (
-          <details key={n} className="hb-props-note" data-field="note">
+          <details
+            key={`${subject.source?.index ?? ''}:${s.index}:${n}`}
+            className="hb-props-note"
+            data-field="note"
+          >
             <summary title={detail}>{n}</summary>
             <div className="hb-props-note-detail" data-field="note-detail">
               {detail}

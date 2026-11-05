@@ -19,7 +19,7 @@ export const readFailed = (what: string) => (err: unknown) => {
 export const withDetail = (text: string, detail?: string): string =>
   detail ? `${text}\n${detail}` : text
 
-/** Every distinct `unverified` cause of the sprites, one per line (not split on `; `: a cause holds one itself); undefined when none (#1166). */
+/** A tooltip showing only the first cause hid the rest; one line per cause, never split on `; ` because a cause holds one itself (#1166). */
 export const unverifiedCauses = (sprites: readonly { unverified?: string }[]): string | undefined =>
   [...new Set(sprites.flatMap(x => (x.unverified ? [x.unverified] : [])))].join('\n') || undefined
 
