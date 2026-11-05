@@ -282,7 +282,7 @@ Evidence (vanilla ROM, one machine):
     silent, re-run on the final code for `$01:C00A` 9-70. One machine,
     vanilla ROM. The reviewer's wider sweep at fb82f2d6 (`$01:C00A` 1-70 plus 80,
     100, 128, 200, 255; 14 `$01:C023` values; 4 `$01:BFE9` values; 4200 ROMs)
-    found 0 silent wrong and 3968 wrong all marked; that run was at fb82f2d6, one
+    found 0 silent wrong and 3973 wrong all marked (110 right unmarked, 117 right marked, 4200 total); that run was at fb82f2d6, one
     machine, vanilla ROM.
 - `$1FE` at its placed spot draws no tile in the run (a placeholder): it has no
   pixels to compare, and there is no capture for it (`captures/layers_v5/1fe.zip`
