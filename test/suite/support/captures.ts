@@ -41,11 +41,11 @@ export interface Loaded {
   listed?: PlacedSprite[]
 }
 
-/** Every sprite record in every `*.zip` under `dir` (default: the corpus captures), in map order. */
-export function loadCaptures(dir: string = CAPTURE_DIR): Loaded[] {
+/** Every sprite record in every `*.zip` under the corpus capture folder, in map order. */
+export function loadCaptures(): Loaded[] {
   const out: Loaded[] = []
-  for (const f of readdirSync(dir).sort()) {
-    const p = join(dir, f)
+  for (const f of readdirSync(CAPTURE_DIR).sort()) {
+    const p = join(CAPTURE_DIR, f)
     if (!f.endsWith('.zip')) continue
     const name = f.slice(0, -4)
     const entries = unzip(readFileSync(p))

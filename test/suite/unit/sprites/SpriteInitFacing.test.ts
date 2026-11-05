@@ -4,12 +4,13 @@
  * blocks need no ROM; the corpus blocks are gated on the vanilla ROM and the layers_v5 captures.
  */
 import { describe, expect, it } from 'vitest'
+import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
 import { readMarioStartPos } from '../../../../src/rom/MarioStartPos'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { interpDrawer } from '../../../../theia/extension/src/node/map-sprites'
 import { loadCaptures, type Loaded } from '../../support/captures'
-import { hasCaptures, hasRom, VANILLA } from '../../support/corpus'
+import { hasCaptures, hasRom, romPath, VANILLA } from '../../support/corpus'
 import {
   facingAfterInit,
   facingMismatches,
@@ -18,18 +19,19 @@ import {
   sharedRom,
 } from '../../support/initFacing'
 import { buildSyntheticRom, SYNTHETIC_INIT_TABLE_OFFSET } from '../../support/syntheticSpriteRom'
+import { loadVanillaBytes, vanillaHits, windowSet } from '../../support/vanillaWindows'
 
 /** CallSpriteInit's table of 201 words, right after its code in the synthetic ROM. */
 const INIT_TABLE = 0x018170 + SYNTHETIC_INIT_TABLE_OFFSET
 const SLOW = 120_000 // a whole-corpus sweep, not a unit: the default 5 s is under its cost
 
 /** Synthetic ROM with SubHorizPos at a free address, id 40 (INIT faces Mario) and id 41 (INIT stores a constant). */
-function facingRom() {
+function facingRom(broken = false) {
   const rom = buildSyntheticRom()
   // Hand-assembled equivalent of the vanilla routine (SMWDisX bank_01.asm:6124-6134), built here with no ROM read.
   // LDA is hoisted above LDY and NOPs are placed so no 8-byte window equals the cartridge's bytes (owner rule):
   // Y = 1 when Mario (PlayerXPosNow $D1/$D2) is left of the sprite ($E4,X / $14E0,X), as the disassembly has it.
-  rom.writeAt(0x01ad60, [0xa5, 0xd1, 0xa0, 0x00, 0x38, 0xf5, 0xe4, 0x85, 0x0f, 0xea, 0xa5, 0xd2, 0xfd, 0xe0, 0x14, 0xea, 0x10, 0x01, 0xc8, 0x60, 0xea]) // prettier-ignore
+  rom.writeAt(0x01ad60, [0xa5, 0xd1, 0xa0, 0x00, 0x38, 0xf5, 0xe4, 0x85, 0x0f, 0xea, 0xa5, 0xd2, 0xfd, 0xe0, 0x14, 0xea, broken ? 0x30 : 0x10, 0x01, 0xc8, 0x60, 0xea]) // prettier-ignore
   rom.writeAt(0x019600, [0xea, 0x20, 0x60, 0xad, 0x98, 0xea, 0x9d, 0x7c, 0x15, 0x60, 0xea]) // FaceMario: NOP / JSR SubHorizPos / TYA / NOP / STA $157C,X / RTS / NOP (the NOPs keep the zero padding out of an 8-byte window)
   rom.writeAt(0x019620, [0xa9, 0x01, 0x9d, 0x7c, 0x15, 0x60, 0xea]) // LDA #1 / STA $157C,X / RTS / NOP
   rom.writeAt(INIT_TABLE + 40 * 2, [0x00, 0x96])
@@ -37,72 +39,143 @@ function facingRom() {
   return rom
 }
 
+/** sprite X, Mario X, and the facing SubHorizPos gives: Mario left is 1; a tie and Mario right are 0; the high byte carries. */
+const CASES: [string, string, number][] = [
+  ['200', '1ff', 1],
+  ['200', '200', 0],
+  ['200', '201', 0],
+  ['1ff', '200', 0],
+  ['1ff', '1fe', 1],
+  ['200', '0ff', 1],
+  ['0ff', '300', 0],
+]
+const hex = (s: string) => parseInt(s, 16)
+/** The CASES whose facing the cart `rom` does not give for sprite `id` (`want` maps a case's own facing to the one expected). */
+function badCases(rom: ReturnType<typeof facingRom>, id: number, want: (own: number) => number) {
+  return CASES.filter(([sprite, mario, own]) => facingAfterInit(rom, id, { mario: { x: hex(mario), y: 0x80 }, sprite: { x: hex(sprite), y: 0x80 }, slot: 3 }) !== want(own)).map(c => c.join('/')) // prettier-ignore
+}
+
 describe('INIT facing through SubHorizPos (synthetic)', () => {
   const rom = facingRom()
-  const at = (id: number, sprite: number, mario: number) => facingAfterInit(rom, id, { mario: { x: mario, y: 0x80 }, sprite: { x: sprite, y: 0x80 }, slot: 3 }) // prettier-ignore
-  it.each([
-    // sprite X, Mario X, facing: Mario left is 1; a tie and Mario right are 0; the high byte carries
-    ['200', '1ff', 1],
-    ['200', '200', 0],
-    ['200', '201', 0],
-    ['1ff', '200', 0],
-    ['1ff', '1fe', 1],
-    ['200', '0ff', 1],
-    ['0ff', '300', 0],
-  ])('sprite X 0x%s, Mario X 0x%s gives $157C %i', (sprite, mario, want) => {
-    expect(at(40, parseInt(sprite, 16), parseInt(mario, 16))).toBe(want)
+  it.each(CASES)('sprite X 0x%s, Mario X 0x%s gives $157C %i', (sprite, mario, want) => {
+    expect(facingAfterInit(rom, 40, { mario: { x: hex(mario), y: 0x80 }, sprite: { x: hex(sprite), y: 0x80 }, slot: 3 })).toBe(want) // prettier-ignore
   })
-  it('leaves a constant-facing INIT unchanged on both sides', () => {
-    expect([at(41, 0x200, 0x1f0), at(41, 0x200, 0x210)]).toEqual([1, 1])
+  it('leaves a constant-facing INIT unchanged at every Mario position of the table above', () => {
+    expect(badCases(rom, 41, () => 1)).toEqual([])
   })
-})
-
-describe('interpDrawer takes Mario from the loader image, its single source (#272)', () => {
-  const blank = buildSyntheticRom()
-  const sprite = { index: 0, x: 1, y: 1, spriteId: 0x8c, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
-  const loaded = new Uint8Array(0x2000)
-  loaded.set([0x34, 0x12, 0x67, 0x05], 0x94) // $94 = $1234, $96 = $0567: not the table start, not the 0x80 default
-  it('seeds the run with the image X/Y, which the entrance tables and the seed default would not give', () => {
-    let seen: { x: number; y: number } | undefined
-    const run = (_r: unknown, _i: number, s: { mario: { x: number; y: number } }) => {
-      seen = s.mario
-      return { id: 1, passes: [], dependsOn: [], steps: [] }
-    }
-    interpDrawer(blank, 0x104, { isVertical: false, screenCount: 2 }, run as never, () => withSeed({ loaded }))(sprite) // prettier-ignore
-    expect(seen).toMatchObject({ x: 0x1234, y: 0x0567 })
-    expect(readMarioStartPos(blank, 0x104)).not.toMatchObject({ x: 0x1234, y: 0x0567 })
+  it('planted: a SubHorizPos whose branch is inverted turns the facing assertion red on every case', () => {
+    expect(badCases(facingRom(true), 40, own => own)).toHaveLength(CASES.length)
   })
-  it('falls back to readMarioStartPos when the seed has no loader image, as interpDrawer does', () => {
-    let seen: { x: number; y: number } | undefined
-    const run = (_r: unknown, _i: number, s: { mario: { x: number; y: number } }) => {
-      seen = s.mario
-      return { id: 1, passes: [], dependsOn: [], steps: [] }
-    }
-    const want = readMarioStartPos(blank, 0x104)
-    interpDrawer(blank, 0x104, { isVertical: false, screenCount: 2 }, run as never, () => withSeed({}))(sprite) // prettier-ignore
-    expect(want).toBeTruthy()
-    expect(seen).toMatchObject(want!)
+  it('INIT sees Mario in all four cells ($94, $96, $D1, $D3), the seed written by the runner', () => {
+    const seen: number[] = []
+    runSprite(
+      rom,
+      41,
+      withSeed({
+        mario: { x: 0x123c, y: 0x0567 },
+        sprite: { x: 0x200, y: 0x80 },
+        slot: 3,
+        mainPasses: 1,
+      }),
+      {
+        // prettier-ignore
+        probe: (p, w) => {
+        if (p === -1) for (const a of [0x94, 0x96, 0xd1, 0xd3]) seen.push(w[a]! | (w[a + 1]! << 8))
+      },
+      },
+    )
+    expect(seen).toEqual([0x123c, 0x0567, 0x123c, 0x0567])
   })
 })
 
 describe.skipIf(!hasRom(VANILLA))(
-  'the map view seed is the entrance-table start on every vanilla map (#272)',
+  'the facing fixture carries no vanilla byte window (owner rule)',
   () => {
-    // The seed is the loader image's $94/$96 (interpDrawer); readMarioStartPos is the table
-    // derivation the same code falls back to. Both include the entrance-type nudge (bank_00.asm:4987-5060).
+    it('adds no window beyond the default cart, and a planted vanilla window written into it is flagged', () => {
+      const vanilla = windowSet(loadVanillaBytes(romPath(VANILLA)))
+      const own = (r: ReturnType<typeof facingRom>) =>
+        vanillaHits(new Uint8Array(r.buffer), vanilla)
+      const base = own(buildSyntheticRom())
+      expect(own(facingRom()).filter(h => !base.includes(h))).toEqual([])
+      const planted = facingRom()
+      planted.writeAt(0x01ad80, [...loadVanillaBytes(romPath(VANILLA)).subarray(0x14000, 0x14008)])
+      expect(own(planted).filter(h => !base.includes(h))).toEqual(['$01:AD80'])
+    })
+  },
+)
+
+describe('interpDrawer takes Mario from the loader image, its single source (#272)', () => {
+  const blank = buildSyntheticRom()
+  const sprite = { index: 0, x: 1, y: 1, spriteId: 0x8c, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
+  const shape = { isVertical: false, screenCount: 2 }
+  /** The Mario `interpDrawer` seeds the run with for `map`, through a stub run, from the seed `seedFor` gives. */
+  const seeded = (
+    rom: ReturnType<typeof buildSyntheticRom>,
+    map: number,
+    seedFor?: () => ReturnType<typeof withSeed>,
+  ) => {
+    // prettier-ignore
+    let seen: { x: number; y: number } | undefined
+    const run = (_r: unknown, _i: number, s: { mario: { x: number; y: number } }) => {
+      seen = s.mario
+      return { id: 1, passes: [], dependsOn: [], steps: [] }
+    }
+    interpDrawer(rom, map, shape, run as never, seedFor)(sprite)
+    return seen
+  }
+  it('seeds the run with the image X/Y (X has the nudge bit $08 set), which the tables and the default would not give', () => {
+    const loaded = new Uint8Array(0x2000)
+    loaded.set([0x3c, 0x12, 0x67, 0x05], 0x94) // $94 = $123C, $96 = $0567: not the table start, not the 0x80 default
+    expect(seeded(blank, 0x104, () => withSeed({ loaded }))).toMatchObject({ x: 0x123c, y: 0x0567 })
+    expect(readMarioStartPos(blank, 0x104)).not.toMatchObject({ x: 0x123c, y: 0x0567 })
+  })
+  it('falls back to readMarioStartPos when the seed has no loader image, as interpDrawer does', () => {
+    const rom = buildSyntheticRom()
+    // map $104: Y index 1, X index 1 (type 0), screen 2 horizontal; Y = $0140, X = screen 2 + low byte $30.
+    rom.writeAt(0x05f000 + 0x104, [0x01])
+    rom.writeAt(0x05f200 + 0x104, [0x01])
+    rom.writeAt(0x05f600 + 0x104, [0x02])
+    rom.writeAt(0x05d731, [0x40])
+    rom.writeAt(0x05d741, [0x01])
+    rom.writeAt(0x05d751, [0x30])
+    expect(readMarioStartPos(rom, 0x104)).toMatchObject({ x: 0x230, y: 0x140 })
+    expect(seeded(rom, 0x104, () => withSeed({}))).toMatchObject({ x: 0x230, y: 0x140 })
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))(
+  "the map view seeds Mario at the game loader's position on every vanilla map (#272, D164)",
+  () => {
+    // interpDrawer (the served path) takes the seed from the loader image's $94/$96; readMarioStartPos is the
+    // table derivation it falls back to. Both include the entrance-type nudge (bank_00.asm:4987-5060).
+    const sprite = { index: 0, x: 1, y: 1, spriteId: 0x8c, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
     it(
-      'loader $94/$96 equals readMarioStartPos for all 512 maps',
+      'interpDrawer seeds the loader image position on all 512 maps, and it equals readMarioStartPos',
       () => {
-        const bad: string[] = []
+        const viaSeam: string[] = []
+        const viaTables: string[] = []
         let loaded = 0
         for (let map = 0; map < 0x200; map++) {
-          const seed = loaderMario(map)
-          if (!seed) continue
+          const image = loaderMario(map)
+          if (!image) continue
           loaded++
+          let seen: { x: number; y: number } | undefined
+          const run = (_r: unknown, _i: number, s: { mario: { x: number; y: number } }) => {
+            seen = s.mario
+            return { id: 1, passes: [], dependsOn: [], steps: [] }
+          }
+          interpDrawer(
+            sharedRom(),
+            map,
+            { isVertical: false, screenCount: 1 },
+            run as never,
+          )(sprite)
+          if (!seen || seen.x !== image.x || seen.y !== image.y) viaSeam.push(map.toString(16))
           const want = readMarioStartPos(sharedRom(), map)
-          if (!want || want.x !== seed.x || want.y !== seed.y) bad.push(map.toString(16))
+          if (!want || want.x !== image.x || want.y !== image.y) viaTables.push(map.toString(16))
         }
-        expect(bad).toEqual([])
+        expect(viaSeam).toEqual([])
+        expect(viaTables).toEqual([])
         expect(loaded).toBe(0x200)
       },
       SLOW,
@@ -135,7 +208,7 @@ const OTHER_SIDE = `
   .split(/\s+/)
 
 /** Compared records where our INIT facing differs from the capture's, as map:slot:id:capture>ours. Not fixed here (#272 is tests only); a fix or a new mismatch must change this list. */
-// The 4 $1e entries: INIT-only sample (inferred, untested: the capture lacks the cloud's slot); the cloud's MAIN sets the rider; map view correct per #1007.
+// The 4 $1e entries: INIT-only sample (inferred, untested: the capture lacks the cloud's slot); the cloud's MAIN writes the rider's $157C (docs/sprites/lakitu-facing.md); map view correct per #1007.
 const KNOWN_MISMATCHES = `
     11e:0:$04:0>1 11e:3:$04:0>1 11e:3:$0f:0>1 11e:4:$04:0>1 11e:6:$00:0>1 11e:6:$04:0>1
     11e:7:$0f:0>1 11e:8:$0f:0>1 11f:6:$1e:1>0 126:7:$0f:0>1 132:5:$1e:1>0 1c4:4:$1e:1>0
@@ -144,7 +217,7 @@ const KNOWN_MISMATCHES = `
   .trim()
   .split(/\s+/)
 
-describe('the facing comparison reports a flipped capture (planted defect)', () => {
+describe('the facing comparator (planted defects)', () => {
   const rom = facingRom()
   const rec = (initFacing: number): Loaded => ({ map: '001', wram: null, marioStart: { x: 0x1f0, y: 0x80 }, rec: { id: '$28', slot: 3, listX: 0x200, listY: 0x80, cameraX: 0, cameraY: 0, initFacing } }) // prettier-ignore
   const run = (r: Loaded) =>
@@ -154,9 +227,13 @@ describe('the facing comparison reports a flipped capture (planted defect)', () 
       x => x.marioStart,
       () => undefined,
     )
-  it('is silent for the true facing (Mario left of the sprite: 1) and names the record when flipped', () => {
+  it('comparator: silent for the true capture value (Mario left of the sprite: 1), names the record when the expected value is flipped', () => {
     expect(run(rec(1))).toEqual([])
     expect(run(rec(0))).toEqual([{ key: '001:3:$28', capture: 0, ours: 1 }])
+  })
+  it('seed: a Mario seeded on the wrong side of the sprite through marioFor turns the comparison red', () => {
+    const wrong = facingMismatches(rom, [rec(1)], () => ({ x: 0x210, y: 0x80 }), () => undefined) // prettier-ignore
+    expect(wrong).toEqual([{ key: '001:3:$28', capture: 1, ours: 0 }])
   })
   it('skips a record with no INIT (initFacing null) instead of comparing it', () => {
     expect(run({ ...rec(0), rec: { ...rec(0).rec, initFacing: null } })).toEqual([])
@@ -174,7 +251,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
     const key = (r: Loaded) => `${r.map}:${r.rec.slot}:${r.rec.id}`.toLowerCase()
     const compared = num.filter(r => !other(r))
     // Mario is the map view's seed (loader $94/$96), with the capture's slot and camera. The slot is the
-    // hardware's: Lakitu's rider ($1E) reads another sprite's $157C, so its facing depends on the slot.
+    // hardware's: the cloud's MAIN writes Lakitu's rider's $157C (docs/sprites/lakitu-facing.md), so the rider's facing depends on the cloud's slot.
     const mismatches = (rs: Loaded[]) => facingMismatches(sharedRom(), rs, r => loaderMario(parseInt(r.map, 16)), m => loaderImage(parseInt(m, 16))) // prettier-ignore
 
     it('lists the records with no INIT, and the other-side records, by exact list', () => {
@@ -196,10 +273,17 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
       SLOW,
     )
 
-    it('goes red when a capture record is flipped (corpus plant)', () => {
+    it('comparator plant: goes red when a capture record expected value is flipped', () => {
       const r = compared.find(x => !KNOWN_MISMATCHES.some(k => k.startsWith(key(x) + ':')))!
       const flipped = { ...r, rec: { ...r.rec, initFacing: 1 - r.rec.initFacing! } }
       expect(mismatches([flipped]).map(m => m.key.toLowerCase())).toEqual([key(r)])
+    })
+
+    it('seed plant: goes red when the seeded Mario is moved to the other side of the sprite', () => {
+      const r = compared.find(x => x.rec.listX >= 16 && !KNOWN_MISMATCHES.some(k => k.startsWith(key(x) + ':')))! // prettier-ignore
+      const was = side(loaderMario(parseInt(r.map, 16))!.x, r)
+      const moved = facingMismatches(sharedRom(), [r], () => ({ x: r.rec.listX + (was ? 16 : -16), y: 0x80 }), m => loaderImage(parseInt(m, 16))) // prettier-ignore
+      expect(moved.map(m => m.key.toLowerCase())).toEqual([key(r)])
     })
   },
 )

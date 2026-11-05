@@ -56,7 +56,7 @@ export function loaderMario(map: number): XY | undefined {
 
 /**
  * Records with an `initFacing` whose INIT, run with `marioFor(record)`, disagrees; key is `map:slot:id`.
- * The slot is the hardware's (a few sprites, Lakitu's rider $1E, read $157C of another slot).
+ * The slot is the hardware's: the cloud's MAIN writes Lakitu's rider's $157C (docs/sprites/lakitu-facing.md), so the rider's facing depends on the cloud's slot.
  */
 export function facingMismatches(
   rom: RomFile,
