@@ -233,8 +233,8 @@ sprite and with no id test: draw the colors CGRAM holds at the end of the run
 picture is marked `unverified` ("... so they may differ in the game") when
 those colors may not be the settled ones:
 
-1. the colors are not shown to have finished. From the first drawn pass on, the
-   passes where the net colors change are listed. They count as settled only if
+1. the colors are not shown to have finished. From pass 1 on (changes before
+   the first draw count), the passes where the net colors change are listed. They count as settled only if
    the quiet span since the last change is at least 16 passes AND longer than the
    longest gap between earlier changes (so an update every 22 passes, last at
    pass 44, is marked: quiet 19, gap 22; vanilla `$11C` has gaps of about 4 and
@@ -245,8 +245,8 @@ those colors may not be the settled ones:
    time to write). The test uses the run's first drawn pass, not the pass a
    frame of the animation is drawn from;
 3. the sprite has an undrawn pass after its first drawn pass and its colors
-   changed on an undrawn pass, or the end colors differ from those at its last
-   drawn pass before it left, or from those at its first drawn pass (a fade-out
+   changed on an undrawn pass, or the end colors differ from those at the last
+   drawn pass before ANY departure, or from those at its first drawn pass (a fade-out
    and a new cycle, or A, B, gone, restored A).
 
 A run of 16 passes or fewer is not checked: that guards the loops and keeps
@@ -279,9 +279,11 @@ Evidence (vanilla ROM, one machine):
     62-70 (rung 2, 1, 0), because no rung landed in the last 16 passes. With the
     event rule above, `$01:C00A` 9 to 70 at the `$11C` placed spot (62 patches),
     `$01:C023` = 4 and the six fade-out pairs: all 69 are drawn and marked, 0
-    silent. One machine, vanilla ROM. The reviewer's wider sweep (`$01:C00A`
-    1-40, 14 `$01:C023` values, 4 `$01:BFE9` values) was run against the earlier
-    rule only. Above 70 not run.
+    silent, re-run on the final code for `$01:C00A` 9-70. One machine,
+    vanilla ROM. The reviewer's wider sweep at fb82f2d6 (`$01:C00A` 1-70 plus 80,
+    100, 128, 200, 255; 14 `$01:C023` values; 4 `$01:BFE9` values; 4200 ROMs)
+    found 0 silent wrong and 3968 wrong all marked; that run was at fb82f2d6, one
+    machine, vanilla ROM.
 - `$1FE` at its placed spot draws no tile in the run (a placeholder): it has no
   pixels to compare, and there is no capture for it (`captures/layers_v5/1fe.zip`
   does not exist), so nothing is claimed about its colors.
@@ -292,3 +294,9 @@ compare against and takes minutes. The committed tests are
 comparison `MapSpritesMagikoopaPalette.corpus.test.ts`. The Playwright spec is
 `theia/browser-app/test/map-magikoopa-palette.spec.cjs`. The pose shown is the
 casting pose; that is a pose-policy matter separate from the colors.
+
+Known limit: the run cannot see changes after pass 63, so a fade that pauses
+longer than its earlier gaps looks finished and is not marked. This cannot be
+decided from the run, and a vanilla Magikoopa has the same shape. Unmarked
+examples: changes at passes 2, 4, 6, 8 with the next at 70; at 2, 30, 33; and no
+change at all with the first upload after pass 63.

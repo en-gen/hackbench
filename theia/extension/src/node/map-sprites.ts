@@ -427,7 +427,7 @@ const sameColors = (a: Map<number, number>, b: Map<number, number>) => a.size ==
  * The CGRAM colors a picture is drawn with (#1097). The chosen pass is a pose policy: the Magikoopa's first drawn
  * frame comes before any upload (bank_01.asm:8474, 8733-8755), so its writes left the level's row showing. CGRAM
  * keeps what the run wrote, drawn or not, so use the net writes at the last pass. Marked when they may be wrong:
- * not settled (the quiet span since the last change, from the first drawn pass on, is under SETTLE_TAIL or no
+ * not settled (the quiet span since the last change, scanning from pass 1, is under SETTLE_TAIL or no
  * longer than the longest gap between earlier changes); first drawn inside the tail; or it left and the colors
  * changed while away or differ from before it left or from its first picture. One change gives no gap to
  * compare, so a lone update is marked too (vanilla: 0 such sprites or frames). Docs: sprite-1f-magikoopa.md s5.
@@ -444,7 +444,7 @@ function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
     return { writes, why: `it only appeared when the check ended, ${end}` }
   const changed = (p: number) => !sameColors(netColors(m, p), netColors(m, p - 1))
   const events: number[] = []
-  for (let p = first + 1; p <= last; p++) if (changed(p)) events.push(p)
+  for (let p = 1; p <= last; p++) if (changed(p)) events.push(p)
   const quiet = last - (events[events.length - 1] ?? first)
   const gap = Math.max(0, ...events.slice(1).map((e, i) => e - events[i]!))
   if (events.length === 1) return { writes, why: `its colors changed only once, ${end}` }
@@ -453,7 +453,10 @@ function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
   const away = m.passes.map((_, p) => p).filter(p => p > first && !m.passes[p]!.parts.length)
   if (
     away.length &&
-    (away.some(changed) || [first, away[0]! - 1].some(p => !sameColors(net, netColors(m, p))))
+    (away.some(changed) ||
+      [first, ...away.filter(p => m.passes[p - 1]!.parts.length).map(p => p - 1)].some(
+        p => !sameColors(net, netColors(m, p)),
+      ))
   )
     return { writes, why: `it disappeared partway through and its colors changed, ${end}` }
   return { writes }

@@ -38,13 +38,15 @@ interface Plan {
   chosen?: number
   /** Passes [from, to) in which the sprite is not drawn although it draws before and after (it left and came back). */
   gap?: [number, number]
+  /** More departures: each [from, to) range is also undrawn. */
+  gaps?: [number, number][]
 }
 const run = (id: number, plan: Plan): SpriteModel => {
   const n = plan.passes ?? PASSES
   const acc: PassResult['palette'] = []
   const passes: PassResult[] = Array.from({ length: n }, (_, p) => {
     acc.push(...(plan.writes[p] ?? []))
-    const drawn = p >= plan.first && p <= (plan.lastDrawn ?? n - 1) && !(plan.gap && p >= plan.gap[0] && p < plan.gap[1]) // prettier-ignore
+    const drawn = p >= plan.first && p <= (plan.lastDrawn ?? n - 1) && ![...(plan.gap ? [plan.gap] : []), ...(plan.gaps ?? [])].some(([a, b]) => p >= a && p < b) // prettier-ignore
     return { pass: p, pos: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, parts: drawn ? [part()] : [], uploads: [], palette: [...acc] } // prettier-ignore
   })
   return {
@@ -230,5 +232,31 @@ describe('runtime palette on the map (#1097)', () => {
   it('marks colors restored after it came back: B was on screen when it left, A is there now', () => {
     const p: Plan = { first: 1, gap: [20, 25], writes: { 0: rung(0), 10: rung(1), 30: rung(0) } }
     expect(draw(run(0x1f, p)).unverified).toMatch(/disappeared partway/)
+  })
+
+  it('checks the colors before every departure, not only the first: A, left, B, left again, A restored', () => {
+    const p: Plan = {
+      first: 1,
+      gaps: [
+        [10, 13],
+        [24, 28],
+      ],
+      writes: { 0: rung(0), 20: rung(1), 30: rung(0) },
+    }
+    expect(draw(run(0x1f, p)).unverified).toMatch(/disappeared partway/)
+  })
+
+  it('marks a lone update that came before the first draw', () => {
+    expect(draw(run(0x1f, { first: 30, writes: { 10: rung(0) } })).unverified).toMatch(/only once/)
+  })
+
+  it('marks changes that are short of the 16-pass tail though each gap is shorter than the quiet span', () => {
+    const w = { 40: rung(0), 44: rung(1), 48: rung(2), 52: rung(3) }
+    expect(draw(run(0x1f, { first: 1, writes: w })).unverified).toMatch(/still changing/)
+  })
+
+  it('compares the quiet span with the longest earlier gap, not the first', () => {
+    const w = { 2: rung(0), 5: rung(1), 35: rung(2), 38: rung(3) }
+    expect(draw(run(0x1f, { first: 1, writes: w })).unverified).toMatch(/still changing/)
   })
 })
