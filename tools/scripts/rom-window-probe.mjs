@@ -16,7 +16,6 @@ import {
   bytesHits,
   commentMode,
   locateVanillaRom,
-  maskHits,
   textHits,
   windowSet,
 } from './lib/rom-windows.mjs'
@@ -53,21 +52,15 @@ const results = []
 const printHits = () => {
   let withHits = 0
   let windows = 0
-  let masks = 0
   for (const { path, hits, binary } of results) {
     if (hits.length) withHits++
     for (const h of hits) {
-      if (h.slices) {
-        masks++
-        console.log(`MASK ${path}:${h.at} slices=${h.slices}`)
-        continue
-      }
       windows += h.windows
       const where = binary ? ` offset=0x${h.at.toString(16)}` : `:${h.at}`
       console.log(`HIT ${path}${where} windows=${h.windows}`)
     }
   }
-  return { withHits, windows, masks }
+  return { withHits, windows }
 }
 const fail = msg => {
   printHits()
@@ -88,11 +81,6 @@ if (!existsSync(romFile))
       : `SKIP: vanilla ROM not found (looked: ${romFile}); nothing was checked`,
   )
 const set = windowSet(readFileSync(romFile))
-// Window hits plus masked-array hits (null, undefined or ?? in a stored array), the same core as the gate.
-const textAll = (text, path) => [
-  ...textHits(text, set, 1, undefined, commentMode(path)),
-  ...maskHits(text, set, 1, commentMode(path)),
-]
 
 const git = gitArgs =>
   execFileSync('git', ['-C', repo, '-c', 'core.quotePath=false', ...gitArgs], {
@@ -156,8 +144,8 @@ function scanRange(spec) {
     if (added === '-') results.push({ path, hits: bytesHits(blob, set), binary: true })
     else {
       const ranges = addedRanges(revs, path)
-      const hits = textAll(blob.toString('latin1'), path).filter(h =>
-        ranges.some(([a, b]) => h.at <= b && h.end >= a),
+      const hits = textHits(blob.toString('latin1'), set, 1, undefined, commentMode(path)).filter(
+        h => ranges.some(([a, b]) => h.at <= b && h.end >= a),
       )
       results.push({ path, hits, binary: false })
     }
@@ -180,7 +168,9 @@ function scanUntracked() {
   for (const path of list.toString('utf8').split('\0').filter(Boolean)) {
     const blob = readFileSync(join(top, path))
     const binary = blob.subarray(0, 8000).includes(0)
-    const hits = binary ? bytesHits(blob, set) : textAll(blob.toString('latin1'), path)
+    const hits = binary
+      ? bytesHits(blob, set)
+      : textHits(blob.toString('latin1'), set, 1, undefined, commentMode(path))
     results.push({ path, hits, binary })
   }
 }
@@ -193,11 +183,11 @@ if (range) {
     results.push({
       path,
       binary: bin,
-      hits: bin ? bytesHits(readFileSync(path), set) : textAll(readFileSync(path, 'utf8'), path),
+      hits: bin
+        ? bytesHits(readFileSync(path), set)
+        : textHits(readFileSync(path, 'utf8'), set, 1, undefined, commentMode(path)),
     })
 
-const { withHits, windows, masks } = printHits()
-console.log(
-  `TOTAL files=${results.length} filesWithHits=${withHits} hitWindows=${windows} maskHits=${masks}`,
-)
-process.exit(windows || masks ? 1 : 0)
+const { withHits, windows } = printHits()
+console.log(`TOTAL files=${results.length} filesWithHits=${withHits} hitWindows=${windows}`)
+process.exit(windows ? 1 : 0)

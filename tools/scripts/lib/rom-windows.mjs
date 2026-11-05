@@ -39,9 +39,6 @@ export function windowSet(rom, width = WINDOW_BYTES) {
     const w = body.subarray(i, i + width)
     if (isCandidate(w)) set.add(key(w))
   }
-  // The masked-array rule (maskHits) matches at relative positions, which windows cannot express,
-  // so the lookup also carries the ROM body. A has()-only lookup simply skips that rule.
-  set.body = body
   return set
 }
 
@@ -69,13 +66,9 @@ export const bytesHits = (bytes, set, width = WINDOW_BYTES) => hitRuns(bytes, i 
 
 // One token class: 0x.. or $.. with 1-2 hex digits, bare 2-digit hex, decimal 0-999
 // (over 255 ends the run). A digits-only 2-char token next to a comma is decimal.
-const BYTE = String.raw`0[xX]([0-9a-fA-F]{1,2})|\$([0-9a-fA-F]{1,2})|([0-9a-fA-F]{2})|(\d{1,3})`
-const TOKEN = new RegExp(String.raw`(?<![\w.$])(?:${BYTE})(?![\w.])`, 'g')
-// Mask mode adds the wildcards null, undefined and ?? (group 5; a quoted '??' is the same token between
-// quotes, which SEP_M allows as separators). `a ?? b` between two byte literals is not real code.
-const TOKEN_M = new RegExp(String.raw`(?<![\w.$?])(?:${BYTE}|(null|undefined|\?\?))(?![\w.?])`, 'g')
+const TOKEN =
+  /(?<![\w.$])(?:0[xX]([0-9a-fA-F]{1,2})|\$([0-9a-fA-F]{1,2})|([0-9a-fA-F]{2})|(\d{1,3}))(?![\w.])/g
 const SEP = /^[\s,;[\]()|]*$/
-const SEP_M = /^[\s,;[\]()|'"]*$/
 
 // Comments are read only where the language has them: // and block comments in JS/TS, a
 // semicolon in asm, nothing elsewhere (markdown, Lua, ...).
@@ -119,9 +112,8 @@ export function stripComments(t, mode = 'js') {
 }
 
 /** Byte runs in `text` as `{ bytes, lines }`; a run is byte tokens separated
- *  only by whitespace, , ; [ ] ( ) | and comments. `base` numbers the first line.
- *  With `masks`, a wildcard is a -1 inside the run instead of ending it. */
-export function textRuns(text, base = 1, mode = 'js', masks = false) {
+ *  only by whitespace, , ; [ ] ( ) | and comments. `base` numbers the first line. */
+export function textRuns(text, base = 1, mode = 'js') {
   let src = stripComments(text, mode)
   // An asm data directive joins the lines of a table; as a word it would read as the byte 0xDB.
   if (mode === 'asm')
@@ -141,27 +133,24 @@ export function textRuns(text, base = 1, mode = 'js', masks = false) {
     }
     return line
   }
-  const sep = masks ? SEP_M : SEP
-  const toks = [...src.matchAll(masks ? TOKEN_M : TOKEN)]
+  const toks = [...src.matchAll(TOKEN)]
   const runs = []
   let cur = null
   toks.forEach((m, i) => {
     const gap = src.slice(i ? toks[i - 1].index + toks[i - 1][0].length : 0, m.index)
     const nextGap = toks[i + 1] ? src.slice(m.index + m[0].length, toks[i + 1].index) : ''
-    if (!(cur && sep.test(gap))) cur = null
+    if (!(cur && SEP.test(gap))) cur = null
     // Only a comma between two tokens of the same run says "decimal"; one outside the run does not.
     const comma =
-      (cur !== null && gap.includes(',')) || (sep.test(nextGap) && nextGap.includes(','))
+      (cur !== null && gap.includes(',')) || (SEP.test(nextGap) && nextGap.includes(','))
     const v =
-      m[5] !== undefined
-        ? -1
-        : m[1] !== undefined
-          ? parseInt(m[1], 16)
-          : m[2] !== undefined
-            ? parseInt(m[2], 16)
-            : m[3] !== undefined && !(/^\d\d$/.test(m[3]) && comma)
-              ? parseInt(m[3], 16)
-              : parseInt(m[3] ?? m[4], 10)
+      m[1] !== undefined
+        ? parseInt(m[1], 16)
+        : m[2] !== undefined
+          ? parseInt(m[2], 16)
+          : m[3] !== undefined && !(/^\d\d$/.test(m[3]) && comma)
+            ? parseInt(m[3], 16)
+            : parseInt(m[3] ?? m[4], 10)
     if (v > 255) cur = null
     else {
       if (!cur) runs.push((cur = { bytes: [], lines: [] }))
@@ -175,55 +164,3 @@ export function textRuns(text, base = 1, mode = 'js', masks = false) {
 /** Hits in text: `at` is the line of a run's first matching window. */
 export const textHits = (text, set, base = 1, width = WINDOW_BYTES, mode = 'js') =>
   textRuns(text, base, mode).flatMap(r => hitRuns(r.bytes, i => r.lines[i], set, width))
-
-export const MIN_MASK_FIXED = 6
-
-/** Does `vals` sit in `body` with its bytes at the relative offsets `rel`? Brute force: it only
- *  runs for masked runs in added files. */
-function inBody(body, rel, vals) {
-  const last = rel[rel.length - 1]
-  for (
-    let p = body.indexOf(vals[0]);
-    p >= 0 && p + last < body.length;
-    p = body.indexOf(vals[0], p + 1)
-  )
-    if (rel.every((o, k) => body[p + o] === vals[k])) return true
-  return false
-}
-
-/** Masked arrays (#1053): a stored array with null, undefined or '??' where operands go defeats the
- *  8-byte window rule, since a wildcard ends a run. Slide over each masked run; every slice holding
- *  exactly MIN_MASK_FIXED fixed bytes (at least 3 distinct, wildcards between them, none at the ends)
- *  is a hit when its fixed bytes sit in the ROM body at those relative positions. Overlapping hit
- *  slices merge into one `{ at, end, slices }` (lines, never bytes). Needs `lookup.body`. */
-export function maskHits(text, lookup, base = 1, mode = 'js', need = MIN_MASK_FIXED) {
-  const body = lookup?.body
-  if (!body) return []
-  const out = []
-  for (const r of textRuns(text, base, mode, true)) {
-    if (!r.bytes.includes(-1)) continue
-    const fixed = r.bytes.flatMap((b, i) => (b < 0 ? [] : [i]))
-    let open = null
-    for (let s = 0; s + need <= fixed.length; s++) {
-      const idx = fixed.slice(s, s + need)
-      const vals = idx.map(i => r.bytes[i])
-      const hit =
-        new Set(vals).size >= 3 &&
-        inBody(
-          body,
-          idx.map(i => i - idx[0]),
-          vals,
-        )
-      if (!hit) open = null
-      else if (open && idx[0] <= open.lastIdx) {
-        open.slices++
-        open.lastIdx = idx[idx.length - 1]
-        open.end = r.lines[open.lastIdx]
-      } else {
-        const lastIdx = idx[idx.length - 1]
-        out.push((open = { at: r.lines[idx[0]], end: r.lines[lastIdx], slices: 1, lastIdx }))
-      }
-    }
-  }
-  return out.map(({ at, end, slices }) => ({ at, end, slices }))
-}

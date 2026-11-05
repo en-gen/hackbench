@@ -15,7 +15,7 @@
 import { spawnSync } from 'node:child_process'
 import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { commentMode, locateVanillaRom, maskHits, textHits, windowSet } from './lib/rom-windows.mjs'
+import { commentMode, locateVanillaRom, textHits, windowSet } from './lib/rom-windows.mjs'
 
 // ---------------------------------------------------------------------------
 // Rules (docs/testing.md has the prose version)
@@ -447,41 +447,31 @@ export function checkBlob(rawPath, buf) {
 const isScannableText = (path, buf) =>
   buf.length <= OVERSIZE_THRESHOLD && !isBinary(buf) && !isLockfile(normalizePath(path))
 
-/** Which entries the ROM rules read: files ADDED in the net diff (`added` holds `path NUL blob`),
+/** Which entries the ROM-window rule reads: files ADDED in the net diff (`added` holds `path NUL blob`),
  * outside .md, never in whole-history mode. A modified file would be judged on lines it did not add
  * (101 of 1,512 files on develop already hold a run, 2026-10-28), and a merge of develop lists
  * develop's old files as added in `git log -m`, so an edit or a merge would fail on old content.
  * Markdown prose lists addresses, not fixture bytes. */
-const romRulesApply = (e, buf, whole, added) =>
+const romWindowApplies = (e, buf, whole, added) =>
   !whole &&
   added.has(`${e.path}\0${e.blob}`) &&
   !/.md$/i.test(e.path) &&
   isScannableText(e.path, buf)
 
-/** ROM rules (#1053) on one text file. `rom-window`: a run of byte notation holding an 8-byte window
- * of the vanilla ROM. `rom-mask`: a masked array (null, undefined, '??') whose fixed bytes sit in the
- * ROM at those relative positions. `lookup` has `has(windowKey)` and, for rom-mask, `body`. Reports
- * lines and counts, never bytes. */
+/** ROM-window rule (#1053): a run of byte notation in a text file that matches an 8-byte window
+ * of the vanilla ROM. `lookup` is any object with `has(windowKey)` (see hitRuns in
+ * lib/rom-windows.mjs). Reports the line and window count, never the bytes. A masked array (null
+ * between the bytes) is not seen: the null ends the run. */
 export function checkRomWindows(path, buf, lookup) {
   if (!lookup || !isScannableText(path, buf)) return []
-  const text = buf.toString('utf8')
-  const mode = commentMode(path)
-  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`
-  return [
-    ...textHits(text, lookup, 1, undefined, mode).map(h => ({
-      rule: 'rom-window',
-      path,
-      where: `line ${h.at}, ${plural(h.windows, 'window')}`,
-    })),
-    ...maskHits(text, lookup, 1, mode).map(h => ({
-      rule: 'rom-mask',
-      path,
-      where: `line ${h.at}, ${plural(h.slices, 'slice')}`,
-    })),
-  ]
+  return textHits(buf.toString('utf8'), lookup, 1, undefined, commentMode(path)).map(h => ({
+    rule: 'rom-window',
+    path,
+    where: `line ${h.at}, ${h.windows} window${h.windows === 1 ? '' : 's'}`,
+  }))
 }
 
-/** Combines checkPath + checkBlob (+ the ROM rules when `lookup` is given) for one entry. */
+/** Combines checkPath + checkBlob (+ the ROM-window rule when `lookup` is given) for one entry. */
 export function evaluateEntry(path, buf, lookup = null) {
   return [...checkPath(path), ...checkBlob(path, buf), ...checkRomWindows(path, buf, lookup)]
 }
@@ -489,7 +479,7 @@ export function evaluateEntry(path, buf, lookup = null) {
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 
 /** THE one place the lookup is chosen: the real vanilla ROM, only where one is present (D155: no
- * committed hash set). With none the ROM rules do not run, and main() says so. */
+ * committed hash set). With none the ROM-window rule does not run, and main() says so. */
 export function romWindowLookup(env = process.env) {
   const rom = locateVanillaRom(env, REPO_ROOT)
   return existsSync(rom) ? windowSet(readFileSync(rom)) : null
@@ -830,7 +820,7 @@ function evaluateEntries(entries, messages = [], whole = false, added = new Set(
     for (const e of list) {
       if (!blobs.has(e.blob)) continue
       const buf = blobs.get(e.blob)
-      const lk = romRulesApply(e, buf, whole, added) ? lookupOnce() : null
+      const lk = romWindowApplies(e, buf, whole, added) ? lookupOnce() : null
       for (const hit of evaluateEntry(e.path, buf, lk))
         hits.push({ ...hit, commit: e.commit, blob: e.blob })
     }
@@ -1129,10 +1119,10 @@ function dedupeReport(hits) {
 
 function main(argv) {
   const [mode, ...rest] = argv
-  // History mode never applies the ROM rules; every other mode must say when they could not run.
+  // History mode never applies the ROM-window rule; every other mode must say when it could not run.
   if (mode !== 'history' && !existsSync(locateVanillaRom(process.env, REPO_ROOT)))
     process.stderr.write(
-      'check-content: rom-window and rom-mask rules DID NOT RUN: no vanilla ROM found; added files were NOT checked for ROM bytes\n',
+      'check-content: rom-window rule DID NOT RUN: no vanilla ROM found; added files were NOT checked for ROM bytes\n',
     )
   let hits
   if (mode === 'staged') {

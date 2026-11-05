@@ -207,18 +207,6 @@ describe('CLI', () => {
     expect(r.stdout).toContain('TOTAL files=1 filesWithHits=1 hitWindows=1')
     expect(r.stdout).not.toContain(hex(ROM.subarray(500, 508)))
   })
-  it('reports a masked array as a MASK line, counts only, and exits 1', () => {
-    const fixed = Array.from({ length: 6 }, (_, k) => `0x${ROM[700 + 2 * k]!.toString(16)}`)
-    const masked = put(
-      'mask.txt',
-      `x = [${fixed.join(', null, ')}]
-`,
-    )
-    const r = probe(['--rom', romFile, masked])
-    expect(r.status).toBe(1)
-    expect(r.stdout).toContain(`MASK ${masked}:1 slices=1`)
-    expect(r.stdout).toContain('hitWindows=0 maskHits=1')
-  })
   it('exits 0 when clean', () => {
     const r = probe(['--rom', romFile, clean])
     expect(r.status).toBe(0)
@@ -382,7 +370,7 @@ y
     const out = r.stdout.split('\n')
     it('exits 1 and counts every touched file', () => {
       expect(r.status).toBe(1)
-      expect(out).toContain('TOTAL files=8 filesWithHits=5 hitWindows=6 maskHits=0')
+      expect(out).toContain('TOTAL files=8 filesWithHits=5 hitWindows=6')
     })
     it('finds both hunks of one file', () => {
       expect(out).toContain('HIT two.txt:1 windows=1')

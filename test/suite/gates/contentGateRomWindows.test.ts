@@ -2,7 +2,7 @@
  * The content gate's ROM-window rule (#1053): an added text file holding a run that matches an
  * 8-byte window of the vanilla ROM is blocked. Every ROM in the synthetic half is PRNG bytes built
  * in the test, so it runs in CI with no corpus; the real-ROM half is gated on it. Planted bytes are
- * generated at test time and never printed or committed. The hashed no-ROM lookup is held for D155.
+ * generated at test time and never printed or committed.
  */
 import { spawnSync } from 'node:child_process'
 import {
@@ -174,7 +174,7 @@ describe(
       mkdirSync(noRom, { recursive: true })
       const green = staged(dir, noRom)
       expect(green.status).toBe(0)
-      expect(green.stderr.toString()).toMatch(/rules DID NOT RUN: no vanilla ROM/)
+      expect(green.stderr.toString()).toMatch(/rule DID NOT RUN: no vanilla ROM/)
 
       // A modified file is not judged: only added files are (old content would fail every edit).
       const g = (...x: string[]) => spawnSync('git', x, { cwd: dir })
@@ -253,20 +253,6 @@ describe('rom-window rule judges the net added files of a range', { timeout: 600
     expect(red.stdout.toString()).not.toContain('theirs.ts')
   })
 
-  it('rom-mask is judged in the same places: an added non-markdown file, not a .md', () => {
-    const { dir, g } = repo()
-    const fixed = Array.from({ length: 6 }, (_, k) => `0x${h2(rom[at + 2 * k]!)}`)
-    const body = `export const s = [${fixed.join(', null, ')}]
-`
-    writeFileSync(join(dir, 'masked.ts'), body)
-    writeFileSync(join(dir, 'masked.md'), body)
-    g('add', '-A')
-    g('commit', '-q', '-m', 'masked')
-    const out = range(dir, 'develop').stdout.toString()
-    expect(out).toMatch(/BLOCKED \(rom-mask\): masked\.ts line 1, 1 slice/)
-    expect(out).not.toContain('masked.md')
-  })
-
   it('a file added then edited in the range is judged on its final content', () => {
     const { dir, g } = repo()
     writeFileSync(join(dir, 'late.ts'), 'export const b = 1\n')
@@ -320,87 +306,9 @@ describe('rom-window rule judges the net added files of a range', { timeout: 600
     const r = range(dir, 'develop', none)
     for (const out of [s, r]) {
       expect(out.status).toBe(0)
-      expect(out.stderr.toString()).toMatch(
-        /rom-window and rom-mask rules DID NOT RUN: no vanilla ROM/,
-      )
+      expect(out.stderr.toString()).toMatch(/rom-window rule DID NOT RUN: no vanilla ROM/)
       expect(out.stdout.toString() + out.stderr.toString()).not.toMatch(/\b(clean|passed|ok)\b/i)
     }
-  })
-})
-
-describe('rom-mask rule: masked arrays on a synthetic PRNG ROM', () => {
-  const rom = prng(4096, 0x6a5c)
-  const set = windowSet(rom)
-  // Fixed bytes taken from the ROM two apart, so each pair has one wildcard between; chosen with >= 3 distinct.
-  const planted = (n: number, from = 300): number[] => {
-    for (let at = from; ; at++) {
-      const v = Array.from({ length: n }, (_, k) => rom[at + 2 * k]!)
-      if (new Set(v).size >= 3) return v
-    }
-  }
-  const x2 = (b: number) => `0x${h2(b)}`
-  const FORMS: Record<string, (v: number[]) => string> = {
-    null: v => `export const s = [${v.map(x2).join(', null, ')}]\n`,
-    undefined: v => `export const s = [${v.map(x2).join(', undefined, ')}]\n`,
-    'quoted ??': v => `export const s = [${v.map(b => `'${x2(b)}'`).join(", '??', ")}]\n`,
-    'string ??': v => `export const s = "${v.map(h2).join(' ?? ')}"\n`,
-  }
-  const FORM_NAMES = Object.keys(FORMS)
-  const scan = (t: string, lookup = set) => checkRomWindows('f.ts', Buffer.from(t), lookup)
-
-  it.each(FORM_NAMES)('6 fixed bytes in %s form is red, naming line and slice count', f => {
-    const hits = scan(`// h\n${FORMS[f]!(planted(6))}`)
-    expect(hits).toEqual([{ rule: 'rom-mask', path: 'f.ts', where: 'line 2, 1 slice' }])
-  })
-
-  it.each(FORM_NAMES)('5 fixed bytes, invented bytes and no match in %s form pass', f => {
-    expect(scan(FORMS[f]!(planted(5)))).toEqual([])
-    expect(scan(FORMS[f]!(planted(6).map(b => (b ^ 0x55) | 1)))).toEqual([])
-  })
-
-  it('a mask with fewer than 3 distinct fixed values passes even when the ROM holds it', () => {
-    const low = prng(256, 9)
-    const loop = [1, 2, 1, 2, 1, 2]
-    loop.forEach((b, k) => (low[40 + 2 * k] = b))
-    const three = [5, 6, 7, 5, 6, 7]
-    three.forEach((b, k) => (low[100 + 2 * k] = b))
-    const lowSet = windowSet(low)
-    for (const f of FORM_NAMES) {
-      expect(scan(FORMS[f]!(loop), lowSet), f).toEqual([])
-      expect(scan(FORMS[f]!(three), lowSet), f).toHaveLength(1)
-    }
-  })
-
-  it('one altered byte in a 12-byte array still hits; overlapping slices merge into one hit', () => {
-    const v = planted(12)
-    for (const f of FORM_NAMES) {
-      expect(scan(FORMS[f]!(v)), f).toEqual([{ rule: 'rom-mask', path: 'f.ts', where: 'line 1, 7 slices' }]) // prettier-ignore
-      const altered = v.slice()
-      altered[5] = (altered[5]! ^ 0x55) | 1
-      expect(scan(FORMS[f]!(altered)), f).toEqual([{ rule: 'rom-mask', path: 'f.ts', where: 'line 1, 1 slice' }]) // prettier-ignore
-    }
-  })
-
-  it('wildcard-only and unmasked runs do not reach the rule', () => {
-    expect(scan('export const s = [null, null, null, null, null, null, null, null]\n')).toEqual([])
-    const v = planted(6, 800)
-    // Contiguous bytes of the ROM: 6 long, under the 8-byte window rule, and no wildcard.
-    const contiguous = Array.from(rom.subarray(900, 906))
-    expect(scan(`export const s = [${contiguous.map(x2).join(', ')}]\n`)).toEqual([])
-    expect(scan(`export const s = [${v.map(x2).join(', ')}]\n`)).toEqual([])
-  })
-
-  it('a lookup with only has() skips the rule, and a comment hides nothing it should not', () => {
-    const only = { has: (k: string) => set.has(k) }
-    expect(scan(FORMS.null!(planted(6)), only as never)).toEqual([])
-    expect(scan(`// ${FORMS.null!(planted(6))}`)).toEqual([])
-  })
-
-  // Smoke test (a planted defect, not coverage): red with the plant, green with it removed.
-  it('goes red on the plant and green with the plant removed', () => {
-    const file = (v: number[]) => `export const a = 1\n${FORMS.null!(v)}export const b = 2\n`
-    expect(scan(file(planted(8))).map(h => h.rule)).toEqual(['rom-mask'])
-    expect(scan(file(planted(8).map(b => (b ^ 0x55) | 1)))).toEqual([])
   })
 })
 

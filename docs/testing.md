@@ -58,27 +58,38 @@ elements mixed in counts toward `byte-tokens` too.
 `rom-window` (#1053): an ADDED text file (not `.md`) with a run of byte notation
 (`0x` and `$` tokens, bare hex pairs, `\x` escapes, unbroken hex strings; the
 parser of the ROM-window probe below) that contains an 8-byte window of the
-vanilla ROM, windows with fewer than 3 distinct values, a constant step (a ramp) or
-a repeat of period 2 to 4 ignored (they occur in any ROM; the cost is that a copied
-table which is itself a pure ramp or short loop is not seen). It prints
-`BLOCKED (rom-window): <path> line N, M windows`, never the bytes, and exits 1
-like every other rule. **With a ROM** (found by `corpus.cjs`, so
-`HACKBENCH_ROMS` applies) the windows come from the real ROM. **Without one
-(CI)** the rule prints `rom-window rule not checked: no ROM` on stderr and
-passes; the committed hashed-window set that would cover CI waits on owner ruling
-D155 (copyright weight of committing a fingerprint of every vanilla window), so
-today only local runs enforce it. The lookup is chosen in one function
-(`romWindowLookup`) and `bytesHits` takes any object with `has()`, so that set
-drops in later. Not applied to: modified files (101 of 1,512 files on develop
-already hold a run, so an edit would fail on old content), whole-history mode
-(red forever for the same reason), and `.md` (prose lists addresses). Evidence
-scope, one machine, 2026-10-28: of the 1,249 non-`.md` files on develop, 71 hold
-a run (existing fixtures, tests and sources; 20 of them a 16+ byte contiguous
-match); across the 24 other remote branches, 3 added files hold one.
-`test/suite/gates/contentGateRomWindows.test.ts` proves it red on planted runs in
-each notation with a fake PRNG ROM (CI) and the real ROM (local), and sweeps every
-synthetic ROM builder in `test/suite/support` against the vanilla windows (4a);
-ten builders carry a pinned, known count today.
+vanilla ROM. Windows with fewer than 3 distinct values, a constant step (a ramp)
+or a repeat of period 2 to 4 are ignored, since any ROM has them; the cost is
+that a copied table which is itself a pure ramp or short loop is not seen. It
+prints `BLOCKED (rom-window): <path> line N, M windows`, never the bytes, and
+exits 1 like every other rule.
+
+- **Local only.** The windows come from the real vanilla ROM (found by
+  `corpus.cjs`, so `HACKBENCH_ROMS` applies). With no ROM (CI) the rule does not
+  run: every mode except `history` prints `rom-window rule DID NOT RUN` on
+  stderr, and the other checks go on as before. No hash set of ROM windows is
+  committed (ruling D155).
+- **Added in the net diff.** In `range` and `push` mode a file counts only if it
+  is added in the net diff (`range`: base to head; `push`: against the merge-base
+  with what the remote has; `--no-renames`, so a rename counts as added), because
+  the per-commit walk (`git log -m`) lists develop's old files as added after
+  develop is merged into a branch. `staged` uses the cached status. Modified
+  files are not judged (they would fail on old content), and neither is `history`
+  mode or `.md` (prose lists addresses, not fixture bytes).
+- **Known limit.** A masked array (`null` between the bytes) is not seen: the
+  `null` ends the run. That gap has its own follow-up work.
+- **Evidence** (2026-11-05, one machine, vanilla US): of the 1,297 non-`.md` text
+  files on develop, 71 hold a run, 1,166 windows. The 3 open PR heads add no
+  file with a run. I have not classified the 71 as copies or legitimate.
+- **Ratchet** (D157). The synthetic ROM builders in `test/suite/support` each
+  carry a pinned count of vanilla windows (11 of 24 are non-zero today); a count
+  that changes fails, a builder missing from the pin fails, and every support
+  module must be listed as a host of a builder or helper-only. Counts fall to 0
+  through #1253.
+
+`test/suite/gates/contentGateRomWindows.test.ts` proves the rule red on planted
+runs in each notation with a fake PRNG ROM (CI) and the real ROM (local), and
+the net-added behavior in throwaway repos.
 
 Modes: `staged` (no hook runs it since #1183), `range BASE HEAD` (CI),
 `push REMOTE`
