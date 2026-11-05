@@ -964,10 +964,19 @@ const terminated = (data: Uint8Array) => {
   return false
 }
 
-/** The map-level line for sprites drawn without the ROM-run level state: they are shown, flagged. */
-const unverifiedNote = (sprites: readonly MapSpriteDto[]) => {
-  const u = sprites.find(s => s.unverified)?.unverified
-  return u ? `Unverified: ${sprites.filter(s => s.unverified).length} sprites ${u}.` : undefined
+/**
+ * The map-level line for sprites drawn without the ROM-run level state: shown, flagged. The line is plain words;
+ * every distinct cause (the loader's refusal, a memory setting, an earlier sprite) goes in `detail`, one per line,
+ * for the tooltip. Joined by newline, not `; `, because one cause can hold a `;` itself (#1166).
+ */
+export const unverifiedNote = (sprites: readonly MapSpriteDto[]) => {
+  const flagged = sprites.filter(s => s.unverified)
+  if (flagged.length === 0) return undefined
+  const n = flagged.length
+  return {
+    note: `Unverified: ${n} ${n === 1 ? 'sprite' : 'sprites'} may not be drawn exactly as in the game.`,
+    detail: [...new Set(flagged.map(s => s.unverified!))].join('\n'),
+  }
 }
 
 /** Placeholders drawn because the sprite may not be the vanilla one: the id's vanilla name would be a guess. */
@@ -994,6 +1003,7 @@ export function spriteLayer(
   const sprites = drawSprites(parseLevelSprites(data, model.isVertical), model, draw, dynamic).map(
     named,
   )
+  const unverified = unverifiedNote(sprites)
   return {
     status: 'ok',
     orientation: model.isVertical ? 'vertical' : 'horizontal',
@@ -1006,11 +1016,12 @@ export function spriteLayer(
         terminated(data)
           ? undefined
           : 'The sprite stream has no end marker in the bytes read: sprites past them are not drawn.',
-        unverifiedNote(sprites),
+        unverified?.note,
         ...new Set(sprites.flatMap(s => (s.note ? [s.note] : []))),
       ]
         .filter(Boolean)
         .join(' ') || undefined,
+    ...(unverified ? { noteDetail: unverified.detail } : {}),
   }
 }
 
@@ -1055,6 +1066,23 @@ const dynamicOf = (rom: RomFile) => (n: PaletteNote) => {
   return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore
 }
 
+/**
+ * The sprite layer with the castle flames folded in: their sprites appended, their note after the layer's on the
+ * visible line, and the two technical details kept apart, one per line, so neither is lost (#1166).
+ */
+export function withFlames(
+  layer: Extract<MapSpritesResult, { status: 'ok' }>,
+  flames: ReturnType<typeof castleFlameSprites>,
+): Extract<MapSpritesResult, { status: 'ok' }> {
+  const detail = [layer.noteDetail, flames.noteDetail].filter(Boolean).join('\n')
+  return {
+    ...layer,
+    sprites: [...layer.sprites, ...flames.sprites],
+    note: [layer.note, flames.note].filter(Boolean).join(' ') || undefined,
+    ...(detail ? { noteDetail: detail } : {}),
+  }
+}
+
 /** Runs the sprite interpreter at rest for every placed sprite on one map and folds the results into the served model; a Layer 1 refusal passes through as plain words with detail (#967). */
 function compute(
   cache: L1ModelCache,
@@ -1083,12 +1111,7 @@ function compute(
     const layer = spriteLayer(data, withUploads, draw, dynamic)
     const flames = castleFlameSprites(rom.rom, base, stream, model, model.l2?.ok ? model.l2.l2.dy : undefined, dynamic) // prettier-ignore
     if (flames.sprites.length === 0 && !flames.note) return layer
-    return {
-      ...layer,
-      sprites: [...layer.sprites, ...flames.sprites],
-      note: [layer.note, flames.note].filter(Boolean).join(' ') || undefined,
-      ...(flames.noteDetail ? { noteDetail: flames.noteDetail } : {}),
-    }
+    return withFlames(layer, flames)
   } catch (err) {
     return unreadable((err as Error).message)
   }

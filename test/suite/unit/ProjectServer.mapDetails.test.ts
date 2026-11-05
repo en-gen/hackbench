@@ -162,6 +162,51 @@ describe.skipIf(!theiaInstalled)('ProjectServiceImpl.mapDetails - wiring', () =>
     }
   })
 
+  it('mapBeyond hands the model cache this map index, flags and switches, and the screen asked for (#1197)', async () => {
+    const fs = await import('fs')
+    const path = await import('path')
+    const { ProjectServiceImpl } = await import('../../../theia/extension/src/node/project-server')
+    const { RomRegistry } = await import('../../../src/project/RomRegistry')
+    const { RecentProjects } = await import('../../../src/project/RecentProjects')
+    const { WorkingRomRegistry } = await import('../../../src/project/WorkingRomRegistry')
+    const { hGrid, inputs, sub, tile } = await import('../support/mapInputs')
+
+    const tmp = fs.mkdtempSync(join(os.tmpdir(), 'hb-mapbeyond-'))
+    try {
+      const buf = Buffer.alloc(0x40000, 0x00)
+      buf[0x7fd5] = 0x20
+      const romPath = path.join(tmp, 'synthetic.sfc')
+      new RomFile(romPath, buf).saveAs(romPath)
+      const service = new ProjectServiceImpl()
+      const s = service as unknown as { workingRoms: unknown; recent: unknown; screens: unknown }
+      s.workingRoms = new WorkingRomRegistry(new RomRegistry(path.join(tmp, 'registry.json')))
+      s.recent = new RecentProjects(path.join(tmp, 'recent.json'))
+      const project = await service.createProject({ romPath, name: 'Proj', directory: path.join(tmp, 'Proj') }) // prettier-ignore
+
+      // A two-screen map whose Layer 2 plane holds tile 2, which is blank until the blue switch is on.
+      const plane = Array.from({ length: 32 }, () => new Array<number | null>(32).fill(null))
+      plane[0]![0] = 2
+      const tiles = [undefined, undefined, tile(2, [sub(5), sub(5), sub(5), sub(5)])]
+      const model = { ...inputs(hGrid(2), false, 2), l2: { ok: true as const, l2: { kind: 'image' as const, grid: [], plane, tiles, dy: 0 } } } // prettier-ignore
+      const asked: unknown[][] = []
+      s.screens = { useBanks: () => undefined, get: (_bytes: unknown, _rom: unknown, index: number, flags: unknown) => (asked.push([index, flags]), { ok: true, inputs: model }) } // prettier-ignore
+
+      const flags = { green: true, yellow: false, blue: true, red: false }
+      const off = { blue: false, silver: false, onOff: false }
+      const [hidden, shown] = [
+        await service.mapBeyond(project.manifestPath, 0x105, 2, flags, off),
+        await service.mapBeyond(project.manifestPath, 0x105, 2, flags, { ...off, blue: true }),
+      ]
+      expect(asked).toEqual([[0x105, flags], [0x105, flags]]) // prettier-ignore
+      if (hidden.status !== 'ok' || shown.status !== 'ok') throw new Error('refused')
+      expect([hidden.screen, hidden.planes.l2Low, shown.planes.l2Low === null]).toEqual([2, null, false]) // prettier-ignore
+      // An index in the screen slot would ask for screen $105, far past the 33 allowed.
+      expect((await service.mapBeyond(project.manifestPath, 0x105, 1, flags, off)).status).toBe('unavailable') // prettier-ignore
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
   it('answers rom-not-located, not a throw, when the manifest names a ROM this machine lacks (#786)', async () => {
     const fs = await import('fs')
     const path = await import('path')

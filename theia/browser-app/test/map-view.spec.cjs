@@ -3404,11 +3404,11 @@ const tooltip = (page, control) =>
     .first()
     .getAttribute('title')
 const overlayCases = [
-  ['mapSprites', 'layer-sprites', 'Sprites unavailable: '],
-  ['mapCollisionCheck', 'collision-toggle', 'Collision unavailable: '],
-  ['mapPalaceIcons', 'switch-blue', 'Blue P-switch: '],
+  ['mapSprites', 'layer-sprites', 'Sprites unavailable: ', `Sprites unavailable: ${JUST_NOW}`],
+  ['mapCollisionCheck', 'collision-toggle', 'Collision unavailable: ', `Collision unavailable: ${JUST_NOW}`], // prettier-ignore
+  ['mapPalaceIcons', 'switch-blue', 'Blue P-switch: ', 'Blue P-switch'],
 ]
-for (const [method, control, lead] of overlayCases) {
+for (const [method, control, lead, ariaName] of overlayCases) {
   test(`a rejected ${method} says it in plain words, the exception on the second tooltip line (#967)`, async ({
     page,
   }) => {
@@ -3422,6 +3422,7 @@ for (const [method, control, lead] of overlayCases) {
     // The accessible name is the plain words alone, never the exception.
     const name = await page.locator(`${root(0x105)} [data-control="${control}"]`).first().getAttribute('aria-label') // prettier-ignore
     expect(name).not.toContain('planted-786')
+    expect(name).toBe(ariaName)
   })
 }
 
@@ -3524,6 +3525,100 @@ test('a note on the sprites carries its technical text on the title only (#967)'
   const el = page.locator(`${root(0x105)} [data-note="sprites"]`)
   await expect(el).toHaveText(note)
   await expect(el).toHaveAttribute('title', 'the flame spawn routine is not the vanilla shape')
+})
+
+/** Two different causes, so a tooltip that kept only the first would fail; the first holds a `; ` because real causes do and the list must not split on it (#1166). */
+const UNVERIFIED_CAUSES = ['planted cause one; with a semicolon', 'planted cause two']
+/** Distinct causes plus 1x1 clear bitmaps isolate the tooltip and accessible-name checks from pixel rendering (#1166). */
+const unverifiedReply = () => ({
+  status: 'ok',
+  orientation: 'horizontal',
+  screenCount: 1,
+  width: 256,
+  height: 432,
+  sprites: UNVERIFIED_CAUSES.map((unverified, index) => ({
+    index,
+    id: 0x20,
+    x: 16 * index,
+    y: 16,
+    box: { x0: 16 * index, y0: 16, x1: 16 * index + 1, y1: 17 },
+    rgba: 'AAAAAA==',
+    status: 'placeholder',
+    reason: 'refused: planted',
+    unverified,
+  })),
+  note: 'Unverified: 2 sprites may not be drawn exactly as in the game.',
+  noteDetail: UNVERIFIED_CAUSES.join('\n'),
+})
+
+test('the unverified note reads in plain words and every cause is on the tooltips (#1166)', async ({
+  page,
+}) => {
+  test.skip(!fs.existsSync(ROM), 'needs a ROM: the map under the served reply is the real one')
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openResolving(page, project.manifestPath, 'mapSprites', unverifiedReply())
+  const el = page.locator(`${root(0x105)} [data-note="sprites"]`)
+  await expect(el).toHaveText('Unverified: 2 sprites may not be drawn exactly as in the game.')
+  await expect(el).toHaveAttribute('title', UNVERIFIED_CAUSES.join('\n'))
+  // The note has no accessible name of its own; the raw text must not become one.
+  expect(await el.getAttribute('aria-label')).toBeNull()
+  const toggle = spriteToggle(page, 0x105)
+  await expect.poll(() => toggle.getAttribute('title')).toContain(UNVERIFIED_CAUSES[1])
+  const [label, ...causes] = (await toggle.getAttribute('title')).split('\n')
+  expect(label).toBe(await toggle.getAttribute('aria-label'))
+  expect(causes.join('\n')).toBe(UNVERIFIED_CAUSES.join('\n'))
+  expect(await toggle.getAttribute('aria-label')).not.toContain('planted')
+})
+
+test('a selected unverified sprite shows the plain Properties line, the cause opening by keyboard (#1166)', async ({
+  page,
+}) => {
+  test.skip(!fs.existsSync(ROM), 'needs a ROM: the map under the served reply is the real one')
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openResolving(page, project.manifestPath, 'mapSprites', unverifiedReply())
+  await expect(spriteToggle(page, 0x105)).toBeEnabled()
+  // The map's own selection path (a click's selectSprite); the bitmaps here are clear, so a pointer click has nothing to hit.
+  await page.evaluate(async () => {
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+      index: 0x105,
+    })
+    w.selectSprite(w.sprites.sprites[0])
+  })
+  const panel = page.locator('[id="hackbench.properties"]')
+  const line = panel.locator('[data-field="note"]', { hasText: 'Unverified' })
+  const summary = line.locator('summary')
+  const detail = line.locator('[data-field="note-detail"]')
+  // Closed: the summary reads the plain line, the cause is not visible, and the mouse tooltip still holds it.
+  await expect(summary).toHaveText(
+    'Unverified: this sprite may not be drawn exactly as in the game.',
+  )
+  await expect(detail).toBeHidden()
+  // The title sits on the summary, so it only describes it; on the details it would become the group's name.
+  await expect(summary).toHaveAttribute('title', UNVERIFIED_CAUSES[0])
+  expect(await line.getAttribute('title')).toBeNull()
+  await expect(summary).toHaveAccessibleName(
+    'Unverified: this sprite may not be drawn exactly as in the game.',
+  )
+  await expect(line).not.toHaveAccessibleName(/planted cause/)
+  expect(await line.getAttribute('aria-label')).toBeNull()
+  expect(await summary.getAttribute('aria-label')).toBeNull()
+  // Keyboard: focus the summary and press Enter; the cause opens beneath it.
+  await summary.focus()
+  await page.keyboard.press('Enter')
+  await expect(detail).toBeVisible()
+  await expect(detail).toHaveText(UNVERIFIED_CAUSES[0])
+  await expect(summary).toHaveText(
+    'Unverified: this sprite may not be drawn exactly as in the game.',
+  )
+  // Selecting the other unverified sprite shows a closed note: its line is the same text, so the disclosure must not carry over.
+  await page.evaluate(async () => {
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+      index: 0x105,
+    })
+    w.selectSprite(w.sprites.sprites[1])
+  })
+  await expect(summary).toHaveAttribute('title', UNVERIFIED_CAUSES[1])
+  await expect(detail).toBeHidden()
 })
 
 test('a start position that cannot be worked out shows no note (#1008)', async ({ page }) => {

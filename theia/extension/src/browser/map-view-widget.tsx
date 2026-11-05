@@ -64,6 +64,8 @@ import { MapGridOverlay } from './grid-overlay'
 import { CollisionOverlay } from './collision-overlay'
 import { RefusedOverlay } from './refused-overlay'
 import {
+  beyondScreens,
+  composeGutter,
   fadeMask,
   cellRect,
   centerScroll,
@@ -95,6 +97,7 @@ import {
   romMissingMessage,
   unverifiedLabel,
   withDetail,
+  unverifiedCauses,
 } from './map-view-messages'
 
 export { slotLabel }
@@ -121,10 +124,24 @@ export interface MapViewOptions {
   isNew?: boolean
 }
 
+/** The map note when the layers past the end could not be read: the map itself drew, so it only says so. */
+const GUTTER_UNREAD = 'The graphics layers past the end of the map could not be drawn.'
+
 /** The one-line note an opened New slot shows until its empty editor exists (#950). */
 export const NEW_SLOT_NOTE = 'This slot is new. It has no map yet.'
 
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
+
+/** A screen reply's planes decoded to images, for a map screen and a gutter screen alike. */
+const screenImages = (r: Layout): ScreenImages => ({
+  width: r.width,
+  height: r.height,
+  planes: Object.fromEntries(
+    MAP_PLANE_KEYS.map(k => [k, r.planes[k] === null ? null : new ImageData(decodeRgba(r.planes[k]!), r.width, r.height)]), // prettier-ignore
+  ) as ScreenImages['planes'],
+  screens: r.screens,
+  math: r.math,
+})
 type Sprites = Extract<MapSpritesResult, { status: 'ok' }>
 type Collision = Extract<MapCollisionResult, { status: 'ok' }>
 /** A refusal's plain words, and the technical text that belongs on a tooltip's second line (#967). */
@@ -185,6 +202,20 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected mapLayout: Layout | undefined
   /** The canvas for sprites the data places off the map, in its pad (#1004). */
   protected offMapCanvas: HTMLCanvasElement | null = null
+  /** The canvas for Layers 2 and 3 continuing through the far-end gutter (#1197); mounted only when the map has a gutter. */
+  protected gutterCanvas: HTMLCanvasElement | null = null
+  /**
+   * Gutter reads that failed, by cache key, with the technical text. A failed key is not asked again until `refresh`
+   * clears this. The map note is DERIVED from it (`gutterFailure`): it shows while a key the gutter needs now has
+   * failed, and only then. The map itself drew, so this is not a screen error.
+   */
+  protected readonly gutterFailed = new Map<string, string | undefined>()
+  /**
+   * The last reply that landed for each screen past the end, uncomposed, by screen number. `refresh` clears `screens`
+   * but not this, so an edit, flag or switch change draws the old planes (through the current toggles) until the new
+   * ones land; `open` clears it, so one map never shows another's. A failed current key draws clear instead.
+   */
+  protected readonly gutterLast = new Map<number, ScreenImages>()
   /** `pad` for one (layout, sprites) pair: it is read on every pointer move. */
   protected padMemo: { l: Layout; s: Sprites | undefined; pad: Pad } | undefined
   /** The sprite pixels outside the map for one (layout, sprites) pair, null when none reach outside. */
@@ -369,6 +400,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.title.iconClass = options.iconClass ?? 'codicon codicon-map'
     this.details = undefined
     this.mapLayout = undefined
+    this.gutterLast.clear()
     this.sprites = undefined
     this.setHoverSprite(undefined)
     this.spritesWhy = undefined
@@ -484,6 +516,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.coveredIds.clear()
     this.lift = undefined
     this.pending.clear()
+    this.gutterFailed.clear()
     this.screenError = undefined
     this.screenErrorDetail = undefined
     void this.loadDetails()
@@ -581,6 +614,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.spritesVersion++
     this.update()
     this.sync()
+    // Off-map sprites can lengthen the far end: `keepViewOnPadChange` refits on a pad change and `fitStrip` asks for the visible screens, the gutter's included.
   }
 
   /**
@@ -785,7 +819,63 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     // A New slot shows a note, not a map: no screen is ever asked for.
     if (this.options?.isNew) return
     this.sync()
-    for (const s of this.visibleScreens()) void this.fetchScreen(s)
+    const visible = this.visibleScreens()
+    for (const s of visible) void this.fetchScreen(s)
+    // The gutter's layers are read once the map's last screen is in view, not on open.
+    const l = this.mapLayout
+    if (l && visible.includes(l.screenCount - 1)) void this.fetchBeyond()
+  }
+
+  /**
+   * Fetches the screens past the last one that the far-end canvas (content band plus gutter) spans, under
+   * the same cache key and generation rules as `fetchScreen`. A failed read leaves the gutter without
+   * layers; it raises no map error, because the map itself drew.
+   */
+  protected async fetchBeyond(): Promise<void> {
+    const o = this.options
+    if (!o) return
+    const generation = this.generation
+    await Promise.all(
+      this.gutterScreens().map(async screen => {
+        const key = this.key(screen)
+        if (this.screens.has(key) || this.pending.has(key) || this.gutterFailed.has(key)) return
+        this.pending.add(key)
+        let detail: string | undefined
+        const r = await this.projects
+          .mapBeyond(o.manifestPath, o.index, screen, this.view.state.flags, this.view.state.switches)
+          .catch(err => ((detail = rawText(err)), undefined)) // prettier-ignore
+        if (generation !== this.generation) return
+        this.pending.delete(key)
+        if (r?.status === 'ok') {
+          const images = screenImages(r)
+          this.screens.set(key, images)
+          // Only while the key is still current: a reply for an older flag or switch state must not become the fallback.
+          if (key === this.key(screen)) this.gutterLast.set(screen, images)
+          this.sync() // paint this screen now; another one still out must not hold it back
+          return
+        }
+        detail ??= r?.status === 'unavailable' ? (r.detail ?? r.reason) : undefined
+        console.error(`Map ${o.index.toString(16)} gutter ${screen} failed:`, r ?? detail)
+        this.gutterFailed.set(key, detail)
+        this.update()
+      }),
+    )
+    if (generation === this.generation) this.sync()
+  }
+
+  /** The screens past the last that the far-end canvas (content band plus gutter) spans now; none when the map has no gutter. */
+  protected gutterScreens(): number[] {
+    const l = this.mapLayout
+    if (!l || farGutter(l.screenCount) === 0) return []
+    const vertical = l.orientation === 'vertical'
+    const far = vertical ? this.pad.bottom : this.pad.right
+    return Array.from({ length: beyondScreens(far, vertical ? l.height : l.width) }, (_, i) => l.screenCount + i) // prettier-ignore
+  }
+
+  /** Why the gutter cannot be drawn now: the text of the first failed read among the screens it needs, else undefined. */
+  protected gutterFailure(): { detail?: string } | undefined {
+    const key = this.gutterScreens().map(s => this.key(s)).find(k => this.gutterFailed.has(k)) // prettier-ignore
+    return key === undefined ? undefined : { detail: this.gutterFailed.get(key) }
   }
 
   /**
@@ -818,17 +908,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       this.update()
       return
     }
-    const image = (b64: string | null) =>
-      b64 === null ? null : new ImageData(decodeRgba(b64), r.width, r.height)
-    this.screens.set(key, {
-      width: r.width,
-      height: r.height,
-      planes: Object.fromEntries(
-        MAP_PLANE_KEYS.map(k => [k, image(r.planes[k])]),
-      ) as ScreenImages['planes'],
-      screens: r.screens,
-      math: r.math,
-    })
+    this.screens.set(key, screenImages(r))
     const l = this.mapLayout
     if (
       !l ||
@@ -911,6 +991,56 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     for (const [k, canvas] of this.canvases)
       if (k.startsWith(`${DISPLAY}:`)) this.syncDisplay(canvas, Number(k.split(':')[1]))
     this.syncOffMap()
+    this.syncGutterLayers()
+  }
+
+  /**
+   * Paints Layers 2 and 3 through the far end (#1197): the shown planes of each screen past the last,
+   * composed with the map's own stacking and color math (no Layer 1, sprites or flames), pixels no layer
+   * covered left clear, laid end to end and faded over the last `farGutter` px. Repainted when a layer
+   * toggle, a reply, an edit, the flags or switches or the pad change (all in `want`). Always composes: while a
+   * reply is out it draws the screen's last good planes, so a toggle hides only the layer it names.
+   */
+  protected syncGutterLayers(): void {
+    const c = this.gutterCanvas
+    const l = this.mapLayout
+    if (!c || !l) return
+    const vertical = l.orientation === 'vertical'
+    const far = vertical ? this.pad.bottom : this.pad.right
+    const [sw, sh] = [l.width, l.height]
+    const n = beyondScreens(far, vertical ? sh : sw)
+    // Per screen: the current key's reply ('c'), else its last good planes ('o'), but a failed current key draws clear ('x').
+    const shots = Array.from({ length: n }, (_, i) => {
+      const screen = l.screenCount + i
+      const key = this.key(screen)
+      const now = this.screens.get(key)
+      if (now) return { shot: now, state: 'c' }
+      if (this.gutterFailed.has(key)) return { shot: undefined, state: 'x' }
+      const last = this.gutterLast.get(screen)
+      return { shot: last, state: last ? 'o' : 'x' }
+    })
+    const [w, h] = vertical ? [sw, far] : [far, sh]
+    const want = `${this.generation}:${this.key(l.screenCount)}:${shots.map(x => x.state).join('')}:${+this.showL2}${+this.showL3}:${w}x${h}` // prettier-ignore
+    if (c.dataset.drawn === want) return
+    const gutterShots = shots.map(({ shot: x }) => x && { width: x.width, height: x.height, planes: Object.fromEntries(MAP_PLANE_KEYS.map(k => [k, x.planes[k]?.data ?? null])), lists: x.screens, math: x.math }) // prettier-ignore
+    const out = composeGutter(
+      gutterShots,
+      k => this.layerShown(k),
+      vertical,
+      w,
+      h,
+      farGutter(l.screenCount),
+    )
+    c.width = w
+    c.height = h
+    c.getContext('2d')?.putImageData(new ImageData(out, w, h), 0, 0)
+    c.dataset.drawn = want
+  }
+
+  /** Remembers the gutter-layers canvas (mounted only when the map has a gutter) and paints it at once. */
+  protected readonly gutterRef = (el: HTMLCanvasElement | null): void => {
+    this.gutterCanvas = el
+    this.syncGutterLayers()
   }
 
   /**
@@ -1367,10 +1497,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** Tooltip for Sprites: the label first, then the technical detail as a second line, so raw text never leads (#967). */
   protected spritesTitle(): string {
     if (this.spritesWhy) return withDetail(this.spritesLabel(), this.spritesDetail)
-    return withDetail(
-      this.spritesLabel(),
-      this.sprites?.sprites.find(x => x.unverified)?.unverified,
-    )
+    return withDetail(this.spritesLabel(), unverifiedCauses(this.sprites?.sprites ?? []))
   }
 
   protected toggleSprites(): void {
@@ -1559,6 +1686,15 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             {this.blocksWhy}
           </div>
         )}
+        {this.gutterFailure() && (
+          <div
+            className="hb-map-view-note"
+            data-note="gutter-layers"
+            title={this.gutterFailure()?.detail}
+          >
+            {GUTTER_UNREAD}
+          </div>
+        )}
         {this.mapLayout?.layerNotes.map(n => (
           <div key={n} className="hb-map-view-note" data-note="layers">
             {n}
@@ -1734,6 +1870,19 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
                 />
               </div>
             ))}
+            {farGutter(l.screenCount) > 0 && !this.screenError && (
+              <canvas
+                className="hb-map-view-gutter-layers"
+                data-layer="gutter-layers"
+                style={{
+                  left: (vertical ? pad.left : pad.left + mapW) * z,
+                  top: (vertical ? pad.top + mapH : pad.top) * z,
+                  width: (vertical ? mapW : pad.right) * z,
+                  height: (vertical ? pad.bottom : mapH) * z,
+                }}
+                ref={this.gutterRef}
+              />
+            )}
             {l.refusedCells && !this.screenError && (
               <RefusedOverlay
                 cells={l.refusedCells}

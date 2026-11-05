@@ -19,9 +19,13 @@ export const readFailed = (what: string) => (err: unknown) => {
 export const withDetail = (text: string, detail?: string): string =>
   detail ? `${text}\n${detail}` : text
 
+/** A tooltip showing only the first cause hid the rest; one line per cause, never split on `; ` because a cause holds one itself (#1166). */
+export const unverifiedCauses = (sprites: readonly { unverified?: string }[]): string | undefined =>
+  [...new Set(sprites.flatMap(x => (x.unverified ? [x.unverified] : [])))].join('\n') || undefined
+
 /** The missing-ROM sentence after a "Sprites unavailable: " style lead reads on in lower case. */
 export const lowerFirst = (text: string): string => text.charAt(0).toLowerCase() + text.slice(1)
 
-/** The sprite toggle's name when some sprites are unverified. It names no cause, because several differ (changed ROM code, a level the loader refused, or colors that may not have settled); the specific reason is the title's second line. */
+/** The sprite toggle's name when some sprites are unverified. It names no cause, because they differ (a level the loader refused, a memory setting, an earlier sprite, colors that may not have settled, and more); the causes follow on the title's other lines. */
 export const unverifiedLabel = (): string =>
   'Sprites · unverified: some sprites may not be drawn exactly as in the game.'

@@ -12,6 +12,7 @@ import {
   framesReasonText,
   shiftNote,
   spriteProps,
+  noteTitle,
 } from '../../../theia/extension/src/browser/sprite-props'
 import { followSubject } from '../../../theia/extension/src/browser/properties-follow'
 import { FramePlayer, type FramesState } from '../../../theia/extension/src/browser/sprite-frames'
@@ -103,8 +104,29 @@ describe('spriteProps: row and notes', () => {
     expect(spriteProps({ ...draw(), x: 88, y: 56 })).toMatchObject({ col: 5, row: 3 })
   })
   it('an unverified draw says so, and a verified one does not', () => {
-    expect(spriteProps({ ...draw(), unverified: 'seed was generic' }).notes).toContain('Unverified: seed was generic.') // prettier-ignore
+    const p = spriteProps({ ...draw(), unverified: 'seed was generic' })
+    expect(p.notes).toContain('Unverified: this sprite may not be drawn exactly as in the game.')
+    expect(p.notes.join(' ')).not.toContain('seed was generic')
+    expect(p.rawUnverified).toBe('seed was generic')
+    expect(spriteProps(draw()).rawUnverified).toBeUndefined()
     expect(spriteProps(draw()).notes.join(' ')).not.toMatch(/unverified/i)
+  })
+})
+
+describe('noteTitle: each note carries its own detail, or none (#1166)', () => {
+  const both = spriteProps({ ...draw(), status: 'placeholder', reason: 'refused: loop', unverified: 'seed was generic' }) // prettier-ignore
+  it('a sprite with both notes: Not drawn gets its reason, Unverified its cause', () => {
+    const titles = Object.fromEntries(both.notes.map(n => [n.split(':')[0], noteTitle(n, both)]))
+    expect(titles['Not drawn']).toBe(both.rawReason)
+    expect(titles['Unverified']).toBe('seed was generic')
+    expect(both.rawReason).not.toBe('seed was generic')
+  })
+  it('a line with no detail gets no title, and the fixed Behavior line never does', () => {
+    const plain = spriteProps(draw())
+    expect(plain.notes.map(n => noteTitle(n, plain))).toEqual([undefined])
+    const noReason = spriteProps({ ...draw(), status: 'placeholder' })
+    expect(noteTitle(noReason.notes[0]!, noReason)).toBeUndefined()
+    expect(noteTitle(both.notes.at(-1)!, both)).toBeUndefined()
   })
 })
 

@@ -343,8 +343,11 @@ export interface MapSpriteDto {
    */
   fixedTo?: 'layer2'
   /**
-   * Present when the sprite was run from a placement-only seed because the
-   * level loader refused this ROM: drawn, but not run from the level's state.
+   * Present when HackBench cannot vouch that the sprite is drawn exactly as in the game. The engine's own
+   * words, several causes joined by `; `, and the set grows over time. For example: the level loader refused
+   * this ROM (run from a placement-only seed), the map's memory setting differs from the one checked, or an
+   * earlier sprite may hold its slot. For tooltips only: the map's note and the Properties line say it in
+   * plain words (#1166).
    */
   unverified?: string
   /** A plain-words line about what the map shows of this sprite, not a flaw (for example fewer Eeries than the placement asks for); the map's note line carries it too. */
@@ -601,6 +604,18 @@ export interface ProjectService {
 
   /** Draw one screen of a map's L1 (foreground) from the working copy. */
   mapScreen(
+    manifestPath: string,
+    index: number,
+    screen: number,
+    switchFlags: SwitchFlagsDto,
+    switches: SwitchStateDto,
+  ): Promise<MapScreenResult>
+
+  /**
+   * One screen PAST the map's last (screen >= screenCount), L2 and L3 planes only, for the gutter (#1197).
+   * Read from the same working-copy model as `mapScreen`; a screen number outside the screens past the end is refused.
+   */
+  mapBeyond(
     manifestPath: string,
     index: number,
     screen: number,

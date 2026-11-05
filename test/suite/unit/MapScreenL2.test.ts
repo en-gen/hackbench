@@ -14,6 +14,7 @@ import type * as L2LoaderMod from '../../../src/rom/L2Loader'
 import { SWITCH_FLAGS_UNCLEARED as UNCLEARED } from '../../../src/rom/ObjectExpander'
 import type { Map16Tile } from '../../../src/rom/Map16'
 import { buildL1Inputs, type L1Inputs } from '../../../src/rom/model/L1Model'
+import { MAX_BEYOND_SCREENS } from '../../../src/rom/model/MapGutter'
 import { buildL2Inputs, type L2Inputs } from '../../../src/rom/model/L2Model'
 import {
   buildMapInputs,
@@ -351,6 +352,36 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     expect([v.grid[26]![0], v.grid[27]![0], v.grid[31]![0]]).toEqual([0x25, null, null])
   })
 
+  it('an image keeps the 32 x 32 plane it wraps in, whatever the map size, for the gutter (#1197)', () => {
+    for (const m of [inp(hGrid(3), false, 3, 0, 0), inp(vGrid(2), true, 2, 0, 0)]) {
+      const l2 = ok(buildL2Inputs(smw(image()), LEVEL, m))
+      const plane = l2.plane!
+      expect([plane.length, plane[0]!.length]).toEqual([32, 32])
+      // 5 x $07 then the $25 fill, the whole 32-wide pattern; rows 27-31 of the BG plane are empty.
+      expect([plane[0]![0], plane[0]![4], plane[0]![5], plane[0]![16], plane[0]![31]]).toEqual([7, 7, 0x25, 0x25, 0x25]) // prettier-ignore
+      expect([plane[26]![31], plane[27]![0], plane[31]![31]]).toEqual([0x25, null, null])
+    }
+  })
+
+  it('an object stream keeps what the stream wrote past the last screen, with $25 as null, and no plane', () => {
+    objects([[0x25, 1]])
+    vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValue({
+      grid: [[0x25, 1]],
+      unverified: [],
+      beyond: [[0x25, 0x25, 2, 0x25], [3, 0x25, 0x25, 0x25]], // prettier-ignore
+    })
+    const l2 = ok(
+      buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)])), LEVEL, inp(hGrid(1), false, 1)),
+    )
+    expect(l2.beyond).toEqual([[null, null, 2, null], [3, null, null, null]]) // prettier-ignore
+    expect(l2.plane).toBeUndefined()
+    objects([[0x25, 1]]) // a stream with no beyond part (a call made without extra room)
+    const none = ok(
+      buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)])), LEVEL, inp(hGrid(1), false, 1)),
+    )
+    expect(none.beyond).toBeUndefined()
+  })
+
   it('a $FF preset pointer is an image in skipped modes too, on a stock site', () => {
     for (const mode of [0x00, 0x0a]) {
       const m = inputs(hGrid(1), false, 1)
@@ -387,7 +418,12 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     ])
     expect(l2.dy).toBe(0x20 - 0xc0)
     expect(l2.tiles[1]).toEqual(m.map16.tiles[1]) // L1's own table, not vanilla's
-    expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls[0]!.slice(2)).toEqual([1, 0, false])
+    expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls[0]!.slice(2)).toEqual([
+      1,
+      0,
+      false,
+      MAX_BEYOND_SCREENS,
+    ]) // room for what the stream writes past the edge (#1197)
   })
 
   it('an object build dispatch notes ride on the L2 inputs (#493)', () => {
@@ -405,7 +441,12 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       ok(buildL2Inputs(smw(entry(f600, d710), vertical), LEVEL, inp(vertical ? vGrid(1) : hGrid(1), vertical, 1))).dy // prettier-ignore
     expect(dy(0x23, 3)).toBe(0x320 - 0xc0) // L1 gets the high byte, L2's stays 0
     expect(dy(0x23, 1)).toBe(0x320 - 0x3c0) // both have it
-    expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls[0]!.slice(2)).toEqual([1, 0, true])
+    expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls[0]!.slice(2)).toEqual([
+      1,
+      0,
+      true,
+      MAX_BEYOND_SCREENS,
+    ])
     // The VerticalTable (the map's isVertical) is not what the entry code tests.
     expect(dy(0x03, 3)).toBe(0x20 - 0xc0) // F600 bit 5 clear: no high bytes, though the map is vertical
     expect(dy(0x23, 3, false)).toBe(0x320 - 0xc0)
