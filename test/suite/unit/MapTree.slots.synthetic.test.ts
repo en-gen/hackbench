@@ -274,6 +274,25 @@ describe('what counts as an unreadable stream (round 3)', () => {
     expect(rowsOf(treeOf(rom)).map(n => n.index)).toEqual([0x060])
   })
 
+  it('a stream ending past 8 KB has no row warning but its lost connections get their own note', () => {
+    const rom = blank()
+    point(rom, 0x060, 0x069000)
+    rom.writeAt(0x069000, [
+      0,
+      0,
+      0,
+      0,
+      0,
+      ...new Array<number[]>(3000).fill([0x42, 0, 0]).flat(),
+      0xff,
+    ])
+    const tree = treeOf(rom)
+    const note = tree.notes.find(n => /more connections than could be read/.test(n))
+    expect(rowsOf(tree)).toEqual([])
+    expect(note).toContain('$060')
+    expect(note).not.toMatch(/0x|pointer/i)
+  })
+
   it('a stream with no end marker before the file ends still warns', () => {
     const rom = blank()
     point(rom, 0x060, 0x069000)

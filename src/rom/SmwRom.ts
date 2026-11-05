@@ -142,10 +142,11 @@ export interface RomSummary {
 }
 
 /**
- * How far a stream is walked looking for its end marker: 128 KB. Longer than any
- * stream seen on the corpus (the longest ends near offset 10 KB), short enough that
- * a slot pointing into zero padding costs a few milliseconds, not the 250 ms a walk
- * to the end of a 4 MB file does on every map open. [PROP]
+ * How far a stream is walked looking for its end marker: 128 KB. The longest real
+ * stream seen on the corpus ends near 10 KB; walks desynced by custom objects went
+ * further (about 53 KB on Kaizo), which is why the window has slack. Short enough
+ * that a slot pointing into zero padding costs a few milliseconds, not the 250 ms a
+ * walk to the end of a 4 MB file does on every map open. [PROP]
  */
 const STREAM_WALK_WINDOW = 0x20000
 

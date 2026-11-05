@@ -172,10 +172,11 @@ export function buildMapTree(
   const entranceIndex = deriveOverworldEntrances(rom, catalog, fingerprints)
   const isRoot = (index: number): boolean => isOverworldLevel(index, entranceIndex.roots)
 
-  const { graph: exitGraph, unavailable } = rom.buildLevelExitGraph(
-    entranceIndex.roots,
-    fingerprints.entry,
-  )
+  const {
+    graph: exitGraph,
+    unavailable,
+    unreadableMaps: graphCut,
+  } = rom.buildLevelExitGraph(entranceIndex.roots, fingerprints.entry)
 
   const name = (index: number): string | null => rom.getLevelName(index, entranceIndex)
   const aliasesOf = (index: number): number[] => catalog.entries[index]?.l1Aliases ?? []
@@ -282,6 +283,20 @@ export function buildMapTree(
     const more = n > UNREADABLE_LISTED ? ` and ${n - UNREADABLE_LISTED} more` : ''
     notes.push(
       `${n} ${n === 1 ? 'map has' : 'maps have'} object data that could not be read to its end, so screen exits from ${n === 1 ? 'it' : 'them'} may be missing: ${ids.join(', ')}${more}.`,
+    )
+  }
+
+  // The graph reads less of a stream than the rows do, so it can lose a map's exits with no row warning.
+  const listed = (ids: number[]): string =>
+    ids
+      .slice(0, UNREADABLE_LISTED)
+      .map(i => `$${i.toString(16).toUpperCase().padStart(3, '0')}`)
+      .join(', ') +
+    (ids.length > UNREADABLE_LISTED ? ` and ${ids.length - UNREADABLE_LISTED} more` : '')
+  if (graphCut?.length) {
+    const n = graphCut.length
+    notes.push(
+      `${n} ${n === 1 ? 'map has' : 'maps have'} more connections than could be read, so ${n === 1 ? 'it' : 'they'} may lead to maps this tree lists as unreached: ${listed(graphCut)}.`,
     )
   }
 
