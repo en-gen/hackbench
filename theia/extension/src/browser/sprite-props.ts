@@ -81,9 +81,14 @@ export interface SpriteProps {
   paletteRows: number[]
   /** The engine's own reason for a placeholder, for a tooltip only; the words are in `notes`. */
   rawReason?: string
+  /** The engine's own cause for an Unverified note, for that line's tooltip only (#1166). */
+  rawUnverified?: string
   /** Anything the pane knows it is not showing (interpret, else warn). */
   notes: string[]
 }
+
+/** The Unverified line in plain words; the engine's cause rides on its tooltip (#1166). */
+export const UNVERIFIED_NOTE = 'Unverified: this sprite may not be drawn exactly as in the game.'
 
 export function spriteProps(s: MapSpriteDto): SpriteProps {
   const parts = s.status === 'drawn' && s.parts ? s.parts : null
@@ -91,7 +96,7 @@ export function spriteProps(s: MapSpriteDto): SpriteProps {
   if (s.status === 'placeholder') {
     notes.push(`Not drawn: ${notDrawnText(s.reason)}`)
   }
-  if (s.unverified) notes.push(`Unverified: ${s.unverified}.`)
+  if (s.unverified) notes.push(UNVERIFIED_NOTE)
   notes.push('Behavior and extra settings are not interpreted in this view yet.')
   return {
     label: spriteLabel(s),
@@ -103,5 +108,6 @@ export function spriteProps(s: MapSpriteDto): SpriteProps {
     paletteRows: parts ? [...new Set(parts.map(p => p.palette))].sort((a, b) => a - b) : [],
     notes,
     ...(s.status === 'placeholder' && s.reason ? { rawReason: s.reason } : {}),
+    ...(s.unverified ? { rawUnverified: s.unverified } : {}),
   }
 }

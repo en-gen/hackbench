@@ -3395,11 +3395,11 @@ const tooltip = (page, control) =>
     .first()
     .getAttribute('title')
 const overlayCases = [
-  ['mapSprites', 'layer-sprites', 'Sprites unavailable: '],
-  ['mapCollisionCheck', 'collision-toggle', 'Collision unavailable: '],
-  ['mapPalaceIcons', 'switch-blue', 'Blue P-switch: '],
+  ['mapSprites', 'layer-sprites', 'Sprites unavailable: ', `Sprites unavailable: ${JUST_NOW}`],
+  ['mapCollisionCheck', 'collision-toggle', 'Collision unavailable: ', `Collision unavailable: ${JUST_NOW}`], // prettier-ignore
+  ['mapPalaceIcons', 'switch-blue', 'Blue P-switch: ', 'Blue P-switch'],
 ]
-for (const [method, control, lead] of overlayCases) {
+for (const [method, control, lead, ariaName] of overlayCases) {
   test(`a rejected ${method} says it in plain words, the exception on the second tooltip line (#967)`, async ({
     page,
   }) => {
@@ -3413,6 +3413,7 @@ for (const [method, control, lead] of overlayCases) {
     // The accessible name is the plain words alone, never the exception.
     const name = await page.locator(`${root(0x105)} [data-control="${control}"]`).first().getAttribute('aria-label') // prettier-ignore
     expect(name).not.toContain('planted-786')
+    expect(name).toBe(ariaName)
   })
 }
 

@@ -102,7 +102,11 @@ describe('spriteProps: row and notes', () => {
     expect(spriteProps({ ...draw(), x: 88, y: 56 })).toMatchObject({ col: 5, row: 3 })
   })
   it('an unverified draw says so, and a verified one does not', () => {
-    expect(spriteProps({ ...draw(), unverified: 'seed was generic' }).notes).toContain('Unverified: seed was generic.') // prettier-ignore
+    const p = spriteProps({ ...draw(), unverified: 'seed was generic' })
+    expect(p.notes).toContain('Unverified: this sprite may not be drawn exactly as in the game.')
+    expect(p.notes.join(' ')).not.toContain('seed was generic')
+    expect(p.rawUnverified).toBe('seed was generic')
+    expect(spriteProps(draw()).rawUnverified).toBeUndefined()
     expect(spriteProps(draw()).notes.join(' ')).not.toMatch(/unverified/i)
   })
 })

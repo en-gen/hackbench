@@ -14,7 +14,7 @@ import { ProjectService, type SpritePartDto } from '../common/project-protocol'
 import { decodeRgba } from './map16-pixels'
 import { formatCharNum } from './map16-view-model'
 import { PropertiesModel, PropertiesSubject } from './properties-model'
-import { animationText, spriteProps } from './sprite-props'
+import { animationText, spriteProps, UNVERIFIED_NOTE } from './sprite-props'
 import { FramePlayer, type FramesState } from './sprite-frames'
 import { followSubject } from './properties-follow'
 
@@ -88,7 +88,13 @@ function SpriteSubject({
           key={n}
           className="hb-props-note"
           data-field="note"
-          title={n.startsWith('Not drawn') ? p.rawReason : undefined}
+          title={
+            n.startsWith('Not drawn')
+              ? p.rawReason
+              : n === UNVERIFIED_NOTE
+                ? p.rawUnverified
+                : undefined
+          }
         >
           {n}
         </div>
