@@ -36,7 +36,7 @@ export type CallResult =
  * legitimate code cannot be mistaken for a return: $FF00 is real code in some
  * banks (one run of sprite $29 INIT reached PC=$FF00 at S=$01F4, vanilla, one machine).
  */
-const SENTINEL = 0x7f00
+export const SENTINEL = 0x7f00
 
 /** Native mode, P (default $34: 8-bit M and X, IRQ off), S=$01FF, D=DB=0, not halted: the state every SMW caller starts from. */
 export function nativeReset(cpu: Cpu65816, p = 0x34): void {
