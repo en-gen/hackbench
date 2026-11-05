@@ -10,6 +10,7 @@ import { readMarioStartPos } from '../../../../src/rom/MarioStartPos'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { interpDrawer } from '../../../../theia/extension/src/node/map-sprites'
 import { loadCaptures, type Loaded } from '../../support/captures'
+import { placedInitId } from '../../support/gradeTimeline'
 import { hasCaptures, hasRom, romPath, VANILLA } from '../../support/corpus'
 import {
   facingAfterInit,
@@ -240,6 +241,14 @@ describe('the facing comparator (planted defects)', () => {
     expect(run(e0)).toEqual([])
     expect(run({ ...e0, rec: { ...e0.rec, initFacing: 1 } }).map(m => m.key)).toEqual(['001:3:$28']) // prettier-ignore
   })
+  it('placedInitId: every id below $C9 keeps the list id, $C9 and up give none (boundary both sides, 0-255)', () => {
+    for (let id = 0; id <= 0xff; id++) expect(placedInitId(id)).toBe(id < 0xc9 ? id : undefined)
+  })
+  it('list id: a record with no listIndex is not joined to a list entry that has no index either', () => {
+    const none: Loaded = { ...rec(0), listed: [{ id: '$29' }], marioStart: { x: 0x210, y: 0x80 } }
+    expect(run(none)).toEqual([]) // joined to $29 (constant 1) it would read 1 against the capture's 0
+    expect(unjoined([none])).toEqual([])
+  })
   it('list id: a record the list cannot be joined to runs under its own id and is named by unjoined()', () => {
     const lone: Loaded = { ...rec(1), listed: [], rec: { ...rec(1).rec, id: '$29', listIndex: 5 } }
     expect(run(lone)).toEqual([])
@@ -283,19 +292,36 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
       SLOW,
     )
 
-    it('joins every record to its list entry; the 10 records placed as $4C (9 formerly pinned) read ours = 0 each, the 15 placed as $E0 match (#1243)', () => {
+    it('joins every record to its list entry; the 13 placed as $4C: 10 became another sprite by the draw and read ours = 0 each, the 15 placed as $E0 match (#1243)', () => {
       expect(unjoined(all)).toEqual([])
       const placed = (r: Loaded, id: string) => r.listed?.find(e => e.index === r.rec.listIndex)?.id === id
       const mario = (r: Loaded) => loaderMario(parseInt(r.map, 16))!
-      const ours = (r: Loaded) => oursFor(sharedRom(), r, mario(r), loaderImage(parseInt(r.map, 16)))
+      const ours = (r: Loaded, base?: number) => oursFor(sharedRom(), r, mario(r), loaderImage(parseInt(r.map, 16)), base) // prettier-ignore
+      expect(compared.filter(r => placed(r, '$4C')).length).toBe(13)
       const blocks = compared.filter(r => placed(r, '$4C') && r.rec.id !== '$4C')
       expect(blocks.length).toBe(10)
-      expect(blocks.map(ours)).toEqual(blocks.map(() => 0))
+      expect(blocks.map(r => ours(r))).toEqual(blocks.map(() => 0))
       expect(blocks.map(r => r.rec.initFacing)).toEqual(blocks.map(() => 0))
+      // SpriteTableC2 ($C2 + slot) is what InitExplodingBlk set (bank_01.asm:552-553): the number the block becomes, which the capture's draw-time id shows. A no-op INIT would leave 0.
+      expect(blocks.map(r => ours(r, 0xc2))).toEqual(blocks.map(r => parseInt(r.rec.id.slice(1), 16)))
       const e0 = compared.filter(r => placed(r, '$E0'))
       expect(e0.length).toBe(15)
       expect(mismatches(e0)).toEqual([])
     }, SLOW) // prettier-ignore
+
+    it('pins every (list id, capture id) pair below $C9 that differs, so a new one goes red', () => {
+      const pairs: Record<string, number> = {}
+      for (const r of all) {
+        const list = r.listed?.find(e => e.index === r.rec.listIndex)?.id
+        if (
+          list &&
+          parseInt(list.slice(1), 16) < 0xc9 &&
+          list.toLowerCase() !== r.rec.id.toLowerCase()
+        )
+          pairs[`${list}>${r.rec.id}`] = (pairs[`${list}>${r.rec.id}`] ?? 0) + 1
+      }
+      expect(pairs).toEqual({ '$4C>$00': 1, '$4C>$04': 4, '$4C>$0F': 4, '$4C>$15': 1 })
+    })
 
     it('seed plant: goes red when the seeded Mario is moved to the other side of the sprite', () => {
       const r = compared.find(x => x.rec.listX >= 16 && !KNOWN_MISMATCHES.some(k => k.startsWith(key(x) + ':')))! // prettier-ignore

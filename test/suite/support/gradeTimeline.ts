@@ -104,12 +104,11 @@ export function runnerId(
 }
 
 /**
- * The list id when the level loader places it as a sprite of that number (INIT then runs under it),
- * else undefined. SMWDisX bank_02.asm:5365-5370 (below $C9 falls into LoadNormalSprite, id kept);
- * 5337-5361 ($DA-$E0 minus $DE and $E0 are shells, via shellLoad); 5312-5331 ($DE, $E0 load Eeries
- * and chain platforms), 5337-5347 (generators), 5349-5355 ($E1+), 5365-5367 ($C9-$CA shooters)
- * spawn no sprite of that number, so the capture's id is the only one there is.
+ * The list id when the loader places it as a sprite whose INIT runs under that number, else undefined
+ * (the capture's id is then all there is). Below $C9 only (SMWDisX bank_02.asm:5365-5370). Shells ($DA-$DD,
+ * $DF) get status 9 and no INIT (5361), so they never reach the facing comparison. Not modeled:
+ * the special-world remap (5464-5471) and the Silver P-Switch coin (5477-5487); neither fires in these captures.
  */
-export function placedInitId(rom: RomFile, listId: number): number | undefined {
-  return listId < FIRST_SPECIAL || shellLoad(rom, listId).shell ? listId : undefined
+export function placedInitId(listId: number): number | undefined {
+  return listId < FIRST_SPECIAL ? listId : undefined
 }
