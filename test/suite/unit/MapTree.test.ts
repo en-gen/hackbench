@@ -261,7 +261,8 @@ describe.skipIf(!hasRom(VANILLA))('special maps', () => {
     const roles = (xs: { role: string; index: number }[]): string =>
       xs.map(s => `${s.role} ${s.index.toString(16)}`).join()
     expect(roles(tree.special)).toBe('title-screen c7,new-game c5')
-    expect(roles(tree.bonus)).toBe('bonus-game 0,bonus-game 100,yoshi-heaven c8,yoshi-heaven 1c8')
+    // Yoshi Heaven lists under the maps that hold the wings block (#1229), not here.
+    expect(roles(tree.bonus)).toBe('bonus-game 0,bonus-game 100')
     expect(tree.overworld.map(n => n.index)).not.toContain(0x000)
   })
 

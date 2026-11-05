@@ -108,6 +108,10 @@ export interface LevelExitGraph {
   entrances?: Map<number, MapEntrances>
   /** Real maps whose layer 1 stream was not read to its $FF: their screen exits are dropped and may be missing (#788). Ascending; absent when unavailable. */
   unreadableMaps?: number[]
+  /** The submap half each reached map runs in, propagated from its root (absent when unavailable). */
+  submapFlag?: ReadonlyMap<number, 0 | 1>
+  /** The high byte a screen exit loads when the flag is set (bank_05.asm:7109); absent when unavailable. */
+  screenHigh?: number
 }
 
 /**
@@ -640,7 +644,7 @@ export class SmwRom {
     }
     for (const e of entrances.values()) e.secondary.sort((a, b) => a - b)
 
-    return { graph, unavailable: null, entrances, unreadableMaps }
+    return { graph, unavailable: null, entrances, unreadableMaps, submapFlag, screenHigh }
   }
 
   /** Name for `index`, from the overworld walk's own entrances, not a bias

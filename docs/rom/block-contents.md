@@ -99,6 +99,48 @@ reports sprite $09 with a caveat. The index uses `SpriteXPosLow`, which for a
 layer 2 block is minus `Layer23XRelPos` (`bank_02.asm:1184-1198`), so on layer 2
 the item depends on scroll position; the resolver gives the layer-1 answer.
 
+### Yoshi wings (#1229)
+
+Which maps list Yoshi Heaven as a sub area is read from this block, not assumed
+(`src/rom/YoshiWings.ts`).
+
+1. **The column.** `YoshiWings` runs the game's own item block spawn
+   (`CODE_0288DC`, the #566 exception) on the core once per column of the
+   period (4), with the block at `X = column * 16`, and reads back the sprite
+   number and `SpriteTableC2` the spawn left. Sprite `$7E` with C2 = 2 is the
+   wings. On the vanilla US ROM and its Lunar Magic resave that is column 1 of
+   4 and no other (one machine, 2026-11-05). Nothing writes "col mod 4 = 1".
+2. **The tile.** A cell of the expanded Layer 1 grid equal to `$125`, the same
+   test the block indicators apply (`inRange` / `resolveBlockContents` take the
+   grid's Map16 number as the acts-like number). Only Layer 1: a Layer 2 block's
+   column is minus `Layer23XRelPos` (`bank_02.asm:1184-1198`), so it depends on
+   the scroll and no fixed column is knowable.
+3. **The path, fingerprinted.** Yoshi touching sprite `$7E` with C2 = 2 sets
+   `PlayerAnimation` 8 (`bank_01.asm:15555-15566`, and the same test on the other
+   touch path, `15944-15959`); animation 8 is `YoshiWingsAni` (`bank_00.asm:7994`),
+   which sets `YoshiHeavenFlag` (`bank_00.asm:8295-8331`). One SHA-256 covers those
+   four spans (28 + 41 + 75 + 2 bytes, vanilla US, D126); a ROM that changes any of
+   them is refused with a note and Yoshi Heaven stays a bonus map.
+4. **The destination.** `CODE_05DBAC` (read by `BonusEntrances`) files the low byte;
+   the high byte is the player's submap flag, the same `LDA #imm` a screen exit uses
+   (`bank_05.asm:7106-7111`). So the half is the ROOT's flag as the exit graph
+   propagates it, never the half of the slot that holds the block. `$00F` gives
+   `$0C8`; `$12C` and `$1E3` (a sub area of `$115`) give `$1C8`.
+
+On vanilla exactly three maps hold the block in a wings column: `$00F` (column 161,
+row 20), `$12C` (165, 20) and `$1E3` (13, 20), counted by the spawn-derived column
+over all 512 slots. The static read of the issue found 14 placements of `$125` over
+10 maps. Not played: the headless route (a Mesen scenario that rides Yoshi to each
+block) was not built; the three are a static read plus the core's spawn run.
+
+What else makes sprite `$7E` with C2 = 2 (an immediate search of banks 00-02, one
+machine): the block spawn's `DATA_0288D6` (`bank_02.asm:1092`, compared at `1221`) is the
+only place the number is written from a table; the other `#$7E` hits are bank-byte
+immediates for pointers. A `$7E` placed directly in a level's sprite list (vanilla places
+none, per the issue) or made by a hack's own spawner is not followed. Cost: the four
+spawn runs and the grids of the maps a root reaches are kept per ROM bytes (a hash), about
+200-250 ms on a cold tree build of the vanilla ROM (5 cold runs, one machine, 2026-11-05).
+
 ### $021-$024
 
 Page-0 tiles $021-$024 reach `CODE_00F17F` directly (`bank_00.asm:12194-12212`)

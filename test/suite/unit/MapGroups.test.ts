@@ -249,14 +249,15 @@ describe('applyGroups', () => {
 })
 
 describe('VANILLA_SEED', () => {
-  it('sorts both after the nine numbered areas', () => {
+  it('sorts Bonus Games after the nine numbered areas, and seeds no Yoshi Heaven (#1229)', () => {
     const slots = VANILLA_SEED.flatMap(g => g.slots)
     const tree = fakeTree(
       slots.map(s => mapNode(s)),
       [],
     )
     const names = applyGroups(tree, VANILLA_SEED).groups.map(g => g.name)
-    expect(names.slice(-3)).toEqual(['9. Special Zone', 'Bonus Games', 'Yoshi Heaven'])
+    expect(names.slice(-2)).toEqual(['9. Special Zone', 'Bonus Games'])
+    expect(names).not.toContain('Yoshi Heaven')
   })
 })
 
