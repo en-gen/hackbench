@@ -68,6 +68,16 @@ describe('checkTheiaInstall', () => {
     expect(checkTheiaInstall(main)).toBeNull()
   })
 
+  it('refuses a link into a nested .worktrees/<task> checkout under the same root (#1202)', () => {
+    const nest = checkout('nest')
+    const other = path.join(nest, '.worktrees', 'other', 'theia', 'extension')
+    mkdirSync(other, { recursive: true })
+    const link = path.join(nmOf(nest), LINKS[0])
+    rmSync(link, { recursive: true })
+    junction(other, link)
+    expect(checkTheiaInstall(nest)).toContain('point at another checkout')
+  })
+
   it('refuses a node_modules junction with the exact fix text (no newline in the path)', () => {
     const problem = checkTheiaInstall(junctioned('wt-junction', main)) as string
     expect(problem).toContain('theia/node_modules is a link to another folder')

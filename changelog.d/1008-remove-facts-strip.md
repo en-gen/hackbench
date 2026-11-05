@@ -1,0 +1,3 @@
+### Removed
+
+- Maps view (#1008): the facts strip (title, screens, orientation, object and sprite counts) and the folded Header panel are removed, with the warnings they carried ("Name unavailable", "Level data unavailable", "Orientation unavailable", "Objects unavailable", "Sprites unavailable", "Start unavailable", the graphics-assignment caveat, and "This map's details could not be read"). None is shown until the map Properties panel (#1023) returns them. A missing base ROM still shows through the map's own error line. The backend now answers only the level mode for the view, which still drives the unverified-mode warning.

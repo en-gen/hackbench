@@ -126,8 +126,18 @@ build/*
 !build/icons
 !build/icons/**
 
-# Shared session and protocol state (registrations, team handoffs), main checkout only
+# Shared session and protocol state (registrations, team handoffs), main checkout only.
+# .overwatch is the folder (#1202). /.hackbench-state is the link the cutover leaves at the old
+# name. A POSIX symlink is not a directory to git, so only the slashless line matches it; on
+# Windows (git 2.54, scratch repo) the slash line also matched the junction. Both stay.
+/.overwatch/
+/.hackbench-state
 /.hackbench-state/
+
+# Task worktrees live inside the repo (#1202): ignored here, kept out of every tool's walk by
+# test/suite/gates/nestedFoldersGate.test.ts. NOTE: `git clean -x` deletes ignored files; for
+# what it does to this folder see docs/testing.md ("Nested folders and `git clean`").
+/.worktrees/
 
 # Claude / local agent state; agent roles, shared settings and house skills are tracked
 .claude/*

@@ -48,9 +48,6 @@ reviews:
     enabled: true
     auto_incremental_review: true
     drafts: false
-    # Dependabot PRs are version bumps; skip them (exact username match).
-    ignore_usernames:
-      - 'dependabot[bot]'
     # The default pauses auto-review after 5 reviewed commits, which would leave
     # a long PR's latest push unapproved and its auto-merge stuck.
     auto_pause_after_reviewed_commits: 0

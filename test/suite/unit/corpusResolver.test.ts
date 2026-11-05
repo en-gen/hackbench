@@ -38,6 +38,18 @@ describe('corpus resolution', () => {
     expect(rom('C:/Projects/.worktrees/hackbench/some-task')).toBe(ROMS)
   })
 
+  it('resolves from a <repo>/.worktrees/<task> worktree inside the clone (#1202)', () => {
+    expect(rom('C:/Projects/hackbench/.worktrees/some-task')).toBe(ROMS)
+    // A stray hackbench-tools beside the clone, or in .worktrees, must not shadow the real one.
+    const stray = fs(
+      'C:/Projects/hackbench/hackbench-tools',
+      'C:/Projects/hackbench/.worktrees/hackbench-tools',
+      TOOLS,
+      ROMS,
+    )
+    expect(rom('C:/Projects/hackbench/.worktrees/some-task', stray)).toBe(ROMS)
+  })
+
   it('resolves from an EnterWorktree .claude/worktrees/<name> worktree', () => {
     expect(rom('C:/Projects/hackbench/.claude/worktrees/some-name')).toBe(ROMS)
   })

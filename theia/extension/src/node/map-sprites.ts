@@ -153,6 +153,8 @@ export type SpriteDrawResult =
   | (Omit<Extract<EngineResult, { ok: true }>, 'parts'> & {
       parts: DrawPart[]
       anchor?: { x: number; y: number }
+      /** The list spot the DTO reports (hover, selection, drag) when the picture stands elsewhere: the game lays it out itself (D158 / Decision 124, InitLatches.ts). */
+      listPos?: { x: number; y: number }
       /** CGRAM colors the sprite's own code set by its drawn frame (interpreter only). */
       runtimePalette?: PaletteWrite[]
       /** The player-buffer slots the drawn frame's run pointed Mario's tile DMA at (interpreter only; #980). */
@@ -292,11 +294,12 @@ export function drawSprites(
       }
       blit(out, prio, width, p, [ax + p.dx - box.x0, ay + p.dy - box.y0], pixels[i]!, row)
     })
+    const at = ('listPos' in res && res.listPos) || { x: ax, y: ay }
     return {
       index: s.index,
       id: s.spriteId,
-      x: ax,
-      y: ay,
+      x: at.x,
+      y: at.y,
       box,
       rgba: base64(out),
       parts: res.parts.map(p => ({ char: p.charNum, palette: p.palette, flipX: p.flipX, flipY: p.flipY, dx: p.dx, dy: p.dy })), // prettier-ignore
@@ -412,7 +415,8 @@ export function runWithUploads(rom: RomFile, id: number, seed: SpriteSeed): RunM
 /** What the interpreter shows for one sprite: its model, as the drawer's reply. */
 export function modelResult(m: RunModel): SpriteDrawResult {
   const generic = m.seedSource === 'generic'
-  const u = generic ? { unverified: `level loader refused (${m.seedReason}); drawn from a placement-only seed` } : {} // prettier-ignore
+  const why = [...(generic ? [`level loader refused (${m.seedReason}); drawn from a placement-only seed`] : []), ...(m.unverifiedReason ? [m.unverifiedReason] : [])] // prettier-ignore
+  const u = why.length ? { unverified: why.join('; ') } : {}
   if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}`, ...u }
   const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
   const uploads = m.chosen === undefined ? undefined : m.uploads?.[m.chosen]
@@ -421,6 +425,12 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     ok: true,
     parts: interpParts(pass.parts),
     anchor: { x: m.anchor.x, y: m.anchor.y },
+    ...(m.absolutePlacement
+      ? {
+          listPos: { x: m.anchor.rawX, y: m.anchor.rawY },
+          note: 'The game lays this sprite out itself, at fixed spots of the map; it does not follow where the list places it.',
+        }
+      : {}),
     runtimePalette: pass.palette,
     ...(pass.drew
       ? { children: pass.drew.children.map(c => ({ index: c.index, parts: interpParts(pass.parts.filter(p => c.oam.includes(p.oam))) })) } // prettier-ignore
@@ -454,6 +464,21 @@ function launcherResult(rom: RomFile, seed: SpriteSeed): SpriteDrawResult {
     ...(unverified ? { unverified } : {}),
     identity: { spriteId: l.torpedoId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
   }
+}
+
+/** Why a replay in the loader's top slot may differ when an earlier sprite of the list was loaded first (bank_02.asm:5400-5405: the search goes down from the top). */
+export const EARLIER_SPRITE_REASON =
+  'an earlier sprite in the list may have taken the slot the game puts this one in, so one block can differ by a pixel and in its item'
+
+/** True when a list entry before `s` was loaded at level start (SpriteLoadStatus set), so it may hold a slot the search would have used. */
+export function earlierSpriteLoaded(
+  list: readonly LevelSprite[],
+  s: LevelSprite,
+  loadStatus: (index: number) => number,
+): boolean {
+  return list.some(
+    e => e.index < s.index && e.index >= 0 && e.index < 128 && loadStatus(e.index) !== 0,
+  )
 }
 
 /** SpriteLoadStatus, SMWDisX rammap.asm:1968 (SMW_U.sym 00001938): one byte per sprite list entry, 128 of them. */
@@ -656,7 +681,15 @@ export function interpRunner(
     if (s.spriteId === FIVE_EERIES) return { direct: eeriesResult(rom, seed(camera), s, model.isVertical, eeriesRoutines) } // prettier-ignore
     if (s.spriteId === THREE_PLATFORMS) return { direct: platformsResult(rom, seed(camera), s, model.isVertical, platformRoutines) } // prettier-ignore
     if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
-    const m = run(rom, s.spriteId, seed(camera))
+    let m = run(rom, s.spriteId, seed(camera))
+    // A sprite placed at the game's own layout (the bonus game) was replayed in the loader's top slot; an earlier loaded sprite
+    // may have taken it, which moves one block by a pixel and changes its item (measured on $000, slots 9 vs 8): drawn, marked.
+    if (
+      m.absolutePlacement &&
+      !m.unverifiedReason &&
+      earlierSpriteLoaded(list, s, i => w?.[SPRITE_LOAD_STATUS + i] ?? 0)
+    )
+      m = { ...m, unverifiedReason: EARLIER_SPRITE_REASON }
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return { m, fixed: false } // prettier-ignore
     // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbor
@@ -664,6 +697,8 @@ export function interpRunner(
     // A sprite with its own gate on the camera ($8D draws only while low byte of Layer1XPos < $46, bank_02.asm:15670-15673)
     // may draw nothing there: the shift is tried the other way, and if that draws nothing too the probe
     // proves nothing and the run stands (no position is invented).
+    // A sprite drawn at fixed map positions (InitLatches.ts) has no screen-fixed parts, and its camera is not the loader's.
+    if (m.absolutePlacement) return { m, fixed: false }
     const dir = [x - camera.x < 128 ? -13 : 13, y - camera.y < 112 ? -11 : 11]
     for (const k of [1, -1]) {
       const shifted = { x: camera.x + dir[0]! * k, y: camera.y + dir[1]! * k }

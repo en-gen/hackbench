@@ -138,7 +138,8 @@ The ROM corpus is **outside the repo**, beside the clone:
 
 ```
 <projects>/
-  hackbench/              the clone (and <projects>/.worktrees/hackbench/* )
+  hackbench/              the clone (and hackbench/.worktrees/*; older worktrees
+                          may still sit in <projects>/.worktrees/hackbench/*)
   hackbench-tools/
     roms/                 the cartridges
     mesen/                Mesen.exe, Saves/, Debugger/, GameConfig/
@@ -643,7 +644,7 @@ directly.
 ## Sweeping the hack store
 
 `tools/scripts/hack-sweep.ts` runs the readers behind each view (map tree,
-map details for every real map, overworld, graphics, Map16, palettes, music,
+map details for every real map (the level mode, plus the object parser, name lookup and graphics notes behind the future Properties panel, and the sprite parser on maps with readable level data and a readable sprite pointer), overworld, graphics, Map16, palettes, music,
 SFX) over every patched ROM in the hack store, and records `ok`, `unavailable`
 with every failing gate it can see, or `crash` with the error and its top
 frame. The summary ranks each gate by how many hacks it alone blocks. It also
@@ -857,7 +858,7 @@ private to the test file.
 
 ## The validation repository
 
-- `en-gen/hackbench-validation` is private and holds the Playwright e2e workflow (`e2e-playwright.yml`; builds the Theia browser shell and runs `theia/browser-app/test` against the requested ref, manually or via hackbench's manual-only `e2e-dispatch.yml`), the nightly run, the perf nightly (#415) and the Mesen per-graphics-layer capture harness (`capture/`). `[EST]`
+- `en-gen/hackbench-validation` is private and holds the Playwright e2e workflow (`e2e-playwright.yml`; builds the Theia browser shell and runs `theia/browser-app/test` against the requested ref, manually or via hackbench's manual-only `e2e-dispatch.yml`), the nightly run, the corpus nightly (`corpus-nightly.yml`, manually via `corpus-dispatch.yml`), the perf nightly (#415) and the Mesen per-graphics-layer capture harness (`capture/`). `[EST]`
 - map-diff was deleted 2026-09-25. `[EST]`
 - The CI secrets live there; `en-gen` is a Free org, so secrets are duplicated per repo. The ROM is pulled from OneDrive at run time. `[EST]`
 - `MAX_SKIPPED` gates on the known skips (emulator-view needs the core, gfx-view needs Invictus, music-view needs GPW2). Measured 8 on 2026-09-22; the emulator spec has since grown from 5 to 21 tests, so re-measure. `[OPEN]`
@@ -920,12 +921,53 @@ finder. The assembled-ROM tests (`SyntheticEeriesNoVanilla` and the like) and
 `test/suite/support/romWindows.ts` can adopt it; that is a follow-up for their
 owners.
 
+## Nested folders and `git clean` (#1202)
+
+Task worktrees live in `<repo>/.worktrees/<task>` and session state in
+`<repo>/.overwatch`; both are gitignored. `test/suite/gates/nestedFoldersGate.test.ts`
+plants a file in each and goes red if vitest, ESLint, Prettier, tsc (`tsconfig.json` and
+`tsconfig.test.json`; `tsconfig.webview.json` is not checked), the content gate's inputs or GitNexus's ignore rules pick it up. Each
+assertion was proven able to fail by removing its own ignore (smoke, one run
+each, 2026-11-03): the vitest include and excludes, the ESLint `ignores`, the
+`.gitignore` lines (turns Prettier, content and GitNexus red together), and the
+tsconfig excludes (with an explicit include of the folders; tsc's `**` skips dot
+folders on its own). GitNexus is checked through the `ignore` rules it loads
+(1.6.9 source), not by running its indexer. The ROM corpus resolver still finds
+`hackbench-tools` from `<repo>/.worktrees/<task>` (a case in `corpusResolver.test.ts`).
+
+`git clean -x` deletes ignored files, which is why the corpus left the repo. What
+it does to the two folders, run on a scratch repo with a real clean worktree and a
+real worktree holding a modified file, an untracked file and ignored files
+(`node_modules/`, `*.log`), plus a `.overwatch` holding a session file and a lock
+slot. Git 2.54.0.windows.1, Windows 11 (Git Bash), one machine, 2026-11-03. Nothing
+here ran in a real checkout.
+
+| Command | `.overwatch/` | `.worktrees/<task>` (clean and dirty alike) |
+| --- | --- | --- |
+| `git clean -nx` | not listed (no `-d`) | not listed |
+| `git clean -ndx` | "Would remove .overwatch/" | "Would skip repository" for each |
+| `git clean -fdx` | **deleted**, sessions, handoffs and lock slots with it | skipped, untouched |
+| `git clean -ffdx` | deleted | **deleted whole**, uncommitted and ignored files included; branches survive, `git worktree list` then shows each as prunable |
+
+A `.hackbench-state` junction to `.overwatch` (the layout after `cutover-state`)
+behaves the same: `-ndx` lists it, `-fdx` removes the link and the folder, and no
+file outside the repo was touched. So: `-fdx` costs the state folder (`sessions.json`, `protocols.json`,
+`protocols.log`, the handoffs and any held lock slots all go; the registry rebuilds on the next
+session start, the handoffs and the protocol history do not), and only the double `-ff` reaches a
+worktree, where it destroys uncommitted work. Do not run `git clean -x` in the main
+checkout.
+
+A nested worktree that has no `node_modules` of its own resolves packages upward to the
+main checkout's, because Node walks parent folders. A forgotten install in a new worktree
+no longer fails loudly; run the install, or `npm run lint` will use main's tools against
+the worktree's files. (Without `-x`, ignored files are not candidates; that case was not run.)
+
 ## Run lock
 
 Full unit runs, Theia builds and Playwright runs share a counting semaphore
 of 3 lock slots, so at most 3 overlap (timeouts in #485, #771). ("Slot" in
 the glossary is a ROM pointer-table index; a lock slot is a different thing.) A lock slot is
-a directory under `<main checkout>/.hackbench-state/locks/`: `run` (lock
+a directory under `<main checkout>/.overwatch/locks/` (or `.hackbench-state/locks/` until `protocol.mjs cutover-state` runs, #1202): `run` (lock
 slot 1, the original single lock, so an older script's lock is slot 1),
 `run-2` and `run-3`. Worktrees resolve the main checkout through git, and
 `HACKBENCH_STATE_DIR` overrides it. `HACKBENCH_RUN_SLOTS` sets how many lock
