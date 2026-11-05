@@ -5,7 +5,7 @@
  * written while $15E9 names another slot is that slot's.
  */
 import { describe, expect, it } from 'vitest'
-import { Machine, RAM, runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { Machine, RAM, runOnce, runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
 import {
@@ -13,7 +13,6 @@ import {
   interpDrawer,
   modelResult,
 } from '../../../../theia/extension/src/node/map-sprites'
-import { runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { freshRom, hasRom, VANILLA } from '../../support/corpus'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
@@ -57,14 +56,36 @@ describe('a sprite that draws for itself', () => {
   })
 })
 
-describe('a write under a $15E9 that names no spawned slot', () => {
-  it('is in neither parts nor companions (the cluster loop shape, #809)', () => {
+// A write made under a $15E9 that is not the sprite's own slot (id 84 sets $15E9 to 15, as a cluster loop or
+// Yoshi's OAM does) can be anyone's; in a plain run it is drawn by the map view, never credited to the grader.
+describe('a write under another sprite slot ($15E9 15, id 84)', () => {
+  it('is a companion, never a part: the grader does not credit it, the map view draws it', () => {
     const m = runSprite(rom, 84, withSeed({ slot: SLOT }))
     expect(m.refusal).toBeUndefined()
+    expect(m.chosen).toBe(0)
     for (const p of m.passes) {
       expect(p.parts).toEqual([])
-      expect(p.companions ?? []).toEqual([])
+      expect(p.companions).toHaveLength(1)
     }
+    const r = modelResult(m)
+    expect(r.ok && r.parts.length).toBe(1)
+  })
+
+  it('in a neighbour run it is in neither list (the neighbour run draws its own writes alone)', () => {
+    const m = new Machine(rom, withSeed({ slot: SLOT, neighbours: [{ id: 0, x: 0x90, y: 0x70 }] }), 84, undefined, true) // prettier-ignore
+    m.frame()
+    m.clearOamWrites()
+    m.frame()
+    expect(m.writtenOam()).toEqual([])
+    expect(m.companionOam()).toEqual([])
+  })
+
+  it('a companion is measured from the same origin as the parts', () => {
+    const own = runSprite(rom, 0, withSeed({ slot: SLOT }))
+    const m = runSprite(rom, 80, withSeed({ slot: SLOT }))
+    const [a] = own.passes[own.chosen!].parts
+    const c = m.passes[m.chosen!].companions![0]!
+    expect([c.dx, c.dy]).toEqual([a.dx, a.dy])
   })
 
   it('a sprite that spawns nothing has no companions', () => {
@@ -73,7 +94,8 @@ describe('a write under a $15E9 that names no spawned slot', () => {
   })
 })
 
-// A pure spawner (the shape of $DE, $E0, $E2/$E3: INIT spawns, MAIN draws nothing) shows only its companions.
+// A pure spawner (INIT spawns, MAIN draws nothing; $DE and $E0 are loader commands and $E2/$E3 cluster spawns, so
+// no vanilla sprite is known to be one) shows only its companions.
 // Parts stay the grader's own (none), but the pass still counts as drawn, so it is chosen and not "drew no tile".
 describe('a spawner that draws only through its companion (id 85)', () => {
   it('is chosen, with no parts of its own and the companion beside them', () => {
@@ -94,8 +116,8 @@ describe('a spawner that draws only through its companion (id 85)', () => {
   })
 })
 
-// A map neighbor (#841) is placed in a slot with status non-zero and draws on its own turn; it is not something
-// the sprite spawned, so the map view (which draws neighbors itself) must not get it as a companion too.
+// A map neighbor (#841) is placed in a slot with status non-zero and draws on its own turn; the neighbor run keeps
+// no companions, so the map view (which draws neighbors itself) cannot draw it twice.
 describe('a placed neighbor is not a companion', () => {
   it('its own-turn draw lands in neither parts nor companions of the sprite under test', () => {
     const seed = withSeed({ slot: SLOT, neighbours: [{ id: 0, x: 0x90, y: 0x70 }] })
@@ -140,7 +162,7 @@ describe('a reused OAM tile is owned by its last writer', () => {
   })
 })
 
-// The map view keeps what the hardware shows (D52): companions are drawn with their spawner, though the grader's
+// The map view keeps what the hardware shows (D52: "We can't outright hide things from the user"): companions are drawn with their spawner, though the grader's
 // parts stay the sprite's own. Piece counts are the draw list (a 16 x 16 piece is 4 cells) as origin/develop
 // served them before #840: $61 4 pieces (16 cells), $1E 7 pieces (25 cells).
 describe.skipIf(!hasRom(VANILLA))('map view companions, vanilla ROM (#840, D52)', () => {
@@ -170,7 +192,29 @@ describe.skipIf(!hasRom(VANILLA))('map view companions, vanilla ROM (#840, D52)'
     expect(own + comp).toBe(7)
     expect(comp).toBeGreaterThan(0)
   })
-  it.each([96, 1840])('$B9 on 101 at %i,336 has no companions (the cluster leak stays out)', x => {
-    expect(split(0x101, 0xb9, x, 336)).toEqual([1, 0])
+  // Positions swept: the counts do not depend on where the list places the sprite.
+  it.each([
+    [160, 384],
+    [400, 384],
+    [800, 384],
+    [1500, 384],
+  ])('$61 on 10a at %i,%i: 1 part, 3 companions', (x, y) => {
+    expect(split(0x10a, 0x61, x, y)).toEqual([1, 3])
   })
+  it.each([
+    [1120, 224],
+    [1000, 224],
+    [1120, 240],
+    [1060, 224],
+  ])('$1E on 1c4 at %i,%i: 2 parts, 5 companions', (x, y) => {
+    expect(split(0x1c4, 0x1e, x, y)).toEqual([2, 5])
+  })
+  // Nothing writes under another $15E9 at these spots (the cluster loop is not running in a plain run of $B9 here),
+  // so this shows no leak into parts or companions, not a filter at work; id 84 above is the real other-slot write.
+  it.each([96, 400, 1000, 1840])(
+    '$B9 on 101 at %i,336 draws its one piece and has no companions',
+    x => {
+      expect(split(0x101, 0xb9, x, 336)).toEqual([1, 0])
+    },
+  )
 })

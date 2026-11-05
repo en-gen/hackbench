@@ -142,23 +142,24 @@ write as the sprite's own part only when `$15E9` equals the sprite's slot, on ev
   `bank_02.asm:16651`); `$02:FA4E` is `CODE_02FA16` +56, the castle flame's tile store (`bank_02.asm:16255`). $B9's own
   tiles are written under its own sprite slot (PCs `$01:9F2A`, `CODE_019E95` +149, `bank_01.asm:4083`, and `$03:8DB4`,
   `DATA_038D66` +78, `bank_03.asm:1698`; for these two only the label and offset were taken from the disassembly
-  index, the exact instruction line was not traced). The filter drops the cluster writes whose index differs from the
-  sprite slot, so 101 grades exact (it was already exact on develop at `a028e0dc`, so #840 does not change it). On 004
-  $B9 sits in sprite slot 6, so cluster index 6's write is still credited to it: its "close" grade is two
-  misattributions agreeing, not a separate defect.
+  index, the exact instruction line was not traced). Whether the own-slot rule acts on $B9 was NOT shown by a test: on
+  develop at `a028e0dc` the 101 records already grade exact, and a plain map-view run of $B9 on 101 (4 spots) gives 1
+  part and 0 companions, so no write under another `$15E9` reached an OAM tile byte at those seeds. The map 004 claim
+  that $B9 sits in sprite slot 6 and so keeps cluster index 6's write is an inference from the probe PCs, not
+  reproduced here; read its "close" grade as unverified. The synthetic id 84 (`$15E9` set to 15) is the real
+  other-slot write under test.
 - $2B's former spawn-oracle extra tile was also a cluster write (`$02:F983`, `$15E9` = 9; `CODE_02F967` +28, the Sumo
   Bro flame tile store, `bank_02.asm:16145`), now filtered.
-- The map view still draws companions (owner principle D52: a sprite the hardware shows never draws as nothing).
-  `PassResult.companions` holds writes made under a sprite slot this run spawned: status non-zero, not the sprite's
-  own, and not a neighbor the #841 run placed (a placed neighbor draws on its own turn and the map draws it itself).
-  A tile byte belongs to the last slot that wrote it, so a reused OAM tile is decoded once. `drawnParts` is `parts`
-  plus `companions`: the chosen pass, the "drew no tile" test, `modelResult`, the pose frames and the spawn readers
+- The map view still draws companions (owner principle D52: "We can't outright hide things from the user").
+  `PassResult.companions` is, in a plain run, every tile write made under a `$15E9` other than the sprite's own
+  (a sprite this run spawned, a cluster index, Yoshi's OAM), so parts plus companions are exactly what the map view
+  drew before #840. A neighbor run (#841) keeps none: its picture was the sprite's own writes alone. A tile byte belongs
+  to the last slot that wrote it, so a reused OAM tile is decoded once. `drawnParts` is `parts` plus `companions`: the
+  chosen pass, the "drew no tile" test, `modelResult`, the pose frames, the screen-fixed pass and the spawn readers
   (`SpawnedChildren`, `FiveEeries`) use it, so a spawner that draws only through its companions still draws. The grader
-  and sprite report read `parts` only. Writes under `$15E9` values that name neither the sprite's own slot nor a
-  spawned slot (the cluster loop's 0-19) are in neither list unless the value equals the sprite's own slot ($B9 on
-  101: 1 part, 0 companions).
-- Remaining limit: a cluster sprite whose index equals the sprite's slot, and Mario/Yoshi OAM drawn through
-  `CODE_01C9E2` under the caller's `$15E9` (`bank_01.asm:10051`), are still credited to the sprite. Not a regression
+  and sprite report read `parts` only. A write under a `$15E9` that names no spawned slot (id 84 in the synthetic
+  cart) is a companion, never a part, unless the value equals the sprite's own slot.
+- Remaining limit: a cluster sprite whose index equals the sprite's slot, and Yoshi's OAM (it sets `$15E9` at `bank_01.asm:14344`; `CODE_01C9E2` restores the caller's at 10051), are still credited to the sprite. Not a regression
   (the old code credited all of it); the cluster OAM leak work (#809, `ClusterOamLeak`) is the follow-up.
 
 Grader, `spriteGrade.captures.test.ts` (1957 records, 'rom' seed, vanilla ROM, `layers_v5`, one machine, measured

@@ -134,7 +134,7 @@ export interface PassResult {
   /** Where this pass's parts are measured from: `SpriteModel.anchor` when INIT's moves are kept; the end-of-pass `pos` at rest; the pass before's `pos` for $67 on a vanilla-shaped handler (where the pass before left it). */
   origin: { x: number; y: number }
   parts: SpritePart[]
-  /** Pieces drawn by sprites this run spawned (their own slots, not a placed neighbor), same origin. Not the grader's: the map view draws `drawnParts` (D52, #840). */
+  /** Plain run only: pieces written under any other `$15E9` (a sprite this run spawned, a cluster index), same origin. Not the grader's: the map view draws `drawnParts` (D52, #840). */
   companions?: SpritePart[]
   /** Palette or graphics uploads the pass wrote registers for. */
   uploads: string[]
@@ -284,17 +284,17 @@ export class Machine {
    * before running it (SMWDisX bank_01.asm:110-125) and each slot takes its OAM index from itself
    * (bank_01.asm:143-152), so a write made under another slot is that slot's: a companion the sprite's
    * INIT spawned ($61, $1E; #840) draws in its own slot and is not a part of the spawner. Limit: cluster
-   * sprites (loop at bank_02.asm:15950-15958) and Mario/Yoshi OAM (bank_01.asm:10051) run under the caller's
-   * `$15E9`, so one whose index equals this slot is still credited (#809). The grader's parts, and the map view's,
-   * in a plain run and a neighbor run alike.
+   * sprites (loop at bank_02.asm:15950-15958) and Yoshi's OAM (it sets `$15E9` at bank_01.asm:14344 and the
+   * routine restores the caller's at 10051) run under another `$15E9`, so one whose index equals this slot
+   * is still credited (#809). The grader's parts; in a neighbor run also the map view's.
    */
   private own = new Set<number>()
   /**
-   * The same writes made under another sprite slot that this run spawned: status non-zero and not a neighbor
-   * `placeNeighbours` put there (a placed neighbor draws on its own turn, and the map draws it itself, #841; only
-   * a plain run starts with every other slot empty). The map view draws these with the spawner (D52); the grader
-   * does not (`own` only). A byte belongs to the last set that wrote it, so a reused OAM tile is decoded once.
-   * Residual: a cluster index equal to a spawned slot is still credited here.
+   * Plain run only: every other tile write, whatever `$15E9` held (a spawned sprite's slot, a cluster index,
+   * Yoshi's), so `own` plus `companion` is the set of all tile writes the map view drew before #840. The map
+   * view draws them with the spawner (D52); the grader does not (`own` only). A neighbor run leaves this empty:
+   * its pictures were the sprite's own writes alone (#841), a placed neighbor drawing on its own turn. A byte
+   * belongs to the last set that wrote it, so a reused OAM tile is decoded once.
    */
   private companion = new Set<number>()
   /** The sprite's position at the first OAM write since `clearOamWrites` (the capture's sampling moment). */
@@ -353,7 +353,7 @@ export class Machine {
           const set = this.childTiles.get(this.drawingFor) ?? new Set<number>()
           this.childTiles.set(this.drawingFor, set.add(off))
         }
-      } else if (cur < SLOTS && this.bus.wram[RAM.status + cur] !== 0 && !this.placed.has(cur)) {
+      } else if (!this.neighbourRun) {
         this.companion.add(off)
         this.own.delete(off)
       }
@@ -703,7 +703,8 @@ const DRAWS_BEFORE_LINE_SNAP: ReadonlySet<number> = new Set([0x67])
  * Run with a seed; no marioX analysis (half the cost of `runSprite`). The run is alone. When the sprite's own
  * code scanned the slot tables for a companion (`scansSlots`) and the seed lists `neighbours`, a second run puts
  * them in the other slots and counts only the OAM written under this sprite's slot (as the capture does: a
- * neighbor's own draw is not this sprite's). It replaces the first only when its parts differ (#841).
+ * neighbor's own draw is not this sprite's), with no `companions`. It replaces the first only when it adds
+ * parts to what the first run drew (parts plus companions) and keeps all of them (#841).
  */
 export function runOnce(
   rom: RomFile,
@@ -725,8 +726,8 @@ export function runOnce(
  * scan, a kick) is not a part of its picture (#841).
  */
 function addsOnly(a: SpriteModel, b: SpriteModel): boolean {
-  const mine = a.chosen === undefined ? [] : a.passes[a.chosen]!.parts.map(partKey)
-  const theirs = new Set(b.passes[b.chosen!]!.parts.map(partKey))
+  const mine = a.chosen === undefined ? [] : drawnParts(a.passes[a.chosen]!).map(partKey)
+  const theirs = new Set(drawnParts(b.passes[b.chosen!]!).map(partKey))
   return theirs.size > mine.length && mine.every(k => theirs.has(k))
 }
 
@@ -987,7 +988,7 @@ function runCore(
 const partsKey = (m: SpriteModel): string =>
   m.passes
     .map(p =>
-      p.parts
+      drawnParts(p)
         .map(q => [q.char, q.palette, +q.flipX, +q.flipY, q.dx, q.dy, q.size].join(','))
         .sort()
         .join(';'),
