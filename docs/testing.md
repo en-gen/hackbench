@@ -95,16 +95,16 @@ content is never exempt, and a malformed line or unknown rule exits 2.
 A synthetic cart must not carry the game's code. The rule is mechanical: no 8 consecutive bytes with at least 3
 distinct values may also occur anywhere in the vanilla ROM. `test/suite/support/vanillaWindows.ts` holds the
 checker (it reports each hit as an SNES address) and `test/suite/unit/sprites/SyntheticSpriteRomNoVanilla.test.ts`
-applies it to the sprite cart: the default and one variant set per `SyntheticOptions` field (`BY_OPTION`, typed so a
-new field fails the typecheck, with `grinderInitDelta` at every value real tests use, with and without
+applies it to the sprite cart: the default and one variant set per `SyntheticOptions` field (`BY_OPTION`; a no-ROM check reads the
+`SyntheticOptions` interface as text and fails on a field with no entry, since the test tree is not typechecked in CI, with `grinderInitDelta` at every value real tests use, with and without
 `grinderAliases`), not combinations of options; `spawnTimer` and `initShift` are swept over 0..255. The scan needs the
 vanilla ROM and skips without it; CI has no ROM, so a vanilla window there stays green. The allow list ratchet, the
 planted cases and the variant coverage check need no ROM and run in CI. `CastleFlames.test.ts` applies it to the bytes its fixtures write over the plain cart.
 
 The sprite cart's allow list (`ALLOWED` in that test) is empty and held there: a test that needs no ROM fails if it
 has any entry, and a planted entry proves it goes red (#1073). Some readers in `src/` still fix the game's own bytes
-(`ShellSprites.ts` SITES and the stored arrays in `SpriteDispatch.ts`, tracked in #1109); the cart carries those
-shapes only as instructions of its own, never as the game's sequence. When a reader forces a window, change the
+(`ShellSprites.ts` SITES and the stored arrays in `SpriteDispatch.ts`, tracked in #1109); the cart keeps those
+opcodes in the game's order, with operands of its own, until #1109 removes the reader arrays. When a reader forces a window, change the
 fixture to an equivalent sequence with the same effect (a different operand pair with the same difference, or
 different instructions for the same state; never the game's instructions reordered or split), or make the reader run or fingerprint the code; do not add an
 allow list entry, which the ratchet refuses.

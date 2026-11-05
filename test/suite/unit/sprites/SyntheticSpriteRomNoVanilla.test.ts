@@ -1,12 +1,14 @@
 /**
  * ROM-byte clean-up (CastleFlames): the synthetic sprite cart carries no vanilla SMW bytes. The default cart and
- * each `SyntheticOptions` field on its own (VARIANTS, one entry per field, with the values real tests use for
+ * each `SyntheticOptions` field (VARIANTS: one variant set per field, mostly the option alone; mainStepsBack carries
+ * initFarCull and the grinderInitDelta values also run with grinderAliases; the values real tests use for
  * grinderInitDelta; spawnTimer and initShift swept over 0..255; not combinations of options) are scanned for an 8-byte
  * window (3+ distinct values) that occurs anywhere in the vanilla ROM; each hit is reported as an SNES
  * address. The scan needs the vanilla ROM and is gated on it. The no-ROM half, which CI runs, is the checker's
  * planted cases, the empty allow list ratchet and the variant coverage check; a vanilla window itself is only
  * caught where the ROM is present.
  */
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { hasRom, romPath, VANILLA } from '../../support/corpus'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
@@ -29,8 +31,11 @@ const each = <T>(name: string, vals: readonly T[], f: (v: T) => SyntheticOptions
 const DELTAS: (readonly [number, number])[] = [[8, 0], [12, 0], [0, 0], [0x180, 0], [-0x140, 0], [0, -0x140], [0, -0x80], [1, 1], [4, 0], [0x10, 0], [0x123, -0x45]] // prettier-ignore
 
 /**
- * Every SyntheticOptions field has an entry, so a new field fails the typecheck until it has a variant here, and
- * `uncovered` fails a test when an entry is empty or its variants do not set the field. Each variant is one option on its own.
+ * One variant set per SyntheticOptions field. The guard is the runtime check below, which reads the interface from
+ * syntheticSpriteRom.ts as text and fails on a field with no entry here (tsconfig.test.json does not typecheck this
+ * file, so the mapped type alone guards nothing in CI). `uncovered` fails when an entry is empty or a variant leaves
+ * its field unset. A variant is the option on its own, except mainStepsBack (with initFarCull) and the
+ * grinderInitDelta values that also set grinderAliases.
  */
 export const BY_OPTION: { [K in keyof SyntheticOptions]-?: Variant[] } = {
   initShift: one('initShift', { initShift: 0x31 }),
@@ -86,13 +91,50 @@ export const VARIANTS: Variant[] = [['default', {}], ...Object.values(BY_OPTION)
 /** The fields of `by` with no variant, or with variants that never set the field: empty when coverage holds. */
 export function uncovered(by: Record<string, Variant[]>): string[] {
   return Object.entries(by)
-    .filter(([k, vs]) => vs.length === 0 || vs.some(([, o]) => !(k in o)))
+    .filter(
+      ([k, vs]) =>
+        vs.length === 0 || vs.some(([, o]) => (o as Record<string, unknown>)[k] === undefined),
+    )
     .map(([k]) => k)
 }
 
+/** The field names of the `SyntheticOptions` interface in `src` (2-space-indented `name?:` lines), read as text. */
+export function optionFields(src: string): string[] {
+  const body = /export interface SyntheticOptions \{\r?\n([\s\S]*?)\r?\n\}/.exec(src)?.[1] ?? ''
+  return [...body.matchAll(/^ {2}(\w+)\??:/gm)].map(m => m[1]!)
+}
+/** What is wrong between the interface fields in `src` and the keys of `by`: a parser that found few fields, a field with no entry, an entry for no field. */
+export function fieldProblems(src: string, by: Record<string, unknown>): string[] {
+  const fields = optionFields(src)
+  const keys = Object.keys(by)
+  return [
+    ...(fields.length < 30 ? [`the parser found only ${fields.length} fields`] : []),
+    ...fields.filter(f => !keys.includes(f)).map(f => `no variant entry for ${f}`),
+    ...keys.filter(k => !fields.includes(k)).map(k => `entry ${k} is no field`),
+  ]
+}
+
 describe('the variant list covers every option', () => {
-  it('every field has variants that set it', () => {
+  const SRC = readFileSync(new URL('../../support/syntheticSpriteRom.ts', import.meta.url), 'utf8')
+  it('every interface field has variants that set it, and every entry is a field', () => {
+    expect(fieldProblems(SRC, BY_OPTION)).toEqual([])
     expect(uncovered(BY_OPTION)).toEqual([])
+  })
+  it('planted: a missing key, an extra key, or a parser that finds nothing is red', () => {
+    const names = Array.from({ length: 32 }, (_, i) => `f${i}`)
+    const src = ['export interface SyntheticOptions {', ...names.map(n => `  ${n}?: boolean`), '}'].join('\n') // prettier-ignore
+    const full = Object.fromEntries(names.map(n => [n, []]))
+    expect(fieldProblems(src, full)).toEqual([])
+    const less = Object.fromEntries(Object.entries(full).filter(([k]) => k !== 'f7'))
+    expect(fieldProblems(src, less)).toEqual(['no variant entry for f7'])
+    expect(fieldProblems(src, { ...full, zz: [] })).toEqual(['entry zz is no field'])
+    expect(fieldProblems('', {})).toEqual(['the parser found only 0 fields'])
+  })
+  it('planted: a mixed list, or an undefined value, does not count as setting the field', () => {
+    const good: Variant = ['g', { badLoop: true }]
+    expect(uncovered({ badLoop: [good, ['h', { dupLoop: true }]] })).toEqual(['badLoop'])
+    expect(uncovered({ grinderCell: [['u', { grinderCell: undefined }]] })).toEqual(['grinderCell'])
+    expect(uncovered({ badLoop: [good] })).toEqual([])
   })
   it('planted: a field with its variants removed, or variants that do not set it, is red', () => {
     expect(uncovered({ a: [], b: [['b', { badLoop: true }]], c: [['c', { badLoop: true }]] })).toEqual(['a', 'b', 'c']) // prettier-ignore
