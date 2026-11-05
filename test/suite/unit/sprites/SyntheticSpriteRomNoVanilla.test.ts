@@ -1,9 +1,11 @@
 /**
- * ROM-byte clean-up (CastleFlames): the synthetic sprite cart carries no vanilla SMW bytes. Every cart
- * `buildSyntheticRom` can produce (the default, plus each option on its own) is scanned for an 8-byte
+ * ROM-byte clean-up (CastleFlames): the synthetic sprite cart carries no vanilla SMW bytes. The default cart and
+ * each `SyntheticOptions` field on its own (VARIANTS, one entry per field, with the values real tests use for
+ * grinderInitDelta; spawnTimer and initShift swept over 0..255; not combinations of options) are scanned for an 8-byte
  * window (3+ distinct values) that occurs anywhere in the vanilla ROM; each hit is reported as an SNES
- * address. Needs the vanilla ROM, so it is gated on it; CI without a cart runs only the planted block's
- * synthetic half (the checker's behaviour on a hand-made window).
+ * address. The scan needs the vanilla ROM and is gated on it. The no-ROM half, which CI runs, is the checker's
+ * planted cases, the empty allow list ratchet and the variant coverage check; a vanilla window itself is only
+ * caught where the ROM is present.
  */
 import { describe, expect, it } from 'vitest'
 import { hasRom, romPath, VANILLA } from '../../support/corpus'
@@ -19,47 +21,83 @@ import {
 
 const LOADERS = ['lead', 'jump', 'callsite', 'pointers', 'entrance', 'data', 'scroll', 'update', 'scrollTail', 'updateTail', 'updateOperand', 'scrollRtl', 'updateRts', 'scrollPop', 'layer3', 'gm12', 'gm12Bpl', 'gm12Jsr', 'reset'] as const // prettier-ignore
 
-/** Every option on its own, and the default. A defect option changes a few bytes of the default's regions. */
-export const VARIANTS: [string, SyntheticOptions][] = [
-  ['default', {}],
-  ['initShift', { initShift: 0x31 }],
-  ['noTileWrite', { noTileWrite: true }],
-  ['badLoop', { badLoop: true }],
-  ['dupLoop', { dupLoop: true }],
-  ['badExecutePtr', { badExecutePtr: true }],
-  ['badDispatch', { badDispatch: true }],
-  ['badInitTables', { badInitTables: true }],
-  ['badGetRand', { badGetRand: true }],
-  ['fastRomGetRand', { fastRomGetRand: true }],
-  ...LOADERS.map((k): [string, SyntheticOptions] => [`badLoader ${k}`, { badLoader: k }]),
-  ...(['jml', 'loop', 'rts'] as const).map((k): [string, SyntheticOptions] => [`updateHook ${k}`, { updateHook: k }]), // prettier-ignore
-  ['loaderCop', { loaderCop: true }],
-  ...(['head', 'status', 'dispatch'] as const).map((k): [string, SyntheticOptions] => [`badSpawn ${k}`, { badSpawn: k }]), // prettier-ignore
-  ['spawnTimer', { spawnTimer: 0x44 }],
-  ['spawnLoop', { spawnLoop: true }],
-  ['alteredGrinder', { alteredGrinder: true }],
-  ['grinderDrawsOnce', { grinderDrawsOnce: true }],
-  ['grinderDrawsTwice', { grinderDrawsTwice: true }],
-  ['grinderDrawsOnPass1', { grinderDrawsOnPass1: true }],
-  ['grinderDrawsFromPass1', { grinderDrawsFromPass1: true }],
-  ['id31IsGrinder', { id31IsGrinder: true }],
-  ['initFarCull', { initFarCull: true }],
-  ['mainStepsBack', { initFarCull: true, mainStepsBack: true }],
-  ['grinderInitShifts', { grinderInitShifts: true }],
-  ['grinderInitDelta', { grinderInitDelta: [0x123, -0x45] }],
-  ['grinderAliases', { grinderAliases: true }],
-  ['grinderPrelude', { grinderPrelude: true }],
-  ['grinderCell At3', { grinderCell: 'At3' }],
-  ['grinderCell Not3', { grinderCell: 'Not3' }],
-  ['grinderLocksOnPass', { grinderLocksOnPass: 2 }],
-  ['grinderWideX', { grinderWideX: true }],
-  ['irqCommand', { irqCommand: 0x80 }],
-  ['eeries', { eeries: {} }],
-  ['eeries stream', { eeries: { stream: [0x51, 0xb3, 0xe0, 0xff] } }],
-  ['eeries spacing', { eeries: { spacing: [-0x30, -0x18, 0x18, 0x30] } }],
-  ['eeries room', { eeries: { room: 6 } }],
-  ['eeries travel', { eeries: { travel: true } }],
-]
+type Variant = [string, SyntheticOptions]
+const one = (name: string, o: SyntheticOptions): Variant[] => [[name, o]]
+const each = <T>(name: string, vals: readonly T[], f: (v: T) => SyntheticOptions): Variant[] =>
+  vals.map((v): Variant => [`${name} ${JSON.stringify(v)}`, f(v)])
+/** The grinderInitDelta values real tests use, so the gate scans the bytes those tests build (with and without aliases). */
+const DELTAS: (readonly [number, number])[] = [[8, 0], [12, 0], [0, 0], [0x180, 0], [-0x140, 0], [0, -0x140], [0, -0x80], [1, 1], [4, 0], [0x10, 0], [0x123, -0x45]] // prettier-ignore
+
+/**
+ * Every SyntheticOptions field has an entry, so a new field fails the typecheck until it has a variant here, and
+ * `uncovered` fails a test when an entry is empty or its variants do not set the field. Each variant is one option on its own.
+ */
+export const BY_OPTION: { [K in keyof SyntheticOptions]-?: Variant[] } = {
+  initShift: one('initShift', { initShift: 0x31 }),
+  initFarCull: one('initFarCull', { initFarCull: true }),
+  mainStepsBack: one('mainStepsBack', { initFarCull: true, mainStepsBack: true }),
+  noTileWrite: one('noTileWrite', { noTileWrite: true }),
+  badLoop: one('badLoop', { badLoop: true }),
+  dupLoop: one('dupLoop', { dupLoop: true }),
+  badExecutePtr: one('badExecutePtr', { badExecutePtr: true }),
+  badDispatch: one('badDispatch', { badDispatch: true }),
+  badInitTables: one('badInitTables', { badInitTables: true }),
+  badGetRand: one('badGetRand', { badGetRand: true }),
+  fastRomGetRand: one('fastRomGetRand', { fastRomGetRand: true }),
+  badLoader: each('badLoader', LOADERS, k => ({ badLoader: k })),
+  updateHook: each('updateHook', ['jml', 'loop', 'rts'] as const, k => ({ updateHook: k })),
+  loaderCop: one('loaderCop', { loaderCop: true }),
+  badSpawn: each('badSpawn', ['head', 'status', 'dispatch'] as const, k => ({ badSpawn: k })),
+  spawnTimer: one('spawnTimer', { spawnTimer: 0x44 }),
+  spawnLoop: one('spawnLoop', { spawnLoop: true }),
+  alteredGrinder: one('alteredGrinder', { alteredGrinder: true }),
+  grinderDrawsOnce: one('grinderDrawsOnce', { grinderDrawsOnce: true }),
+  grinderDrawsTwice: one('grinderDrawsTwice', { grinderDrawsTwice: true }),
+  grinderDrawsOnPass1: one('grinderDrawsOnPass1', { grinderDrawsOnPass1: true }),
+  grinderDrawsFromPass1: one('grinderDrawsFromPass1', { grinderDrawsFromPass1: true }),
+  id31IsGrinder: one('id31IsGrinder', { id31IsGrinder: true }),
+  grinderInitShifts: one('grinderInitShifts', { grinderInitShifts: true }),
+  grinderInitDelta: [
+    ...each('grinderInitDelta', DELTAS, d => ({ grinderInitDelta: d })),
+    ...each('grinderInitDelta+aliases', DELTAS, d => ({
+      grinderInitDelta: d,
+      grinderAliases: true,
+    })),
+  ],
+  grinderAliases: one('grinderAliases', { grinderAliases: true }),
+  grinderPrelude: one('grinderPrelude', { grinderPrelude: true }),
+  grinderCell: each('grinderCell', ['At3', 'Not3'] as const, c => ({ grinderCell: c })),
+  grinderLocksOnPass: one('grinderLocksOnPass', { grinderLocksOnPass: 2 }),
+  grinderWideX: one('grinderWideX', { grinderWideX: true }),
+  irqCommand: one('irqCommand', { irqCommand: 0x80 }),
+  eeries: [
+    ...one('eeries', { eeries: {} }),
+    ...one('eeries stream', { eeries: { stream: [0x51, 0xb3, 0xe0, 0xff] } }),
+    ...one('eeries spacing', { eeries: { spacing: [-0x30, -0x18, 0x18, 0x30] } }),
+    ...one('eeries room', { eeries: { room: 6 } }),
+    ...one('eeries room 0', { eeries: { room: 0 } }),
+    ...one('eeries travel', { eeries: { travel: true } }),
+  ],
+}
+
+/** The cart `buildSyntheticRom()` makes, and every option's variants. */
+export const VARIANTS: Variant[] = [['default', {}], ...Object.values(BY_OPTION).flat()]
+
+/** The fields of `by` with no variant, or with variants that never set the field: empty when coverage holds. */
+export function uncovered(by: Record<string, Variant[]>): string[] {
+  return Object.entries(by)
+    .filter(([k, vs]) => vs.length === 0 || vs.some(([, o]) => !(k in o)))
+    .map(([k]) => k)
+}
+
+describe('the variant list covers every option', () => {
+  it('every field has variants that set it', () => {
+    expect(uncovered(BY_OPTION)).toEqual([])
+  })
+  it('planted: a field with its variants removed, or variants that do not set it, is red', () => {
+    expect(uncovered({ a: [], b: [['b', { badLoop: true }]], c: [['c', { badLoop: true }]] })).toEqual(['a', 'b', 'c']) // prettier-ignore
+  })
+})
 
 describe('the window checker', () => {
   const vanilla = new Uint8Array(64).map((_, i) => (i * 7 + 3) & 0xff)
@@ -126,6 +164,17 @@ describe.skipIf(!hasRom(VANILLA))(
       cart.set(real, 0x14000)
       expect(vanillaHits(cart, vanilla())).toContain(snesOf(0x14000))
     })
+
+    // Immediates a test can set to any byte: every value must stay clear, not only the one in VARIANTS.
+    it.each(['spawnTimer', 'initShift'] as const)(
+      '%s: no value 0..255 has a vanilla window',
+      key => {
+        const bad: number[] = []
+        for (let v = 0; v < 256; v++) if (hitsOf({ [key]: v }).length > 0) bad.push(v)
+        expect(bad).toEqual([])
+      },
+      120_000,
+    )
 
     it.each(VARIANTS)('%s: has no vanilla window', (_, opts) => {
       expect(summarize(hitsOf(opts))).toEqual([])

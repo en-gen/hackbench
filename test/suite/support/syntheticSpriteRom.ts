@@ -333,7 +333,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
     0x028936,
     o.spawnLoop
       ? [0x4c, 0x36, 0x89]
-      : [0xa9, o.spawnTimer ?? 0x37, 0x9d, 0x40, 0x15, 0xf6, 0xc2, 0x6b],
+      : [0xa9, o.spawnTimer ?? 0x37, 0x9d, 0x40, 0x15, 0xb5, 0xc2, 0x1a, 0x95, 0xc2, 0x6b], // the counter step is LDA / INC A / STA, not the game's INC dp,X
   )
   // The level loader's shell sites (bank_02.asm:5290-5291, 5312-5361, 5456-5462), written as the instructions they are.
   // CMP #op / branch to `to`: the displacement is computed from the target label's address.
@@ -343,7 +343,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   cmpBr(0x02a88c, 0xde, 0xd0, 0x02a89c)
   cmpBr(0x02a89c, 0xe0, 0xd0, 0x02a8ac)
   // The generator floor is inert while it is below the ceiling operand (shellLoad: `id < floor || id < ceil`), so it is a value of our own.
-  cmpBr(0x02a8ac, 0xc4, 0x90, 0x02a8d4)
+  cmpBr(0x02a8ac, 0xc8, 0x90, 0x02a8d4)
   cmpBr(0x02a8b0, 0xda, 0xb0, 0x02a8c0)
   cmpBr(0x02a8c0, 0xe1, 0x90, 0x02a8d0)
   put(0x02a8d0, [0xa9, 0x09, 0x80, 0x02a8df - 0x02a8d0 - 4])
