@@ -162,6 +162,8 @@ const TAIL = STANDIN.loop + 12
 const JSL_OPERAND = STANDIN.dispatch + 1
 const WRAP_NEAR = STANDIN.execPtr + 0x100
 const WRAP_FAR = STANDIN.execPtr - 0x100
+/** An invented slot-order table for the out-of-order loop, in the stand-in's bank. */
+const ORDER = 0x02fe00
 const long = (to: number): number[] => [lo(to), hi(to), to >> 16]
 
 /** The hacked paths a run-to-the-target gate lets through (adversarial review of #1061): each must be flagged. */
@@ -340,6 +342,21 @@ export const PATH_HACKS: readonly PathHack[] = [
     edits: () => [
       [INIT + 1, [0x13]],
       [TAIL, [0xca, 0xca, 0x10, 0xf7, 0xea]],
+    ],
+  },
+  {
+    // Same 28 bytes: Y counts 20 steps and the slot is read from an invented table (stride 7 mod 20), so
+    // every slot is drawn once and only the order is wrong; slot 0 first, so it is not read as a count down.
+    name: 'loop visits every slot once, out of order',
+    stage: 'loop',
+    why: /drew slots 0 7 14 1 8/,
+    edits: () => [
+      [STANDIN.loop + 5, [0xa0, 0x00, 0xbe, lo(ORDER), hi(ORDER), 0xbd, 0x92, 0x18, 0xf0, 0x06]],
+      [
+        STANDIN.loop + 15,
+        [0x8e, 0xe9, 0x15, ...jsr(STANDIN.dispatch), 0xc8, 0xc0, 0x14, 0x90, 0xed, 0xab, 0x6b],
+      ],
+      [ORDER, Array.from({ length: 20 }, (_, i) => (i * 7) % 20)],
     ],
   },
   {
