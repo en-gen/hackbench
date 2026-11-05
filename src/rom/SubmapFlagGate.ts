@@ -112,9 +112,8 @@ export const OVERWORLD_INDEX_LOAD: readonly StockOp[] = Object.freeze([
 ])
 
 /**
- * CODE_05D8A2, instruction by instruction: CMP #threshold / BCC over SEC and SBC #bias / STA
- * LoadingLevelNumber / STA _E / LDA OWPlayerSubmap,Y / BEQ over LDA #submapHigh / STA _F. The
- * operands the model uses (threshold, bias, high byte) are read by `readEntrySite`.
+ * CODE_05D8A2 (bank_05.asm:7217-7226), one opcode at a time. The operands the model uses
+ * (threshold, bias, high byte) are read by `readEntrySite`.
  */
 const A2 = 'CODE_05D8A2'
 export const ENTRY_SITE_OPS: readonly StockOp[] = Object.freeze([
@@ -166,7 +165,7 @@ export const SCREEN_EXIT: readonly StockCode[] = [
 
 /**
  * The level load's start-position code the map view's L2 height reads tables through (#505):
- * the secondary entrance block, and CODE_05D8B7 from the DATA_05F000 read to CODE_05DA17 (the
+ * the secondary entrance block, and CODE_05D8B7 from the index setup at bank_05.asm:7265 to CODE_05DA17 (the
  * settings, ScreenMode, primary rows, midway branch and high bytes). Vanilla only, measured; on
  * the 4 corpus hacks both spans differ, so their heights are unverified.
  */
@@ -175,7 +174,8 @@ export const LEVEL_START_Y: readonly (StockCode | StockSpan)[] = [
   {
     // ONE digest each (#1061). First: the secondary-exit branch and its _E index (bank_05.asm:7111-7119,
     // 22 bytes) merged with the FA00/FC00 position reads (:7120-7162, 84 bytes) it was adjacent to:
-    // 106 bytes, none masked, 16 already stated (BONUS_PRIMARY, SCREEN_EXIT), so 90 unknown.
+    // 106 bytes, none masked. Counted known inside it: 19 (BONUS_PRIMARY 13, SCREEN_EXIT's DATA_05F800
+    // load 3, BONUS_LOAD_JMP 3) and 3 opcodes the position-read test names, so 84 unknown at least.
     addr: 0x05d7d4,
     length: 0x05d83e - 0x05d7d4,
     fingerprints: ['112f553172e14efb4f44c504f9412871556fd8a16f22c705d43660e5aef134fb'],
@@ -184,7 +184,9 @@ export const LEVEL_START_Y: readonly (StockCode | StockSpan)[] = [
   },
   {
     // Second: the index every F000..F600 read goes through (:7265-7267, 6 bytes) merged with the level
-    // start positions (:7268-7395, 266 bytes): 272 bytes, none masked, none stated, so 272 unknown. The
+    // start positions (:7268-7395, 266 bytes): 272 bytes, none masked. Counted known inside it: 9 bytes
+    // (the 5 position-read opcodes and the 4 further bytes of the two reads the synthetic cart plants),
+    // so 263 unknown at least. The
     // pointer setup before it (:7227-7264) is not covered: it writes only the layer pointers, the
     // sprite header settings and Y, which :7267 overwrites.
     addr: 0x05d907,
@@ -445,9 +447,19 @@ export function spanFingerprint(
 const hex = (bytes: Iterable<number>): string =>
   [...bytes].map(b => (b === WILD ? '??' : b.toString(16).padStart(2, '0'))).join(' ')
 
-/** Why the instruction at `c.addr` is not the stock one, or null: its opcode, and for a branch where it lands. */
+/** Bytes per instruction at the 8-bit widths the stock site runs in, so a read covers the operand too. */
+// prettier-ignore
+const SIZE: Readonly<Record<number, number>> = {
+  [OP.SEC]: 1,
+  [OP.LDA_IMM]: 2, [OP.CMP_IMM]: 2, [OP.SBC_IMM]: 2, [OP.STA_DP]: 2, [OP.BCC]: 2, [OP.BEQ]: 2, [OP.BNE]: 2,
+  [OP.LDA_ABS]: 3, [OP.LDA_ABS_Y]: 3, [OP.STA_ABS]: 3,
+  [OP.LDA_LONG_X]: 4, [OP.JSL]: 4,
+}
+
+/** Why the instruction at `c.addr` is not the stock one, or null: its opcode, and for a branch where it lands.
+ *  The whole instruction must be readable: an operand past the end of the image is a refusal. */
 function opMismatch(rom: RomFile, c: StockOp): string | null {
-  const at = rom.readAt(c.addr, c.lands === undefined ? 1 : 2)
+  const at = rom.readAt(c.addr, SIZE[c.op]!)
   const name = `${formatAddr(c.addr)} (${c.what}, ${c.cite})`
   if (!at) return `${name} is not readable.`
   if (at[0] !== c.op) return `${name} holds opcode ${hexs(at[0]!)}, not the stock ${hexs(c.op)}.`

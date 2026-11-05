@@ -52,12 +52,13 @@ function syntheticCall(): Buffer {
 }
 
 /**
- * OVERWORLD_INDEX_BODY as planted: NOPs, but the head the midway hook's own site check also reads
- * (taken from that pattern, not restated), so a hooked cart hashes the same as the stock one.
+ * OVERWORLD_INDEX_BODY as planted: all NOPs on a stock cart (an invented head), but on a hooked cart
+ * the head the midway hook's own site check reads (taken from that pattern, not restated). The two
+ * hash differently, so SYNTHETIC_FINGERPRINTS.entry lists both.
  */
-function syntheticIndexSpan(): Buffer {
+export function syntheticIndexSpan(hooked = false): Buffer {
   const span = nops(OVERWORLD_INDEX_BODY.length)
-  span.set(MIDWAY_HOOK_SITE.slice(0, 4), 0)
+  if (hooked) span.set(MIDWAY_HOOK_SITE.slice(0, 4), 0)
   return span
 }
 
@@ -88,7 +89,9 @@ function plantSpan(rom: RomFile, span: StockSpan, plant: typeof START_EXIT_PLANT
  * the stock defaults refuse it.
  */
 export const SYNTHETIC_FINGERPRINTS: OverworldFingerprints = Object.freeze({
-  entry: Object.freeze([spanFingerprint(syntheticIndexSpan(), OVERWORLD_INDEX_BODY.mask)!]),
+  entry: Object.freeze(
+    [false, true].map(h => spanFingerprint(syntheticIndexSpan(h), OVERWORLD_INDEX_BODY.mask)!),
+  ),
   walk: Object.freeze([fingerprint(nops(WALK_PROLOGUE_LENGTH))!]),
   bonus: Object.freeze([spanFingerprint(syntheticCall(), BONUS_CALL.mask)!]),
   startExit: Object.freeze([fingerprint(syntheticSpan(START_EXIT_SPAN, START_EXIT_PLANT))!]),
@@ -153,6 +156,10 @@ export function plantScreenExitFiling(rom: RomFile): void {
   }
 }
 
+/** The entry site's operands. Left at the game's values: 20 tests in 4 files pin the derived numbers (#1061 A6a, deferred). */
+const SYNTHETIC_THRESHOLD = 0x25
+const SYNTHETIC_BIAS = 0x24
+
 /**
  * The stock code SubmapFlagGate and OverworldEntrances check, at vanilla's
  * addresses, so a synthetic image is not declined. Tests that must catch a
@@ -173,8 +180,8 @@ export function plantStockSubmapCode(rom: RomFile): void {
   plantScreenExitFiling(rom)
   plantSpan(rom, START_EXIT_SPAN, START_EXIT_PLANT)
   plantSpan(rom, START_MAIN_SPAN, START_MAIN_PLANT)
-  rom.writeAt(0x05d8a3, [0x25]) // threshold
-  rom.writeAt(0x05d8a8, [0x24]) // bias
+  rom.writeAt(0x05d8a3, [SYNTHETIC_THRESHOLD])
+  rom.writeAt(0x05d8a8, [SYNTHETIC_BIAS])
   rom.writeAt(0x05d8b4, [0x01])
   rom.writeAt(0x05d7d1, [0x01])
   // CODE_04DC09's call, CODE_04D7F2's prologue and walk, OWPU_ABXY. Operands
@@ -210,7 +217,7 @@ export function blankStockRom(): RomFile {
  *  own CMP and SBC operands. The stock site keeps its stock operands. */
 export function plantLmEntryHook(
   rom: RomFile,
-  { at = 0x05dcd0, threshold = 0x25, bias = 0x24 } = {},
+  { at = 0x05dcd0, threshold = SYNTHETIC_THRESHOLD, bias = SYNTHETIC_BIAS } = {},
 ): void {
   rom.writeAt(0x05d8b1, [0x22, at & 0xff, (at >> 8) & 0xff, at >> 16])
   const operands = [threshold, bias]

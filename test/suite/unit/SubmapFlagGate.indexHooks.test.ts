@@ -11,6 +11,7 @@ import {
   LOAD_HOOKS,
   MIDWAY_BUILDS,
   MIDWAY_HELPERS,
+  MIDWAY_HOOK_SITE,
   OVERWORLD_INDEX_BODY,
   OVERWORLD_INDEX_GUARD,
   OVERWORLD_INDEX_LOAD,
@@ -48,6 +49,7 @@ const HELPERS = [{ length: HELPER.length, fingerprint: fingerprint(Uint8Array.fr
 
 function midway(): RomFile {
   const rom = blankStockRom()
+  rom.writeAt(0x05d83e, MIDWAY_HOOK_SITE.slice(0, 4)) // the head only a hooked cart has
   rom.writeAt(0x05d842, [0x5c, ...jsl(HOOK_AT).slice(1)])
   rom.writeAt(HOOK_AT, HOOK)
   rom.writeAt(HELPER_AT, HELPER)
@@ -65,7 +67,7 @@ const LOADERS = [
 function loader(i: number): RomFile {
   const rom = blankStockRom()
   rom.writeAt(0x05d89b, jsl(LOADER_AT))
-  rom.writeAt(0x05d89f, [0x8d, 0xbf, 0x13]) // the STA TranslevelNo the hook returns to, operand included
+  rom.writeAt(0x05d8a0, [0xbf, 0x13]) // the operand of the STA TranslevelNo the hook returns to; blankStockRom plants its opcode
   rom.writeAt(LOADER_AT, LOADERS[i]!)
   return rom
 }
