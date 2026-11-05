@@ -22,7 +22,7 @@
  */
 const { test, expect } = require('@playwright/test')
 
-const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
+const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const G = 256
 const BACK = [200, 0, 0]
 const INDEX = 0x7f0
