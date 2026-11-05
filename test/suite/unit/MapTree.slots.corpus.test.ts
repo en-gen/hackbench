@@ -209,6 +209,13 @@ for (const p of PINNED) {
   })
 }
 
+describe.skipIf(!hasRom(VANILLA))('vanilla notes', () => {
+  it('has no lost-connections note, since every stream ends within the graph read', () => {
+    const notes = buildMapTree(new SmwRom(freshRom(VANILLA))).notes
+    expect(notes.filter(n => /more connections than could be read/.test(n))).toEqual([])
+  })
+})
+
 // A hack's custom objects can desync the stock-size walk without an end marker showing, so these
 // working hacks must give no warning row at all (round 3). Slots are named in the message.
 describe.each([VANILLA, 'Grand Poo World 2 1.1.sfc', INVICTUS, 'Kaizo Kindergarten v1.09.sfc'])(

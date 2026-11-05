@@ -20,10 +20,10 @@ const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 /** A slot whose Layer 1 pointer is vanilla's most common one, shared with 276 others. */
 const SHARED_SLOT = 0x025
-/** Slots patched in the copy: a zero pointer, one outside the ROM file, one too near the end to hold a header. */
+/** Slots patched in the copy: a zero pointer, one outside the ROM file, and one too near the end to hold a header ($193 is a real orphan on vanilla, not on the shared pointer; checked from the built tree). */
 const NEW_ZERO = 0x1f0
 const NEW_OUTSIDE = 0x1f1
-const UNREADABLE = 0x1f2
+const UNREADABLE = 0x193
 /** Vanilla's Title Screen slot (SpecialMaps.synthetic.test.ts names it); patched unreadable to test a special row. */
 const TITLE_SLOT = 0x0c7
 /** The Layer 1 pointer table in the file (SNES $05E000, LoROM, no copier header). */
@@ -304,7 +304,10 @@ test('a single click on a New slot previews the note and never asks for a screen
   await load(page, patchedRom())
   await (await rowOf(page, NEW_OUTSIDE)).click()
   const view = page.locator(PREVIEW)
-  await expect(view.locator('[data-control="map-new-note"]')).toBeVisible({ timeout: 30000 })
+  await expect(view.locator('[data-control="map-new-note"]')).toHaveText(
+    'This slot is new. It has no map yet.',
+    { timeout: 30000 },
+  )
   // Resize and wait: the old code asked the server for screens on every resize.
   await page.setViewportSize({ width: 1100, height: 700 })
   await page.waitForTimeout(1500)
