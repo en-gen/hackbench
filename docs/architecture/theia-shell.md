@@ -451,7 +451,7 @@ With the pad the widget:
   extension has no edge continuation: `src/providers/MapEditorProvider.ts:374-387` tiles an image by modulo
   over `screens * 16` columns, stops at the map and passes object grids through. A read that fails shows the
   map note `data-note="gutter-layers"` (technical text in the tooltip) and is not asked again until the next
-  refresh. After an edit the old gutter pixels stay up until the new replies land;
+  refresh. The gutter always composes: per screen past the end it draws the current key's reply, else that screen's last good planes (`gutterLast`, cleared by `open`, not by `refresh`), so after an edit the old planes stay up until the new replies land and a layer toggle in between hides only its own layer; a failed current key draws clear;
 - confines the checkerboard (`.hb-checkerboard`, "nothing here") to the strip without the far-end gutter: it
   reaches the near canvas edge and stops at the gutter, so where the back color fades out the panel shows
   behind it, not the checkerboard [PROP];

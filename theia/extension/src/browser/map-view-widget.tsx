@@ -209,6 +209,12 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
    * failed, and only then. The map itself drew, so this is not a screen error.
    */
   protected readonly gutterFailed = new Map<string, string | undefined>()
+  /**
+   * The last reply that landed for each screen past the end, uncomposed, by screen number. `refresh` clears `screens`
+   * but not this, so an edit, flag or switch change draws the old planes (through the current toggles) until the new
+   * ones land; `open` clears it, so one map never shows another's. A failed current key draws clear instead.
+   */
+  protected readonly gutterLast = new Map<number, ScreenImages>()
   /** `pad` for one (layout, sprites) pair: it is read on every pointer move. */
   protected padMemo: { l: Layout; s: Sprites | undefined; pad: Pad } | undefined
   /** The sprite pixels outside the map for one (layout, sprites) pair, null when none reach outside. */
@@ -393,6 +399,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.title.iconClass = options.iconClass ?? 'codicon codicon-map'
     this.details = undefined
     this.mapLayout = undefined
+    this.gutterLast.clear()
     this.sprites = undefined
     this.setHoverSprite(undefined)
     this.spritesWhy = undefined
@@ -839,7 +846,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         if (generation !== this.generation) return
         this.pending.delete(key)
         if (r?.status === 'ok') {
-          this.screens.set(key, screenImages(r))
+          const images = screenImages(r)
+          this.screens.set(key, images)
+          this.gutterLast.set(screen, images)
           return
         }
         detail ??= r?.status === 'unavailable' ? (r.detail ?? r.reason) : undefined
@@ -986,7 +995,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
    * Paints Layers 2 and 3 through the far end (#1197): the shown planes of each screen past the last,
    * composed with the map's own stacking and color math (no Layer 1, sprites or flames), pixels no layer
    * covered left clear, laid end to end and faded over the last `farGutter` px. Repainted when a layer
-   * toggle, an edit, the flags or switches or the pad change (all in `want`).
+   * toggle, a reply, an edit, the flags or switches or the pad change (all in `want`). Always composes: while a
+   * reply is out it draws the screen's last good planes, so a toggle hides only the layer it names.
    */
   protected syncGutterLayers(): void {
     const c = this.gutterCanvas
@@ -996,16 +1006,20 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const far = vertical ? this.pad.bottom : this.pad.right
     const [sw, sh] = [l.width, l.height]
     const n = beyondScreens(far, vertical ? sh : sw)
-    const shots = Array.from({ length: n }, (_, i) => this.screens.get(this.key(l.screenCount + i)))
+    // Per screen: the current key's reply ('c'), else its last good planes ('o'), but a failed current key draws clear ('x').
+    const shots = Array.from({ length: n }, (_, i) => {
+      const screen = l.screenCount + i
+      const key = this.key(screen)
+      const now = this.screens.get(key)
+      if (now) return { shot: now, state: 'c' }
+      if (this.gutterFailed.has(key)) return { shot: undefined, state: 'x' }
+      const last = this.gutterLast.get(screen)
+      return { shot: last, state: last ? 'o' : 'x' }
+    })
     const [w, h] = vertical ? [sw, far] : [far, sh]
-    const want = `${this.generation}:${this.key(l.screenCount)}:${shots.map(x => +!!x).join('')}:${+this.showL2}${+this.showL3}:${w}x${h}` // prettier-ignore
+    const want = `${this.generation}:${this.key(l.screenCount)}:${shots.map(x => x.state).join('')}:${+this.showL2}${+this.showL3}:${w}x${h}` // prettier-ignore
     if (c.dataset.drawn === want) return
-    // After an edit, flag or switch the new replies are not in yet: keep the old picture up, as the map's planes do,
-    // unless a read this canvas needs has failed, the pad changed size (the old bitmap would be stretched) or a layer
-    // toggle changed what is shown (a toggle needs no new read, so it repaints with what is in; missing stretches clear).
-    const layers = `${+this.showL2}${+this.showL3}`
-    if (c.dataset.drawn && c.dataset.layers === layers && !this.gutterFailure() && shots.some(x => !x) && c.width === w && c.height === h) return // prettier-ignore
-    const gutterShots = shots.map(x => x && { width: x.width, height: x.height, planes: Object.fromEntries(MAP_PLANE_KEYS.map(k => [k, x.planes[k]?.data ?? null])), lists: x.screens, math: x.math }) // prettier-ignore
+    const gutterShots = shots.map(({ shot: x }) => x && { width: x.width, height: x.height, planes: Object.fromEntries(MAP_PLANE_KEYS.map(k => [k, x.planes[k]?.data ?? null])), lists: x.screens, math: x.math }) // prettier-ignore
     const out = composeGutter(
       gutterShots,
       k => this.layerShown(k),
@@ -1018,7 +1032,6 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     c.height = h
     c.getContext('2d')?.putImageData(new ImageData(out, w, h), 0, 0)
     c.dataset.drawn = want
-    c.dataset.layers = layers
   }
 
   /** Remembers the gutter-layers canvas (mounted only when the map has a gutter) and paints it at once. */
