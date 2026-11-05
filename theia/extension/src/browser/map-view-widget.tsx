@@ -75,7 +75,7 @@ import {
   screensInView,
   type Pad,
 } from './off-map-extent'
-import { GUTTER_PX } from '../../../../src/rom/model/MapGutter'
+import { farGutter } from '../../../../src/rom/model/MapGutter'
 import { collisionKey, collisionPlan } from './map-view-state'
 import { MapViewStateStore } from './map-view-state-store'
 import { layer2Label } from './map-layer-labels'
@@ -716,8 +716,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   }
 
   /**
-   * The canvas beyond each side of the map (D48 part 2, D145, #1004): the content the data places off
-   * it, rounded to tiles, plus the gutter beyond that at each long end. The ONE origin every pointer
+   * The canvas beyond each side of the map (D145, #1004, #1228): the content the data places off
+   * it, rounded to tiles, plus the gutter beyond that at the far end only. The ONE origin every pointer
    * and overlay consumer reads. It is derived from the layout and the sprites together, so it can change
    * when the sprites reply lands (`keepViewOnPadChange`).
    */
@@ -731,7 +731,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       ...(l.refusedCells ?? []).map(c => cellRect(c.x, c.y)),
       ...(this.sprites?.sprites ?? []).map(sp => sp.box),
     ]
-    const pad = offMapPad(w, h, rects, l.orientation === 'vertical')
+    const pad = offMapPad(w, h, rects, l.orientation === 'vertical', l.screenCount)
     this.padMemo = { l, s: this.sprites, pad }
     return pad
   }
@@ -1577,7 +1577,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   }
 
   /**
-   * The strip: checkerboard, back area (masked to fade over the gutters), one canvas stack per screen, then
+   * The strip: checkerboard, back area (masked to fade over the far-end gutter), one canvas stack per screen, then
    * the overlays. Every overlay is positioned from the one `pad`, so the map sits where its data says.
    */
   protected renderStrip(): React.ReactNode {
@@ -1595,13 +1595,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const z = this.zoom
     const [mapW, mapH] = this.mapPx(l)
     const origin = this.mapOrigin()
-    // The back color is solid across the map and fades to transparent over each long-end gutter only (D48 part 2,
-    // R24), by a mask, so the element's background-color stays the map's back color.
+    // The back color is solid from the near edge and fades to transparent over the far-end gutter only (#1228,
+    // replacing D48 part 2 and R24), by a mask, so the element's background-color stays the map's back color.
     const vertical = l.orientation === 'vertical'
     const back = `rgb(${l.backdrop.join(',')})`
-    const fade = fadeMask(vertical, GUTTER_PX * z)
-    // The strip's rect without the gutters: the outermost `GUTTER_PX` of each long-end pad (content grows inward of it).
-    const checker = vertical ? `${GUTTER_PX * z}px 0` : `0 ${GUTTER_PX * z}px`
+    const gz = farGutter(l.screenCount) * z
+    const fade = fadeMask(vertical, gz)
+    // The strip's rect without the gutter: it reaches the near canvas edge and stops short of the far-end gutter.
+    const checker = vertical ? `0 0 ${gz}px 0` : `0 ${gz}px 0 0`
     return (
       <div className="hb-map-grid-host">
         <div
@@ -1640,12 +1641,12 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             style={{ padding: `${pad.top * z}px ${pad.right * z}px ${pad.bottom * z}px ${pad.left * z}px` }} // prettier-ignore
             onClick={e => {
               const strip = e.currentTarget.getBoundingClientRect()
-              // Strip pixels to map pixels: the gutter before screen 0 is not map.
+              // Strip pixels to map pixels: the pad before screen 0 (content only) is not map.
               this.selectSprite(this.spriteUnder((e.clientX - strip.left) / this.zoom - pad.left, (e.clientY - strip.top) / this.zoom - pad.top)) // prettier-ignore
             }}
           >
-            {/* The checkerboard is confined to the map and its content bands: the gutter, where the back color
-                fades out, shows the panel behind it (D48 part 2). */}
+            {/* The checkerboard reaches the near canvas edge and stops at the far-end gutter, where the back color
+                fades out and the panel shows behind it (#1228). */}
             <div
               className="hb-checkerboard"
               data-layer="checkerboard"
