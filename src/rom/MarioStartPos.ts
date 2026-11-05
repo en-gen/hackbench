@@ -10,7 +10,8 @@ const X_LO = 0x05d750
 const X_HI = 0x05d758
 
 /**
- * The entrance-type nudge CODE_00A635 applies after the loader (bank_00.asm:5019-5060): types 3, 4 and
+ * The entrance-type nudge applied after the loader: dispatch on LevelEntranceType in CODE_00A6CC (bank_00.asm:4987-4990),
+ * CODE_00A716 (5019-5033), CODE_00A734/CODE_00A740 (5035-5060): types 3, 4 and
  * 7 OR a mask into X, type 6 ORs one into X and one into Y. Type 7 reaches it only when
  * SkipMidwayCastleIntro and KeyholeTimer are 0 (bank_00.asm:5037-5039), the overworld-entry case. The masks are read from the LDA operands.
  * If the code at those sites is not the stock shape the nudge is OMITTED, not replaced by a stock
