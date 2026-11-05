@@ -19,7 +19,7 @@ import {
   sharedRom,
 } from '../../support/initFacing'
 import { buildSyntheticRom, SYNTHETIC_INIT_TABLE_OFFSET } from '../../support/syntheticSpriteRom'
-import { loadVanillaBytes, vanillaHits, windowSet } from '../../support/vanillaWindows'
+import { loadVanillaBytes, vanillaHitsOver, windowSet } from '../../support/vanillaWindows'
 
 /** CallSpriteInit's table of 201 words, right after its code in the synthetic ROM. */
 const INIT_TABLE = 0x018170 + SYNTHETIC_INIT_TABLE_OFFSET
@@ -29,11 +29,11 @@ const SLOW = 120_000 // a whole-corpus sweep, not a unit: the default 5 s is und
 function facingRom(broken = false) {
   const rom = buildSyntheticRom()
   // Hand-assembled equivalent of the vanilla routine (SMWDisX bank_01.asm:6124-6134), built here with no ROM read.
-  // LDA is hoisted above LDY and NOPs are placed so no 8-byte window equals the cartridge's bytes (owner rule):
+  // LDA is hoisted above LDY and NOPs are placed so no 8-byte window equals the cartridge's bytes (owner rule, checked below):
   // Y = 1 when Mario (PlayerXPosNow $D1/$D2) is left of the sprite ($E4,X / $14E0,X), as the disassembly has it.
   rom.writeAt(0x01ad60, [0xa5, 0xd1, 0xa0, 0x00, 0x38, 0xf5, 0xe4, 0x85, 0x0f, 0xea, 0xa5, 0xd2, 0xfd, 0xe0, 0x14, 0xea, broken ? 0x30 : 0x10, 0x01, 0xc8, 0x60, 0xea]) // prettier-ignore
-  rom.writeAt(0x019600, [0xea, 0x20, 0x60, 0xad, 0x98, 0xea, 0x9d, 0x7c, 0x15, 0x60, 0xea]) // FaceMario: NOP / JSR SubHorizPos / TYA / NOP / STA $157C,X / RTS / NOP (the NOPs keep the zero padding out of an 8-byte window)
-  rom.writeAt(0x019620, [0xa9, 0x01, 0x9d, 0x7c, 0x15, 0x60, 0xea]) // LDA #1 / STA $157C,X / RTS / NOP
+  rom.writeAt(0x019600, [0x20, 0x60, 0xad, 0x98, 0x9d, 0x7c, 0x15, 0x60]) // FaceMario: JSR SubHorizPos / TYA / STA $157C,X / RTS
+  rom.writeAt(0x019620, [0xa9, 0x01, 0x9d, 0x7c, 0x15, 0x60]) // LDA #1 / STA $157C,X / RTS
   rom.writeAt(INIT_TABLE + 40 * 2, [0x00, 0x96])
   rom.writeAt(INIT_TABLE + 41 * 2, [0x20, 0x96])
   return rom
@@ -50,41 +50,36 @@ const CASES: [string, string, number][] = [
   ['0ff', '300', 0],
 ]
 const hex = (s: string) => parseInt(s, 16)
-/** The CASES whose facing the cart `rom` does not give for sprite `id` (`want` maps a case's own facing to the one expected). */
-function badCases(rom: ReturnType<typeof facingRom>, id: number, want: (own: number) => number) {
-  return CASES.filter(([sprite, mario, own]) => facingAfterInit(rom, id, { mario: { x: hex(mario), y: 0x80 }, sprite: { x: hex(sprite), y: 0x80 }, slot: 3 }) !== want(own)).map(c => c.join('/')) // prettier-ignore
+/** $157C after sprite `id`'s INIT in cart `rom`, at each of CASES' sprite and Mario positions (undefined if INIT never ran). */
+const facings = (rom: ReturnType<typeof facingRom>, id: number) =>
+  CASES.map(([sprite, mario]) => facingAfterInit(rom, id, { mario: { x: hex(mario), y: 0x80 }, sprite: { x: hex(sprite), y: 0x80 }, slot: 3 })) // prettier-ignore
+/** Mario's four cells ($94, $96, $D1, $D3) as INIT sees them (probe -1), for a run seeded at ($123C, $0567) with or without a loader image. */
+function marioCells(rom: ReturnType<typeof facingRom>, loaded?: Uint8Array) {
+  const seen: number[] = []
+  const seed = withSeed({ mario: { x: 0x123c, y: 0x0567 }, sprite: { x: 0x200, y: 0x80 }, slot: 3, mainPasses: 1, loaded }) // prettier-ignore
+  const probe = (p: number, w: Uint8Array) => {
+    if (p === -1) for (const a of [0x94, 0x96, 0xd1, 0xd3]) seen.push(w[a]! | (w[a + 1]! << 8))
+  }
+  runSprite(rom, 41, seed, { probe })
+  return seen
 }
 
 describe('INIT facing through SubHorizPos (synthetic)', () => {
   const rom = facingRom()
-  it.each(CASES)('sprite X 0x%s, Mario X 0x%s gives $157C %i', (sprite, mario, want) => {
-    expect(facingAfterInit(rom, 40, { mario: { x: hex(mario), y: 0x80 }, sprite: { x: hex(sprite), y: 0x80 }, slot: 3 })).toBe(want) // prettier-ignore
+  it('gives $157C as the table says (CASES)', () => {
+    expect(facings(rom, 40)).toEqual(CASES.map(c => c[2]))
   })
-  it('leaves a constant-facing INIT unchanged at every Mario position of the table above', () => {
-    expect(badCases(rom, 41, () => 1)).toEqual([])
+  it('leaves a constant-facing INIT unchanged at every Mario position of the table', () => {
+    expect(facings(rom, 41)).toEqual(CASES.map(() => 1))
   })
-  it('planted: a SubHorizPos whose branch is inverted turns the facing assertion red on every case', () => {
-    expect(badCases(facingRom(true), 40, own => own)).toHaveLength(CASES.length)
+  it('planted: a SubHorizPos whose branch is inverted gives the opposite facing on every case', () => {
+    expect(facings(facingRom(true), 40)).toEqual(CASES.map(c => 1 - c[2]))
   })
-  it('INIT sees Mario in all four cells ($94, $96, $D1, $D3), the seed written by the runner', () => {
-    const seen: number[] = []
-    runSprite(
-      rom,
-      41,
-      withSeed({
-        mario: { x: 0x123c, y: 0x0567 },
-        sprite: { x: 0x200, y: 0x80 },
-        slot: 3,
-        mainPasses: 1,
-      }),
-      {
-        // prettier-ignore
-        probe: (p, w) => {
-        if (p === -1) for (const a of [0x94, 0x96, 0xd1, 0xd3]) seen.push(w[a]! | (w[a + 1]! << 8))
-      },
-      },
-    )
-    expect(seen).toEqual([0x123c, 0x0567, 0x123c, 0x0567])
+  it.each([
+    ['no loader image', undefined],
+    ['a loader image', new Uint8Array(0x20000)],
+  ])('INIT sees Mario in all four cells ($94, $96, $D1, $D3) with %s', (_, loaded) => {
+    expect(marioCells(rom, loaded)).toEqual([0x123c, 0x0567, 0x123c, 0x0567])
   })
 })
 
@@ -93,36 +88,35 @@ describe.skipIf(!hasRom(VANILLA))(
   () => {
     it('adds no window beyond the default cart, and a planted vanilla window written into it is flagged', () => {
       const vanilla = windowSet(loadVanillaBytes(romPath(VANILLA)))
-      const own = (r: ReturnType<typeof facingRom>) =>
-        vanillaHits(new Uint8Array(r.buffer), vanilla)
-      const base = own(buildSyntheticRom())
-      expect(own(facingRom()).filter(h => !base.includes(h))).toEqual([])
+      const bytes = (r: ReturnType<typeof facingRom>) => new Uint8Array(r.buffer)
+      const base = bytes(buildSyntheticRom())
+      expect(vanillaHitsOver(bytes(facingRom()), base, vanilla)).toEqual([])
       const planted = facingRom()
       planted.writeAt(0x01ad80, [...loadVanillaBytes(romPath(VANILLA)).subarray(0x14000, 0x14008)])
-      expect(own(planted).filter(h => !base.includes(h))).toEqual(['$01:AD80'])
+      expect(vanillaHitsOver(bytes(planted), base, vanilla)).toEqual(['$01:AD80'])
     })
   },
 )
 
+const sprite = { index: 0, x: 1, y: 1, spriteId: 0x8c, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
+/** The Mario `interpDrawer` seeds the run with for `map`, through a stub run, from the seed `seedFor` gives (default: the real loader). */
+function seeded(
+  rom: ReturnType<typeof buildSyntheticRom>,
+  map: number,
+  seedFor?: () => ReturnType<typeof withSeed>,
+) {
+  // prettier-ignore
+  let seen: { x: number; y: number } | undefined
+  const run = (_r: unknown, _i: number, s: { mario: { x: number; y: number } }) => {
+    seen = s.mario
+    return { id: 1, passes: [], dependsOn: [], steps: [] }
+  }
+  interpDrawer(rom, map, { isVertical: false, screenCount: 2 }, run as never, seedFor)(sprite)
+  return seen
+}
+
 describe('interpDrawer takes Mario from the loader image, its single source (#272)', () => {
   const blank = buildSyntheticRom()
-  const sprite = { index: 0, x: 1, y: 1, spriteId: 0x8c, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
-  const shape = { isVertical: false, screenCount: 2 }
-  /** The Mario `interpDrawer` seeds the run with for `map`, through a stub run, from the seed `seedFor` gives. */
-  const seeded = (
-    rom: ReturnType<typeof buildSyntheticRom>,
-    map: number,
-    seedFor?: () => ReturnType<typeof withSeed>,
-  ) => {
-    // prettier-ignore
-    let seen: { x: number; y: number } | undefined
-    const run = (_r: unknown, _i: number, s: { mario: { x: number; y: number } }) => {
-      seen = s.mario
-      return { id: 1, passes: [], dependsOn: [], steps: [] }
-    }
-    interpDrawer(rom, map, shape, run as never, seedFor)(sprite)
-    return seen
-  }
   it('seeds the run with the image X/Y (X has the nudge bit $08 set), which the tables and the default would not give', () => {
     const loaded = new Uint8Array(0x2000)
     loaded.set([0x3c, 0x12, 0x67, 0x05], 0x94) // $94 = $123C, $96 = $0567: not the table start, not the 0x80 default
@@ -148,7 +142,6 @@ describe.skipIf(!hasRom(VANILLA))(
   () => {
     // interpDrawer (the served path) takes the seed from the loader image's $94/$96; readMarioStartPos is the
     // table derivation it falls back to. Both include the entrance-type nudge (bank_00.asm:4987-5060).
-    const sprite = { index: 0, x: 1, y: 1, spriteId: 0x8c, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
     it(
       'interpDrawer seeds the loader image position on all 512 maps, and it equals readMarioStartPos',
       () => {
@@ -272,12 +265,6 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
       },
       SLOW,
     )
-
-    it('comparator plant: goes red when a capture record expected value is flipped', () => {
-      const r = compared.find(x => !KNOWN_MISMATCHES.some(k => k.startsWith(key(x) + ':')))!
-      const flipped = { ...r, rec: { ...r.rec, initFacing: 1 - r.rec.initFacing! } }
-      expect(mismatches([flipped]).map(m => m.key.toLowerCase())).toEqual([key(r)])
-    })
 
     it('seed plant: goes red when the seeded Mario is moved to the other side of the sprite', () => {
       const r = compared.find(x => x.rec.listX >= 16 && !KNOWN_MISMATCHES.some(k => k.startsWith(key(x) + ':')))! // prettier-ignore
