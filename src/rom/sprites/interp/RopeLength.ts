@@ -36,6 +36,8 @@ export interface RopeAt {
   door?: boolean
 }
 
+const DIFFERENT_SPOT =
+  'the rope starts at a different spot in the two slots it can load into, so only the short length is shown'
 const key = (p: SpritePart) => `${p.dx},${p.dy}`
 
 /** The short run's pass with the parts only the long run drew added, tagged `door` (the short run's own parts stay solid). */
@@ -68,6 +70,7 @@ export function ropeModel<M extends SpriteModel>(
       ...m,
       unverifiedReason:
         m.unverifiedReason ?? `${w.reason}, so the rope is shown at its short length`,
+      lengthNote: `The rope is shown at its short length: ${w.reason}.`,
     }
   }
   const long = runAt(w.long)
@@ -75,7 +78,7 @@ export function ropeModel<M extends SpriteModel>(
   const short = runAt(w.short)
   const [a, b] = [short.anchor, long.anchor]
   if (short.chosen !== long.chosen || a?.x !== b?.x || a?.y !== b?.y)
-    return { ...short, unverifiedReason: short.unverifiedReason ?? 'the rope starts at a different spot in the two slots it can load into, so only the short length is shown' } // prettier-ignore
+    return { ...short, unverifiedReason: short.unverifiedReason ?? DIFFERENT_SPOT, lengthNote: 'The rope is shown at its short length: it starts at a different spot in the two slots it can load into.' } // prettier-ignore
   if (!(at.door ?? DOOR_WIRED)) return short
   return { ...short, ...withExtras(short, long) } as M
 }

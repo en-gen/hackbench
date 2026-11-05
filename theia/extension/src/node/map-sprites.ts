@@ -517,6 +517,7 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     anchor: { x: m.anchor.x, y: m.anchor.y },
     ...stored,
     ...(m.neverAppears ? { note: 'never appears in play' } : {}),
+    ...(m.lengthNote ? { note: m.lengthNote } : {}),
     ...(m.shifted && m.onLine ? { onLine: m.onLine } : {}),
     ...(m.absolutePlacement
       ? {

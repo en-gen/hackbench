@@ -13,6 +13,7 @@ import { SmwRom } from '../../../../src/rom/SmwRom'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { drawnParts } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
+import { spriteProps } from '../../../../theia/extension/src/browser/sprite-props'
 import { runWithUploads } from '../../../../theia/extension/src/node/map-sprites'
 import { hasRom, romPath, VANILLA } from '../../support/corpus'
 
@@ -43,6 +44,8 @@ describe.skipIf(!hasRom(VANILLA))('the rope on the vanilla ROM', () => {
     const got = ropes(0x00f, b => (b[0x128e4 + 3]! ^= 1))
     expect(got.map(r => r.tiles)).toEqual([5, 5, 5, 5, 5, 5])
     expect(got[0]!.s.unverified).toMatch(/loader.*not the original/)
+    // The Properties panel itself says why, in plain words, not only on a tooltip.
+    for (const r of got) expect(spriteProps(r.s).notes.join(' ')).toMatch(/The rope is shown at its short length: the sprite loader on this ROM is not the original one./) // prettier-ignore
   })
   it('the slot moves no part of the first frame: the short and long runs share their tiles and their anchor (case 1)', () => {
     const path = romPath(VANILLA)

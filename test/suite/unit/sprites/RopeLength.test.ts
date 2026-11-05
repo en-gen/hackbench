@@ -57,9 +57,13 @@ describe('ropeModel', () => {
     const bad = ropeModel(rom, at({ spec: { ...spec, sha256: 'x' } }), drawer(1, seen))
     expect(seen).toEqual([0])
     expect(bad.unverifiedReason).toMatch(/loader.*not the original.*short length/)
+    expect(bad.lengthNote).toBe(
+      'The rope is shown at its short length: the sprite loader on this ROM is not the original one.',
+    )
     expect(tiles(bad)).toBe(5)
     const past = ropeModel(rom, at({ setting: ROWS.max.length }), drawer(1))
     expect(past.unverifiedReason).toMatch(/setting 4/)
+    expect(past.lengthNote).toMatch(/^The rope is shown at its short length: .*setting 4/)
   })
   it('reports it when the two slots start the rope at different spots, and shows the short length', () => {
     const m = ropeModel(
@@ -69,5 +73,6 @@ describe('ropeModel', () => {
     )
     expect(tiles(m)).toBe(5)
     expect(m.unverifiedReason).toMatch(/different spot/)
+    expect(m.lengthNote).toMatch(/different spot/)
   })
 })
