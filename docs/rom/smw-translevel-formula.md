@@ -50,7 +50,7 @@ The hook is Lunar Magic's replacement of the stock `BEQ` that picks the
 entry high byte from `OWPlayerSubmap` (stock BEQ at bank_05.asm:7224,
 opened via smw-mcp `get_lines`; the `$05D8B1` address is from CLAUDE.md,
 not re-derived here). Whether a ROM carries the hook is decided by
-`src/rom/SubmapFlagGate.ts` (`LM_ENTRY_SITE`, `LM_ENTRY_HOOK`), which is
+`src/rom/SubmapFlagGate.ts` (`LM_ENTRY_SITE_OPS`, `LM_ENTRY_HOOK`), which is
 the authority for the hook claim, not any ASM line.
 
 ## Implementation

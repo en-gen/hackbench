@@ -10,9 +10,14 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { WILD } from '../../../src/rom/BytePattern'
-import { LM_ENTRY_HOOK, LM_ENTRY_SITE, readTranslevelBias } from '../../../src/rom/SubmapFlagGate'
+import {
+  LM_ENTRY_HOOK,
+  LM_ENTRY_SITE_OPS,
+  readTranslevelBias,
+} from '../../../src/rom/SubmapFlagGate'
 import {
   blankStockRom,
+  flip,
   plantLmEntryHook,
   SYNTHETIC_FINGERPRINTS,
   writeSyntheticRom,
@@ -63,11 +68,15 @@ describe('readTranslevelBias: Lunar Magic entry hook', () => {
   })
 
   const pinned = (p: readonly number[]): number[] => p.flatMap((b, i) => (b === WILD ? [] : [i]))
-  it.each(pinned(LM_ENTRY_SITE.bytes))('refuses with site byte %i flipped', i => {
-    const rom = hooked()
-    rom.writeAt(LM_ENTRY_SITE.addr + i, [LM_ENTRY_SITE.bytes[i]! ^ 0xff])
-    expect(read(rom).ok).toBe(false)
-  })
+  // Opcodes only (#1061): every one of the nine instructions, flipped in turn.
+  it.each(LM_ENTRY_SITE_OPS.map(o => [o.what, o.addr] as const))(
+    'refuses with %s flipped',
+    (_w, at) => {
+      const rom = hooked()
+      flip(rom, at)
+      expect(read(rom).ok).toBe(false)
+    },
+  )
   it.each(pinned(LM_ENTRY_HOOK))('refuses with routine byte %i flipped', i => {
     const rom = hooked()
     rom.writeAt(0x05dcd0 + i, [LM_ENTRY_HOOK[i]! ^ 0xff])

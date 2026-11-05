@@ -481,7 +481,7 @@ describe('SmwRom.buildLevelExitGraph', () => {
 const GATED = [
   { what: 'the JSL into CODE_05D796', at: 0x0096f7, byte: 0x06, shown: '$0096F4' },
   { what: 'the JMP to CODE_05D83E', at: 0x05d7b0, byte: 0x5c, shown: '$05D7B0' },
-  { what: 'the overworld-entry BEQ', at: 0x05d8b1, byte: 0x22, shown: '$05D8A2' },
+  { what: 'the overworld-entry BEQ', at: 0x05d8b1, byte: 0x22, shown: '$05D8B1' },
   { what: 'the screen-exit BEQ', at: 0x05d7ce, byte: 0x22, shown: '$05D7CB' },
   { what: 'the screen-exit BEQ displacement', at: 0x05d7cf, byte: 0x03, shown: '$05D7CB' },
   { what: 'the screen-exit LDA #imm', at: 0x05d7d0, byte: 0xad, shown: '$05D7CB' },

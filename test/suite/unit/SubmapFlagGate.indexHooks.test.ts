@@ -11,6 +11,7 @@ import {
   LOAD_HOOKS,
   MIDWAY_BUILDS,
   MIDWAY_HELPERS,
+  OVERWORLD_INDEX_BODY,
   OVERWORLD_INDEX_GUARD,
   OVERWORLD_INDEX_LOAD,
   entryPathMismatches,
@@ -64,6 +65,7 @@ const LOADERS = [
 function loader(i: number): RomFile {
   const rom = blankStockRom()
   rom.writeAt(0x05d89b, jsl(LOADER_AT))
+  rom.writeAt(0x05d89f, [0x8d, 0xbf, 0x13]) // the STA TranslevelNo the hook returns to, operand included
   rom.writeAt(LOADER_AT, LOADERS[i]!)
   return rom
 }
@@ -96,9 +98,11 @@ describe('recognized builds', () => {
 })
 
 describe('the stock test and load around the fingerprint', () => {
-  const pinned = [OVERWORLD_INDEX_GUARD, OVERWORLD_INDEX_LOAD].flatMap(c =>
-    c.bytes.map((_, i) => c.addr + i),
-  )
+  // Each opcode, a branch's displacement, and the head of the index digest the guard's ops sit in.
+  const pinned = [
+    ...[...OVERWORLD_INDEX_GUARD, ...OVERWORLD_INDEX_LOAD].flatMap(c => [c.addr, ...(c.lands ? [c.addr + 1] : [])]), // prettier-ignore
+    ...[0, 1, 2, 3].map(i => OVERWORLD_INDEX_BODY.addr + i),
+  ]
   it.each(pinned)('refuses with $%s flipped', at => {
     const rom = blankStockRom()
     flip(rom, at)

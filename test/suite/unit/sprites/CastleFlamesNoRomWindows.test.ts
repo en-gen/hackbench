@@ -13,20 +13,8 @@ import { commentMode, textHits, windowSet } from '../../../../tools/scripts/lib/
 import { hasRom, romPath, VANILLA } from '../../support/corpus'
 
 const REPO = join(__dirname, '../../../..')
-/**
- * SubmapFlagGate.ts: three stock-code literals (the overworld index guard, the CODE_05D8A2 block and the
- * secondary-exit branch) still wait for #1109; 20 files under src/ import the module and 18 tests. Pinned per
- * literal (line, windows) so the count cannot grow, and a fix has to delete this entry.
- */
-const DEFERRED = {
-  file: 'src/rom/SubmapFlagGate.ts',
-  literals: [
-    { at: 56, windows: 2 },
-    { at: 92, windows: 4 },
-    { at: 144, windows: 15 },
-  ],
-}
 const FILES = [
+  'src/rom/SubmapFlagGate.ts',
   'src/rom/sprites/interp/CastleFlames.ts',
   'src/rom/sprites/interp/ClusterPath.ts',
   'src/rom/sprites/interp/RotatingRing.ts',
@@ -50,14 +38,6 @@ describe.skipIf(!hasRom(VANILLA))(
     it.each(FILES)('%s: 0 windows', file => {
       const text = readFileSync(join(REPO, file), 'utf8')
       expect(textHits(text, windows(), 1, 8, commentMode(file))).toEqual([])
-    })
-
-    it('SubmapFlagGate.ts: the deferred literals are exactly the known ones (#1109)', () => {
-      const text = readFileSync(join(REPO, DEFERRED.file), 'utf8')
-      const hits = textHits(text, windows(), 1, 8, commentMode(DEFERRED.file))
-      expect(
-        hits.map((h: { at: number; windows: number }) => ({ at: h.at, windows: h.windows })),
-      ).toEqual(DEFERRED.literals)
     })
 
     it('the scanner reports a planted vanilla slice as source text (it can fail)', () => {

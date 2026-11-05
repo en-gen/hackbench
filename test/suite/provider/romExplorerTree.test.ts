@@ -29,8 +29,10 @@ type Item = ReturnType<MapsProvider['getChildren']>[number]
 // get the synthetic ones instead; no module state is written.
 vi.mock('../../../src/rom/SubmapFlagGate', async importOriginal => {
   const real = await importOriginal<typeof import('../../../src/rom/SubmapFlagGate')>()
-  const { fingerprint } = await import('../../../src/rom/Fingerprint')
-  const entry = [fingerprint(Buffer.alloc(real.OVERWORLD_INDEX_BODY.length, 0xea))!]
+  // The synthetic index span (syntheticRom.ts syntheticIndexSpan): NOPs after the midway hook site's head.
+  const span = Buffer.alloc(real.OVERWORLD_INDEX_BODY.length, 0xea)
+  span.set(real.MIDWAY_HOOK_SITE.slice(0, 4), 0)
+  const entry = [real.spanFingerprint(span, real.OVERWORLD_INDEX_BODY.mask)!]
   return {
     ...real,
     stockCodeMismatch: (...[rom, checks, fp]: Parameters<typeof real.stockCodeMismatch>) =>
@@ -42,8 +44,13 @@ vi.mock('../../../src/rom/SubmapFlagGate', async importOriginal => {
 vi.mock('../../../src/rom/OverworldEntrances', async importOriginal => {
   const real = await importOriginal<typeof import('../../../src/rom/OverworldEntrances')>()
   const { fingerprint } = await import('../../../src/rom/Fingerprint')
-  const nopHash = (n: number): string[] => [fingerprint(Buffer.alloc(n, 0xea))!]
-  const fp = { entry: nopHash(0x54), walk: nopHash(real.WALK_PROLOGUE_LENGTH) }
+  const gate = await vi.importActual<typeof import('../../../src/rom/SubmapFlagGate')>('../../../src/rom/SubmapFlagGate') // prettier-ignore
+  const index = Buffer.alloc(gate.OVERWORLD_INDEX_BODY.length, 0xea) // as in the mock above
+  index.set(gate.MIDWAY_HOOK_SITE.slice(0, 4), 0)
+  const fp = {
+    entry: [gate.spanFingerprint(index, gate.OVERWORLD_INDEX_BODY.mask)!],
+    walk: [fingerprint(Buffer.alloc(real.WALK_PROLOGUE_LENGTH, 0xea))!],
+  }
   return {
     ...real,
     deriveOverworldEntrances: (

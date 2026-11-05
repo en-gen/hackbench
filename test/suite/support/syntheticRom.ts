@@ -3,10 +3,12 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { ADDR, LEVEL_COUNT } from '../../../src/rom/SmwRom'
 import {
   LM_ENTRY_HOOK,
+  MIDWAY_HOOK_SITE,
   OVERWORLD_ENTRY,
   OVERWORLD_INDEX_BODY,
   SCREEN_EXIT,
   spanFingerprint,
+  type StockOp,
   type StockSpan,
 } from '../../../src/rom/SubmapFlagGate'
 import { START_EXIT_SPAN, START_MAIN_SPAN } from '../../../src/rom/LevelStart'
@@ -51,6 +53,21 @@ function syntheticCall(): Buffer {
 }
 
 /**
+ * OVERWORLD_INDEX_BODY as planted: NOPs, but the head the midway hook's own site check also reads
+ * (taken from that pattern, not restated), so a hooked cart hashes the same as the stock one.
+ */
+function syntheticIndexSpan(): Buffer {
+  const span = nops(OVERWORLD_INDEX_BODY.length)
+  span.set(MIDWAY_HOOK_SITE.slice(0, 4), 0)
+  return span
+}
+
+/** One opcode planted, and for a branch the displacement that lands where the stock one does. */
+export function plantOp(rom: RomFile, c: StockOp): void {
+  rom.writeAt(c.addr, [c.op, ...(c.lands === undefined ? [] : [(c.lands - c.addr - 2) & 0xff])])
+}
+
+/**
  * LevelStart's spans as planted: NOPs, plus a few opcode bytes at literal addresses (never from the span
  * constants, so a moved span or a changed length breaks the fingerprint match and goes red with no corpus):
  * the secondary-exit span keeps SCREEN_EXIT's own LDA DATA_05F800, the main span its LDA DATA_05F600,Y
@@ -77,7 +94,7 @@ function plantSpan(rom: RomFile, span: StockSpan, plant: typeof START_EXIT_PLANT
  * the stock defaults refuse it.
  */
 export const SYNTHETIC_FINGERPRINTS: OverworldFingerprints = Object.freeze({
-  entry: Object.freeze([fingerprint(nops(OVERWORLD_INDEX_BODY.length))!]),
+  entry: Object.freeze([spanFingerprint(syntheticIndexSpan(), OVERWORLD_INDEX_BODY.mask)!]),
   walk: Object.freeze([fingerprint(nops(WALK_PROLOGUE_LENGTH))!]),
   bonus: Object.freeze([spanFingerprint(syntheticCall(), BONUS_CALL.mask)!]),
   startExit: Object.freeze([fingerprint(syntheticSpan(START_EXIT_SPAN, START_EXIT_PLANT))!]),
@@ -148,14 +165,20 @@ export function plantScreenExitFiling(rom: RomFile): void {
  * wrong constant plant their own bytes at literal addresses instead.
  */
 export function plantStockSubmapCode(rom: RomFile): void {
-  for (const c of [...OVERWORLD_ENTRY, ...SCREEN_EXIT]) {
-    if ('fingerprints' in c) rom.writeAt(c.addr, nops(c.length))
-    else rom.writeAt(c.addr, [...c.bytes])
+  const stock = [...OVERWORLD_ENTRY, ...SCREEN_EXIT]
+  // Spans first: the index span covers the guard's two opcodes, which go on top.
+  for (const c of stock) {
+    if ('fingerprints' in c) rom.writeAt(c.addr, c === OVERWORLD_INDEX_BODY ? syntheticIndexSpan() : nops(c.length)) // prettier-ignore
+  }
+  for (const c of stock) {
+    if ('op' in c) plantOp(rom, c)
+    else if (!('fingerprints' in c)) rom.writeAt(c.addr, [...c.bytes])
   }
   plantScreenExitFiling(rom)
   plantSpan(rom, START_EXIT_SPAN, START_EXIT_PLANT)
   plantSpan(rom, START_MAIN_SPAN, START_MAIN_PLANT)
-  rom.writeAt(0x05d8a2, [0xc9, 0x25, 0x90, 0x03, 0x38, 0xe9, 0x24])
+  rom.writeAt(0x05d8a3, [0x25]) // threshold
+  rom.writeAt(0x05d8a8, [0x24]) // bias
   rom.writeAt(0x05d8b4, [0x01])
   rom.writeAt(0x05d7d1, [0x01])
   // CODE_04DC09's call, CODE_04D7F2's prologue and walk, OWPU_ABXY. Operands
