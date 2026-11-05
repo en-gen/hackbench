@@ -26,6 +26,6 @@ export const unverifiedCauses = (sprites: readonly { unverified?: string }[]): s
 /** The missing-ROM sentence after a "Sprites unavailable: " style lead reads on in lower case. */
 export const lowerFirst = (text: string): string => text.charAt(0).toLowerCase() + text.slice(1)
 
-/** The sprite toggle's name when some sprites are unverified. It names no cause, because they differ (a level the loader refused, a memory setting, an earlier sprite); the causes follow on the title's other lines. */
+/** The sprite toggle's name when some sprites are unverified. It names no cause, because they differ (a level the loader refused, a memory setting, an earlier sprite, colors that may not have settled, and more); the causes follow on the title's other lines. */
 export const unverifiedLabel = (): string =>
   'Sprites · unverified: some sprites may not be drawn exactly as in the game.'
