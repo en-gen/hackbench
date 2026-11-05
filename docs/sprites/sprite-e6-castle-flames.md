@@ -33,8 +33,8 @@ How the map view draws them, and what each step rests on.
   unverified with a map note naming each part that differs: the spawn and draw routines
   (SHA-256 of each), and the call path, which is RUN on the core, not matched
   (`ClusterPath.ts`, D126). The loader route (`bank_02.asm:5348-5355`) is run with the sprite
-  id, a stream offset and a hand-off in `_0.._2` and must reach `CODE_02AAC0` (`5631-5637`),
-  the spawn (with the activate flag stored, from a preset of 0 and of $FF, and the id still
+  id and a stream offset in Y, and must reach `CODE_02AAC0` (`5631-5637`),
+  the spawn (with the hand-off cell `_3` equal to Y-1, the activate flag stored, from a preset of 0 and of $FF, and the id still
   in A) and `LoadNextSprite` (with the stack, X and Y restored), over four settings that
   sweep X and Y (0, low, $80 and up) and three WRAM fills (zero and two pseudo-random fills
   of `$0000-$1FFF`; cells above stay zero). The cluster loop (`15942-15958`), entered with DB
