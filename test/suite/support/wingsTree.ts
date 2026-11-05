@@ -18,12 +18,15 @@ import { plantBonusCode, SYNTHETIC_FINGERPRINTS, writeSyntheticRom } from './syn
 export const pathDigestOf = (rom: RomFile): string =>
   fingerprint(Buffer.concat(WINGS_PATH.map(([a, n]) => rom.readAt(a, n)!)))!
 
-export function wingsRom(exits: Record<number, number[]>): RomFile {
+/** `secondary` lists rooms whose screen exits are secondary ones (byte 1 of the exit object, bank_0D.asm:1436-1438). */
+export function wingsRom(exits: Record<number, number[]>, secondary: number[] = []): RomFile {
   const slots = [0x000, 0x100, 0x0c8, 0x1c8, ...Object.keys(exits).map(Number)]
   const rooms = new Map<number, number[]>(slots.map(s => [s, exits[s] ?? []]))
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-wings-'))
   const rom = RomFile.load(writeSyntheticRom(dir, rooms))
   plantBonusCode(rom)
+  const smw = new SmwRom(rom)
+  for (const slot of secondary) rom.writeAt(smw.getLevelL1Pointer(slot)! + 6, [0x02])
   return rom
 }
 

@@ -47,8 +47,6 @@ const REPLIES_PER_BYTES = 8
 type Item = Exclude<BlockContent, { kind: 'none' }>
 type SpriteItem = Extract<BlockContent, { kind: 'sprite' }>
 
-export { spawnInputs }
-
 export type Spec =
   | { kind: 'item'; content: Item }
   | { kind: 'split'; small: Item; big: Item }

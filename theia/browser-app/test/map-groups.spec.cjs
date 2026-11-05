@@ -395,7 +395,7 @@ async function expectBonusRow(page, folder, slot) {
   })
 }
 
-test('Bonus Games is an ordinary group: drag out, rename', async ({ page }) => {
+test('Bonus Games is an ordinary group: drag out, rename, delete', async ({ page }) => {
   await openProject(page, path.join(tmp, 'BonusOrdinary'), { seedEmpty: false })
   const group = async name => (await snapshot(page)).userGroups.find(g => g.name === name)
   const names = async () => (await snapshot(page)).userGroups.map(g => g.name)
@@ -414,6 +414,12 @@ test('Bonus Games is an ordinary group: drag out, rename', async ({ page }) => {
   await expect.poll(names).toContain('Bonus Rooms')
   expect(await names()).not.toContain('Bonus Games')
   expect((await group('Bonus Rooms')).slots).toEqual([0x100])
+
+  await (await rowFor(page, 'group:user:Bonus Rooms')).click({ button: 'right' })
+  await rightClickMenuItem(page, 'Delete Group')
+  await expect.poll(names).not.toContain('Bonus Rooms')
+  await expectBonusRow(page, 'Unassigned', '$000')
+  await expectBonusRow(page, 'Unassigned', '$100')
 })
 
 test('a groups.json written before the Bonus Games seed is left byte-identical', async ({
@@ -432,7 +438,8 @@ test('a groups.json written before the Bonus Games seed is left byte-identical',
   expect(tree.userGroups.map(g => g.name)).toEqual(['8. Star World'])
   // Not seeded into a group, the bonus room sits in Unassigned, still a bonus row; the two Yoshi
   // Heaven slots are sub areas under the wings maps, not Unassigned rows.
-  const top = tree.allNodes.filter(n => n.id.startsWith('group:unassigned/'))
+  // Top-level rows only: a sub area's id is 'group:unassigned/$00F/$0C8', one segment deeper.
+  const top = tree.allNodes.filter(n => n.id.startsWith('group:unassigned/') && n.id.split('/').length === 2) // prettier-ignore
   const bonus = top.filter(n => VANILLA_BONUS_SLOTS.includes(n.index))
   expect(bonus.map(n => n.category)).toEqual(['bonus', 'bonus'])
   expect(top.filter(n => [0x0c8, 0x1c8].includes(n.index))).toEqual([])

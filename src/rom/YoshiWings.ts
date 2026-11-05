@@ -4,7 +4,7 @@
  * Block $125 spawns by the X column it stands in (bank_02.asm:1199-1212); the column that gives
  * sprite $7E with SpriteTableC2 = 2 is not assumed but found by running the game's own item block
  * spawn once per column of its period (CODE_0288DC, the #566 exception). Yoshi touching that sprite
- * with C2 = 2 sets player animation 8 (bank_01.asm:15555-15566, 15944-15959), and YoshiWingsAni
+ * with C2 = 2 sets player animation 8 (bank_01.asm:15555-15566, 15943-15962), and YoshiWingsAni
  * then sets YoshiHeavenFlag (bank_00.asm:8295-8331). That path is fingerprinted: a ROM that edits
  * it is refused, with a note, and Yoshi Heaven stays where BonusEntrances put it.
  *
@@ -31,17 +31,28 @@ const WINGS_C2 = 2
 /** The block's X pixel bits 4-5 pick the spawn (bank_02.asm:1199-1212): 4 columns, then it repeats. */
 const PERIOD = 4
 
-/** SHA-256 over the Yoshi-touch test (bank_01.asm:15555-15566, $01:F3DB-F3F6), the same test on the other
- *  touch path (15944-15959, $01:F6B4-F6DC), YoshiWingsAni (bank_00.asm:8295-8331, $00:C7FD-C847) and its
- *  slot in the ProcessPlayerAnimation table (bank_00.asm:7994, $00:C5A9). Vanilla US only, measured. */
+/**
+ * One SHA-256 over eight spans, 568 bytes, all unknown (hashed, none stored). Vanilla US only, measured.
+ * Eating path, its branch into the wings test: bank_01.asm:15477-15567 ($01:F344-F3F6).
+ * Contact loop and the second touch path to its RTS: 15867-15962 ($01:F622-F6DC).
+ * The animation call site, ProcessPlayerAnimation and table slots 0-8: bank_00.asm:7952-7994 ($00:C569-C5AA).
+ * YoshiWingsAni: 8295-8331 ($00:C7FD-C847); CODE_00D273: 9631-9635 ($00:D273-D27B).
+ * The block spawn's column rewrite: bank_02.asm:1199-1224 ($02:89A5-89D2) and its tables,
+ * DATA_0288D6/D9 1091-1096 ($02:88D6-88DB). The `AND #$30` there is why PERIOD is 4.
+ * Not covered: who calls CODE_01F344 and CODE_01F622, GetSpriteClipping/CheckForContact, ExecutePtr,
+ * and the other callers of ProcessPlayerAnimation (bank_00.asm:1975, 2824), none read here.
+ */
 export const WINGS_PATH: readonly (readonly [addr: number, length: number])[] = Object.freeze([
-  [0x01f3db, 28],
-  [0x01f6b4, 41],
+  [0x01f344, 179],
+  [0x01f622, 187],
   [0x00c7fd, 75],
-  [0x00c5a9, 2],
+  [0x00d273, 9],
+  [0x00c569, 66],
+  [0x0289a5, 46],
+  [0x0288d6, 6],
 ])
 export const WINGS_PATH_DIGESTS: readonly string[] = Object.freeze([
-  'f2e84d9ab5aa3cb0c8d5cf0bee0ec9fcbe308b938e1000c501d11a66e8f255bd',
+  'd9642ceb1f4ad2753021f325fa27804d644c3e8ec5fc78155298052b211af13e',
 ])
 
 /** What the spawn left in the slot it picked. */
@@ -103,7 +114,8 @@ const answers = new Map<string, Answers>()
 const ANSWERS_KEPT = 4
 const keys = new WeakMap<RomFile, { version: number; value: string }>()
 
-function answersFor(rom: RomFile): Answers {
+/** Exported for tests: the keyed cache is the thing that must tell different bytes apart. */
+export function answersFor(rom: RomFile): Answers {
   const key = cachedByVersion(keys, rom, () =>
     createHash('sha1')
       .update(rom.buffer)
@@ -120,7 +132,7 @@ function answersFor(rom: RomFile): Answers {
 
 /**
  * The columns (mod 4) of block $125 that give the wings, read from the ROM. A refusal says why in
- * plain words; the caller then adds no link. Cached per ROM version: one run per column per ROM.
+ * plain words; the caller then adds no link. Kept per ROM bytes: one run per column per distinct bytes.
  */
 export function wingsColumns(rom: RomFile, seams: WingsSeams = {}): WingsColumns {
   const compute = (): WingsColumns => {
@@ -147,8 +159,12 @@ export function wingsColumns(rom: RomFile, seams: WingsSeams = {}): WingsColumns
   return (mine.columns ??= compute())
 }
 
-/** The Layer 1 grid of a slot as the map view builds it, or null when it cannot be read. */
-function layer1Grid(rom: SmwRom, slot: number): number[][] | null {
+/** The destination the game files for the trip: the submap half comes from the flag, then the low byte (bank_05.asm:7106-7111). */
+export const wingsDestination = (flag: boolean, screenHigh: number, yoshiLow: number): number =>
+  ((flag ? screenHigh : 0) << 8) | (yoshiLow & 0xff)
+
+/** The Layer 1 grid of a slot as the map view builds it; null when the slot has no data, throws the reason when the vertical table cannot be read. */
+export function layer1Grid(rom: SmwRom, slot: number): number[][] | null {
   const raw = rom.getLevelRawData(slot)
   if (!raw) return null
   const table = rom.requireVerticalTable()
@@ -168,13 +184,7 @@ export function holdsWings(
   const seen = seams.grid ? new Map<number, boolean>() : answersFor(rom.rom).holders
   const hit = seen.get(slot)
   if (hit !== undefined) return hit
-  const read = seams.grid ?? ((s: number) => layer1Grid(rom, s))
-  let grid: number[][] | null = null
-  try {
-    grid = read(slot)
-  } catch {
-    // an unreadable stream reads as no block; the tree already warns on it
-  }
+  const grid = (seams.grid ?? ((n: number) => layer1Grid(rom, n)))(slot)
   const holds = !!grid?.some(row =>
     row.some((id, x) => id === WINGS_TILE && columns.has(x % PERIOD)),
   )

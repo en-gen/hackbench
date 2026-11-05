@@ -336,34 +336,9 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
     o.spawnLoop
       ? [0x4c, 0x36, 0x89]
       : o.wingsColumn !== undefined
-        ? // LDA #t / STA $1540,X / LDA $9A / AND #$30 / LSR x4 / CMP #col / BNE +5 / LDA #2 / STA $C2,X / RTL / INC $C2,X / RTL
-          [
-            0xa9,
-            o.spawnTimer ?? 0x37,
-            0x9d,
-            0x40,
-            0x15,
-            0xa5,
-            0x9a,
-            0x29,
-            0x30,
-            0x4a,
-            0x4a,
-            0x4a,
-            0x4a,
-            0xc9,
-            o.wingsColumn,
-            0xd0,
-            0x05,
-            0xa9,
-            0x02,
-            0x95,
-            0xc2,
-            0x6b,
-            0xf6,
-            0xc2,
-            0x6b,
-          ]
+        ? // our own shape: LDA #t / STA $1540,X / LDA $9A / LSR x4 / AND #3 / CMP #col / BNE +5 / LDA #2 / STA $C2,X / RTL / INC $C2,X / RTL
+          // prettier-ignore
+          [0xa9, o.spawnTimer ?? 0x37, 0x9d, 0x40, 0x15, 0xa5, 0x9a, 0x4a, 0x4a, 0x4a, 0x4a, 0x29, 0x03, 0xc9, o.wingsColumn, 0xd0, 0x05, 0xa9, 0x02, 0x95, 0xc2, 0x6b, 0xf6, 0xc2, 0x6b]
         : [0xa9, o.spawnTimer ?? 0x37, 0x9d, 0x40, 0x15, 0xf6, 0xc2, 0x6b],
   )
   // The level loader's shell sites (bank_02.asm:5290-5291, 5312-5361, 5456-5462), written as the instructions they are.

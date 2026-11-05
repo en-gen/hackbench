@@ -39,7 +39,7 @@ import { buildLevelCatalog } from './LevelCatalog'
 import { reachableSlots } from './LevelTree'
 import { findSpecialMaps, type SpecialMap, type SpecialRole } from './SpecialMaps'
 import { findBonusEntrances, type BonusRole } from './BonusEntrances'
-import { holdsWings, wingsColumns } from './YoshiWings'
+import { holdsWings, wingsColumns, wingsDestination } from './YoshiWings'
 import {
   deriveOverworldEntrances,
   STOCK_OVERWORLD_FINGERPRINTS,
@@ -190,6 +190,7 @@ export function buildMapTree(
     unreadableMaps: graphCut,
     submapFlag: flags,
     screenHigh,
+    secondaryExit,
   } = rom.buildLevelExitGraph(entranceIndex.roots, fingerprints.entry)
 
   /** The display name comes from the ROM's own tables; null when it has none, never a guess. */
@@ -221,33 +222,46 @@ export function buildMapTree(
   const stops = (i: number): boolean => isRoot(i) || !maps.has(i)
   const bonusRead = findBonusEntrances(rom.rom, fingerprints.bonus)
 
+  const subsOf = new Map(roots.map(r => [r, reachableSlots(r, exitGraph, stops)]))
+
   // Yoshi Heaven joins the root whose own maps hold the wings block (#1229). The game files the
   // destination as (OWPlayerSubmap high byte, DATA_05DBA9 low byte) exactly as a screen exit does,
-  // so the half is the root's propagated flag, never the wings map's own slot half.
+  // so the half is the root's propagated flag, never the wings map's own slot half. Yoshi Heaven's
+  // own exits are not followed (the walk never reaches it): maps only it reaches stay Unassigned.
   const yoshiLow = bonusRead.maps.find(m => m.role === 'yoshi-heaven')?.index
-  const columns = flags && yoshiLow !== undefined ? wingsColumns(rom.rom, fingerprints.wings) : null
-  if (columns?.note)
-    notes.push(`Yoshi wings: ${columns.note} Yoshi Heaven stays listed as a bonus map.`)
-  const wingsPlaced = new Set<number>()
-  const wingsLinks = (root: number, subs: number[]): number[] => {
-    if (!flags || yoshiLow === undefined || !columns || !('columns' in columns)) return []
-    const holds = [root, ...subs].some(i => holdsWings(rom, i, columns.columns, fingerprints.wings))
-    const high = flags.get(root) ? screenHigh! : 0
-    const dest = (high << 8) | (yoshiLow & 0xff)
-    if (!holds || stops(dest) || subs.includes(dest)) return []
-    return [dest, ...reachableSlots(dest, exitGraph, stops)].filter(i => !subs.includes(i))
+  const wingsDest = new Map<number, number>()
+  const yoshiStays = 'Yoshi Heaven stays listed as a bonus map.'
+  if (flags && yoshiLow !== undefined) {
+    try {
+      const cols = wingsColumns(rom.rom, fingerprints.wings)
+      if (!('columns' in cols)) notes.push(`Yoshi wings: ${cols.note} ${yoshiStays}`)
+      else {
+        const refused = new Set<number>()
+        for (const [root, subs] of subsOf) {
+          const holders = [root, ...subs].filter(i => holdsWings(rom, i, cols.columns, fingerprints.wings)) // prettier-ignore
+          // A secondary screen exit sends the trip through DATA_05F800 (bank_05.asm:7111-7117), which is not read here.
+          holders.filter(i => secondaryExit?.has(i)).forEach(i => refused.add(i))
+          const dest = wingsDestination(!!flags.get(root), screenHigh!, yoshiLow)
+          if (holders.some(i => !secondaryExit?.has(i)) && !stops(dest)) wingsDest.set(root, dest)
+        }
+        if (refused.size)
+          notes.push(`Yoshi wings: ${[...refused].map(i => '$' + i.toString(16).toUpperCase().padStart(3, '0')).join(', ')} hold the wings block but have a secondary screen exit, which sends the trip through a table this tree does not read, so they are not linked. ${yoshiStays}`) // prettier-ignore
+      }
+    } catch (err) {
+      wingsDest.clear()
+      notes.push(`Yoshi wings: could not be read (${err instanceof Error ? err.message : String(err)}). ${yoshiStays}`) // prettier-ignore
+    }
   }
+  const wingsPlaced = new Set(wingsDest.values())
   const overworld = roots.map(root => {
-    const subs = reachableSlots(root, exitGraph, stops)
-    const linked = wingsLinks(root, subs)
-    const children = [...subs, ...linked]
-      .sort((a, b) => a - b)
-      .map(i => {
-        const node = adopt(i)
-        if (linked[0] === i) node.reachedBy = 'yoshi-heaven'
-        return node
-      })
-    linked.forEach(i => wingsPlaced.add(i))
+    const subs = subsOf.get(root)!
+    const dest = wingsDest.get(root)
+    const kids = dest === undefined || subs.includes(dest) ? subs : [...subs, dest].sort((a, b) => a - b) // prettier-ignore
+    const children = kids.map(i => {
+      const node = adopt(i)
+      if (wingsPlaced.has(i)) node.reachedBy = 'yoshi-heaven'
+      return node
+    })
     return adopt(root, children)
   })
 

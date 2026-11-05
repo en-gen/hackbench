@@ -117,10 +117,18 @@ Which maps list Yoshi Heaven as a sub area is read from this block, not assumed
    the scroll and no fixed column is knowable.
 3. **The path, fingerprinted.** Yoshi touching sprite `$7E` with C2 = 2 sets
    `PlayerAnimation` 8 (`bank_01.asm:15555-15566`, and the same test on the other
-   touch path, `15944-15959`); animation 8 is `YoshiWingsAni` (`bank_00.asm:7994`),
-   which sets `YoshiHeavenFlag` (`bank_00.asm:8295-8331`). One SHA-256 covers those
-   four spans (28 + 41 + 75 + 2 bytes, vanilla US, D126); a ROM that changes any of
-   them is refused with a note and Yoshi Heaven stays a bonus map.
+   touch path, `15943-15962`); animation 8 is `YoshiWingsAni` (`bank_00.asm:7994`),
+   which sets `YoshiHeavenFlag` (`bank_00.asm:8295-8331`). One SHA-256 covers seven
+   spans, 568 bytes, all unknown (vanilla US, D126): the eating path and its branch
+   into the wings test (`bank_01.asm:15477-15567`), the contact loop to the end of
+   the second touch path (`15867-15962`), the animation call site, `ProcessPlayerAnimation`
+   and table slots 0-8 (`bank_00.asm:7952-7994`), `YoshiWingsAni` and `CODE_00D273`
+   (`8295-8331`, `9631-9635`), and the spawn's column rewrite with its two tables
+   (`bank_02.asm:1199-1224`, `1091-1096`), which holds the `AND #$30` that makes the
+   period 4. A ROM that changes any byte of them is refused with a note and Yoshi
+   Heaven stays a bonus map. Not covered: the callers of `CODE_01F344` and
+   `CODE_01F622`, `GetSpriteClipping` and `CheckForContact`, `ExecutePtr`, and the other
+   callers of `ProcessPlayerAnimation` (`bank_00.asm:1975, 2824`).
 4. **The destination.** `CODE_05DBAC` (read by `BonusEntrances`) files the low byte;
    the high byte is the player's submap flag, the same `LDA #imm` a screen exit uses
    (`bank_05.asm:7106-7111`). So the half is the ROOT's flag as the exit graph
@@ -133,13 +141,33 @@ over all 512 slots. The static read of the issue found 14 placements of `$125` o
 10 maps. Not played: the headless route (a Mesen scenario that rides Yoshi to each
 block) was not built; the three are a static read plus the core's spawn run.
 
-What else makes sprite `$7E` with C2 = 2 (an immediate search of banks 00-02, one
-machine): the block spawn's `DATA_0288D6` (`bank_02.asm:1092`, compared at `1221`) is the
-only place the number is written from a table; the other `#$7E` hits are bank-byte
-immediates for pointers. A `$7E` placed directly in a level's sprite list (vanilla places
-none, per the issue) or made by a hack's own spawner is not followed. Cost: the four
-spawn runs and the grids of the maps a root reaches are kept per ROM bytes (a hash), about
-200-250 ms on a cold tree build of the vanilla ROM (5 cold runs, one machine, 2026-11-05).
+Limits, all static reads unless said:
+
+- **What else makes sprite `$7E` with C2 = 2.** A sweep of all banks for a `$7E` or
+  `$7D` immediate that reaches `SpriteNumber` (by the reviewer, one machine) found only
+  the spawn's `DATA_0288D6` (`bank_02.asm:1091`; the spawn compares the result with `$7E` at `1221`); the other `#$7E`
+  hits are bank-byte immediates. `SpriteInBlock` holds `$7D` only at content `$0B`. The
+  spawn's other caller, the flying block (`bank_01.asm:6271`, contents from
+  `DATA_01AE88`, `bank_01.asm:6306`), never passes `$0B`. A `$7E` placed in a level's
+  sprite list (vanilla places none, per the issue) or made by a hack's own spawner is
+  not followed.
+- **Secondary screen exits.** With `UseSecondaryExit` set the trip's destination comes
+  through `DATA_05F800` (`bank_05.asm:7111-7117`); that table is not read here, so a
+  map that holds the block and has a secondary screen exit is not linked, with a note.
+  The flag's only write is the screen exit object (`bank_0D.asm:1438`), so a holder with
+  no exit object may inherit it from the level loaded before (static read, unconfirmed;
+  vanilla holders have none).
+- **Yoshi Heaven's own exits** are not followed (the exit-graph walk never reaches it),
+  so a map only Yoshi Heaven reaches stays Unassigned. Vanilla's two destinations have
+  no exits.
+- **Layer 2 and the column.** Only Layer 1, as above.
+- **The spawn is read after one INIT frame**, through the runner's existing probe, not
+  at the instant of the spawn; a `$7E` whose MAIN rewrote C2 in that frame would read as
+  its new value. Vanilla's does not (it gives the wings in column 1 as the touch code
+  expects); not tested on a synthetic ROM.
+- **Cost.** The four spawn runs and the grids of the maps a root reaches are kept per ROM
+  bytes (a hash), about 200-250 ms on a cold tree build of the vanilla ROM (5 cold runs,
+  one machine, 2026-11-05).
 
 ### $021-$024
 

@@ -18,10 +18,25 @@ const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 test.skip(!fs.existsSync(ROM), 'needs the vanilla ROM')
 
-/** Where each wings block's object sits: byte 1 of the single-tile object, as a word with the object number (SNES). */
-const OBJECT_WORD = {
-  0x00f: { address: '$06C096', col161: '$3501' },
-  0x12c: { address: '$07B744', col165: '$3505' },
+/** Where each wings block's object sits: byte 1 of the single-tile object, with the object number after it (SNES address). */
+const OBJECT_AT = { 0x00f: 0x06c096, 0x12c: 0x07b744 }
+
+/** The little-endian word the ROM holds at a SNES address, read here so no ROM word is written into the spec. */
+function wordAt(snes) {
+  const bytes = fs.readFileSync(ROM)
+  const header = bytes.length % 1024 === 512 ? 512 : 0
+  const at = header + ((snes >> 16) & 0x7f) * 0x8000 + (snes & 0x7fff)
+  return bytes[at] | (bytes[at + 1] << 8)
+}
+const hex = n => '$' + n.toString(16).toUpperCase().padStart(4, '0')
+/** An op moving the object `by` columns: the column nibble is the low byte's low bits, so the word moves by `by`. */
+function moveOp(slot, from, by) {
+  const old = wordAt(OBJECT_AT[slot]) + from
+  return {
+    address: '$' + OBJECT_AT[slot].toString(16).toUpperCase().padStart(6, '0'),
+    old: hex(old),
+    new: hex(old + by),
+  }
 }
 const YOSHI_HEAVEN = { icon: 'codicon-arrow-up', title: 'Entered by flying up on Yoshi wings' }
 
@@ -141,9 +156,8 @@ test('the Yoshi Heaven sub area row keeps its icon and its tooltip', async ({ pa
 
 test('moving the block in the working copy moves or removes the sub area', async ({ page }) => {
   const { dir, manifestPath } = await load(page)
-  const first = OBJECT_WORD[0x00f]
   // $00F's block from column 161 to 162: the spawn there is not the wings, so $0C8 is no sub area of $00F.
-  writeLayers(dir, [{ address: first.address, old: first.col161, new: '$3502' }])
+  writeLayers(dir, [moveOp(0x00f, 0, 1)])
   await reload(page, manifestPath)
   let snap = await snapshot(page)
   expect(yoshiUnder(snap, 0x00f)).toEqual([])
@@ -152,18 +166,14 @@ test('moving the block in the working copy moves or removes the sub area', async
   expect(snap.unassigned.find(n => n.index === 0x0c8)).toEqual({ index: 0x0c8, category: 'bonus' })
 
   // Then to column 165, another column that gives the wings: the link is back.
-  writeLayers(dir, [
-    { address: first.address, old: first.col161, new: '$3502' },
-    { address: first.address, old: '$3502', new: '$3505' },
-  ])
+  writeLayers(dir, [moveOp(0x00f, 0, 1), moveOp(0x00f, 1, 3)])
   await reload(page, manifestPath)
   snap = await snapshot(page)
   expect(yoshiUnder(snap, 0x00f)).toEqual([0x0c8])
   expect(snap.unassigned.find(n => n.index === 0x0c8)).toBeUndefined()
 
   // $12C's block off the wings column: $1C8 leaves $12C and stays under $115 (via $1E3).
-  const second = OBJECT_WORD[0x12c]
-  writeLayers(dir, [{ address: second.address, old: second.col165, new: '$3506' }])
+  writeLayers(dir, [moveOp(0x12c, 0, 1)])
   await reload(page, manifestPath)
   snap = await snapshot(page)
   expect(yoshiUnder(snap, 0x12c)).toEqual([])

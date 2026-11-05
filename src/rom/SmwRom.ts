@@ -112,6 +112,8 @@ export interface LevelExitGraph {
   submapFlag?: ReadonlyMap<number, 0 | 1>
   /** The high byte a screen exit loads when the flag is set (bank_05.asm:7109); absent when unavailable. */
   screenHigh?: number
+  /** Maps whose last screen exit is a secondary one: the trip out of them reads DATA_05F800 (bank_05.asm:7111-7117). Absent when unavailable. */
+  secondaryExit?: ReadonlySet<number>
 }
 
 /**
@@ -541,6 +543,7 @@ export class SmwRom {
     // to the BFS below because it needs each level's submap flag, which is
     // only known once the BFS actually reaches that level.
     const unreadableMaps: number[] = []
+    const secondaryExit = new Set<number>()
     const realMapSet = new Set(realMaps)
     const exitsByLevel = new Map<number, Array<{ isSecondary: boolean; rawByte: number }>>()
     for (let levelIdx = 0; levelIdx < LEVEL_COUNT; levelIdx++) {
@@ -560,6 +563,7 @@ export class SmwRom {
       if (!parsed.terminated && realMapSet.has(levelIdx)) unreadableMaps.push(levelIdx)
       // The secondary flag is one global byte, so it reads the whole stream.
       const isSecondary = mapUsesSecondaryExits(exits)
+      if (isSecondary) secondaryExit.add(levelIdx)
       // ExitTableLow/High are filed per screen by a plain STA (bank_0D.asm:1428-1435),
       // so a later exit for the same screen overwrites the earlier one (#957). A Map
       // keeps first-insertion order, so delete before set to order by the surviving write.
@@ -644,7 +648,15 @@ export class SmwRom {
     }
     for (const e of entrances.values()) e.secondary.sort((a, b) => a - b)
 
-    return { graph, unavailable: null, entrances, unreadableMaps, submapFlag, screenHigh }
+    return {
+      graph,
+      unavailable: null,
+      entrances,
+      unreadableMaps,
+      submapFlag,
+      screenHigh,
+      secondaryExit,
+    }
   }
 
   /** Name for `index`, from the overworld walk's own entrances, not a bias

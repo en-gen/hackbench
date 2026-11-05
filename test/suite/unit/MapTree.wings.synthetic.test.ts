@@ -93,12 +93,53 @@ describe('the wings link in buildMapTree', () => {
     expect(t.notes.join(' ')).toMatch(/Yoshi wings: the item block spawn was refused: no free slot/)
   })
 
-  it('reads an unreadable grid as no block', () => {
+  it('turns a failing grid read into a note with the reason, never a silent no-block', () => {
     const r = rom()
     const grid = (): never => {
-      throw new Error('unreadable')
+      throw new Error('vertical table gone')
     }
-    expect(yoshiUnder(wingsTree(r, { ...seamsFor(r, { 0x001: [1] }), grid }))).toEqual({})
+    const t = wingsTree(r, { ...seamsFor(r, { 0x001: [1] }), grid })
+    expect(yoshiUnder(t)).toEqual({})
+    expect(bonusSlots(t)).toEqual([0x000, 0x0c8, 0x100, 0x1c8])
+    expect(t.notes.join(' ')).toMatch(/Yoshi wings: could not be read \(vertical table gone\)/)
+  })
+
+  it('keeps the root flag, not the screen-exit operand, as the half: operand 0 files $0C8 for a submap root', () => {
+    const r = wingsRom({ 0x101: [] })
+    r.writeAt(0x05d7d1, [0x00]) // the screen exit's high byte immediate (bank_05.asm:7109)
+    const t = wingsTree(r, seamsFor(r, { 0x101: [1] }))
+    expect(yoshiUnder(t)).toEqual({ 0x101: [0x0c8] })
+  })
+
+  it('refuses a holder with a secondary screen exit, names it, and still links a plain holder', () => {
+    const exits = { 0x001: [0x040], 0x040: [], 0x002: [] }
+    const r = wingsRom(exits, [0x001])
+    const t = wingsTree(r, seamsFor(r, { 0x001: [1] }))
+    expect(yoshiUnder(t)).toEqual({})
+    expect(bonusSlots(t)).toContain(0x0c8)
+    expect(t.notes.join(' ')).toMatch(
+      /Yoshi wings: \$001 hold the wings block but have a secondary screen exit/,
+    )
+    const plain = wingsTree(r, seamsFor(r, { 0x001: [1], 0x002: [1] }))
+    expect(yoshiUnder(plain)).toEqual({ 0x002: [0x0c8] })
+  })
+
+  it('does not follow Yoshi Heaven own exits: a map only it reaches stays Unassigned', () => {
+    const r = wingsRom({ 0x001: [], 0x0c8: [0x050], 0x050: [] })
+    const t = wingsTree(r, seamsFor(r, { 0x001: [1] }))
+    expect(yoshiUnder(t)).toEqual({ 0x001: [0x0c8] })
+    expect(t.overworld.find(n => n.index === 0x001)!.children.map(c => c.index)).toEqual([0x0c8])
+    expect(t.unassigned.map(n => n.index)).toContain(0x050)
+  })
+
+  it('marks every row of a slot the wings reach, also one a screen exit reaches (same root, or another)', () => {
+    const r = wingsRom({ 0x001: [0x0c8], 0x002: [] })
+    const same = wingsTree(r, seamsFor(r, { 0x001: [1] }))
+    expect(yoshiUnder(same)).toEqual({ 0x001: [0x0c8] })
+    expect(same.wingsPlaced).toEqual([0x0c8])
+    const across = wingsTree(r, seamsFor(r, { 0x002: [1] }))
+    expect(yoshiUnder(across)).toEqual({ 0x001: [0x0c8], 0x002: [0x0c8] })
+    expect(across.wingsPlaced).toEqual([0x0c8])
   })
 
   it('does not link when the exit graph is unavailable', () => {
