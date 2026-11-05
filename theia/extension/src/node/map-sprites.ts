@@ -64,7 +64,6 @@ import {
   RAM,
   type SpriteModel as BaseModel,
   type PaletteWrite,
-  type PassResult,
   type SpritePart,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
@@ -413,31 +412,52 @@ export function runWithUploads(rom: RomFile, id: number, seed: SpriteSeed): RunM
   return Object.assign(runOnce(rom, id, seed, { atRest: true, probe: p.probe }), { uploads: p.byPass }) // prettier-ignore
 }
 
-/** Sprite $1F, the Magikoopa. */
-const MAGIKOOPA_ID = 0x1f
+/**
+ * Passes at the end of a run that must show no change in CGRAM before its colors count as settled. A fade writes a
+ * new rung each time its timer runs out (vanilla Magikoopa: every 4 passes, SMWDisX bank_01.asm:8715-8722 with the
+ * timer set to 4), so 16 passes catches a fade up to 4x slower than that. Slower, or a run too short to finish, cannot
+ * be told from a settled one; that is why the picture is marked rather than claimed. Vanilla map $11C settles at
+ * pass 30 of 63 (one machine).
+ */
+const SETTLE_TAIL = 16
+
+/** The colors CGRAM holds after pass `p`: the run's writes are cumulative and the last one to a color wins. */
+const netColors = (m: RunModel, p: number) => new Map(m.passes[p]!.palette.map(w => [w.index, w.bgr555] as const)) // prettier-ignore
 
 /**
- * The CGRAM writes a picture is drawn with. The Magikoopa's first drawn frame is its fade-in, which runs before the
- * first palette upload (CODE_01C028, bank_01.asm:8733-8755), so the chosen pass wrote nothing and the level's row 15
- * showed (#1097). The game leaves the fade's last rung in CGRAM, so take the writes of the last drawn pass. Other
- * sprites keep the chosen pass's. Evidence scope: 64-pass run, vanilla map $11C; derivation in
- * docs/sprites/sprite-1f-magikoopa.md section 4.
+ * The CGRAM colors a sprite's picture is drawn with, and why they may be wrong (#1097). The chosen pass is a pose
+ * policy, not a palette one: the Magikoopa's first drawn frame is the casting pose it draws on leaving state 0
+ * (JSR CODE_01BE82, bank_01.asm:8474), before the fade has uploaded anything (CODE_01C028, bank_01.asm:8733-8755),
+ * so the chosen pass's writes left the level's row showing. CGRAM keeps what the run wrote, drawn or not, so the
+ * colors are the run's net writes at its last pass. Unsettled when those still changed in the last SETTLE_TAIL
+ * passes, or the sprite first drew inside that tail (a late start has had no time to write; its quiet tail proves
+ * nothing). Derivation: docs/sprites/sprite-1f-magikoopa.md section 5.
  */
-function paletteFor(m: RunModel, chosen: PassResult): PaletteWrite[] {
-  if (m.id !== MAGIKOOPA_ID) return chosen.palette
-  const drawn = m.passes.filter(p => p.parts.length > 0)
-  return drawn[drawn.length - 1]?.palette ?? chosen.palette
+function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
+  const last = m.passes.length - 1
+  const net = netColors(m, last)
+  const writes = [...net].map(([index, bgr555]) => ({ index, bgr555 }))
+  if (last < SETTLE_TAIL) return { writes }
+  const before = netColors(m, last - SETTLE_TAIL)
+  if ([...net].some(([i, v]) => before.get(i) !== v) || before.size !== net.size)
+    return { writes, why: `its CGRAM colors were still changing at the end of the ${m.passes.length}-pass run, so the colors drawn are those of its last frame` } // prettier-ignore
+  if ((m.chosen ?? 0) >= last - SETTLE_TAIL)
+    return { writes, why: `it first drew at the end of the ${m.passes.length}-pass run, before its colors could settle` } // prettier-ignore
+  return { writes }
 }
 
 /** What the interpreter shows for one sprite: its model, as the drawer's reply. */
 export function modelResult(m: RunModel): SpriteDrawResult {
   const generic = m.seedSource === 'generic'
   const why = [...(generic ? [`level loader refused (${m.seedReason}); drawn from a placement-only seed`] : []), ...(m.unverifiedReason ? [m.unverifiedReason] : [])] // prettier-ignore
-  const u = why.length ? { unverified: why.join('; ') } : {}
-  if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}`, ...u }
+  if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}`, ...(why.length ? { unverified: why.join('; ') } : {}) } // prettier-ignore
   const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
+  const colors = pass ? runtimeColors(m) : undefined
+  if (colors?.why) why.push(colors.why)
+  const u = why.length ? { unverified: why.join('; ') } : {}
+  if (!pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
   const uploads = m.chosen === undefined ? undefined : m.uploads?.[m.chosen]
-  if (!m.anchor || !pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
+  if (!m.anchor) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
   return {
     ok: true,
     parts: interpParts(pass.parts),
@@ -448,7 +468,7 @@ export function modelResult(m: RunModel): SpriteDrawResult {
           note: 'The game lays this sprite out itself, at fixed spots of the map; it does not follow where the list places it.',
         }
       : {}),
-    runtimePalette: paletteFor(m, pass),
+    runtimePalette: colors!.writes,
     ...(pass.drew
       ? { children: pass.drew.children.map(c => ({ index: c.index, parts: interpParts(pass.parts.filter(p => c.oam.includes(p.oam))) })) } // prettier-ignore
       : {}),

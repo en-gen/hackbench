@@ -2,8 +2,9 @@
  * #1097 against the hardware: the Magikoopa the map view draws on vanilla map $11C uses only colors that the
  * Mesen capture's CGRAM holds in row 15 once the fade has finished (`windows/screen_00`, OAM entries 116/117 are
  * the Magikoopa on palette 7), and none of the level's own row 15. Vanilla ROM and the `layers_v5` captures, one
- * machine. $1F is placed on two vanilla maps: $11C and $1FE; $1FE draws no tile at rest (a placeholder), so
- * $11C is the only one with pixels to compare.
+ * machine. $1F is placed on two vanilla maps, $11C and $1FE. $1FE has no capture (captures/layers_v5/1fe.zip does
+ * not exist) and draws no tile at rest in the 64-pass run (its sprite never leaves state 0 at its placed spot), so
+ * nothing about its colors is claimed here.
  */
 import { readFileSync } from 'fs'
 import { join } from 'path'

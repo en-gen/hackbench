@@ -1,9 +1,10 @@
 /**
- * #1097: the map view drew the Magikoopa ($1F) on the level's own row 15 because it took the CGRAM writes of the
- * FIRST drawn pass, the fade-in frame that runs before the first palette upload (SMWDisX bank_01.asm:8480 state 1,
- * upload at CODE_01C028 bank_01.asm:8733-8755). The game leaves the fade's last rung in CGRAM, columns 0-7 only.
- * Synthetic (CI has no ROM): the run is built here, with rung colors invented for this fixture, so what is asserted
- * is which pass's writes the view takes and that columns 8-15 keep the level's colors, not any ROM value.
+ * #1097: a sprite that uploads colors to CGRAM while it runs (the Magikoopa's teleport fade, SMWDisX
+ * bank_01.asm:8715-8755 and CODE_01C028) was drawn with the writes of its FIRST drawn pass, which can come before
+ * any upload, so the level's own row showed. The view now draws the colors CGRAM holds at the end of the 64-pass
+ * run and marks the picture unverified when those were still changing or the sprite only started at the end.
+ * Synthetic (CI has no ROM): runs are built here with invented colors, no sprite id, no ROM value. What is asserted
+ * is which writes the view takes, that columns the upload leaves alone keep the level's colors, and when it says so.
  */
 import { describe, expect, it } from 'vitest'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
@@ -20,53 +21,105 @@ import {
 } from '../../../theia/extension/src/node/map-sprites'
 import { COLORS } from '../support/mapInputs'
 
-const ROW15 = 15 * 16
-/** A fade rung: eight invented colors for CGRAM $F0..$F7, distinct per rung and per column. */
-const rung = (k: number) => Array.from({ length: 8 }, (_, c) => ({ index: ROW15 + c, bgr555: 0x0421 * (k + 1) + c * 3 })) // prettier-ignore
+const ROW = 15 * 16
+const PASSES = 64
+/** Eight invented colors for CGRAM $F0..$F7, distinct per rung `k` and per column. */
+const rung = (k: number, cols = 8) => Array.from({ length: cols }, (_, c) => ({ index: ROW + c, bgr555: 0x0421 * (k + 1) + c * 3 })) // prettier-ignore
 const part = (): SpritePart => ({ oam: 0, char: 0, size: 8, palette: 15, priority: 2, flipX: false, flipY: false, dx: 0, dy: 0, attr: 0, ox: 0, oy: 0 }) // prettier-ignore
-const pass = (n: number, parts: SpritePart[], palette: PassResult['palette']): PassResult => ({ pass: n, pos: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, parts, uploads: [], palette, }) // prettier-ignore
 
-/** Fade-in draws on pass 1 before any upload; rungs 0..2 then land, cumulatively, as the runner reports them. */
-const run = (id: number, rungs = 3): SpriteModel => ({
-  id,
-  anchor: { x: 0, y: 0, rawX: 0, rawY: 0 },
-  chosen: 1,
-  dependsOn: [],
-  steps: [],
-  passes: [
-    pass(0, [], []),
-    pass(1, [part()], []),
-    ...Array.from({ length: rungs }, (_, k) => pass(k + 2, [part()], Array.from({ length: k + 1 }, (_, j) => rung(j)).flat())), // prettier-ignore
-  ],
-})
-
-const s = { index: 0, x: 0, y: 0, spriteId: 0x1f, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
-/** Char 0: pixel 0 is color 3 (a column the upload writes), pixel 1 is color 10 (one it does not). */
-const chars = { sp1: [Uint8Array.from([3, 10, ...new Array(62).fill(0)])] }
-const px = (m: SpriteModel) => {
-  const draw: SpriteDrawer = () => modelResult(m as never)
-  const [d] = drawSprites([s], { vram: chars, colors: COLORS }, draw)
-  const b = Buffer.from(d!.rgba, 'base64')
-  return [0, 1].map(i => Array.from(b.subarray(i * 4, i * 4 + 4)))
+interface Plan {
+  /** First pass that draws, and the last (default: every pass from `first` on). */
+  first: number
+  lastDrawn?: number
+  /** Pass number -> the writes made on that pass; the model reports them cumulatively. */
+  writes: Record<number, ReturnType<typeof rung>>
+  passes?: number
+}
+const run = (id: number, plan: Plan): SpriteModel => {
+  const n = plan.passes ?? PASSES
+  const acc: PassResult['palette'] = []
+  const passes: PassResult[] = Array.from({ length: n }, (_, p) => {
+    acc.push(...(plan.writes[p] ?? []))
+    const drawn = p >= plan.first && p <= (plan.lastDrawn ?? n - 1)
+    return { pass: p, pos: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, parts: drawn ? [part()] : [], uploads: [], palette: [...acc] } // prettier-ignore
+  })
+  return {
+    id,
+    anchor: { x: 0, y: 0, rawX: 0, rawY: 0 },
+    chosen: plan.first,
+    dependsOn: [],
+    steps: [],
+    passes,
+  }
 }
 
-describe('Magikoopa palette on the map (#1097)', () => {
-  it('shows the fade rung that is left in CGRAM, not the level row and not an earlier rung', () => {
-    const [written] = px(run(0x1f))
-    expect(written).toEqual(bgr555ToRgba(rung(2)[3]!.bgr555))
+const s = { index: 0, x: 0, y: 0, spriteId: 0x1f, screen: 0, extraBit: false, raw: [], streamOffset: 0 } as LevelSprite // prettier-ignore
+/** Char 0: pixel i holds color i for i = 1..15, so a sample per CGRAM column is one pixel. */
+const chars = {
+  sp1: [Uint8Array.from([...Array.from({ length: 16 }, (_, i) => i), ...new Array(48).fill(0)])],
+}
+const draw = (m: SpriteModel) => {
+  const drawer: SpriteDrawer = () => modelResult(m as never)
+  const [d] = drawSprites([s], { vram: chars, colors: COLORS }, drawer)
+  const b = Buffer.from(d!.rgba, 'base64')
+  return { col: (c: number) => Array.from(b.subarray(c * 4, c * 4 + 4)), unverified: d!.unverified }
+}
+const rgba = (w: number) => bgr555ToRgba(w)
+/** The fade as a vanilla-shaped run: casting pose from pass 1, a rung every 4 passes, settled well before the end. */
+const fade = (id = 0x1f): Plan & { id: number } => ({ id, first: 1, writes: { 2: rung(0), 6: rung(1), 10: rung(2), 14: rung(3) } }) // prettier-ignore
+
+describe('runtime palette on the map (#1097)', () => {
+  it('draws the colors CGRAM holds at the end of the run, in every column the upload writes', () => {
+    const d = draw(run(0x1f, fade()))
+    for (let c = 1; c < 8; c++) expect(d.col(c), `column ${c}`).toEqual(rgba(rung(3)[c]!.bgr555))
+    expect(d.unverified).toBeUndefined()
   })
 
-  it('composites: the columns the upload does not write keep the level row', () => {
-    const [, kept] = px(run(0x1f))
-    expect(kept).toEqual(COLORS[ROW15 + 10])
+  it('composites: every column the upload does not write keeps the level row', () => {
+    const d = draw(run(0x1f, fade()))
+    for (let c = 8; c < 16; c++) expect(d.col(c), `column ${c}`).toEqual(COLORS[ROW + c])
   })
 
-  it('follows the cart: a shorter fade rests on its own last rung', () => {
-    expect(px(run(0x1f, 1))[0]).toEqual(bgr555ToRgba(rung(0)[3]!.bgr555))
+  it('does not depend on the sprite id', () => {
+    const [a, b] = [draw(run(0x1f, fade())), draw(run(0xc5, fade()))]
+    for (let c = 1; c < 16; c++) expect(b.col(c), `column ${c}`).toEqual(a.col(c))
   })
 
-  it('leaves every other sprite on the palette of its drawn pass', () => {
-    // Same run under another id: its drawn pass (1) had written nothing, so the level row shows.
-    expect(px(run(0xc5))[0]).toEqual(COLORS[ROW15 + 3])
+  it('takes a write made after the last drawn pass: CGRAM keeps it', () => {
+    const p = { ...fade(), lastDrawn: 20, writes: { ...fade().writes, 40: rung(5) } }
+    expect(draw(run(0x1f, p)).col(3)).toEqual(rgba(rung(5)[3]!.bgr555))
+  })
+
+  it('takes the end colors when the first drawn pass already held writes', () => {
+    const p: Plan = { first: 3, writes: { 2: rung(0), 6: rung(1) } }
+    expect(draw(run(0x1f, p)).col(3)).toEqual(rgba(rung(1)[3]!.bgr555))
+  })
+
+  it('a sprite that never writes CGRAM keeps the level row and is not marked', () => {
+    const d = draw(run(0x33, { first: 0, writes: {} }))
+    expect(d.col(3)).toEqual(COLORS[ROW + 3])
+    expect(d.unverified).toBeUndefined()
+  })
+
+  it('marks the picture when the colors were still changing at the end of the run, and draws the end colors', () => {
+    const d = draw(run(0x1f, { ...fade(), writes: { ...fade().writes, 55: rung(4) } }))
+    expect(d.unverified).toMatch(/still changing/)
+    expect(d.col(3)).toEqual(rgba(rung(4)[3]!.bgr555))
+  })
+
+  it('marks a slow fade whose rungs land 16 passes apart', () => {
+    const w = { 2: rung(0), 18: rung(1), 34: rung(2), 50: rung(3) }
+    expect(draw(run(0x1f, { first: 1, writes: w })).unverified).toMatch(/still changing/)
+  })
+
+  it('marks a sprite that only starts drawing at the very end, though its tail has no writes', () => {
+    const d = draw(run(0x1f, { first: 60, writes: {} }))
+    expect(d.unverified).toMatch(/end of the 64-pass run/)
+  })
+
+  it('does not mark a short run: the tail test needs a run longer than its window', () => {
+    expect(
+      draw(run(0x1f, { first: 1, passes: 8, writes: { 2: rung(0) } })).unverified,
+    ).toBeUndefined()
   })
 })

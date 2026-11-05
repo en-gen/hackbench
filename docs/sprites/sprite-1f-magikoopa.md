@@ -206,39 +206,62 @@ all 256 IDs on the vanilla ROM.
 Symptom: on map `$11C` the map view drew the Magikoopa in the level's pink row
 15 where the game shows blue.
 
-Cause, measured on the vanilla ROM (one machine): the map view runs the cart's
-own sprite code at rest and draws the FIRST pass that draws a tile, taking the
-CGRAM writes made up to that pass. For `$1F` that pass is state 1, the fade-in
-(`bank_01.asm:8480`), which draws before the first rung is uploaded
-(`CODE_01C028`, `bank_01.asm:8733-8755`; the upload comes on the pass after). It
-had written nothing, so row 15 fell back to the level's colors. The pass at the
-end of the run had written all eight rungs; the last one stays in CGRAM.
+Cause, measured on the vanilla ROM (one machine): the map view runs the ROM's
+own sprite code at rest for 64 passes (`SpriteSeed.ts` `mainPasses`) and draws
+the FIRST pass that draws a tile, with the CGRAM writes made up to that pass.
+For `$1F` on `$11C` that pass is pass 1. It draws the casting pose on leaving
+state 0 (`JSR CODE_01BE82`, `bank_01.asm:8474`; the wand tile `$99` is written
+only on that path, `bank_01.asm:8570-8571`), and no rung has been uploaded yet:
+state 1 uploads from its first pass on (`CODE_01C004`, `bank_01.asm:8715-8732`,
+upload `CODE_01C028`, `bank_01.asm:8733-8755`). That pass had written nothing,
+so row 15 fell back to the level's colors. By pass 63 all eight rungs are
+written and the last stays in CGRAM (vanilla `$11C` settles at pass 30).
 
 | | CGRAM row 15 columns 0-7 |
 |---|---|
 | map view before | the level's row (no sprite write) |
 | game (capture `layers_v5/11c`, `windows/screen_00`) | `MagiKoopaPals` entry `CMP imm - 2` = entry 7 |
-| map view after | the same entry: the run's last drawn pass |
+| map view after | the same entry |
 
 Columns 8-15 are never written, so they keep the level's colors (composited,
 not replaced). In the capture the sprite is OAM entries 116 and 117 on
 palette 7.
 
-Fix (`theia/extension/src/node/map-sprites.ts`, `paletteFor`): for `$1F` only,
-the writes of the run's last drawn pass are used. They are the cart's own
-operands, so a hack that shortens the fade rests on its own rung, as in
-section 4. `$C5` (`BooBossPals`, same CGRAM slot, 512 writes in 64 passes on map
-`$0E4`) cycles and has no single resting rung; it is unchanged.
+Fix (`theia/extension/src/node/map-sprites.ts`, `runtimeColors`), for every
+sprite and with no id test: draw the colors CGRAM holds at the end of the run
+(the run's net writes, last write per color wins, drawn pass or not). The
+picture is marked `unverified` with a plain reason when those colors are not
+known to be settled: they changed in the last 16 passes (a vanilla fade writes a
+rung every 4 passes, so a fade up to 4x slower is caught; a slower one cannot be
+told from a settled run), or the sprite first drew inside that tail (a late
+start has had no time to write, so a quiet tail proves nothing). The run is not
+lengthened. Whether the fade finishes depends on the placement: state 0 waits
+on `GetRand` and a ground test.
 
-Sweep: `$1F` is placed on two vanilla maps. `$11C`: 262 of 387 opaque pixels
-were not a color of the captured row 15 before, 0 after. `$1FE` draws no tile at
-rest (a placeholder), so it has no pixels to compare and was never wrong. No
-other map was affected: for every sprite on every vanilla map that builds, the
-only ones whose CGRAM writes differ between the drawn pass and the end of the
-run are `$1F` on `$11C` and `$C5` on `$0E4`. The pose is still the fade-in
-frame, which is a separate matter from the colors.
+Evidence (vanilla ROM, one machine):
 
-Tests: `MapSpritesMagikoopaPalette.test.ts` (synthetic, no ROM),
-`MapSpritesMagikoopaPalette.corpus.test.ts` (capture comparison),
-`theia/browser-app/test/map-magikoopa-palette.spec.cjs` (Playwright, not run
-by the implementer).
+- Placed spot on `$11C`: 262 of 387 opaque pixels were not a captured row-15
+  color before, 0 after, not marked.
+- Every vanilla sprite on the 488 maps that build (3387 sprites; 24 maps did
+  not build): bitmaps identical to develop for all but `$1F` on `$11C`, and no
+  sprite newly `unverified`. The net CGRAM colors of `$C5` (`BooBossPals`) are
+  the same on all 64 passes; only the length of its write list differs.
+- Grid of the `$1F` placement over `$11C` (screens 0-9, every 3rd tile, 540
+  spots, stream bytes patched): 294 draw, of which 192 are correct and not
+  marked, 77 are on a rung before 7 (3 with no write at all, the original bug)
+  and all 77 are marked, 25 are correct and marked anyway (their colors settled
+  inside the last 16 passes); none is wrong without a mark. Same grid on
+  `$1FE`: 217 draw; 134 correct and not marked, 40 wrong and marked, 43 correct
+  and marked; none wrong without a mark.
+- Timing patches at the placed spot on `$11C` (`$01:C00A` = 10 or 16, `$01:C023` = 4):
+  all drawn, all marked.
+- `$1FE` at its placed spot draws no tile in the run (a placeholder): it has no
+  pixels to compare, and there is no capture for it (`captures/layers_v5/1fe.zip`
+  does not exist), so nothing is claimed about its colors.
+
+The all-vanilla comparison is not a committed test: it needs a develop run to
+compare against and takes minutes. The committed tests are
+`MapSpritesMagikoopaPalette.test.ts` (synthetic) and the `$11C` capture
+comparison `MapSpritesMagikoopaPalette.corpus.test.ts`. The Playwright spec is
+`theia/browser-app/test/map-magikoopa-palette.spec.cjs`. The pose shown is the
+casting pose; that is a pose-policy matter separate from the colors.

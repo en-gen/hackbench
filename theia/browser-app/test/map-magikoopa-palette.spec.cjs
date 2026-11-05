@@ -2,17 +2,19 @@
  * The Magikoopa ($1F) on map $11C is drawn in the blue the game leaves in CGRAM once its teleport fade has
  * finished, not in the level's pink row 15 (#1097). Vanilla ROM, one machine.
  *
- * Checked from the RPC reply, as map-podoboo-gfx does: the sprite is a 24 x 32 bitmap; six pixels at known offsets
+ * Checked from the RPC reply, as map-podoboo-gfx does: the sprite is a 24 x 32 bitmap; five pixels at known offsets
  * must equal the colors of the fade's last rung. The rung is read from the ROM under test at run time (the `CMP #imm`
- * that ends the fade at $01:C01C, SMWDisX bank_01.asm:8726, gives imm - 2; the table is MagiKoopaPals at $03:B902,
- * bank_03.asm:7318, 8 colors per entry), so no color value is written in this file. Each offset sits on a different
- * palette column, so a sprite that took the wrong rung or the level row fails at least one of them. The offsets
- * name the pose the map draws (the fade-in frame); a change of pose is a change to this spec.
+ * that ends the fade at $01:C01C, SMWDisX bank_01.asm:8726, gives imm - 2; the table address is the operand of the
+ * `LDA.L MagiKoopaPals,X` at $01:C036, bank_01.asm:8743, 8 colors per entry), so no color value is written in this
+ * file. Each offset sits on a different palette column (3-7), and those columns differ between every pair of rungs
+ * in the vanilla table, so a sprite on the wrong rung or on the level row fails. The offsets name the pose the map
+ * draws (the casting pose it draws on leaving state 0); a change of pose is a change to this spec.
  * Hardware reference: layers_v5/11c windows/screen_00 CGRAM row 15 columns 0-7 equal this rung
  * (MapSpritesMagikoopaPalette.corpus.test.ts compares every pixel).
  * Plants for the verifier (each must turn this red; restore after):
- * - theia/extension/src/node/map-sprites.ts `paletteFor`: return `chosen.palette` (the first drawn pass, no upload yet);
- * - same function: `drawn[drawn.length - 2]` (one rung early).
+ * - theia/extension/src/node/map-sprites.ts `runtimeColors`: `netColors(m, m.chosen ?? 0)` for the end colors (the
+ *   first drawn pass, no upload yet);
+ * - same function: `netColors(m, last - 40)` (an earlier rung).
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -27,9 +29,8 @@ test.skip(!fs.existsSync(ROM), `vanilla ROM not present at ${ROM}`)
 
 const SLOT = 0x11c
 const WIDTH = 24
-/** [x, y, palette column] inside the sprite's bitmap, one per column the drawn pose uses. */
+/** [x, y, palette column] inside the sprite's bitmap, one per column 3-7 the drawn pose uses. */
 const SAMPLES = [
-  [3, 0, 2],
   [6, 1, 3],
   [4, 1, 4],
   [21, 16, 5],
@@ -54,7 +55,11 @@ function restingRung(rom) {
   if (rom[cmp] !== 0xc9)
     throw new Error('the fade-end CMP #imm is not where the vanilla ROM has it')
   const entry = rom[cmp + 1] - 2
-  const base = file(0x03b902) + entry * 16
+  const op = file(0x01c036)
+  if (rom[op] !== 0xbf)
+    throw new Error('the MagiKoopaPals load is not where the vanilla ROM has it')
+  const table = rom[op + 1] | (rom[op + 2] << 8) | (rom[op + 3] << 16)
+  const base = file(table) + entry * 16
   return Array.from({ length: 8 }, (_, c) => rom[base + c * 2] | (rom[base + c * 2 + 1] << 8))
 }
 
