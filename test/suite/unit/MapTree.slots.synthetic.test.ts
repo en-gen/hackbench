@@ -24,12 +24,17 @@ function blank(): RomFile {
 const point = (rom: RomFile, slot: number, ptr: number): void =>
   rom.writeAt(ADDR.LEVEL_L1_PTR + slot * 3, [ptr & 0xff, (ptr >> 8) & 0xff, (ptr >> 16) & 0xff])
 
+/** Points `slot` at a minimal room of its own at $069000. */
+function plantRoom(rom: RomFile, slot: number): void {
+  point(rom, slot, 0x069000)
+  rom.writeAt(0x069000, [0, 0, 0, 0, 0, 0x42, 0xff])
+}
+
 /** `n` slots from $040 upward on SHARED, plus one real room at $0D0 so the ROM is not all filler. */
 function romWithShared(n: number): RomFile {
   const rom = blank()
   for (let i = 0; i < n; i++) point(rom, 0x040 + i, SHARED)
-  point(rom, 0x0d0, 0x069000)
-  rom.writeAt(0x069000, [0, 0, 0, 0, 0, 0x42, 0xff])
+  plantRoom(rom, 0x0d0)
   return rom
 }
 
@@ -94,8 +99,7 @@ describe('buildMapTree and New slots', () => {
   it('sorts a New slot between two maps by index', () => {
     const rom = blank()
     for (let i = 0; i < 12; i++) point(rom, 0x042 + i, SHARED)
-    point(rom, 0x040, 0x069000)
-    rom.writeAt(0x069000, [0, 0, 0, 0, 0, 0x42, 0xff])
+    plantRoom(rom, 0x040)
     const rows = treeOf(rom).unassigned.filter(r => r.index >= 0x040 && r.index <= 0x042)
 
     expect(rows.map(r => [r.index, r.noPointer === true])).toEqual([
