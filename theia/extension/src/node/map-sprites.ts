@@ -153,6 +153,12 @@ export type SpriteDrawResult =
   | (Omit<Extract<EngineResult, { ok: true }>, 'parts'> & {
       parts: DrawPart[]
       anchor?: { x: number; y: number }
+      /** Where the level stores the sprite, when the picture is drawn elsewhere (INIT shifts it before its first frame, R16). */
+      stored?: { x: number; y: number }
+      /** With `stored`: where the sprite's start-up code left it, before its first step. */
+      afterInit?: { x: number; y: number }
+      /** With `stored`: how the sprite got onto its line from where start-up left it (its first steps, or a fall). */
+      onLine?: 'step' | 'fell'
       /** The list spot the DTO reports (hover, selection, drag) when the picture stands elsewhere: the game lays it out itself (D158 / Decision 124, InitLatches.ts). */
       listPos?: { x: number; y: number }
       /** CGRAM colors the sprite's own code set by its drawn frame (interpreter only). */
@@ -302,6 +308,9 @@ export function drawSprites(
       y: at.y,
       box,
       rgba: base64(out),
+      ...('stored' in res && res.stored ? { stored: res.stored } : {}),
+      ...('afterInit' in res && res.afterInit ? { afterInit: res.afterInit } : {}),
+      ...('onLine' in res && res.onLine ? { onLine: res.onLine } : {}),
       parts: res.parts.map(p => ({ char: p.charNum, palette: p.palette, flipX: p.flipX, flipY: p.flipY, dx: p.dx, dy: p.dy })), // prettier-ignore
       priority: base64(new Uint8ClampedArray(prio.buffer)),
       status: 'drawn',
@@ -412,31 +421,109 @@ export function runWithUploads(rom: RomFile, id: number, seed: SpriteSeed): RunM
   return Object.assign(runOnce(rom, id, seed, { atRest: true, probe: p.probe }), { uploads: p.byPass }) // prettier-ignore
 }
 
+/**
+ * Fewest quiet passes at the end of a run before its colors count as settled. A vanilla fade writes a rung every
+ * 4 passes (SMWDisX bank_01.asm:8715-8722); vanilla map $11C goes quiet at pass 30 of 63 (one machine).
+ */
+const SETTLE_TAIL = 16
+
+/** The colors CGRAM holds after pass `p`: the run's writes are cumulative and the last one to a color wins. */
+const netColors = (m: RunModel, p: number) => new Map(m.passes[p]!.palette.map(w => [w.index, w.bgr555] as const)) // prettier-ignore
+/** True when two net color maps hold the same color at every index. */
+const sameColors = (a: Map<number, number>, b: Map<number, number>) => a.size === b.size && [...a].every(([i, v]) => b.get(i) === v) // prettier-ignore
+
+/**
+ * The CGRAM colors a picture is drawn with (#1097). The chosen pass is a pose policy: the Magikoopa's first drawn
+ * frame comes before any upload (bank_01.asm:8474, 8733-8755), so its writes left the level's row showing. CGRAM
+ * keeps what the run wrote, drawn or not, so use the net writes at the last pass. Marked when they may be wrong:
+ * not settled (the quiet span since the last change, scanning from pass 1, is under SETTLE_TAIL or no
+ * longer than the longest gap between earlier changes); first drawn inside the tail; or it left and the colors
+ * changed while away or differ from before it left or from its first picture. One change gives no gap to
+ * compare, so a lone update is marked too (vanilla: 0 such sprites or frames). Docs: sprite-1f-magikoopa.md s5.
+ */
+function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
+  const last = m.passes.length - 1
+  const net = netColors(m, last)
+  const writes = [...net].map(([index, bgr555]) => ({ index, bgr555 }))
+  // Guards the loops below and keeps hand-built models of a few passes from being marked; no production run is that short.
+  if (last < SETTLE_TAIL) return { writes }
+  const end = 'so its colors may differ in the game'
+  const first = m.passes.findIndex(p => p.parts.length > 0)
+  if (first >= last - SETTLE_TAIL)
+    return { writes, why: `it only appeared when the check ended, ${end}` }
+  const changed = (p: number) => !sameColors(netColors(m, p), netColors(m, p - 1))
+  const events: number[] = []
+  for (let p = 1; p <= last; p++) if (changed(p)) events.push(p)
+  const quiet = last - (events[events.length - 1] ?? first)
+  const gap = Math.max(0, ...events.slice(1).map((e, i) => e - events[i]!))
+  if (events.length === 1) return { writes, why: `its colors changed only once, ${end}` }
+  if (quiet < SETTLE_TAIL || quiet <= gap)
+    return { writes, why: `its colors were still changing when the check ended, ${end}` }
+  const away = m.passes.map((_, p) => p).filter(p => p > first && !m.passes[p]!.parts.length)
+  if (
+    away.length &&
+    (away.some(changed) ||
+      [first, ...away.filter(p => m.passes[p - 1]!.parts.length).map(p => p - 1)].some(
+        p => !sameColors(net, netColors(m, p)),
+      ))
+  )
+    return { writes, why: `it disappeared partway through and its colors changed, ${end}` }
+  return { writes }
+}
+
+const UNCHECKED_LOADER = "HackBench could not check whether this sprite appears in play (the map's sprite loader is not the stock one)" // prettier-ignore
+
+function unverifiedOf(m: RunModel, generic: string | undefined): { unverified?: string } {
+  const why = [
+    generic,
+    (m.shifted || m.neverAppears) && m.lineInitReason,
+    m.initMoved &&
+      m.lineGateReason &&
+      `drawn on its map tile although its start-up code moves it: ${m.lineGateReason}`,
+    m.spawnUnchecked && UNCHECKED_LOADER,
+    m.noLineReason,
+  ].filter(Boolean)
+  return why.length ? { unverified: why.join('; ') } : {}
+}
+
 /** What the interpreter shows for one sprite: its model, as the drawer's reply. */
 export function modelResult(m: RunModel): SpriteDrawResult {
   const generic = m.seedSource === 'generic'
   const why = [...(generic ? [`level loader refused (${m.seedReason}); drawn from a placement-only seed`] : []), ...(m.unverifiedReason ? [m.unverifiedReason] : [])] // prettier-ignore
-  const u = why.length ? { unverified: why.join('; ') } : {}
-  if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}`, ...u }
+  if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}`, ...(why.length ? { unverified: why.join('; ') } : {}) } // prettier-ignore
   const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
+  const colors = pass ? runtimeColors(m) : undefined
+  if (colors?.why) why.push(colors.why)
+  const u = why.length ? { unverified: why.join('; ') } : {}
+  if (!pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
   const uploads = m.chosen === undefined ? undefined : m.uploads?.[m.chosen]
-  if (!m.anchor || !pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
+  if (!m.anchor) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
+  // The at-rest picture of a sprite whose INIT shifts it is drawn where INIT left it; its list position is the stored tile.
+  const stored = m.shifted
+    ? { stored: { x: m.anchor.rawX, y: m.anchor.rawY }, afterInit: m.initAt }
+    : {}
   return {
     ok: true,
     parts: interpParts(pass.parts),
     anchor: { x: m.anchor.x, y: m.anchor.y },
+    ...stored,
+    ...(m.neverAppears ? { note: 'never appears in play' } : {}),
+    ...(m.shifted && m.onLine ? { onLine: m.onLine } : {}),
     ...(m.absolutePlacement
       ? {
           listPos: { x: m.anchor.rawX, y: m.anchor.rawY },
           note: 'The game lays this sprite out itself, at fixed spots of the map; it does not follow where the list places it.',
         }
       : {}),
-    runtimePalette: pass.palette,
+    runtimePalette: colors!.writes,
     ...(pass.drew
       ? { children: pass.drew.children.map(c => ({ index: c.index, parts: interpParts(pass.parts.filter(p => c.oam.includes(p.oam))) })) } // prettier-ignore
       : {}),
     ...(uploads?.length ? { uploads } : {}),
     ...u,
+    // Every reason the picture is not fully checked stands: the generic seed, a patched INIT that moved the sprite, a refused gate
+    // that left it on its tile, a loader that could not be read, a line it never reached.
+    ...unverifiedOf(m, u.unverified),
     identity: { spriteId: m.id, mainHandler: 0, initHandler: 0, status: 'vanilla' },
   }
 }
@@ -681,7 +768,9 @@ export function interpRunner(
     if (s.spriteId === FIVE_EERIES) return { direct: eeriesResult(rom, seed(camera), s, model.isVertical, eeriesRoutines) } // prettier-ignore
     if (s.spriteId === THREE_PLATFORMS) return { direct: platformsResult(rom, seed(camera), s, model.isVertical, platformRoutines) } // prettier-ignore
     if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
-    let m = run(rom, s.spriteId, seed(camera))
+    // The map's own loader placed it at map load (D156): it also spawns at the map-load camera.
+    const opening = !!w && s.index >= 0 && s.index < 128 && !!w[SPRITE_LOAD_STATUS + s.index]
+    let m = run(rom, s.spriteId, seed(camera, { opening }))
     // A sprite placed at the game's own layout (the bonus game) was replayed in the loader's top slot; an earlier loaded sprite
     // may have taken it, which moves one block by a pixel and changes its item (measured on $000, slots 9 vs 8): drawn, marked.
     if (
