@@ -98,10 +98,11 @@ describe('buildLevelCatalog (synthetic)', () => {
 
   // F3: a stream is readable when it reaches its end marker, not merely when five bytes fit.
   it('marks a pointed slot terminated only when its stream reaches the end marker', () => {
-    const READABLE = 0x048000
-    const NO_END = 0x058000 // zero bytes: 3-byte objects to the end of the read
+    // The readable one sits lowest: a walk from a higher pointer never reaches its end marker.
+    const READABLE = 0x018000
+    const NO_END = 0x068000 // zero bytes: 3-byte objects to the end of the file
     const catalog = buildLevelCatalog(
-      buildFakeRom(i => (i === 0 ? READABLE : i === 1 ? NO_END : FILLER), new Set([READABLE])),
+      buildFakeRom(i => (i === 0 ? READABLE : i === 1 ? NO_END : 0x078000), new Set([READABLE])),
     )
     expect(catalog.entries[0]).toMatchObject({ parseable: true, terminated: true })
     expect(catalog.entries[1]).toMatchObject({ pointed: true, parseable: true, terminated: false })
@@ -175,7 +176,7 @@ describe('buildLevelCatalog (synthetic)', () => {
       const rom = buildFakeRom(i => (i < n ? FILLER : i < n + 9 ? RUNNER_UP : 0x038000 + i))
       const catalog = buildLevelCatalog(rom)
       expect(catalog.fillerPointer).toBe(FILLER)
-      expect(/Not sure which level data/.test(catalog.notes.join(' '))).toBe(fires)
+      expect(/Not sure which maps share level data/.test(catalog.notes.join(' '))).toBe(fires)
     })
 
     it('stays silent on the confidence check with a wide margin and a share above a tenth', () => {
@@ -183,7 +184,7 @@ describe('buildLevelCatalog (synthetic)', () => {
       const rom = buildFakeRom(i => (i < 100 ? FILLER : i < 109 ? RUNNER_UP : 0x038000 + i))
       const catalog = buildLevelCatalog(rom)
       expect(catalog.fillerPointer).toBe(FILLER)
-      expect(catalog.notes.join(' ')).not.toMatch(/Not sure which level data/)
+      expect(catalog.notes.join(' ')).not.toMatch(/Not sure which maps share level data/)
     })
 
     it('names no common pointer when every pointer is distinct, and every slot is real', () => {

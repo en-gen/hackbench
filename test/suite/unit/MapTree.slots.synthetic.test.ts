@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom, ADDR } from '../../../src/rom/SmwRom'
 import { buildMapTree, type MapNode } from '../../../src/rom/MapTree'
+import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
 import { buildLevelCatalog } from '../../../src/rom/LevelCatalog'
 import { applyGroups, topLevelSlots } from '../../../src/project/MapGroups'
 import {
@@ -236,5 +237,76 @@ describe('the common pointer ignores pointers outside the file (F2)', () => {
     const tree = buildMapTree(sm, SYNTHETIC_FINGERPRINTS)
     expect(tree.mapCount).toBe(catalog.realCount + catalog.sharedPointerCount)
     expect(tree.counts.noPointer).toBe(512 - 15)
+  })
+})
+
+describe('what counts as an unreadable stream (round 3)', () => {
+  const rowsOf = (tree: ReturnType<typeof treeOf>) => tree.unassigned.filter(n => n.unreadable)
+
+  it('a stream whose end marker lies past the 8 KB read cap gives no warning', () => {
+    const rom = blank()
+    point(rom, 0x060, 0x069000)
+    // 3000 harmless 3-byte objects (9000 bytes), then the end marker.
+    rom.writeAt(0x069000, [
+      0,
+      0,
+      0,
+      0,
+      0,
+      ...new Array<number[]>(3000).fill([0x42, 0, 0]).flat(),
+      0xff,
+    ])
+    expect(rowsOf(treeOf(rom))).toEqual([])
+  })
+
+  it('a stream whose end marker lies past the 128 KB window warns', () => {
+    const rom = blank()
+    point(rom, 0x060, 0x069000)
+    rom.writeAt(0x069000, [
+      0,
+      0,
+      0,
+      0,
+      0,
+      ...new Array<number[]>(45000).fill([0x42, 0, 0]).flat(),
+      0xff,
+    ])
+    expect(rowsOf(treeOf(rom)).map(n => n.index)).toEqual([0x060])
+  })
+
+  it('a stream with no end marker before the file ends still warns', () => {
+    const rom = blank()
+    point(rom, 0x060, 0x069000)
+    expect(rowsOf(treeOf(rom)).map(n => n.index)).toEqual([0x060])
+  })
+
+  it('the exit graph does not treat a slot whose pointer is outside the file as a destination (M22)', () => {
+    const rom = blank()
+    point(rom, 0x001, 0x069000)
+    rom.writeAt(0x069000, [0, 0, 0, 0, 0, 0x00, 0x01, 0x00, 0xc5, 0xff])
+    point(rom, 0x0c5, 0x7e8000)
+    const sm = new SmwRom(rom)
+    const { roots } = deriveOverworldEntrances(sm, undefined, SYNTHETIC_FINGERPRINTS)
+    expect(
+      sm.buildLevelExitGraph(roots, SYNTHETIC_FINGERPRINTS.entry).graph.get(0x001),
+    ).toBeUndefined()
+  })
+
+  it('the toast note and the rows name the same unreadable slots (M25)', () => {
+    const rom = romWithShared(12)
+    point(rom, 0x060, 0x06b000) // one unreadable ordinary map
+    const tree = treeOf(rom)
+    const rows = rowsOf(tree).map(n => n.index)
+    const note = tree.notes.find(n => /could not be read to its end/.test(n))
+    expect(rows).toEqual([0x060])
+    expect(note).toMatch(/^1 map has/)
+    expect(note).toContain('$060')
+
+    const shared = blank()
+    for (let i = 0; i < 12; i++) point(shared, 0x040 + i, 0xfffffe)
+    const t2 = treeOf(shared)
+    expect(t2.notes.find(n => n.includes('could not be read to its end'))).toMatch(
+      new RegExp(`^${rowsOf(t2).length} maps have`),
+    )
   })
 })

@@ -141,6 +141,14 @@ export interface RomSummary {
   isVanilla: boolean
 }
 
+/**
+ * How far a stream is walked looking for its end marker: 128 KB. Longer than any
+ * stream seen on the corpus (the longest ends near offset 10 KB), short enough that
+ * a slot pointing into zero padding costs a few milliseconds, not the 250 ms a walk
+ * to the end of a 4 MB file does on every map open. [PROP]
+ */
+const STREAM_WALK_WINDOW = 0x20000
+
 /** Fewest slots that must repeat one Layer 1 pointer for it to be the most common (shared) pointer. */
 const COMMON_POINTER_MIN_REPEATS = 10
 
@@ -309,12 +317,12 @@ export class SmwRom {
    * remains before EOF; parseLevelObjects/parseLevelScreenExits both stop
    * at the first $FF regardless, so over-reading is harmless.
    */
-  getLevelRawData(index: number): Buffer | null {
+  getLevelRawData(index: number, limit = 0x2000): Buffer | null {
     const ptr = this.getLevelL1Pointer(index)
     if (!ptr) return null
     // A tail shorter than 0x2000 is still level data: 4 maps on 4 hacks in
     // the SMW Central sweep sit in the ROM's last bytes. Only the header must fit.
-    const buf = this.rom.readUpTo(ptr, 0x2000)
+    const buf = this.rom.readUpTo(ptr, limit)
     return buf && buf.length >= 5 ? buf : null
   }
 
@@ -332,12 +340,15 @@ export class SmwRom {
   }
 
   /**
-   * True when the slot's Layer 1 object stream can be walked to its end marker
-   * inside the bytes getLevelRawData reads. This is the exit graph's own test
-   * (parseLevelObjects, `terminated`), so the row warning and the graph agree.
+   * True unless the stock-size walk of the slot's Layer 1 object stream reaches
+   * STREAM_WALK_WINDOW bytes, or the end of the file, without an end marker (D155).
+   * Same parser as the exit graph (parseLevelObjects) but a wider read than its
+   * 0x2000 cap: a long stream is still a good one. Custom object sizes are not
+   * modeled, so a hack's walk can desync and still end on padding; that fault is
+   * invisible here.
    */
   isLevelStreamTerminated(index: number): boolean {
-    const raw = this.getLevelRawData(index)
+    const raw = this.getLevelRawData(index, STREAM_WALK_WINDOW)
     if (!raw) return false
     try {
       return parseLevelObjects(raw, []).terminated

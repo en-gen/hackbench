@@ -6,7 +6,7 @@ import { buildLevelCatalog } from '../../../src/rom/LevelCatalog'
 import { reachableSlots } from '../../../src/rom/LevelTree'
 import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
 import { isOverworldLevel } from '../../../src/rom/SmwRom'
-import { VANILLA, freshRom, hasRom } from '../support/corpus'
+import { INVICTUS, VANILLA, freshRom, hasRom } from '../support/corpus'
 
 describe.skipIf(!hasRom(VANILLA))('vanilla tree lists every slot', () => {
   it('lists 512 slots, all maps, and the shared-pointer slots are plain unassigned maps', () => {
@@ -208,3 +208,21 @@ for (const p of PINNED) {
     })
   })
 }
+
+// A hack's custom objects can desync the stock-size walk without an end marker showing, so these
+// working hacks must give no warning row at all (round 3). Slots are named in the message.
+describe.each([VANILLA, 'Grand Poo World 2 1.1.sfc', INVICTUS, 'Kaizo Kindergarten v1.09.sfc'])(
+  'no warning rows on %s',
+  name => {
+    it.skipIf(!hasRom(name))('lists no unreadable map', () => {
+      const tree = buildMapTree(new SmwRom(freshRom(name)))
+      const all = [...tree.special, ...tree.bonus, ...tree.overworld, ...tree.unassigned].flatMap(
+        function walk(n: (typeof tree.unassigned)[number]): (typeof n)[] {
+          return [n, ...n.children.flatMap(walk)]
+        },
+      )
+      const bad = all.filter(n => n.unreadable).map(n => '$' + n.index.toString(16).toUpperCase())
+      expect(bad, `warning rows on slots ${bad.join(' ')}`).toEqual([])
+    })
+  },
+)

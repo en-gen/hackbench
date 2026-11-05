@@ -122,7 +122,8 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
   for (let i = 0; i < LEVEL_COUNT; i++) {
     const l1Pointer = pointers[i]!
     const pointed = l1Pointer !== 0 && rom.rom.fileOffsetOf(l1Pointer) !== null
-    const sharedPointer = pointed && common !== null && l1Pointer === common.pointer
+    // `common` is picked from resolved pointers only, so a slot on it is always pointed.
+    const sharedPointer = common !== null && l1Pointer === common.pointer
     const isReal = pointed && !sharedPointer
     let read = readOnce.get(l1Pointer)
     if (pointed && !read) {
@@ -192,7 +193,7 @@ export function buildLevelCatalog(rom: SmwRom): LevelCatalog {
     const marginThin = common.count < MIN_COMMON_MARGIN_RATIO * common.runnerUpCount
     if (shareLow || marginThin) {
       notes.push(
-        `Not sure which level data the unused slots share: one copy is used by ${common.count} of ${LEVEL_COUNT} slots ` +
+        `Not sure which maps share level data: one copy is used by ${common.count} of ${LEVEL_COUNT} slots ` +
           `and another by ${common.runnerUpCount}. Some maps may be listed in the wrong folder.`,
       )
     }

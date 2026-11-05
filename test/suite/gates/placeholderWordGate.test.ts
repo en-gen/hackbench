@@ -17,7 +17,7 @@ import { scan, userText, type Tree } from '../support/userText'
 const ROOT = path.resolve(__dirname, '../../..')
 const SCANNED = ['theia/extension/src', 'src/rom', 'src/project']
 // Whitespace runs (a line break in a template or JSX) and hyphens split the words too.
-const BANNED = /\bplace[\s-]*holders?\b|test[\s-]*levels?\b/i
+const BANNED = /\bplace[\s-]*holders?\b|\btest[\s-]*levels?\b/i
 
 /**
  * The sprite renderer's `status: 'drawn' | 'placeholder'` is a code, never shown:
@@ -77,6 +77,7 @@ describe('placeholder wording gate', () => {
   ])('catches the split spelling %j', (_name, text) => {
     expect(BANNED.test(text)).toBe(true)
     expect(BANNED.test('Search maps and levels in the latest list')).toBe(false)
+    expect(BANNED.test('Open the latest level')).toBe(false)
   })
 
   it('goes red on a planted string in a scanned tree, and a missing root cannot hide', () => {

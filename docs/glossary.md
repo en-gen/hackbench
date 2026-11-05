@@ -35,9 +35,11 @@ vanilla tree's shape is unchanged. Every slot is a map or an unpointed slot.
 to an offset inside the ROM file (D155). It has no map data. UI name: **New**.
 The tree lists it under Unassigned as "New", counted apart from the maps; it
 opens an empty view with a one-line note until the empty editor exists (#950);
-no group can take it. A valid pointer whose data cannot be read to its end
-marker (the Layer 1 object stream never ends inside the file) is not
-unpointed: it stays a map and its row warns, on any row, shared pointer included. None in vanilla or the corpus
+no group can take it. A valid pointer whose level data cannot be read is not
+unpointed: it stays a map and its row warns, on any row, shared pointer included.
+"Cannot be read" means the walk over the map's objects, at the sizes the stock game uses,
+finds no end marker within 128 KB or before the file ends. A hack's custom objects
+are not modeled, so they can hide a fault: a walk that desyncs and still ends on padding shows no warning. None in vanilla or the corpus
 ROMs; covered by synthetic tests only.
 
 **Map.** A slot with a usable Layer 1 pointer: nonzero, and inside the ROM
