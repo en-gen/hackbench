@@ -237,7 +237,9 @@ empty run (`drew no OAM tile`), or `extraBits` / `charsNotLoaded`), plus the
 screen size and orientation. A sprite may carry `unverified`, the
 engine's own words for why HackBench cannot vouch that the picture matches the
 game; several causes can be joined by `; `, and new ones are added over time. For
-example: the level loader refused this ROM (placement-only seed), the map's memory
+example: some of its pieces have no graphics in the map's loaded sprite set (they
+are left out and the count said; `charsNotLoaded` is the marker only when none
+has), the level loader refused this ROM (placement-only seed), the map's memory
 setting differs from the one checked, or an earlier sprite may hold its slot. The reply's `note`
 joins two caveats: the stream has no end marker in the bytes read (sprites past
 them are not drawn), and, once per map, a plain count ("Unverified: 2 sprites

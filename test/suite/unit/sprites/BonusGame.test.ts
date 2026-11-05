@@ -23,7 +23,7 @@ import {
   withoutInitLatches,
 } from '../../../../src/rom/sprites/interp/InitLatches'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
-import { runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { drawnParts, runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
   SPRITE_SEED,
   withSeed,
@@ -365,7 +365,7 @@ describe.skipIf(!hasRom(VANILLA))('bonus game blocks, vanilla ROM', () => {
         expect(d, `col ${col} row ${row}`).toEqual({ ...ref, xy: [col * 16, row * 16] })
       }
   }, 120_000)
-  const cellsOf = (m: ReturnType<typeof runOnce>) => interpParts(m.passes[m.chosen!]!.parts)
+  const cellsOf = (m: ReturnType<typeof runOnce>) => interpParts(drawnParts(m.passes[m.chosen!]!))
   const boxOf = (m: ReturnType<typeof runOnce>) => {
     const c = cellsOf(m)
     const [ax, ay] = [m.anchor!.x, m.anchor!.y]

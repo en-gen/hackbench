@@ -40,6 +40,8 @@ interface Plan {
   gap?: [number, number]
   /** More departures: each [from, to) range is also undrawn. */
   gaps?: [number, number][]
+  /** The sprite draws only through a companion (#840): `parts` empty, `companions` holds the piece. */
+  viaCompanion?: boolean
 }
 const run = (id: number, plan: Plan): SpriteModel => {
   const n = plan.passes ?? PASSES
@@ -47,7 +49,7 @@ const run = (id: number, plan: Plan): SpriteModel => {
   const passes: PassResult[] = Array.from({ length: n }, (_, p) => {
     acc.push(...(plan.writes[p] ?? []))
     const drawn = p >= plan.first && p <= (plan.lastDrawn ?? n - 1) && ![...(plan.gap ? [plan.gap] : []), ...(plan.gaps ?? [])].some(([a, b]) => p >= a && p < b) // prettier-ignore
-    return { pass: p, pos: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, parts: drawn ? [part()] : [], uploads: [], palette: [...acc] } // prettier-ignore
+    return { pass: p, pos: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, parts: drawn && !plan.viaCompanion ? [part()] : [], ...(drawn && plan.viaCompanion ? { companions: [part()] } : {}), uploads: [], palette: [...acc] } // prettier-ignore
   })
   return {
     id,
@@ -266,5 +268,23 @@ describe('runtime palette on the map (#1097)', () => {
     expect(d.unverified).toMatch(/only appeared/)
     expect(d.unverified).toMatch(/never reaches its line/)
     expect(d.unverified!.match(/only appeared/g)).toHaveLength(1)
+  })
+})
+
+// #840: a pass drawn only by a companion has empty `parts`; `runtimeColors` must still see it as drawn.
+describe('runtime palette of a sprite drawn only through a companion (#840)', () => {
+  it('judges a late start by the first pass a companion draws (the first)', () => {
+    expect(draw(run(0x1f, { first: 60, writes: {}, viaCompanion: true })).unverified).toMatch(/only appeared/) // prettier-ignore
+  })
+
+  it('does not call a sprite away on passes its companion draws (the away filter)', () => {
+    expect(draw(run(0x1f, { ...fade(), viaCompanion: true })).unverified).toBeUndefined()
+  })
+
+  it('compares the end colors with the last pass a companion drew before it left (the pass before)', () => {
+    // Colors A, then B at 24, back to A on the pass it returns (59): away passes see no change, only pass 29 differs.
+    const p: Plan = { first: 1, passes: 128, gap: [30, 59], writes: { 0: rung(0), 24: rung(7), 59: rung(0) }, viaCompanion: true } // prettier-ignore
+    expect(draw(run(0x1f, p)).unverified).toMatch(/disappeared partway/)
+    expect(draw(run(0x1f, { ...p, viaCompanion: false })).unverified).toMatch(/disappeared partway/)
   })
 })

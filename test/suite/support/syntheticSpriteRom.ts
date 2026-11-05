@@ -17,12 +17,13 @@
  * loader entries ($05:D8B7, $00:A635, $05:801E and the rest) are small routines of our own,
  * with the few single instructions the loader checks (LevelLoader.ts SITES) at their offsets. Ids 20, 21 and 22 draw like id 0 and set one CGRAM color
  * in INIT: 20 through the NMI upload list ($0681/$0682), 21 through a MainPalette list
- * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 34 draws, moves X by +4, then draws again; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move; 98 and 104 (JMP entry) and 101 and 102 (prelude entry) reach the same dispatch, 100 has the prelude but is not admitted. Options plant a defect for the oracle tests.
+ * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 34 draws, moves X by +4, then draws again; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move; 98 and 104 (JMP entry) and 101 and 102 (prelude entry) reach the same dispatch, 100 has the prelude but is not admitted; 80's INIT spawns id 81 into the slot below (both draw one piece like id 0), 82 draws two pieces itself, 83 is 80 but spawns id 81 into the slot above, 84 writes one OAM entry under a $15E9 that names no slot, 85 spawns as 80 does and draws nothing itself, 86 is 80 but its companion stands 96 px to the right. Options plant a defect for the oracle tests.
  */
 import { RomFile } from '../../../src/rom/RomFile'
 import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
 
 import { putGm11Spans } from './syntheticGm11Spans'
+import { putCompanionRoutines } from './syntheticCompanion'
 import { putDrawPosProbes } from './syntheticDrawProbes'
 import { EERIE_HANDLER, putEeries } from './syntheticEeries'
 import { putLoaderStandIns } from './syntheticLoaderStandIns'
@@ -300,6 +301,16 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[35] = 0x9700
   mainTable[36] = 0x9740
   if (o.eeries) mainTable[57] = EERIE_HANDLER
+  initTable[80] = 0xa600
+  mainTable[80] = 0x8640
+  mainTable[81] = 0x8640
+  mainTable[82] = 0xa680
+  initTable[83] = 0xa700
+  mainTable[83] = 0x8640
+  mainTable[84] = 0xa780
+  initTable[85] = 0xa600
+  initTable[86] = 0xa800
+  mainTable[86] = 0x8640
   if (o.id31IsGrinder) mainTable[31] = 0x9500
   for (const id of [20, 21, 22, 23, 24, 25]) mainTable[id] = 0x8640
   const words = (t: number[]) => t.flatMap(w => [w & 0xff, w >> 8])
@@ -480,6 +491,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   put(0x018e40, listAdd([0x02, 0xd1, 0xff, 0x03, 0x00], 4))
   // id 30 INIT: burns 196,608 steps (65,536 x DEY, NOP, BNE: under the 200,000 per-call budget) and leaves status 1, so the game retries it every frame.
   put(0x019100, [0xc2, 0x10, 0xa0, 0x00, 0x00, 0x88, 0xea, 0xd0, 0xfc, 0xe2, 0x10, ...status1, 0x60, 0xea]) // prettier-ignore
+  putCompanionRoutines(put)
   putGrinderRoutines(put, o, draw([0xa9, 0x24, 0x99, 0x02, 0x03], [0xa9, 0x0a, 0x99, 0x03, 0x03]))
   // INIT routines that leave status 9, 0 and 1.
   for (const [addr, status] of [

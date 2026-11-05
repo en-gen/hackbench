@@ -6,7 +6,7 @@
  */
 
 import type { RomFile } from '../../../src/rom/RomFile'
-import { shellLoad } from '../../../src/rom/sprites/ShellSprites'
+import { FIRST_SPECIAL, shellLoad } from '../../../src/rom/sprites/ShellSprites'
 
 /** Largest pass index the grader will run for one record; a larger k falls back. */
 export const MAX_GRADED_PASS = 255
@@ -101,4 +101,14 @@ export function runnerId(
   const placed = entries?.find(e => e.index === listIndex)?.id
   const listId = placed === undefined ? NaN : parseInt(placed.slice(1), 16)
   return Number.isNaN(listId) ? id : shellLoad(rom, listId).shell?.number === id ? listId : id
+}
+
+/**
+ * The list id when the loader places it as a sprite whose INIT runs under that number, else undefined
+ * (the capture's id is then all there is). Below $C9 only (SMWDisX bank_02.asm:5365-5370). Shells ($DA-$DD,
+ * $DF) get status 9 and no INIT (5361), so they never reach the facing comparison. Not modeled:
+ * the special-world remap (5464-5471) and the Silver P-Switch coin (5477-5487); neither fires in these captures.
+ */
+export function placedInitId(listId: number): number | undefined {
+  return listId < FIRST_SPECIAL ? listId : undefined
 }
