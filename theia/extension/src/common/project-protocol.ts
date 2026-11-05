@@ -354,7 +354,7 @@ export interface MapSpriteDto {
   note?: string
   /** Every pixel of the sprite is drawn in the screen door: it draws nothing in play until something happens (#1132). */
   screenDoor?: boolean
-  /** What makes it appear, in words, for the hover; present with `screenDoor`. */
+  /** What makes it appear ("appears when Mario gets close to this spot", with his state), or that nothing was found to; present with `screenDoor`, for the hover. */
   reveal?: string
 }
 

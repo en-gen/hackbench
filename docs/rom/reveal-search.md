@@ -4,8 +4,8 @@ A sprite whose code draws only on a condition draws nothing in the at-rest run (
 anyway, drawn where it would appear and through the screen door, with a tooltip that says what shows it. This is
 how the app finds out, from the ROM's own code and not from a list of sprite ids.
 
-Evidence scope: derived from SMWDisX and run on the synthetic cart in CI. The $105 sample (vanilla, one machine) is in
-the PR, not here.
+Evidence scope: derived from SMWDisX and run on the synthetic cart in CI; the vanilla-ROM checks (`RevealAudit`'s corpus
+cases, the Playwright spec) are one machine, and no sample of them is kept in this repo.
 
 ## The flow
 
@@ -31,14 +31,15 @@ flowchart TD
 
 ## What is run
 
-- The first condition, `mario-at-sprite`, puts Mario's position on the sprite's. The tooltip says "gets close to this spot": a mole wakes on a low-byte distance window and a Blargg at about 112 px either side, so "touches" was true only for a sprite that tests Mario's box.
-
+- The first condition, `mario-at-sprite`, puts Mario's position on the sprite's. The tooltip says "gets close to this spot": a mole wakes on a low-byte distance window (bank_01.asm:13342-13346) and a Blargg at about 112 px either side
+(bank_03.asm:4071-4076), so "touches" was true only for a sprite that tests Mario's box.
 - Every rerun is the same `runOnce` with `atRest`, so the picture's position is the one the at-rest path gives
   (placed spot, parts measured from where the pass ended). The trigger's own movement (the invisible mushroom's
   rise) is therefore not shown. Until #1231 lands, a hidden sprite whose INIT moves it is drawn at the placed spot,
   as every sprite is.
-- Mario is fed, never drawn: small ($19 Powerup = 0), on foot ($72 PlayerInAir = 0), not on Yoshi
-  ($187A PlayerRidingYoshi = 0). The tooltip says so.
+- Mario is fed, never drawn: small ($19 Powerup = 0), in no entrance animation ($71 PlayerAnimation = 0), on foot
+  ($72 PlayerInAir = 0), not ducking ($73 PlayerIsDucking = 0), not on Yoshi ($187A PlayerRidingYoshi = 0). The tooltip
+  says so.
 - Mario's probe position is written after INIT (`SpriteSeed.marioMain`), so INIT sets the facing from the
   level entrance's Mario, as at rest. The left and right conditions never change the facing. A sprite that sets its
   facing in MAIN follows the probe's side; that is a limit, not a claim.
@@ -71,7 +72,7 @@ flowchart TD
 
 Montys test only the low byte of Mario's distance: `SubHorizPos` stores `PlayerXPosNow - SpriteXPosLow`
 (bank_01.asm:6124-6129; the high-byte subtraction only feeds the sign), and the mole adds $60 and compares with
-$C0 (bank_01.asm:13341-13346). The window is 192 of every 256 low-byte values, so the sprite is blank in a 64 wide band
+$C0 (bank_01.asm:13342-13346). The window is 192 of every 256 low-byte values, so the sprite is blank in a 64 wide band
 that repeats every 256 px, and a probe at 0 or at 256 sees it drawn. Eight probes spaced $20 apart leave no gap wider
 than 32, so the band cannot fall between two; $180 and -$180 (low byte $80) cover a sprite that only needs Mario
 near. The test `RevealSearch.test.ts` shows 0 and 256 alone miss it, for sprite positions on both sides of the band.

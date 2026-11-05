@@ -20,6 +20,8 @@ import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
 const rom = buildSyntheticRom()
 const [SX, SY] = [0x1000, 0x120]
+/** A sprite spot whose low byte lets the real Mario stand left ($40 below it) or right ($40 above it) with INIT's facing differing. */
+const X2 = 0x1080
 
 /** A seed with the sprite at (x, SY) and the real Mario at marioX, the camera on the sprite. */
 const seedAt = (x: number, marioX: number, extra: SeedOverride = {}): SpriteSeed =>
@@ -94,7 +96,7 @@ describe('the reveal search finds what shows a hidden sprite, in the D142 order'
   })
 
   it('stops at the first blank run: a hidden sprite needs no further probes', () => {
-    // Id 40 is blank at rest; the check ends at once and the first rerun (Mario at it) draws.
+    // Id 140 is blank at rest; the check ends at once and the first rerun (Mario at it) draws.
     const { result, calls } = search(140)
     expect(result.status).toBe('hidden')
     expect(calls).toHaveLength(1)
@@ -121,7 +123,7 @@ describe('a sprite that never reveals stops at the cap and gets no picture', () 
 })
 
 describe('the low byte of the distance (the mole)', () => {
-  // Id 52 draws unless the LOW byte of (Mario - sprite) is 96-159 (bank_01.asm:13341-13346).
+  // Id 152 draws unless the LOW byte of (Mario - sprite) is 96-159 (bank_01.asm:13342-13346).
   const xs = [0x10, 0x5f, 0x60, 0x9f, 0xa0, 0xff, 0x1000, 0x1060, 0x1234, 0x12a3]
   it.each(xs)('is found hidden for a sprite at x=%i, though it draws where Mario starts', x => {
     // Real Mario on the sprite: the real-start run draws, so only a probe can say it is hidden.
@@ -181,7 +183,7 @@ describe('a sprite that creates a child every pass (own parts decide, on any pas
 
 describe('where the revealed picture stands', () => {
   it('is the placed spot, not where the trigger moved the sprite', () => {
-    // Id 48 rises $0F on touch, then draws.
+    // Id 148 rises $0F on touch, then draws.
     const m = picked(search(148).result)
     const pass = m.passes[m.chosen!]!
     expect(m.anchor).toMatchObject({ x: SX, y: SY })
@@ -190,7 +192,7 @@ describe('where the revealed picture stands', () => {
   })
 
   it('is the model the one at-rest path gives for the revealing seed, with undrawn passes before the drawn one', () => {
-    // Id 49 rises every pass and draws only from frame 3 on: pass 0 is undrawn and has already moved the sprite.
+    // Id 149 rises every pass and draws only from frame 3 on: pass 0 is undrawn and has already moved the sprite.
     const hit = search(149)
     const m = picked(hit.result)
     expect(m.chosen).toBeGreaterThan(0)
@@ -204,7 +206,7 @@ describe('where the revealed picture stands', () => {
 })
 
 describe('the facing a revealed picture keeps', () => {
-  // Id 53: INIT sets the X flip when Mario starts left of it; it draws on touch with that flip.
+  // Id 153: INIT sets the X flip when Mario starts left of it; it draws on touch with that flip.
   // The fixture compares low bytes only, so the sprite sits where Mario 0x40 px either side keeps the same high byte.
   const X = 0x1080
   const flip = (marioX: number) => firstPart(picked(search(153, X, marioX).result)).flipX
@@ -238,7 +240,7 @@ describe('created sprites do not count as drawing (D106A)', () => {
 })
 
 describe('a sprite that drew at rest, is found hidden, and no condition reveals', () => {
-  // Id 56 draws only with Mario exactly $40 px right of it: the real start below puts him there.
+  // Id 156 draws only with Mario exactly $40 px right of it: the real start below puts him there.
   it('is reported unrevealed, remembering that it drew from the real start', () => {
     const { result } = search(156, SX, SX + 0x40)
     expect(result).toEqual({ status: 'unrevealed', drewAtRest: true })
@@ -257,5 +259,132 @@ describe('a refused run is not searched', () => {
     const { result, calls } = search(4)
     expect(result.status).toBe('skipped')
     expect(calls).toHaveLength(0)
+  })
+})
+
+describe('Mario reaches the sprite through every cell the probes move', () => {
+  it('Next X ($94): a sprite that reads only it is probed and found hidden, and shown by Mario at it', () => {
+    // Real Mario on the sprite: it draws at rest. Tracked, the run read $94 and no other probed cell.
+    expect(condition(search(159, SX, SX, {}, true).result)).toBe('mario-at-sprite')
+    // Control: a start away from it is blank at rest and the same probe finds it.
+    expect(condition(search(159, SX, 0x80, {}, true).result)).toBe('mario-at-sprite')
+  })
+
+  it('Mario stands 16 px above the sprite row ($D3 plus 16 is its Y)', () => {
+    expect(condition(search(160).result)).toBe('mario-at-sprite')
+  })
+
+  const CELLS = [0x19, 0x71, 0x72, 0x73, 0x187a]
+  it.each(CELLS)('state cell $%s is zeroed by every probe, and read as a probed cell', cell => {
+    const ram = { [cell]: 1 }
+    // 162 draws while all five cells are zero: a probe that leaves this one set never shows it.
+    expect(condition(search(162, SX, 0x80, { ram }).result)).toBe('mario-at-sprite')
+    // 163 adds frame 100: only the more-frames rerun, which must zero the state as well.
+    expect(condition(search(163, SX, 0x80, { ram }).result)).toBe('more-frames')
+    // 161 draws at rest while any is set: tracked, the read makes it probed; the probe zeroes it and blanks it.
+    expect(search(161, SX, 0x80, { ram }, true).result).toEqual({ status: 'unrevealed', drewAtRest: true }) // prettier-ignore
+    // Control: with the cell clear 162 draws at rest and 161 is blank at rest, so the probes above changed something.
+    expect(search(162).result.status).toBe('visible')
+    expect(search(161).result.status).toBe('unrevealed')
+  })
+})
+
+describe('the distances (D142)', () => {
+  it('a sprite with a 256 px reach is found hidden by the far probes alone (low byte $80 each side)', () => {
+    // Id 164 draws while Mario shares its X high byte: every probe within $E0 draws it, $180 either side does not.
+    expect(condition(search(164, SX, SX).result)).toBe('mario-at-sprite')
+    // Id 170 is blank only when Mario high byte is below its own: the -$180 probe is the one that sees it.
+    expect(search(170, SX, SX).result.status).toBe('hidden')
+  })
+
+  it('does not put Mario left of the map: at x=16 the -$180 probe is clamped, so no false hiding', () => {
+    expect(search(170, 0x10, 0x80).result.status).toBe('visible')
+  })
+
+  it('leaves no 32 px window of the low byte unprobed, wherever the window starts', () => {
+    // Id 165 is blank for (Mario - sprite) low byte within $20 above the sprite Y low byte: start the window at every value.
+    const missed: number[] = []
+    for (let low = 0; low < 0x100; low++) {
+      const y = 0x100 | low
+      const marioX = SX + ((low + 0x80) & 0xff)
+      // The camera follows the row, so the entry is never at the $F0 the game keeps for "not drawn".
+      const camera = { x: SX - 128, y: y - 0x40 }
+      const r = search(165, SX, marioX, { sprite: { x: SX, y }, camera }).result
+      if (r.status !== 'hidden') missed.push(low)
+    }
+    expect(missed).toEqual([])
+  })
+
+  it('control: take one step away and some 32 wide window holds no probe', () => {
+    const steps = DISTANCES.filter(d => d >= 0 && d < 0x100).map(d => d & 0xff)
+    const holes = (without: number) =>
+      [...Array(0x100).keys()].filter(low => !steps.some(s => s !== without && ((s - low) & 0xff) < 0x20)) // prettier-ignore
+    expect(holes(-1)).toEqual([])
+    for (const s of steps) expect(holes(s).length, `without step $${s.toString(16)}`).toBeGreaterThan(0) // prettier-ignore
+  })
+
+  it('"just right" and "just left" are 16 px, each tried in its own place, left before right', () => {
+    expect(condition(search(166, X2, X2 - 0x40).result)).toBe('mario-right')
+    expect(condition(search(167, X2, X2 + 0x40).result)).toBe('mario-left')
+    // Id 168 is shown on either side: the first tried wins.
+    expect(condition(search(168).result)).toBe('mario-left')
+  })
+
+  it('the more-frames rerun reaches frame 200 (the cap is 256, not 128)', () => {
+    expect(condition(search(171).result)).toBe('more-frames')
+  })
+})
+
+describe('the facing of a revealed picture, by the real start (left and right)', () => {
+  it.each([
+    [166, 'mario-right', X2 - 0x40, true],
+    [166, 'mario-right', X2 + 0x40, false],
+    [167, 'mario-left', X2 - 0x40, true],
+    [167, 'mario-left', X2 + 0x40, false],
+  ])('id %i, shown by %s with Mario at %i: flipX %s', (id, cond, marioX, flipX) => {
+    const r = search(id, X2, marioX).result
+    expect(condition(r)).toBe(cond)
+    expect(firstPart(picked(r)).flipX).toBe(flipX)
+  })
+})
+
+describe('what the reruns run', () => {
+  it('a search rerun runs whole; only a probe stops at its first drawn pass', () => {
+    const m = picked(search(148).result)
+    expect(m.passes.length).toBeGreaterThan(m.chosen! + 1)
+    const seed = seedAt(SX, SX)
+    const stopped = runOnce(rom, 148, seed, { atRest: true, stopAtDraw: true })
+    expect(stopped.passes).toHaveLength(stopped.chosen! + 1)
+    expect(runOnce(rom, 148, seed, { atRest: true }).passes.length).toBeGreaterThan(stopped.passes.length) // prettier-ignore
+  })
+
+  it('stopAtDraw waits for the own tile of the sprite, not a child it created on an earlier pass', () => {
+    const m = runOnce(rom, 172, seedAt(SX, SX), { atRest: true, stopAtDraw: true })
+    expect(m.passes.length).toBeGreaterThan(1)
+    expect(m.passes[m.passes.length - 1]!.parts.length).toBeGreaterThan(0)
+    expect(m.passes.slice(0, -1).some(p => (p.companions?.length ?? 0) > 0)).toBe(true)
+    // So the hidden check keeps running to it: this sprite draws at rest and is visible.
+    expect(search(172).result.status).toBe('visible')
+  })
+
+  it('a probe the interpreter refuses is not a blank run', () => {
+    // Id 173 draws, and on touch becomes $FF. Mario at it (the first probe) is refused; every other probe draws it.
+    expect(runOnce(rom, 173, seedAt(SX, SX), { atRest: true }).refusal).toMatch(/became \$FF/)
+    expect(search(173, SX, 0x80).result.status).toBe('visible')
+  })
+
+  it('skips a sprite whose INIT erases it, with the reason', () => {
+    expect(search(174).result).toMatchObject({ status: 'skipped', reason: expect.stringMatching(/INIT erased/) }) // prettier-ignore
+  })
+})
+
+describe('every verdict is the same on a second search, across ids and places', () => {
+  const ids = [140, 141, 142, 143, 146, 148, 149, 150, 151, 152, 153, 155, 159, 160, 163, 164, 166, 167, 168, 171] // prettier-ignore
+  it.each([SX, 0x1080, 0x10])('x=%i', x => {
+    for (const id of ids) {
+      const [a, b] = [search(id, x, x + 0x30), search(id, x, x + 0x30)]
+      expect(JSON.stringify(a.result), `id ${id}`).toBe(JSON.stringify(b.result))
+      expect(a.calls.length, `id ${id} reruns`).toBe(b.calls.length)
+    }
   })
 })

@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
+import { MARIO_STATE } from '../../../src/rom/sprites/interp/RevealSearch'
 import { runOnce } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed, SPRITE_SEED, type SpriteSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import {
@@ -61,11 +62,11 @@ describe('the served drawer reveals hidden sprites', () => {
   })
 
   it('serves a refused search rerun as the refusal, in its own words, not as "unrevealed"', () => {
-    // Id 47 is blank with Mario away; on touch it becomes $FF, which has no handler.
+    // Id 147 is blank with Mario away; on touch it becomes $FF, which has no handler.
     expect(drawer()(entry(147))).toMatchObject({ ok: false, reason: expect.stringMatching(/^refused: .*became \$FF/) }) // prettier-ignore
   })
 
-  it('keeps the real-start picture in the door when it drew, hides under a probe, and nothing reveals it (id 56)', () => {
+  it('keeps the real-start picture in the door when it drew, hides under a probe, and nothing reveals it (id 156)', () => {
     // Mario starts $40 px right of the sprite, the only place it draws.
     const r = ok(drawer(runWithUploads, 0x1040)(entry(156)))
     expect(r.reveal).toBe('none-found')
@@ -89,13 +90,13 @@ describe('the served drawer reveals hidden sprites', () => {
   })
 
   it('takes the position from the same model the at-rest path gives, even when it moved before it drew', () => {
-    // Id 49 rises every pass and draws from frame 3. Rebuild the revealing seed the way the search does.
+    // Id 149 rises every pass and draws from frame 3. Rebuild the revealing seed the way the search does.
     const got = ok(drawer()(entry(149)))
     const seed = withSeed(
       {
         sprite: { x: 0x1000, y: 0x120 },
         marioMain: { x: 0x1000, y: 0x120 },
-        ram: { 0x19: 0, 0x72: 0, 0x187a: 0 },
+        ram: MARIO_STATE,
       },
       withSeed(
         {

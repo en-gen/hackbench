@@ -6,8 +6,8 @@
  * passes the first and fails the second, which is the defect this spec exists to catch.
  * - Map $105 (acceptance 1): the invisible mushroom ($C7) is drawn, not a marker, with a hover line from the
  *   condition ("Mario gets close to this spot", not an id). On the composite its pixels are the sprite's own colour on
- *   at most half of them (the door's full squares) and tinted on the rest; a placed mushroom ($74) on the same map is
- *   the control and is solid on at least 90% of its pixels. $C7 and $74 have the same shape.
+ *   at most half of them (the door's full squares) and tinted on the rest; the placed mushroom ($74) on map $00E, which has
+ *   the same four parts as a revealed $C7, is the control and is solid on at least 90% of its pixels.
  * - Maps $106 and $010 (acceptance 8): every Monty Mole ($4D) is drawn in the door, including $106 columns 235 and 247
  *   and $010 column 201, all moles of one map share one bitmap, and each shows the door pattern on the composite.
  * Plants for the verifier (each must turn this red; restore after):
@@ -191,11 +191,11 @@ test('map $105 draws the invisible mushroom in the screen door, on screen as wel
     expect(door.differs, 'dim squares: the rest are tinted').toBeGreaterThanOrEqual(door.total / 2 - 1) // prettier-ignore
   }
 
-  // Control, acceptance 1: a placed mushroom ($74) is solid, and $C7 is the same picture.
-  const placed = all.find(s => s.id === MUSHROOM && s.status === 'drawn')
-  expect(placed, 'a drawn $74 on $105').toBeTruthy()
+  // Control, acceptance 1: the placed mushroom ($74, one on map $00E) is solid, and $C7 is the same picture.
+  const placed = (await openMap(page, 0x0e)).find(s => s.id === MUSHROOM && s.status === 'drawn')
+  expect(placed, 'a drawn $74 on $00E').toBeTruthy()
   expect(placed.screenDoor, 'a placed sprite is not in the door').toBeFalsy()
-  const solid = await painted(page, 0x105, placed)
+  const solid = await painted(page, 0x0e, placed)
   expect(solid.same, 'a placed mushroom is solid on the composite').toBeGreaterThanOrEqual(solid.total * 0.9) // prettier-ignore
   for (const s of found) expect(shape(s), '$C7 draws the mushroom $74 draws').toBe(shape(placed))
 })

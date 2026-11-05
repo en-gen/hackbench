@@ -101,7 +101,7 @@ export function spriteAt(
 export const hoverPlacementKey = (zoom: number, rect: { left: number; top: number }): string =>
   `${zoom}:${Math.round(rect.left)}:${Math.round(rect.top)}`
 
-/** What the hover shows for a sprite (#981): its plain name only, or nothing when the name table has none. */
+/** What the hover shows for a sprite (#981): its plain name, with what makes it appear after a colon for a revealed one (#1132); nothing when it has neither. */
 export function spriteName(s: Pick<MapSpriteDto, 'name' | 'reveal' | 'id'>): string | undefined {
   if (!s.reveal) return s.name || undefined
   return `${s.name || `Sprite $${s.id.toString(16).toUpperCase().padStart(2, '0')}`}: ${s.reveal}`
