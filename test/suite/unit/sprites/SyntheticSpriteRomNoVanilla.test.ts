@@ -17,7 +17,7 @@ import {
   WINDOW,
 } from '../../support/vanillaWindows'
 
-const LOADERS = ['lead', 'jump', 'callsite', 'pointers', 'entrance', 'data', 'scroll', 'update', 'scrollTail', 'updateTail', 'updateOperand', 'scrollRtl', 'updateRts', 'scrollPop'] as const // prettier-ignore
+const LOADERS = ['lead', 'jump', 'callsite', 'pointers', 'entrance', 'data', 'scroll', 'update', 'scrollTail', 'updateTail', 'updateOperand', 'scrollRtl', 'updateRts', 'scrollPop', 'layer3', 'gm12', 'gm12Bpl', 'gm12Jsr', 'reset'] as const // prettier-ignore
 
 /** Every option on its own, and the default. A defect option changes a few bytes of the default's regions. */
 export const VARIANTS: [string, SyntheticOptions][] = [
@@ -43,6 +43,22 @@ export const VARIANTS: [string, SyntheticOptions][] = [
   ['grinderDrawsOnPass1', { grinderDrawsOnPass1: true }],
   ['grinderDrawsFromPass1', { grinderDrawsFromPass1: true }],
   ['id31IsGrinder', { id31IsGrinder: true }],
+  ['initFarCull', { initFarCull: true }],
+  ['mainStepsBack', { initFarCull: true, mainStepsBack: true }],
+  ['grinderInitShifts', { grinderInitShifts: true }],
+  ['grinderInitDelta', { grinderInitDelta: [0x123, -0x45] }],
+  ['grinderAliases', { grinderAliases: true }],
+  ['grinderPrelude', { grinderPrelude: true }],
+  ['grinderCell At3', { grinderCell: 'At3' }],
+  ['grinderCell Not3', { grinderCell: 'Not3' }],
+  ['grinderLocksOnPass', { grinderLocksOnPass: 2 }],
+  ['grinderWideX', { grinderWideX: true }],
+  ['irqCommand', { irqCommand: 0x80 }],
+  ['eeries', { eeries: {} }],
+  ['eeries stream', { eeries: { stream: [0x51, 0xb3, 0xe0, 0xff] } }],
+  ['eeries spacing', { eeries: { spacing: [-0x30, -0x18, 0x18, 0x30] } }],
+  ['eeries room', { eeries: { room: 6 } }],
+  ['eeries travel', { eeries: { travel: true } }],
 ]
 
 describe('the window checker', () => {
@@ -69,71 +85,30 @@ describe('the window checker', () => {
 })
 
 /**
- * Windows this gate still allows, each a small region of the cart where a runner or reader shape in src/ fixes the
- * game's own bytes, or this fixture keeps the game's semantics (its operand choice is the cost of the test, not
- * of the reader). `hits` is the exact number of windows whose first byte is in the region (SNES addresses, bank << 16 | addr), at most over the variants:
- * a count that rises or drops fails until it is updated here, and a region that no longer hits must be deleted.
- * A region spans at most MAX_SPAN bytes. Removing one needs the reader to recognize the code by fingerprint
- * instead (the way CastleFlames.ts and SubmapFlagGate.ts do).
+ * Regions of the cart this gate would allow to hold a vanilla window. It is empty and must stay empty: a reader in
+ * src/ that fixes the game's own bytes is made to run or fingerprint the code instead (the way CastleFlames.ts and
+ * SubmapFlagGate.ts do), and a fixture operand is changed so the window is gone. The ratchet below needs no ROM, so
+ * CI goes red the moment an entry is added.
  */
 interface Region {
   from: number
   to: number
-  hits: number
   why: string
 }
-const MAX_SPAN = 0x40
-const ALLOWED: Region[] = [
-  { from: 0x02a8ac, to: 0x02a8ac, hits: 1, why: 'ShellSprites.ts PATH: the generator floor compare and its fixed branch; the compare operands have the vanilla values, chosen so the shell logic keeps its vanilla meaning' }, // prettier-ignore
-  { from: 0x02a97c, to: 0x02a97c, hits: 1, why: 'ShellSprites.ts PATH: the status compare and the number step; operand values chosen as the vanilla ones' }, // prettier-ignore
-] // prettier-ignore
+export const ALLOWED: readonly Region[] = []
 
-/** What is wrong with `regions` given the hits (SNES addresses as numbers, the form `ALLOWED` uses) each variant produced; empty when it holds. */
-export function allowListProblems(
-  regions: readonly Region[],
-  hitsByVariant: readonly number[][],
-): string[] {
-  const out: string[] = []
-  for (const r of regions) {
-    if (r.to - r.from + 1 > MAX_SPAN) out.push(`${r.why}: spans more than ${MAX_SPAN} bytes`)
-    const most = Math.max(
-      0,
-      ...hitsByVariant.map(h => h.filter(o => o >= r.from && o <= r.to).length),
-    )
-    if (most !== r.hits) out.push(`${r.why}: ${most} hits, listed as ${r.hits}`)
-  }
-  return out
+/** What is wrong with `regions`: any entry at all, since the list is held at empty. */
+export function allowListProblems(regions: readonly Region[]): string[] {
+  return regions.map(r => `${r.why}: the allow list must stay empty (#1073)`)
 }
 
-/** The SNES address of a "$BB:AAAA" string as a number (bank << 16 | addr), the form `ALLOWED` uses. NOT a file offset. */
-const snesNumber = (h: string): number => {
-  const [bank, addr] = h
-    .slice(1)
-    .split(':')
-    .map(x => parseInt(x, 16)) as [number, number]
-  return (bank << 16) | addr
-}
-const allowed = (h: string) => ALLOWED.find(r => snesNumber(h) >= r.from && snesNumber(h) <= r.to)
-
-describe('the allow list checker', () => {
-  const region = { from: 0x1000, to: 0x1010, hits: 2, why: 'r' }
-  it('passes when the count matches', () => {
-    expect(allowListProblems([region], [[0x1000, 0x1005], [0x1000]])).toEqual([])
+describe('the allow list ratchet', () => {
+  it('the list is empty', () => {
+    expect(allowListProblems(ALLOWED)).toEqual([])
   })
-  it('planted: a region with no hits is red', () => {
-    expect(allowListProblems([{ ...region, hits: 2 }], [[0x2000]])).toEqual([
-      'r: 0 hits, listed as 2',
-    ])
-  })
-  it('planted: a count that rises or drops is red', () => {
-    expect(allowListProblems([region], [[0x1000, 0x1001, 0x1002]])).toEqual([
-      'r: 3 hits, listed as 2',
-    ])
-    expect(allowListProblems([region], [[0x1000]])).toEqual(['r: 1 hits, listed as 2'])
-  })
-  it('planted: a region widened past MAX_SPAN is red', () => {
-    expect(allowListProblems([{ ...region, to: 0x0fffff }], [[0x1000, 0x1005]])).toEqual([
-      'r: spans more than 64 bytes',
+  it('planted: one entry makes it red', () => {
+    expect(allowListProblems([{ from: 0x1000, to: 0x1000, why: 'r' }])).toEqual([
+      'r: the allow list must stay empty (#1073)',
     ])
   })
 })
@@ -147,27 +122,17 @@ describe.skipIf(!hasRom(VANILLA))(
     const hitsOf = (opts: SyntheticOptions) =>
       vanillaHits(new Uint8Array(buildSyntheticRom(opts).buffer), vanilla())
 
-    it('planted: 8 vanilla bytes written into a blank cart are flagged at that offset, and not allowed', () => {
+    it('planted: 8 vanilla bytes written into a blank cart are flagged at that offset', () => {
       const v = loadVanillaBytes(romPath(VANILLA))
       const cart = new Uint8Array(8 * 0x8000)
       const real = v.subarray(0x14000, 0x14000 + WINDOW)
       expect(new Set(real).size).toBeGreaterThanOrEqual(3)
       cart.set(real, 0x14000)
       expect(vanillaHits(cart, vanilla())).toContain(snesOf(0x14000))
-      expect(allowed(snesOf(0x14000))).toBeUndefined()
     })
 
-    it.each(VARIANTS)('%s: every vanilla window of it is in an allowed region', (_, opts) => {
-      expect(summarize(hitsOf(opts).filter(h => !allowed(h)))).toEqual([])
+    it.each(VARIANTS)('%s: has no vanilla window', (_, opts) => {
+      expect(summarize(hitsOf(opts))).toEqual([])
     })
-
-    it('the allow list is bounded and every region hits exactly as often as listed (ratchet)', () => {
-      expect(
-        allowListProblems(
-          ALLOWED,
-          VARIANTS.map(([, o]) => hitsOf(o).map(snesNumber)),
-        ),
-      ).toEqual([])
-    }, 60_000)
   },
 )

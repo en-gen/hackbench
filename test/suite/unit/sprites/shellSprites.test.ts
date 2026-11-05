@@ -70,8 +70,8 @@ describe('stationary shell list ids', () => {
 
   // [name, site, byte planted, id, expected shell number (undefined: not a shell), expected status]
   const OPERANDS: [string, number, number, number, number | undefined, number?][] = [
-    ['ADC #5', 0x02a983, 0x05, 0xda, 5],
-    ['SBC #$DB', 0x02a980, 0xdb, 0xdb, 4],
+    ['ADC #5', 0x02a983, 0x05, 0xda, 0xda - 0xd9 + 5],
+    ['SBC #$DB', 0x02a980, 0xdb, 0xdb, 3],
     ['shell ceiling $E2', 0x02a8c1, 0xe2, 0xe1, 0xe1 - 0xda + 4],
     ['status 8 keeps the id', 0x02a8d1, 0x08, 0xda, 0xda, 8],
     ['floor $C0 alone does not free $C5 (ceiling still $DA)', 0x02a8ad, 0xc0, 0xc5, undefined],

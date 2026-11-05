@@ -98,10 +98,11 @@ checker (it reports each hit as an SNES address) and `test/suite/unit/sprites/Sy
 applies it to the sprite cart, the default and each `SyntheticOptions` value on its own; it needs the vanilla ROM and
 skips without it. `CastleFlames.test.ts` applies it to the bytes its fixtures write over the plain cart.
 
-Where a reader in `src/` fixes the game's opcodes (or a fixture keeps the game's operand values on purpose), the
-window stays and the gate's allow list names the region and why. Each region spans at most 64 bytes and lists its
-exact hit count: a count that rises, drops or reaches zero fails until the list is updated, and planted cases prove
-those checks go red.
+The sprite cart's allow list (`ALLOWED` in that test) is empty and held there: a test that needs no ROM fails if it
+has any entry, and a planted entry proves it goes red (#1073). A reader in `src/` that fixes the game's opcodes is made
+to run or fingerprint the code instead, and a fixture operand that only has to keep the loader's meaning (the shell
+generator floor, the number step's pair) takes a value of its own. The variant list covers every `SyntheticOptions`
+field that changes bytes, and every variant must have zero hits.
 
 ExecutePtr, CallSpriteInit and the grinder handler (#1082) were removed by running them instead: a stock-code
 SHA-256 needs at least 24 unknown bytes (not masked, not stated elsewhere in the working tree), and each of those had
@@ -125,9 +126,6 @@ pointer table.
 - The block spawn dispatcher, slot search and status write are one 81-byte span (`BLOCK_SPAWN_DISPATCHER`).
 
 Planted defects for each are in `test/suite/unit/sprites/ShapeRuns.test.ts`.
-
-The fix for an allowed region is to make the reader recognize the code by SHA-256 (as
-`CastleFlames.ts` and `SubmapFlagGate.ts` do), then delete the region.
 
 Source-text probes read the file text only, so they miss runs built from helpers, named opcodes or spread
 arrays. The assembled gate, run against the built cart, is the oracle; a clean probe alone proves nothing.
