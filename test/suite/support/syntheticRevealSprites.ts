@@ -113,12 +113,15 @@ export function putRevealSprites(put: (snes: number, bytes: number[]) => void): 
     [156, gated([[[...diff, 0xc9, 0x40], BNE]], piece(0x24))],
     [155, gated([[[0xa5, 0x14, 0xc9, 0x64], BCC]], piece(0x24))],
     [157, [...MAKE_CHILD, ...gated([[FRAME_5, BCC], sees], piece(0x24))]],
-    // LDA #$FF / STA $9E,X / LDA #0 / STA $14C8,X
+    // LDA #$FF / STA $9E,X / LDA #1 / DEC A / STA $14C8,X
     [
       158,
       [
         ...piece(0x24),
-        ...gated([[FRAME_5, BCC]], [0xa9, 0xff, 0x95, 0x9e, 0xa9, 0x00, 0x9d, 0xc8, 0x14]),
+        ...gated(
+          [[FRAME_5, BCC]],
+          [0xa9, 0xff, 0x95, 0x9e, 0xa9, 0x01, 0x3a, 0x9d, 0xc8, 0x14, 0xea, 0xea],
+        ),
       ],
     ],
   ]
