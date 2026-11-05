@@ -36,6 +36,7 @@
 import { formatAddr, mirror } from '../../addressing'
 import { nativeReset, Refusal, runUntil, SENTINEL, type Regs } from '../../cpu/call'
 import type { Cpu65816 } from '../../cpu/Cpu65816'
+import { hex, hex4s } from '../../hex'
 import type { RomFile } from '../../RomFile'
 import { mapperProblem } from './Guards'
 import { RunCache, smwMachine } from './Machine'
@@ -156,7 +157,6 @@ function seedWram(w: Uint8Array, k: number): void {
 function clearCluster(w: Uint8Array): void {
   w.fill(0, CLUSTER_NUMBER, CLUSTER_NUMBER + CLUSTER_SLOTS)
 }
-const hex = (n: number): string => n.toString(16).toUpperCase()
 
 const inSpans = (addr: number, spans: readonly Span[]): boolean => {
   const m = mirror(addr)
@@ -187,7 +187,7 @@ function trace(
     throw new Refusal(why)
   }
   bus.onWramWrite = (off, v) => {
-    if (!o.allow(off)) fail(`writes WRAM $${hex(off).padStart(4, '0')}`)
+    if (!o.allow(off)) fail(`writes WRAM ${hex4s(off)}`)
     wguard?.(off, v)
   }
   bus.onInstruction = (addr, op) => {

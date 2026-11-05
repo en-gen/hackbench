@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { clusterPath, pathMismatches } from '../../../../src/rom/sprites/interp/ClusterPath'
+import { hi, lo } from '../../support/syntheticCart'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 import {
   clusterPathStandIn,
@@ -23,8 +24,6 @@ import {
 
 const off = (snes: number) => (snes >>> 16) * 0x8000 + ((snes & 0xffff) - 0x8000)
 const RTS = [0x60]
-const lo = (a: number) => a & 0xff
-const hi = (a: number) => (a >> 8) & 0xff
 
 const FLAMES = clusterPath({
   ids: [0xe6],
@@ -57,10 +56,9 @@ function cart(edit: (b: Uint8Array) => void = () => {}, o: StandInOptions = {}):
   return RomFile.fromBytes('path.sfc', b)
 }
 const names = (xs: string[]) => xs.map(x => x.replace(/ \(.*\)$/, ''))
-const hack = (name: string, flame: boolean) => {
-  const h = PATH_HACKS.find(x => x.name === name)!
-  return cart(b => h.edits(flame).forEach(([at, v]) => b.set(v, off(at))))
-}
+const edit = (...es: [number, number[]][]) => cart(b => es.forEach(([at, v]) => b.set(v, off(at))))
+const hack = (name: string, flame: boolean) =>
+  edit(...PATH_HACKS.find(x => x.name === name)!.edits(flame))
 
 describe('the call-path gate on the stand-in path', () => {
   // The loop reaches slot 19 after about 140 steps: a step budget of 40 would flag this clean path.
@@ -144,8 +142,6 @@ describe('the call-path gate on the stand-in path', () => {
 })
 
 describe('what the gate must accept and where its limits sit', () => {
-  const edit = (...es: [number, number[]][]) =>
-    cart(b => es.forEach(([at, v]) => b.set(v, off(at))))
   const LP = STANDIN.loop
 
   it('a loop that counts down from slot 19 is accepted as well as one that counts up', () => {
@@ -184,19 +180,12 @@ describe('what the gate must accept and where its limits sit', () => {
 })
 
 describe('each hacked path, for both carts', () => {
-  const STAGE = (flame: boolean) => ({
-    route: ROUTE,
-    dispatch: (flame ? FLAMES : RING).dispatchWhat,
-    loop: LOOP,
-  })
   it.each(PATH_HACKS.flatMap(h => [[h.name, h, true] as const, [h.name, h, false] as const]))(
     '%s (flames: %s)',
     (_, h, flame) => {
-      const got = pathMismatches(
-        cart(b => h.edits(flame).forEach(([at, v]) => b.set(v, off(at)))),
-        flame ? FLAMES : RING,
-      )
-      expect(names(got)).toEqual([STAGE(flame)[h.stage]])
+      const p = flame ? FLAMES : RING
+      const got = pathMismatches(edit(...h.edits(flame)), p)
+      expect(names(got)).toEqual([{ route: ROUTE, dispatch: p.dispatchWhat, loop: LOOP }[h.stage]])
       expect(got[0]).toMatch(h.why)
     },
   )
@@ -223,9 +212,9 @@ describe('every byte of the stand-in path', () => {
   })
 })
 
-// Bytes whose flip (xor $40) leaves both paths clean, measured on one machine over the stand-in as committed.
-// Each is an equivalent change or code the gate never reaches: the NOP after the route's PHX (a flip makes it TAX,
-// and the PLX restores X), the opcode of the BNE after the compare for $04 (as BCC it is not taken
-// for $E2/$E6 either) and the entry's final PLA/RTS (only reached for an id the cart does not name), the loop's BCC (BNE acts the same on
-// the counter's last step), and the dispatch JSL's bank byte (a mirror of the same bank).
+// Bytes whose flip (xor $40) leaves both paths clean, one machine, the stand-in as committed. Each is an
+// equivalent change or code the gate never reaches: the NOP after the route's PHX (flipped to TAX, which the
+// PLX undoes), the BNE after the compare for $04 (as BCC it is not taken for $E2/$E6 either), the entry's
+// final PLA/RTS (reached only for an id the cart does not name), the loop's BCC (BNE acts the same on the
+// counter's last step) and the dispatch JSL's bank byte (a mirror of the same bank).
 const QUIET = '2f8a1 2aad5 2aadb 2aadc 2f817 2f903'

@@ -72,59 +72,16 @@ export function clusterPathStandIn(o: StandInOptions = {}): [number, number[]][]
     ...call,
     0x80, o.fastRom ? 0xf0 : 0xf1,              // BRA nx
   ]
+  // prettier-ignore
+  // prettier-ignore
   return [
     // route: four NOPs, then a jump to the body, which keeps X on the stack, hands Y less one to the
     // spawn in $03, and restores both
     [s.route, [0xea, 0xea, 0xea, 0xea, ...jmp(s.routeBody)]],
-    [
-      s.routeBody,
-      [
-        0xda,
-        0xea,
-        0x84,
-        0x03,
-        0xc6,
-        0x03,
-        ...jsr(s.entry),
-        0xfa,
-        0xea,
-        0xa4,
-        0x03,
-        0xc8,
-        ...jmp(s.loadNext),
-      ],
-    ],
+    [s.routeBody, [0xda, 0xea, 0x84, 0x03, 0xc6, 0x03, ...jsr(s.entry), 0xfa, 0xea, 0xa4, 0x03, 0xc8, ...jmp(s.loadNext)]],
     // entry: store the activate flag, then pick the spawn by the id less $E2 (0 or 1 ring, 4 flames), id kept in A
-    [
-      s.entry,
-      [
-        0x48,
-        0xa2,
-        0x01,
-        0x8e,
-        0xb8,
-        0x18,
-        0x68,
-        0x48,
-        0x38,
-        0xe9,
-        0xe2,
-        0xc9,
-        0x02,
-        0xb0,
-        0x04,
-        0x68,
-        ...jmp(s.ringSpawn),
-        0xc9,
-        0x04,
-        0xd0,
-        0x04,
-        0x68,
-        ...jmp(s.flameSpawn),
-        0x68,
-        0x60,
-      ],
-    ],
+    [s.entry, [0x48, 0xa2, 0x01, 0x8e, 0xb8, 0x18, 0x68, 0x48, 0x38, 0xe9, 0xe2, 0xc9, 0x02, 0xb0, 0x04, 0x68,
+      ...jmp(s.ringSpawn), 0xc9, 0x04, 0xd0, 0x04, 0x68, ...jmp(s.flameSpawn), 0x68, 0x60]],
     [s.loop, loop],
     [s.dispatch, jsl(s.execPtr)],
     [tableWord(4), [lo(s.ringDraw), hi(s.ringDraw)]],
@@ -254,30 +211,10 @@ export const PATH_HACKS: readonly PathHack[] = [
     why: /runs code at \$03A000/,
     edits: () => [
       [STANDIN.loop + 12, [0x22, lo(FOREIGN), hi(FOREIGN), FOREIGN >> 16]],
-      [
-        FOREIGN,
-        [
-          0x7a,
-          0x7a,
-          0x7a,
-          0xe8,
-          0xe0,
-          0x14,
-          0xb0,
-          0x04,
-          0x5c,
-          lo(LP),
-          hi(LP),
-          0x02,
-          0x5c,
-          lo(END),
-          hi(END),
-          0x02,
-        ],
-      ],
+      // prettier-ignore
+      [FOREIGN, [0x7a, 0x7a, 0x7a, 0xe8, 0xe0, 0x14, 0xb0, 0x04, 0x5c, lo(LP), hi(LP), 0x02, 0x5c, lo(END), hi(END), 0x02]],
     ],
   },
-
   {
     name: 'route leaves a byte on the stack',
     stage: 'route',
