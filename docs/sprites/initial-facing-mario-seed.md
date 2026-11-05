@@ -59,7 +59,7 @@ Its INIT `InitExplodingBlk` (`bank_01.asm:307`, `544-554`) stores the number it 
 that sprite at `bank_02.asm:13281-13283`. The test had run the Koopa/Goomba INIT that the record's draw-time
 id names, which gave 1.
 
-Mesen write probe (values below are what it logged; `pc` is the address after the writing instruction):
+Mesen write probe (values below are what it logged):
 - Sample, map `11e` slot 6 (listX 2848): `$9E` = `$4C` and `$157C` = 0 through the INIT frame 956.
   At frame 969 `InitSpriteTables` ran with `$9E` = `$00`, then the store at `bank_02.asm:13289`
   (`STA $157C,X`) wrote 1.
