@@ -323,6 +323,7 @@ export class Machine {
   /** Where the sprite stood at the first such read. */
   private drewAt: { x: number; y: number } | undefined
 
+  /** Boots the CPU and bus on the ROM and hooks WRAM writes, the one place a tile write is sorted into own or companion. */
   constructor(
     private readonly rom: RomFile,
     public seed: SpriteSeed,
@@ -593,6 +594,7 @@ export class Machine {
     this.nmi()
   }
 
+  /** Forget the last pass's tile writes, so each pass reports only what it drew itself. */
   clearOamWrites(): void {
     this.drawAt = null
     this.own.clear()
@@ -985,6 +987,7 @@ function runCore(
   return model
 }
 
+/** One string per run of what it draws (companions included), so two runs that draw the same pieces compare equal. */
 const partsKey = (m: SpriteModel): string =>
   m.passes
     .map(p =>

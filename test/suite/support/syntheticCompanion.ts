@@ -51,6 +51,7 @@ const WRITE_UNSPAWNED: number[] = [
   0x60,
 ]
 
+/** Writes ids 80 to 85's routines at $01:A600-A780, apart from the main cart so that file stays under the content gate. */
 export function putCompanionRoutines(put: (snes: number, bytes: number[]) => void): void {
   put(0x01a600, SPAWN_BELOW)
   put(0x01a680, DRAW_TWO)
