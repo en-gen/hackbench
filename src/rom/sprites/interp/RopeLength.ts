@@ -41,7 +41,7 @@ const DIFFERENT_SPOT =
 const key = (p: SpritePart) => `${p.dx},${p.dy}`
 
 /** The short run's pass with the parts only the long run drew added, tagged `door` (the short run's own parts stay solid). */
-function withExtras(short: SpriteModel, long: SpriteModel): SpriteModel {
+function withExtras<M extends SpriteModel>(short: M, long: SpriteModel): M {
   return {
     ...short,
     passes: short.passes.map((p, i) => {
@@ -76,9 +76,8 @@ export function ropeModel<M extends SpriteModel>(
   const long = runAt(w.long)
   if (w.short === w.long) return long
   const short = runAt(w.short)
-  const [a, b] = [short.anchor, long.anchor]
-  if (short.chosen !== long.chosen || a?.x !== b?.x || a?.y !== b?.y)
+  if (short.chosen !== long.chosen || short.anchor?.x !== long.anchor?.x || short.anchor?.y !== long.anchor?.y)
     return { ...short, unverifiedReason: short.unverifiedReason ?? DIFFERENT_SPOT, lengthNote: 'The rope is shown at its short length: it starts at a different spot in the two slots it can load into.' } // prettier-ignore
   if (!(at.door ?? DOOR_WIRED)) return short
-  return { ...short, ...withExtras(short, long) } as M
+  return withExtras(short, long)
 }
