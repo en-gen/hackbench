@@ -79,19 +79,14 @@ const wanted = (seams: WingsSeams): number => seams.sprite ?? WINGS_SPRITE
 /** Runs CODE_0288DC for a block at column `col` and reads back the sprite it made. */
 function runSpawn(rom: RomFile, col: number, seams: WingsSeams, content: number): Spawned | string {
   let got: Spawned | undefined
-  const m = runOnce(
-    rom,
-    wanted(seams),
-    withSeed({ slot: 3, mainPasses: 1 }, SPRITE_SEED),
-    {
-      spawn: { inputs: spawnInputs(content, col * 16, 0), dispatcher: seams.dispatcher },
-      probe: (pass, w) => {
-        if (pass !== -1) return
-        const slot = Array.from({ length: 12 }, (_, i) => i).find(i => w[0x14c8 + i])
-        if (slot !== undefined) got = { number: w[0x9e + slot]!, c2: w[0xc2 + slot]! }
-      },
+  const m = runOnce(rom, wanted(seams), withSeed({ slot: 3, mainPasses: 1 }, SPRITE_SEED), {
+    spawn: { inputs: spawnInputs(content, col * 16, 0), dispatcher: seams.dispatcher },
+    probe: (pass, w) => {
+      if (pass !== -1) return
+      const slot = Array.from({ length: 12 }, (_, i) => i).find(i => w[0x14c8 + i])
+      if (slot !== undefined) got = { number: w[0x9e + slot]!, c2: w[0xc2 + slot]! }
     },
-  )
+  })
   return m.refusal ?? got ?? 'the item block spawn made no sprite.'
 }
 
