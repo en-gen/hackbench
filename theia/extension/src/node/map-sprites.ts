@@ -437,7 +437,6 @@ export function runWithUploads(
   seed: SpriteSeed,
   opts: Pick<RunOptions, 'stopAtDraw' | 'trackInputs'> = {},
 ): RunModel {
-  // prettier-ignore
   const p = uploadProbe()
   return Object.assign(runOnce(rom, id, seed, { atRest: true, probe: p.probe, ...opts }), { uploads: p.byPass }) // prettier-ignore
 }

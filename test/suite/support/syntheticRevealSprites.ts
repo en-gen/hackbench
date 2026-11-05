@@ -19,8 +19,6 @@ const RTS = 0x60
 const FIRST = 0x01b000
 const STRIDE = 0x80
 const INIT_53 = 0x01b900
-const lo = (a: number) => a & 0xff
-const hi = (a: number) => (a >> 8) & 0xff
 
 /**
  * Tests in order, each a guard (leaving the flags) and the branch that SKIPS the picture; a taken branch lands on the
@@ -120,5 +118,3 @@ export function putRevealSprites(put: (snes: number, bytes: number[]) => void): 
   put(INIT_53, [0xa9, 0x00, 0x9d, 0x7c, 0x15, 0xa5, 0xd1, 0xd5, 0xe4, BCS, 0x05, 0xa9, 0x40, 0x9d, 0x7c, 0x15, RTS]) // prettier-ignore
   return { init: { 153: INIT_53 & 0xffff }, main }
 }
-
-export { lo, hi }

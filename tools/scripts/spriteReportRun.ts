@@ -26,10 +26,13 @@ import { drew } from '../../src/rom/sprites/interp/RevealSearch'
 import { RomFile } from '../../src/rom/RomFile'
 import { SmwRom } from '../../src/rom/SmwRom'
 import { parseLevelSprites } from '../../src/rom/LevelParser'
-import { levelSeed } from '../../src/rom/sprites/interp/LevelLoader'
 import { L1ModelCache } from '../../theia/extension/src/node/map-screen'
 import { interpRunner, modelResult, readStream } from '../../theia/extension/src/node/map-sprites'
-import { loadLevelState, NO_CLUSTER_SPRITES } from '../../src/rom/sprites/interp/LevelLoader'
+import {
+  levelSeed,
+  loadLevelState,
+  NO_CLUSTER_SPRITES,
+} from '../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../src/rom/sprites/interp/SpriteSeed'
 import {
   CAPTURE_DIR,
@@ -626,7 +629,15 @@ export function revealRows(bytes: Uint8Array, romFile: string, map: number): Rev
   const [plain, served] = [runner(false), runner(true)]
   return stream.map((s): RevealRow => {
     const [a, b] = [plain(s), served(s)]
-    const row = { map: map.toString(16), index: s.index, id: s.spriteId, column: s.x, row: s.y, ...(getSpriteMetadata(s.spriteId)?.displayName ? { name: getSpriteMetadata(s.spriteId)!.displayName } : {}) } // prettier-ignore
+    const name = getSpriteMetadata(s.spriteId)?.displayName
+    const row = {
+      map: map.toString(16),
+      index: s.index,
+      id: s.spriteId,
+      column: s.x,
+      row: s.y,
+      ...(name ? { name } : {}),
+    }
     if ('direct' in a || 'direct' in b) return { ...row, rest: 'special', hidden: false }
     const rest = a.m.refusal ? 'refused' : drew(a.m) ? 'drew' : 'blank'
     const r = modelResult(b.m)
