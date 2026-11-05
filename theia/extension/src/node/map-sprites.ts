@@ -263,15 +263,22 @@ export function drawSprites(
         unverified = unverified ? `${unverified}; ${why}` : why
       }
     }
-    const pixels = res.parts.map(p => upload?.get(p.charNum) ?? getCharPixels(model.vram, p.charNum)) // prettier-ignore
-    // One missing char would draw as a hole, so the whole sprite is marked.
-    if (pixels.some(p => !p)) return placeholder(s, 'charsNotLoaded')
+    const art = res.parts.map(p => upload?.get(p.charNum) ?? getCharPixels(model.vram, p.charNum)) // prettier-ignore
+    // A missing char would draw as a hole: draw the pieces that have art (the sprite's own and its companions alike),
+    // say how many do not, and keep the marker only when none does. `parts` and `pixels` stay index-aligned.
+    const parts = res.parts.filter((_, i) => art[i])
+    const pixels = art.filter(a => a)
+    if (parts.length === 0) return placeholder(s, 'charsNotLoaded')
+    if (parts.length < res.parts.length) {
+      const why = `${res.parts.length - parts.length} of ${res.parts.length} pieces are not drawn: their graphics are not in this map's loaded sprite graphics` // prettier-ignore
+      unverified = unverified ? `${unverified}; ${why}` : why
+    }
     const [ax, ay] = 'anchor' in res && res.anchor ? [res.anchor.x, res.anchor.y] : [pixelX(s), s.y * TILE] // prettier-ignore
     const box = {
-      x0: ax + Math.min(...res.parts.map(p => p.dx)),
-      y0: ay + Math.min(...res.parts.map(p => p.dy)),
-      x1: ax + Math.max(...res.parts.map(p => p.dx)) + 8,
-      y1: ay + Math.max(...res.parts.map(p => p.dy)) + 8,
+      x0: ax + Math.min(...parts.map(p => p.dx)),
+      y0: ay + Math.min(...parts.map(p => p.dy)),
+      x1: ax + Math.max(...parts.map(p => p.dx)) + 8,
+      y1: ay + Math.max(...parts.map(p => p.dy)) + 8,
     }
     const width = box.x1 - box.x0
     const out = new Uint8ClampedArray(width * (box.y1 - box.y0) * 4)
@@ -284,7 +291,7 @@ export function drawSprites(
     // The sprite's own CGRAM writes (WRAM upload list, palette mirror, direct), per sprite.
     const runtime = new Map<number, number>()
     for (const w of ('runtimePalette' in res && res.runtimePalette) || []) runtime.set(w.index, w.bgr555) // prettier-ignore
-    res.parts.forEach((p, i) => {
+    parts.forEach((p, i) => {
       const note = res.paletteNote
       const row = (c: number): RgbaColor => {
         // Only the parts on the row the handler uploads to; another row keeps the level's colors.
@@ -303,7 +310,7 @@ export function drawSprites(
       y: at.y,
       box,
       rgba: base64(out),
-      parts: res.parts.map(p => ({ char: p.charNum, palette: p.palette, flipX: p.flipX, flipY: p.flipY, dx: p.dx, dy: p.dy })), // prettier-ignore
+      parts: parts.map(p => ({ char: p.charNum, palette: p.palette, flipX: p.flipX, flipY: p.flipY, dx: p.dx, dy: p.dy })), // prettier-ignore
       priority: base64(new Uint8ClampedArray(prio.buffer)),
       status: 'drawn',
       ...(unverified ? { unverified } : {}),

@@ -23,8 +23,10 @@ import {
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import {
+  drawSprites,
   frameRun,
   framesOf,
+  modelResult,
   interpParts,
   interpRunner,
   readStream,
@@ -73,6 +75,26 @@ describe('framesOf with companions', () => {
   it('a spawner with no parts of its own is still a frame', () => {
     const m = model([pass(0, [], [piece(2, 16)])])
     expect(framesOf({ m, fixed: false }, spr, LEVEL).frames).toHaveLength(1)
+  })
+})
+
+describe('a companion whose chars are not loaded', () => {
+  const absent = piece(0xff, 16) // char $4FF: not in the 24 loaded
+  it('is left out, the sprite and its other companion are drawn, and the sprite says so', () => {
+    const m = model([pass(0, [piece(1)], [piece(2, 8), absent])])
+    const [d] = drawSprites([spr], { vram: LEVEL.vram, colors: LEVEL.colors } as never, () =>
+      modelResult(m),
+    )
+    expect(d).toMatchObject({ status: 'drawn' })
+    expect(d!.parts!.map(p => p.char).sort()).toEqual([0x401, 0x402])
+    expect(d!.unverified).toMatch(/1 of 3 pieces/)
+  })
+  it('a spawner whose only companion is missing is the marker', () => {
+    const m = model([pass(0, [], [absent])])
+    const [d] = drawSprites([spr], { vram: LEVEL.vram, colors: LEVEL.colors } as never, () =>
+      modelResult(m),
+    )
+    expect(d).toMatchObject({ status: 'placeholder', reason: 'charsNotLoaded' })
   })
 })
 

@@ -280,21 +280,14 @@ export class Machine {
   readonly bus: SpriteBus
   readonly cpu: Cpu65816
   /**
-   * OAM tile bytes written while `$15E9` named this sprite's slot. The game's loop stores the slot it is on
-   * before running it (SMWDisX bank_01.asm:110-125) and each slot takes its OAM index from itself
-   * (bank_01.asm:143-152), so a write made under another slot is that slot's: a companion the sprite's
-   * INIT spawned ($61, $1E; #840) draws in its own slot and is not a part of the spawner. Limit: cluster
-   * sprites (loop at bank_02.asm:15950-15958) and Yoshi's OAM (it sets `$15E9` at bank_01.asm:14344 and the
-   * routine restores the caller's at 10051) run under another `$15E9`, so one whose index equals this slot
-   * is still credited (#809). The grader's parts; in a neighbor run also the map view's.
+   * OAM tile bytes written while `$15E9` named this sprite's slot: its parts (the grader's; the map view's in a
+   * neighbor run). Why a write under another slot is not its own, and the limit: docs/sprites/grader-triage.md
+   * (cause C; SMWDisX bank_01.asm:110-125, 143-152).
    */
   private own = new Set<number>()
   /**
-   * Plain run only: every other tile write, whatever `$15E9` held (a spawned sprite's slot, a cluster index,
-   * Yoshi's), so `own` plus `companion` is the set of all tile writes the map view drew before #840. The map
-   * view draws them with the spawner (D52); the grader does not (`own` only). A neighbor run leaves this empty:
-   * its pictures were the sprite's own writes alone (#841), a placed neighbor drawing on its own turn. A byte
-   * belongs to the last set that wrote it, so a reused OAM tile is decoded once.
+   * Plain run only: every other tile write, whatever `$15E9` held, so own + companion is all the map view draws
+   * (D52; the grader reads `own` only). A neighbor run keeps none (#841). A byte belongs to its last writer.
    */
   private companion = new Set<number>()
   /** The sprite's position at the first OAM write since `clearOamWrites` (the capture's sampling moment). */

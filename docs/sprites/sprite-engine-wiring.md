@@ -238,7 +238,7 @@ read through `drawSpriteParts`; no emulator was run.
 - Each sprite is one bitmap at anchor + `dx`/`dy`, never snapped to the grid.
   A sprite the interpreter refuses (`refused: ...`, with its reason: an id
   past the table, an unknown entry shape, a spent step budget), one that draws
-  no OAM tile (`drew no OAM tile`), or whose chars are not in the level's
+  no OAM tile (`drew no OAM tile`), or none of whose chars are in the level's
   sprite set (`charsNotLoaded`), is a 16 x 16 marker at the anchor with its
   hex id. That includes the non-visual sprites (auto-scroll, generators, layer
   control), whose real treatment is deferred.

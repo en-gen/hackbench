@@ -159,8 +159,14 @@ write as the sprite's own part only when `$15E9` equals the sprite's slot, on ev
   (`SpawnedChildren`, `FiveEeries`) use it, so a spawner that draws only through its companions still draws. The grader
   and sprite report read `parts` only. A write under a `$15E9` that names no spawned slot (id 84 in the synthetic
   cart) is a companion, never a part, unless the value equals the sprite's own slot.
-- Remaining limit: a cluster sprite whose index equals the sprite's slot, and Yoshi's OAM (it sets `$15E9` at `bank_01.asm:14344`; `CODE_01C9E2` restores the caller's at 10051), are still credited to the sprite. Not a regression
-  (the old code credited all of it); the cluster OAM leak work (#809, `ClusterOamLeak`) is the follow-up.
+- Ownership rule (`Machine.own` / `Machine.companion`): the game's sprite loop stores the slot it is on in `$15E9`
+  before running it (`bank_01.asm:110-125`) and each slot takes its OAM index from itself (`bank_01.asm:143-152`), so a
+  tile write made under another slot is that slot's. `own` is the writes under the sprite's slot (the grader's parts);
+  `companion` is every other write in a plain run, so `own` plus `companion` equals what the map view drew before #840.
+- Remaining limit: a cluster sprite whose index equals the sprite's slot (the loop at `bank_02.asm:15950-15958`), and
+  Yoshi's OAM (it sets `$15E9` at `bank_01.asm:14344`; `CODE_01C9E2` restores the caller's at 10051), run under
+  another `$15E9` and are still credited to the sprite when the index matches. Not a regression (the old code credited
+  all of it); the cluster OAM leak work (#809, `ClusterOamLeak`) is the follow-up.
 
 Grader, `spriteGrade.captures.test.ts` (1957 records, 'rom' seed, vanilla ROM, `layers_v5`, one machine, measured
 2026-11-04): develop `a028e0dc` alone exact 1906, close 17, wrong 33, empty 1; the #840 branch merged with it exact
