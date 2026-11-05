@@ -102,3 +102,4 @@ How the map view draws them, and what each step rests on.
   screen's Layer 2, under Layer 1: owner ruling), not beside `l2Low` / `l2High`.
 - Not modelled: flicker (the map shows tile $E2), other cluster sprites ($E2-$E5),
   Layer 2 scrolling after level start.
+- The call-path gate shared with the ring: [cluster-path-gate.md](cluster-path-gate.md).

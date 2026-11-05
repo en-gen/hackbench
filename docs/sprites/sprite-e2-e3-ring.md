@@ -89,3 +89,4 @@ All line numbers are SMWDisX `bank_02.asm` unless a bank is named. No assembly i
 - Not modelled: the turning (the map holds angle 0), the animation (EffFrame selects the
   tile; the map shows the image's frame), the contact test, a second simultaneous ring, a
   ring's angle after earlier rings, and any ring in a vertical map.
+- The call-path gate shared with the castle flames: [cluster-path-gate.md](cluster-path-gate.md).
