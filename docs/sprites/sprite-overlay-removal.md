@@ -552,14 +552,15 @@ is not reverted and keeps passing with the overlays back.
 Two wrinkles the first run did not surface, both cheap and both worth
 knowing before you start:
 
-- **The pre-commit hook rejects the revert.** Rule 2 of
-  `tools/scripts/check-staged-content.sh` blocks em-dashes in ADDED
+- **The CI content check rejects the revert.** Rule 2 of
+  `tools/scripts/check-content.mjs` (`range` mode in CI; the pre-commit
+  hook that once ran it was removed in #1183) blocks em-dashes in ADDED
   lines, and restored lines are added lines. `overlays/primitives.ts`,
   `overlays/patrolPath.ts`, `SpriteAppearance.ts`, `sprites/CLAUDE.md`
   and several appearances all trip it. Verified directly by staging the
   restored `primitives.ts` alone and running the script: BLOCKED, exit 1.
-  Use `git commit --no-verify` and say in the PR that the reason is a
-  revert of pre-rule content.
+  CI has no bypass, so a revert needs those lines rewritten without
+  em-dashes.
 - **Two prose notes need deleting by hand.** The corrections commit added
   a paragraph to `sprites/CLAUDE.md` saying no Appearance calls the
   behavior methods, and changed a `// Consumes:` example in

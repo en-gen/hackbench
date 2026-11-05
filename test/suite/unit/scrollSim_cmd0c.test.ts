@@ -38,15 +38,11 @@ const LEVELS: readonly { id: string; lastScreenHoriz: number }[] = [
 // alignment is verified by other tests.
 const CHECK_FIELDS: readonly FieldKey[] = ['l1x', 'l1y', 'l1xspd', 'l1xupd', 'nl1x', 'nl1y']
 
-describe.skipIf(!vanillaRomPresent)('scrollSim - cmd $0C auto-scroll level validation', () => {
+describe('scrollSim - cmd $0C auto-scroll level validation', () => {
   for (const lvl of LEVELS) {
     const csv = `${FIXTURES}/${lvl.id}/l2_scroll.csv`
-    describe(`$${lvl.id.toUpperCase()}`, () => {
+    describe.skipIf(!vanillaRomPresent || !fs.existsSync(csv))(`$${lvl.id.toUpperCase()}`, () => {
       it('post-setup state matches capture row 1', () => {
-        if (!fs.existsSync(csv)) {
-          console.warn(`[skip] ${csv} not found`)
-          return
-        }
         const cap = loadCapture(csv)
         const sim = simFromCapture(cap[0], { lastScreenHoriz: lvl.lastScreenHoriz })
         const m = firstMismatch(sim.stateAtFrame(0), cap[0], CHECK_FIELDS)
@@ -54,7 +50,6 @@ describe.skipIf(!vanillaRomPresent)('scrollSim - cmd $0C auto-scroll level valid
       })
 
       it('every active captured frame matches', () => {
-        if (!fs.existsSync(csv)) return
         const cap = loadCapture(csv)
         const sim = simFromCapture(cap[0], { lastScreenHoriz: lvl.lastScreenHoriz })
         // Stop at game freeze (Mario stops moving in both axes - e.g.

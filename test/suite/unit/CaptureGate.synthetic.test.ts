@@ -12,6 +12,7 @@
  * encode/decode round trip is covered by Map16.subtileWord.test.ts - not
  * duplicated here.
  */
+import { hexs } from '../../../src/rom/hex'
 import { describe, it, expect } from 'vitest'
 import {
   ALLOWED_PIPE_BUG_H_S0,
@@ -23,7 +24,6 @@ import {
   checkPalette,
   checkPipes,
   citedWords,
-  hex,
   parsePipeWrites,
   quadWords,
   usedByStrip,
@@ -66,7 +66,7 @@ describe('checkGrid', () => {
 
   it('reports a wrong id by cell', () => {
     const { mismatches } = checkGrid([romRow(0x25, 1, { 3: 0x99 })], gridRow(0x25), META, 16, false)
-    expect(mismatches).toEqual([{ table: 'grid', cell: '3,0', expected: hex(0x25), actual: hex(0x99) }]) // prettier-ignore
+    expect(mismatches).toEqual([{ table: 'grid', cell: '3,0', expected: hexs(0x25), actual: hexs(0x99) }]) // prettier-ignore
   })
 
   it('reports a dimension mismatch (wrong row count) before any cell', () => {
@@ -93,7 +93,7 @@ describe('checkGrid', () => {
     // prettier-ignore
     const rom = [romRow(0x25, 1, { 2: 0x99 }).slice(0, 10)]
     const { mismatches } = checkGrid(rom, gridRow(0x25), META, 16, false)
-    expect(mismatches).toContainEqual({ table: 'grid', cell: '2,0', expected: hex(0x25), actual: hex(0x99) }) // prettier-ignore
+    expect(mismatches).toContainEqual({ table: 'grid', cell: '2,0', expected: hexs(0x25), actual: hexs(0x99) }) // prettier-ignore
   })
 
   it('a write past the level end is an informational overflow note, never a mismatch (the width rule)', () => {
@@ -107,7 +107,7 @@ describe('checkGrid', () => {
     const rom = [[...romRow(0x25, 1, { 2: 0x99 }), 0x30]]
     const { mismatches, overflow } = checkGrid(rom, gridRow(0x25), META, 16, false)
     expect(mismatches).toEqual([
-      { table: 'grid', cell: '2,0', expected: hex(0x25), actual: hex(0x99) },
+      { table: 'grid', cell: '2,0', expected: hexs(0x25), actual: hexs(0x99) },
     ])
     expect(overflow).toHaveLength(1)
   })
@@ -160,7 +160,7 @@ describe('checkDefs', () => {
     defs.set([capTl & 0xff, capTl >> 8], 0)
     const out = checkDefs([romTile], [], defs, ORDER, false)
     expect(out).toEqual([
-      { table: 'defs', cell: '$0 q0', expected: hex(capTl), actual: hex(0x2001) },
+      { table: 'defs', cell: '$0 q0', expected: hexs(capTl), actual: hexs(0x2001) },
     ])
   })
 
@@ -176,7 +176,7 @@ describe('checkDefs', () => {
     for (let i = 0; i < 4; i++) defs.set([words[i]! & 0xff, words[i]! >> 8], i * 2)
     const out = checkDefs([bad], [], defs, ORDER, false)
     expect(out).toHaveLength(1)
-    expect(out[0]!.actual).toBe(hex(0x99))
+    expect(out[0]!.actual).toBe(hexs(0x99))
   })
 
   it('reports a wrong def above $100', () => {
@@ -185,7 +185,7 @@ describe('checkDefs', () => {
     tiles[id] = tile(id, 0x99)
     const defs = new Uint8Array((id + 1) * 8)
     const out = checkDefs(tiles, [], defs, ORDER, false)
-    expect(out).toEqual([{ table: 'defs', cell: `${hex(id)} q0`, expected: hex(0), actual: hex(0x99) }]) // prettier-ignore
+    expect(out).toEqual([{ table: 'defs', cell: `${hexs(id)} q0`, expected: hexs(0), actual: hexs(0x99) }]) // prettier-ignore
   })
 
   it('reports a tiles/defs length mismatch instead of silently truncating', () => {
@@ -197,7 +197,7 @@ describe('checkDefs', () => {
     const tiles = Array.from({ length: PIPE_LO + 1 }, (_, id) => (id === PIPE_LO ? tile(id, 0x99) : tile(id))) // prettier-ignore
     const defs = new Uint8Array(tiles.length * 8) // capture says char 0 everywhere
     const out = checkDefs(tiles, [], defs, ORDER, false)
-    expect(out).toEqual([{ table: 'defs', cell: `${hex(PIPE_LO)} q0`, expected: hex(0), actual: hex(0x99) }]) // prettier-ignore
+    expect(out).toEqual([{ table: 'defs', cell: `${hexs(PIPE_LO)} q0`, expected: hexs(0), actual: hexs(0x99) }]) // prettier-ignore
   })
 
   it.each([
@@ -207,7 +207,7 @@ describe('checkDefs', () => {
     const tiles = Array.from({ length: id + 1 }, (_, i) => (i === id ? tile(i, 0x99) : tile(i)))
     const defs = new Uint8Array(tiles.length * 8)
     const out = checkDefs(tiles, [], defs, ORDER, true)
-    expect(out).toContainEqual({ table: 'defs', cell: `${hex(id)} q0`, expected: hex(0), actual: hex(0x99) }) // prettier-ignore
+    expect(out).toContainEqual({ table: 'defs', cell: `${hexs(id)} q0`, expected: hexs(0), actual: hexs(0x99) }) // prettier-ignore
   })
 
   it('skips the pipe range only when an app table is present, and only inside $133..$13A', () => {
@@ -231,7 +231,7 @@ describe('checkDefs', () => {
     )
     const defs = new Uint8Array(tiles.length * 8)
     const out = checkDefs(tiles, pipeVariants, defs, ORDER, true)
-    expect(out).toEqual([{ table: 'defs', cell: `${hex(PIPE_LO)} (compiled default)`, expected: 'one of the 4 MAP16AppTable variants', actual: '$77,$0,$0,$0' }]) // prettier-ignore
+    expect(out).toEqual([{ table: 'defs', cell: `${hexs(PIPE_LO)} (compiled default)`, expected: 'one of the 4 MAP16AppTable variants', actual: '$77,$0,$0,$0' }]) // prettier-ignore
   })
 })
 
@@ -282,7 +282,7 @@ describe('checkPipes', () => {
   it('refuses rather than default when the capture lo/hi is not $133/$13A', () => {
     const writes: PipeWrites = { lo: 0x100, hi: 0x107, builds: [], unresolved: [] }
     const { mismatches } = checkPipes(pipeVariants, writes, false, false)
-    expect(mismatches).toEqual([{ table: 'pipes', cell: 'range', expected: `${hex(PIPE_LO)}..${hex(PIPE_HI)}`, actual: '$100..$107' }]) // prettier-ignore
+    expect(mismatches).toEqual([{ table: 'pipes', cell: 'range', expected: `${hexs(PIPE_LO)}..${hexs(PIPE_HI)}`, actual: '$100..$107' }]) // prettier-ignore
   })
 
   it('N10: zero builds and the grid does not cite the pipe range is clean, nothing to check', () => {
@@ -672,14 +672,14 @@ describe('checkChars', () => {
   it('reports a wrong char pixel', () => {
     const capVram = planarChar(0, 5, 2, 0) // differs: value 2, not 3
     const out = checkChars(new Set([5]), vram, null, capVram, 0)
-    expect(out).toEqual([{ table: 'chars', cell: hex(5), expected: [...planarPixels(capVram, 0, 5, 0)].join(','), actual: [...flatChar(3)].join(',') }]) // prettier-ignore
+    expect(out).toEqual([{ table: 'chars', cell: hexs(5), expected: [...planarPixels(capVram, 0, 5, 0)].join(','), actual: [...flatChar(3)].join(',') }]) // prettier-ignore
   })
 
   it('N41: reports a char the ROM has no data for at all (a null ROM char), not "unavailable" silently passing', () => {
     // prettier-ignore
     const capVram = planarChar(0, 99, 3) // char 99 is cited but out of range of every VRAM slot
     const out = checkChars(new Set([99]), vram, null, capVram, 0)
-    expect(out).toEqual([{ table: 'chars', cell: hex(99), expected: [...planarPixels(capVram, 0, 99, 0)].join(','), actual: 'unavailable' }]) // prettier-ignore
+    expect(out).toEqual([{ table: 'chars', cell: hexs(99), expected: [...planarPixels(capVram, 0, 99, 0)].join(','), actual: 'unavailable' }]) // prettier-ignore
   })
 
   it('resolves a pixel using planes 2-3 (value 4-15), not just the low 2 bits', () => {
@@ -767,14 +767,14 @@ describe('checkPalette', () => {
 
   it('reports a wrong static color on a cited row', () => {
     const out = checkPalette(new Set([0]), staticColors, new Map(), cgram(0, 0x7fff))
-    expect(out).toEqual([{ table: 'palette', cell: hex(0), expected: '255,255,255', actual: '8,16,24' }]) // prettier-ignore
+    expect(out).toEqual([{ table: 'palette', cell: hexs(0), expected: '255,255,255', actual: '8,16,24' }]) // prettier-ignore
   })
 
   it('reports an animated palette index whose ROM-derived frames do not match any of them (M25)', () => {
     const c = cgram(0, 0x7fff) // observed color widens to (255,255,255)
     const animByIdx = new Map([[0, [[33, 41, 49, 255] as [number, number, number, number], [1, 2, 3, 255] as [number, number, number, number]]]]) // prettier-ignore
     const out = checkPalette(new Set([0]), staticColors, animByIdx, c)
-    expect(out).toEqual([{ table: 'palette', cell: hex(0), expected: '255,255,255', actual: '8,16,24' }]) // prettier-ignore
+    expect(out).toEqual([{ table: 'palette', cell: hexs(0), expected: '255,255,255', actual: '8,16,24' }]) // prettier-ignore
   })
 
   it('passes a color that matches one of its ROM-animated frames, not the static value', () => {
@@ -795,6 +795,6 @@ describe('checkPalette', () => {
     const bad = cgram(1 * 16 + 3, 0x7fff) // row 1, col 3 wrong
     expect(checkPalette(new Set([0]), staticColors, new Map(), good)).toEqual([])
     const out = checkPalette(new Set([0, 1]), staticColors, new Map(), bad)
-    expect(out).toEqual([{ table: 'palette', cell: hex(1 * 16 + 3), expected: '255,255,255', actual: '8,16,24' }]) // prettier-ignore
+    expect(out).toEqual([{ table: 'palette', cell: hexs(1 * 16 + 3), expected: '255,255,255', actual: '8,16,24' }]) // prettier-ignore
   })
 })

@@ -233,3 +233,37 @@ describe('getSpriteStreamLength', () => {
     expect(getSpriteStreamLength(Buffer.from([0x00]))).toBe(1)
   })
 })
+
+// ── shared object-triple decode (synthetic, no ROM) ──────────────────────────
+
+describe('object triple decode, horizontal', () => {
+  const parse = (body: number[]) =>
+    parseLevelObjects(makeLevel(ZERO_HEADER, body), SYNTHETIC_VERTICAL_TABLE).objects
+  const parseL2 = (body: number[]) => parseL2Objects(makeLevel(ZERO_HEADER, body), 1)
+
+  it('highCoord (b0 bit 4) adds 16 to y, in L1 and L2', () => {
+    for (const objs of [parse([0x13, 0x25, 0x00]), parseL2([0x13, 0x25, 0x00])]) {
+      expect(objs[0]).toMatchObject({ x: 5, y: 19, objectNumber: 2, highCoord: true })
+    }
+    expect(parse([0x03, 0x25, 0x00])[0]).toMatchObject({ y: 3, highCoord: false })
+  })
+
+  it('object number high bits are b0 bits 6-5 shifted to bits 5-4', () => {
+    for (const [b0, num] of [
+      [0x20, 0x11],
+      [0x40, 0x21],
+      [0x60, 0x31],
+    ] as const) {
+      expect(parse([b0, 0x10, 0x00])[0]!.objectNumber).toBe(num)
+      expect(parseL2([b0, 0x10, 0x00])[0]!.objectNumber).toBe(num)
+    }
+  })
+
+  it('extended $01 jumps the screen counter to b0 & $1F', () => {
+    // Extended 01 (b1 high nibble 0, b0 bits 6-5 clear) with b0 low 5 bits $1B.
+    const body = [0x1b, 0x00, 0x01, 0x00, 0x12, 0x00]
+    for (const objs of [parse(body), parseL2(body)]) {
+      expect(objs[1]).toMatchObject({ screen: 0x1b, x: 0x1b * 16 + 2 })
+    }
+  })
+})

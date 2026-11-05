@@ -23,7 +23,7 @@ import { buildBgTiles, buildL2 } from './L2Factory'
 import { buildL3 } from './L3Factory'
 import { readInitialLayer1YPos } from '../L3Loader'
 import { entrancePositionGate } from '../SubmapFlagGate'
-import { readMapEntrances } from '../ReadMapEntrances'
+import { entrancesOfMap, readMapEntrances } from '../ReadMapEntrances'
 import { readMarioStartPos } from '../MarioStartPos'
 import type { MapPayload } from './MapPayload'
 import { buildPalette } from './palette/PaletteFactory'
@@ -169,7 +169,7 @@ export function buildMapWithGraph(
 
   // How the game enters this map (the exit graph), which picks the entrance its initial camera
   // Y is read from; undefined (graph unavailable) reads the primary entrance.
-  const via = entrancesFor(rom, overrides)?.get(levelId)
+  const via = entrancesOfMap(entrancesFor(rom, overrides), levelId)
 
   // Initial Layer1YPos (camera Y) used by L2/L3 render-time offset math.
   // Hoisted above buildL2 so it can flow into computeL2ScrollRange.

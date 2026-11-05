@@ -1,0 +1,3 @@
+### Added
+
+- Maps, Graphics, Palettes and Audio explorers can be searched: press Ctrl+F or the Find button, then type to filter by number (`109`, `$109`, `0x109`, `1fc`) or part of a name (spaces allowed). Enter opens the selected match, Up and Down step through matches, and Escape clears the filter and puts every folder back open or closed as it was before. Maps also match the names in the project's `meta/aliases.json`; an unreadable aliases.json (bad JSON or not an object) shows a note in the Maps explorer instead of being ignored. The Find box now has a real text field that takes the cursor when it opens. A map row shows its project name, and a palette group row shows its row number, so what you search for is what you see.

@@ -5,8 +5,7 @@
  * Vitest rather than only through the Playwright suite.
  */
 import { PaletteColorDto } from '../common/palette-protocol'
-
-const hex = (n: number, width: number): string => n.toString(16).toUpperCase().padStart(width, '0')
+import { hex2, hex4, hex6 } from '../../../../src/rom/hex'
 
 /**
  * Recovers the SNES BGR555 word from an RGBA colour already expanded by
@@ -19,12 +18,14 @@ export function rgbaToBgr555(c: PaletteColorDto): number {
   return ((c.r >> 3) & 0x1f) | (((c.g >> 3) & 0x1f) << 5) | (((c.b >> 3) & 0x1f) << 10)
 }
 
+/** A swatch colour as the raw 15-bit ROM word, because this view lists ROM values, not CSS colours. */
 export function formatBgr555(c: PaletteColorDto): string {
-  return `$${hex(rgbaToBgr555(c), 4)}`
+  return `$${hex4(rgbaToBgr555(c))}`
 }
 
+/** Placeholder text for an unverified address, so the view never shows a guessed one. */
 export function formatRomAddr(addr: number | null): string {
-  return addr !== null ? `$${hex(addr, 6)}` : 'address unverified'
+  return addr !== null ? `$${hex6(addr)}` : 'address unverified'
 }
 
 /**
@@ -59,5 +60,5 @@ export function bgr555HexToCssHex(bgrHex: string): string {
   const g5 = (word >> 5) & 0x1f
   const b5 = (word >> 10) & 0x1f
   const expand = (c5: number): number => (c5 << 3) | (c5 >> 2)
-  return `#${[expand(r5), expand(g5), expand(b5)].map(n => hex(n, 2)).join('')}`
+  return `#${[expand(r5), expand(g5), expand(b5)].map(n => hex2(n)).join('')}`
 }

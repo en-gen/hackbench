@@ -1,13 +1,13 @@
 /**
- * The synthetic cart's ids 34 to 37 (#840): see the Ids list in syntheticSpriteRom.ts. Hand-written
+ * The synthetic cart's ids 80 to 85 (#840): see the Ids list in syntheticSpriteRom.ts. Hand-written
  * test opcodes, no ROM bytes. Split out to keep that file under the content gate's byte-token limit.
  */
 
-/** INIT of id 34: copy this sprite into the slot below it as id 35, status 8 (as $61's INIT does, bank_02.asm:14503-14533). */
+/** INIT of id 80: copy this sprite into the slot below it as id 81, status 8 (as $61's INIT does, bank_02.asm:14503-14534). */
 // prettier-ignore
 const SPAWN_BELOW: number[] = [
   0xca,                   // DEX: the slot below
-  0xa9, 0x23, 0x95, 0x9e, // LDA #35 / STA $9E,X
+  0xa9, 0x51, 0x95, 0x9e, // LDA #81 / STA $9E,X
   0xa9, 0x08, 0x9d, 0xc8, 0x14, // LDA #8 / STA $14C8,X
   0xe8, 0xb5, 0xe4, 0xca, 0x95, 0xe4, // X low: INX / LDA $E4,X / DEX / STA $E4,X
   0xe8, 0xb5, 0xd8, 0xca, 0x95, 0xd8, // Y low, the same way
@@ -15,11 +15,11 @@ const SPAWN_BELOW: number[] = [
   0x60,
 ]
 
-/** INIT of id 37: id 34's INIT, but into the slot above (the real $1E puts its cloud above Lakitu). */
+/** INIT of id 83: id 80's INIT, but into the slot above (the real $1E puts its cloud above Lakitu). */
 // prettier-ignore
 const SPAWN_ABOVE: number[] = [
   0xe8,                   // INX: the slot above
-  0xa9, 0x23, 0x95, 0x9e, // LDA #35 / STA $9E,X
+  0xa9, 0x51, 0x95, 0x9e, // LDA #81 / STA $9E,X
   0xa9, 0x08, 0x9d, 0xc8, 0x14, // LDA #8 / STA $14C8,X
   0xca, 0xb5, 0xe4, 0xe8, 0x95, 0xe4, // X low: DEX / LDA $E4,X / INX / STA $E4,X
   0xca, 0xb5, 0xd8, 0xe8, 0x95, 0xd8, // Y low, the same way
@@ -27,7 +27,7 @@ const SPAWN_ABOVE: number[] = [
   0x60,
 ]
 
-/** MAIN of id 36: two 8x8 pieces, at OAM index and index + 4, from the sprite's own slot. */
+/** MAIN of id 82: two 8x8 pieces, at OAM index and index + 4, from the sprite's own slot. */
 // prettier-ignore
 const DRAW_TWO: number[] = [
   0xbc, 0xea, 0x15,                                           // LDY $15EA,X
@@ -41,7 +41,7 @@ const DRAW_TWO: number[] = [
   0x60,
 ]
 
-/** MAIN of id 38: one OAM entry (100) written while $15E9 is 15, a value that names no sprite slot (as a cluster sprite's index would), then $15E9 put back. */
+/** MAIN of id 84: one OAM entry (100) written while $15E9 is 15, a value that names no sprite slot (as a cluster sprite's index would), then $15E9 put back. */
 // prettier-ignore
 const WRITE_UNSPAWNED: number[] = [
   0xa9, 0x0f, 0x8d, 0xe9, 0x15, // LDA #15 / STA $15E9
@@ -52,8 +52,8 @@ const WRITE_UNSPAWNED: number[] = [
 ]
 
 export function putCompanionRoutines(put: (snes: number, bytes: number[]) => void): void {
-  put(0x019600, SPAWN_BELOW)
-  put(0x019680, DRAW_TWO)
-  put(0x019700, SPAWN_ABOVE)
-  put(0x019780, WRITE_UNSPAWNED)
+  put(0x01a600, SPAWN_BELOW)
+  put(0x01a680, DRAW_TWO)
+  put(0x01a700, SPAWN_ABOVE)
+  put(0x01a780, WRITE_UNSPAWNED)
 }

@@ -4,6 +4,7 @@
  * read behind an opcode gate; derivations and corpus measurements are in
  * docs/rom/pswitch-button-art.md.
  */
+import { le16 } from './bytes'
 import { RomFile } from './RomFile'
 import { formatAddr } from './addressing'
 import { matchesBytes, WILD, type BytePattern } from './BytePattern'
@@ -84,8 +85,8 @@ function readParts(rom: RomFile, base: number, parts: Part[], where: string): Bu
 }
 
 const isRefusal = (r: Buffer[] | Refusal): r is Refusal => !Array.isArray(r)
-const word = (b: Buffer, i: number): number => b[i]! | (b[i + 1]! << 8)
 
+/** Refuses (never guesses) when the stun dispatch or any art part does not match the stock layout, so a hacked ROM yields a refusal, not wrong art. */
 export function readPSwitchButtonArt(rom: RomFile): PSwitchButtonArtResult {
   const P = PSWITCH_PARTS
   const dispatch = readParts(rom, STUN_DISPATCH, P.dispatch, 'the sprite-stun dispatch')
@@ -97,7 +98,7 @@ export function readPSwitchButtonArt(rom: RomFile): PSwitchButtonArtResult {
   const unpressedAt = branchTarget(head![4]!, stunPowAt + 3)
   const unpressed = readParts(rom, unpressedAt, P.unpressedSite, 'the unpressed-tile site')
   if (isRefusal(unpressed)) return unpressed
-  const smushedAt = (stunPowAt & 0xff0000) | word(jsr!, 1)
+  const smushedAt = (stunPowAt & 0xff0000) | le16(jsr!, 1)
   const smushed = readParts(rom, smushedAt, P.smushedGfxRt, 'SmushedGfxRt')
   if (isRefusal(smushed)) return smushed
   const [xSite, ySite, tileSite] = smushed
@@ -149,10 +150,10 @@ function readPSwitchPal(
       ok: false,
       reason: `the sprite init table's $3E entry (${formatAddr(entryAddr)}) is not readable`,
     }
-  const initAt = (CALL_SPRITE_INIT & 0xff0000) | word(entry, 0)
+  const initAt = (CALL_SPRITE_INIT & 0xff0000) | le16(entry, 0)
   const init = readParts(rom, initAt, P.initPSwitch, 'InitPSwitch')
   if (isRefusal(init)) return init
-  const palAt = (initAt & 0xff0000) | word(init[2]!, 1)
+  const palAt = (initAt & 0xff0000) | le16(init[2]!, 1)
   const pal = rom.readAt(palAt, 2)
   if (!pal) return { ok: false, reason: `PSwitchPal (${formatAddr(palAt)}) is not readable` }
   // SubSprGfx2Entry1 ORs these in after skipping its EOR (bank_01.asm:4166-4173), so a

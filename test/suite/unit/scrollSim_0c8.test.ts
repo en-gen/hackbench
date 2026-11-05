@@ -25,125 +25,42 @@
 import { describe, it, expect } from 'vitest'
 import * as fs from 'fs'
 import { buildScrollSimulator, type ScrollState } from '../../../src/rom/scrollSim'
-import { loadVanillaRom, vanillaRomPresent } from './scrollSim_capture'
+import {
+  loadCapture,
+  firstMismatch as sharedFirstMismatch,
+  loadVanillaRom,
+  vanillaRomPresent,
+  type CaptureRow,
+  type FieldKey,
+} from './scrollSim_capture'
 import { join } from 'path'
 import { MESEN_FIXTURES_DIR } from './fixtures/loadMesenFixture'
 
 const CSV = join(MESEN_FIXTURES_DIR, '0c8', 'l2_scroll.csv')
 const FRAME_LIMIT = 2470 // first divergence at this frame; verify up to here
 
-interface CaptureRow {
-  frame: number
-  l1x: number
-  l1y: number
-  l2x: number
-  l2y: number
-  l1cmd: number
-  l2cmd: number
-  l1bits: number
-  l2bits: number
-  l1type: number
-  l2type: number
-  l1timer: number
-  l2timer: number
-  l1xspd: number
-  l1yspd: number
-  l2xspd: number
-  l2yspd: number
-  l1xupd: number
-  l1yupd: number
-  l2xupd: number
-  l2yupd: number
-  nl1x: number
-  nl1y: number
-  nl2x: number
-  nl2y: number
-  l1dir: number
-  shakeY: number
-  marioX: number
-  marioY: number
-  horizL2: number
-  vertL2: number
-  scrollIdx: number
-}
+/** Fields this level's capture is compared on (the rest diverge or are unused). */
+const FIELDS: readonly FieldKey[] = [
+  'l1x',
+  'l1y',
+  'l2x',
+  'l2y',
+  'l1type',
+  'l2type',
+  'l1xspd',
+  'l2xspd',
+  'nl1x',
+  'nl1y',
+  'nl2x',
+  'nl2y',
+]
+const firstMismatch = (s: ScrollState, r: CaptureRow) => sharedFirstMismatch(s, r, FIELDS)
 
-function loadCapture(): CaptureRow[] {
-  const text = fs.readFileSync(CSV, 'utf8')
-  const lines = text.trim().split('\n')
-  const header = lines[0].split(',')
-  const idx: Record<string, number> = {}
-  header.forEach((name, i) => {
-    idx[name] = i
-  })
-  return lines.slice(1).map(line => {
-    const c = line.split(',').map(s => parseInt(s, 10))
-    return {
-      frame: c[idx.frame],
-      l1x: c[idx.l1x],
-      l1y: c[idx.l1y],
-      l2x: c[idx.l2x],
-      l2y: c[idx.l2y],
-      l1cmd: c[idx.l1cmd],
-      l2cmd: c[idx.l2cmd],
-      l1bits: c[idx.l1bits],
-      l2bits: c[idx.l2bits],
-      l1type: c[idx.l1type],
-      l2type: c[idx.l2type],
-      l1timer: c[idx.l1timer],
-      l2timer: c[idx.l2timer],
-      l1xspd: c[idx.l1xspd],
-      l1yspd: c[idx.l1yspd],
-      l2xspd: c[idx.l2xspd],
-      l2yspd: c[idx.l2yspd],
-      l1xupd: c[idx.l1xupd],
-      l1yupd: c[idx.l1yupd],
-      l2xupd: c[idx.l2xupd],
-      l2yupd: c[idx.l2yupd],
-      nl1x: c[idx.nl1x],
-      nl1y: c[idx.nl1y],
-      nl2x: c[idx.nl2x],
-      nl2y: c[idx.nl2y],
-      l1dir: c[idx.l1dir],
-      shakeY: c[idx.shakeY],
-      marioX: c[idx.marioX],
-      marioY: c[idx.marioY],
-      horizL2: c[idx.horizL2],
-      vertL2: c[idx.vertL2],
-      scrollIdx: c[idx.scrollIdx],
-    }
-  })
-}
-
-function firstMismatch(s: ScrollState, r: CaptureRow): string | null {
-  const checks: [string, number, number][] = [
-    ['l1x', s.layer1XPos, r.l1x],
-    ['l1y', s.layer1YPos, r.l1y],
-    ['l2x', s.layer2XPos, r.l2x],
-    ['l2y', s.layer2YPos, r.l2y],
-    ['l1type', s.layer1ScrollType, r.l1type],
-    ['l2type', s.layer2ScrollType, r.l2type],
-    ['l1xspd', s.layer1ScrollXSpeed, r.l1xspd],
-    ['l2xspd', s.layer2ScrollXSpeed, r.l2xspd],
-    ['nl1x', s.nextLayer1XPos, r.nl1x],
-    ['nl1y', s.nextLayer1YPos, r.nl1y],
-    ['nl2x', s.nextLayer2XPos, r.nl2x],
-    ['nl2y', s.nextLayer2YPos, r.nl2y],
-  ]
-  for (const [name, sim, cap] of checks) {
-    if (sim !== cap) return `${name} sim=${sim} cap=${cap}`
-  }
-  return null
-}
-
-describe.skipIf(!vanillaRomPresent)(
+describe.skipIf(!vanillaRomPresent || !fs.existsSync(CSV))(
   'scrollSim - $0C8 capture validation (cmd $01 / L2 cmd $09)',
   () => {
     it('frame 1 matches the capture after setup', () => {
-      if (!fs.existsSync(CSV)) {
-        console.warn(`[skip] ${CSV} not found`)
-        return
-      }
-      const cap = loadCapture()
+      const cap = loadCapture(CSV)
       const r0 = cap[0]
       const sim = buildScrollSimulator(loadVanillaRom(), {
         layer1XPos: r0.l1x,
@@ -169,8 +86,7 @@ describe.skipIf(!vanillaRomPresent)(
     })
 
     it(`first ${FRAME_LIMIT} frames match the capture column-for-column`, () => {
-      if (!fs.existsSync(CSV)) return
-      const cap = loadCapture()
+      const cap = loadCapture(CSV)
       const r0 = cap[0]
       const sim = buildScrollSimulator(loadVanillaRom(), {
         layer1XPos: r0.l1x,

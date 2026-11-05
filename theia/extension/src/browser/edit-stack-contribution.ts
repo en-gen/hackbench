@@ -74,7 +74,9 @@ export class EditStackContribution implements CommandContribution {
       if (active.busy()) return false // a Save is in flight: this view's own Ctrl+Z must not reach the project stack, which the backend may already have the new layer on
       if (direction === 'undo' ? active.canUndoStroke() : active.canRedoStroke()) return false
     }
-    return handlesEditStack(active?.id, !!this.context.current)
+    const el = document.activeElement
+    const textField = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
+    return handlesEditStack(active?.id, !!this.context.current, textField)
   }
 
   protected async move(direction: 'undo' | 'redo'): Promise<void> {

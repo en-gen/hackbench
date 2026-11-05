@@ -403,7 +403,20 @@ describe('defaultStateDir', () => {
       cwd: scriptsDir,
       encoding: 'utf8',
     }).stdout.trim()
-    return path.join(path.dirname(path.resolve(scriptsDir, out)), '.hackbench-state')
+    return path.dirname(path.resolve(scriptsDir, out))
+  }
+  // Which of the two names the real checkout answers depends on whether it has cut over, so the
+  // real-checkout cases pin the folder and the set of names; fixtures below pin the choice.
+  const expectState = (result: string) => {
+    expect(path.dirname(result)).toBe(expectedMain())
+    expect(['.overwatch', '.hackbench-state']).toContain(path.basename(result))
+  }
+  const fixtureRepo = () => {
+    const main = fs.realpathSync(mkState())
+    spawnSync('git', ['init', '-q', main])
+    const scripts = path.join(main, 'tools', 'scripts')
+    fs.mkdirSync(scripts, { recursive: true })
+    return { main, scripts }
   }
   const noEnv = () => {
     const env = { ...process.env }
@@ -415,8 +428,20 @@ describe('defaultStateDir', () => {
     expect(defaultStateDir(scriptsDir, { HACKBENCH_STATE_DIR: 'C:/x/state' })).toBe('C:/x/state')
   })
 
-  it('without the env var it is <main checkout>/.hackbench-state', () => {
-    expect(defaultStateDir(scriptsDir, {})).toBe(expectedMain())
+  it('without the env var it is the main checkout state folder (.overwatch, or the old name until cutover)', () => {
+    expectState(defaultStateDir(scriptsDir, {}))
+  })
+
+  it('a fixture with a real .hackbench-state answers the old name, run-lock included', () => {
+    const { main, scripts } = fixtureRepo()
+    fs.mkdirSync(path.join(main, '.hackbench-state'))
+    fs.mkdirSync(path.join(main, '.overwatch')) // a stray empty one must not take over
+    expect(defaultStateDir(scripts, {})).toBe(path.join(main, '.hackbench-state'))
+  })
+
+  it('a fixture with neither folder answers .overwatch', () => {
+    const { main, scripts } = fixtureRepo()
+    expect(defaultStateDir(scripts, {})).toBe(path.join(main, '.overwatch'))
   })
 
   it('the result sits beside a real .git directory (main checkout, not a worktree)', () => {
@@ -433,7 +458,7 @@ describe('defaultStateDir', () => {
       cwd: os.tmpdir(),
       env: noEnv(),
     })
-    expect(r.stdout.trim()).toBe(expectedMain())
+    expectState(r.stdout.trim())
   })
 
   it('throws when git cannot resolve the main checkout', () => {
@@ -442,7 +467,7 @@ describe('defaultStateDir', () => {
 
   it('CLI exits 1 with the error instead of failing open', () => {
     const copy = mkState()
-    for (const f of ['run-lock.mjs', 'protocol.mjs', 'run-slots.mjs'])
+    for (const f of ['run-lock.mjs', 'protocol.mjs', 'run-slots.mjs', 'state-dir.mjs'])
       fs.copyFileSync(path.join(scriptsDir, f), path.join(copy, f))
     const r = spawnSync(process.execPath, [path.join(copy, 'run-lock.mjs'), 'status'], {
       encoding: 'utf8',

@@ -11,6 +11,7 @@
  * value that does not parse is a refusal that names the file, never a quiet
  * fall back to detection, and the file is left as the person wrote it.
  */
+import { hex2s } from '../rom/hex'
 import { locateObjectCodeBank, type BankResult, type DataBanks } from '../rom/DataBanks'
 import type { RomFile } from '../rom/RomFile'
 import { readMeta, writeMeta } from './ProjectMeta'
@@ -19,8 +20,6 @@ const FILE = 'meta/data-banks.json'
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
-
-const hexByte = (bank: number): string => '$' + bank.toString(16).toUpperCase().padStart(2, '0')
 
 /** A bank value as stored; throws a reason for anything but "$00".."$FF" or { notFound: string }. */
 function parseBank(v: unknown): BankResult {
@@ -31,7 +30,8 @@ function parseBank(v: unknown): BankResult {
   throw new Error(`objectCode must be a bank like "$0D" or { "notFound": "<reason>" }, got ${JSON.stringify(v)}`) // prettier-ignore
 }
 
-const store = (r: BankResult): unknown => ('bank' in r ? hexByte(r.bank) : { notFound: r.notFound })
+/** Serializes a bank result back to the manifest form `parseBank` accepts, so a round trip is lossless. */
+const store = (r: BankResult): unknown => ('bank' in r ? hex2s(r.bank) : { notFound: r.notFound })
 
 /**
  * The banks for this project. `base` is the unedited base ROM, `baseSha256`

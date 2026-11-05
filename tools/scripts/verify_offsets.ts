@@ -1,4 +1,5 @@
 import { SmwRom } from '../../src/rom/SmwRom'
+import { formatAddr } from '../../src/rom/addressing'
 
 const ROM_PATH = `${process.env.USERPROFILE ?? process.env.HOME}/Super Mario World (USA).vanilla.sfc`
 const rom = SmwRom.open(ROM_PATH)
@@ -8,7 +9,7 @@ function dump(addr: number, len: number, label: string) {
   for (let i = 0; i < len; i++) {
     bytes.push(rom.rom.readByte(addr + i) ?? 0)
   }
-  console.log(`${label} $${addr.toString(16).padStart(6, '0').toUpperCase()}:`)
+  console.log(`${label} ${formatAddr(addr)}:`)
   // break into lines every 16
   for (let i = 0; i < len; i += 16) {
     const slice = bytes

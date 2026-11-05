@@ -34,10 +34,11 @@ function matches(hay: Uint8Array, routine: number[]): number {
 
 describe('no vanilla code bytes in the companion routines', () => {
   it('the window check goes red on a planted copy, at any alignment, and green on a changed byte', () => {
-    const hay = Uint8Array.from([9, 9, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9])
-    expect(matches(hay, [1, 2, 3, 4, 5, 6, 7, 8])).toBe(1)
-    expect(matches(hay, [0, 1, 2, 3, 4, 5, 6, 7, 8])).toBe(1)
-    expect(matches(hay, [1, 2, 3, 4, 5, 6, 7, 0])).toBe(0)
+    const run = [0x13, 0x57, 0x9b, 0xdf, 0x24, 0x68, 0xac, 0xe0]
+    const hay = Uint8Array.from([0x99, 0x99, ...run, 0x99, 0x99])
+    expect(matches(hay, run)).toBe(1)
+    expect(matches(hay, [0x00, ...run])).toBe(1)
+    expect(matches(hay, [...run.slice(0, 7), 0x00])).toBe(0)
   })
 
   it('writes the four routines, each long enough to hold a window', () => {

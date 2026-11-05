@@ -51,270 +51,34 @@ const X = -2
  * width is flag-dependent. The 65816 defines all 256 opcodes, so a decode
  * never meets an unknown byte; the only way to lose sync is a wrong flag.
  *
- * This walk never reads twenty-three entries: the returns, halts, jumps,
- * branches and `REP`/`SEP` all set the next address or add a literal
- * instead (`docs/sprites/sprite-gfx-routine-reading.md` section 8). The L1
- * handler interpreter (`objectHandlers/interpret.ts`) reads every entry for
- * the opcodes it evaluates, through `instructionLength`, so its synthetic
- * tests see a mutation to those.
+ * The sprite walk here never reads twenty-three entries: the returns,
+ * halts, jumps, branches and `REP`/`SEP` all set the next address or add a
+ * literal instead (`docs/sprites/sprite-gfx-routine-reading.md` section 8).
+ * Two other readers do read them: the L1 handler interpreter
+ * (`objectHandlers/interpret.ts`) for the opcodes it evaluates, and the
+ * palette-animation walk (`PaletteAnimationDetect.ts`), which steps over the
+ * eight conditional branches, `$FC`, `$CB` and `$DB` by length.
+ * `HandlerWalkInsnLen.synthetic.test.ts` goes red when one of those entries
+ * changes (planted `$CB`, `$FC` and `$90`, 2026-10-18).
  */
+// prettier-ignore
 const INSN_LEN: readonly number[] = [
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  1,
-  M,
-  1,
-  1,
-  3,
-  3,
-  3,
-  4,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  1,
-  3,
-  1,
-  1,
-  3,
-  3,
-  3,
-  4,
-  3,
-  2,
-  4,
-  2,
-  2,
-  2,
-  2,
-  2,
-  1,
-  M,
-  1,
-  1,
-  3,
-  3,
-  3,
-  4,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  1,
-  3,
-  1,
-  1,
-  3,
-  3,
-  3,
-  4,
-  1,
-  2,
-  2,
-  2,
-  3,
-  2,
-  2,
-  2,
-  1,
-  M,
-  1,
-  1,
-  3,
-  3,
-  3,
-  4,
-  2,
-  2,
-  2,
-  2,
-  3,
-  2,
-  2,
-  2,
-  1,
-  3,
-  1,
-  1,
-  4,
-  3,
-  3,
-  4,
-  1,
-  2,
-  3,
-  2,
-  2,
-  2,
-  2,
-  2,
-  1,
-  M,
-  1,
-  1,
-  3,
-  3,
-  3,
-  4,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  1,
-  3,
-  1,
-  1,
-  3,
-  3,
-  3,
-  4,
-  2,
-  2,
-  3,
-  2,
-  2,
-  2,
-  2,
-  2,
-  1,
-  M,
-  1,
-  1,
-  3,
-  3,
-  3,
-  4,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  1,
-  3,
-  1,
-  1,
-  3,
-  3,
-  3,
-  4,
-  X,
-  2,
-  X,
-  2,
-  2,
-  2,
-  2,
-  2,
-  1,
-  M,
-  1,
-  1,
-  3,
-  3,
-  3,
-  4,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  1,
-  3,
-  1,
-  1,
-  3,
-  3,
-  3,
-  4,
-  X,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  1,
-  M,
-  1,
-  1,
-  3,
-  3,
-  3,
-  4,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  1,
-  3,
-  1,
-  1,
-  3,
-  3,
-  3,
-  4,
-  X,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  1,
-  M,
-  1,
-  1,
-  3,
-  3,
-  3,
-  4,
-  2,
-  2,
-  2,
-  2,
-  3,
-  2,
-  2,
-  2,
-  1,
-  3,
-  1,
-  1,
-  3,
-  3,
-  3,
-  4,
+  2, 2, 2, 2, 2, 2, 2, 2, 1, M, 1, 1, 3, 3, 3, 4, // $00
+  2, 2, 2, 2, 2, 2, 2, 2, 1, 3, 1, 1, 3, 3, 3, 4, // $10
+  3, 2, 4, 2, 2, 2, 2, 2, 1, M, 1, 1, 3, 3, 3, 4, // $20
+  2, 2, 2, 2, 2, 2, 2, 2, 1, 3, 1, 1, 3, 3, 3, 4, // $30
+  1, 2, 2, 2, 3, 2, 2, 2, 1, M, 1, 1, 3, 3, 3, 4, // $40
+  2, 2, 2, 2, 3, 2, 2, 2, 1, 3, 1, 1, 4, 3, 3, 4, // $50
+  1, 2, 3, 2, 2, 2, 2, 2, 1, M, 1, 1, 3, 3, 3, 4, // $60
+  2, 2, 2, 2, 2, 2, 2, 2, 1, 3, 1, 1, 3, 3, 3, 4, // $70
+  2, 2, 3, 2, 2, 2, 2, 2, 1, M, 1, 1, 3, 3, 3, 4, // $80
+  2, 2, 2, 2, 2, 2, 2, 2, 1, 3, 1, 1, 3, 3, 3, 4, // $90
+  X, 2, X, 2, 2, 2, 2, 2, 1, M, 1, 1, 3, 3, 3, 4, // $A0
+  2, 2, 2, 2, 2, 2, 2, 2, 1, 3, 1, 1, 3, 3, 3, 4, // $B0
+  X, 2, 2, 2, 2, 2, 2, 2, 1, M, 1, 1, 3, 3, 3, 4, // $C0
+  2, 2, 2, 2, 2, 2, 2, 2, 1, 3, 1, 1, 3, 3, 3, 4, // $D0
+  X, 2, 2, 2, 2, 2, 2, 2, 1, M, 1, 1, 3, 3, 3, 4, // $E0
+  2, 2, 2, 2, 3, 2, 2, 2, 1, 3, 1, 1, 3, 3, 3, 4, // $F0
 ]
 
 const OP_JSR = 0x20
@@ -478,6 +242,20 @@ export function hasFlagSizedImmediate(op: number): boolean {
   return INSN_LEN[op] === M || INSN_LEN[op] === X
 }
 
+/** Where BRA, BRL, JMP abs or JML long goes from `addr`, else null. */
+function unconditionalTarget(
+  op: number,
+  addr: number,
+  bytes: Uint8Array,
+  bank: number,
+): number | null {
+  if (op === OP_BRA) return bank | ((addr + 2 + signed8(bytes[1])) & 0xffff)
+  if (op === OP_BRL) return bank | ((addr + 3 + relative16(bytes[1], bytes[2])) & 0xffff)
+  if (op === OP_JMP_ABS) return bank | bytes[1] | (bytes[2] << 8)
+  if (op === OP_JML_LONG) return bytes[1] | (bytes[2] << 8) | (bytes[3] << 16)
+  return null
+}
+
 function decode(rom: RomFile, addr: number, m: boolean, x: boolean): Decoded | null {
   const bytes = rom.readAt(addr, 4)
   if (!bytes) return null
@@ -601,20 +379,9 @@ function probeReturns(
         addr += 2
         continue
       }
-      if (op === OP_BRA) {
-        addr = bank | ((addr + 2 + signed8(bytes[1])) & 0xffff)
-        continue
-      }
-      if (op === OP_BRL) {
-        addr = bank | ((addr + 3 + relative16(bytes[1], bytes[2])) & 0xffff)
-        continue
-      }
-      if (op === OP_JMP_ABS) {
-        addr = bank | bytes[1] | (bytes[2] << 8)
-        continue
-      }
-      if (op === OP_JML_LONG) {
-        addr = bytes[1] | (bytes[2] << 8) | (bytes[3] << 16)
+      const jump = unconditionalTarget(op, addr, bytes, bank)
+      if (jump !== null) {
+        addr = jump
         continue
       }
       addr += len
@@ -730,20 +497,9 @@ export function walkHandler(rom: RomFile, entry: number, opts: WalkOptions): Wal
         continue
       }
 
-      if (op === OP_BRA) {
-        addr = bank | ((addr + 2 + signed8(bytes[1])) & 0xffff)
-        continue
-      }
-      if (op === OP_BRL) {
-        addr = bank | ((addr + 3 + relative16(bytes[1], bytes[2])) & 0xffff)
-        continue
-      }
-      if (op === OP_JMP_ABS) {
-        addr = bank | bytes[1] | (bytes[2] << 8)
-        continue
-      }
-      if (op === OP_JML_LONG) {
-        addr = bytes[1] | (bytes[2] << 8) | (bytes[3] << 16)
+      const jump = unconditionalTarget(op, addr, bytes, bank)
+      if (jump !== null) {
+        addr = jump
         continue
       }
       if (RETURNS.includes(op) || HALTS.includes(op)) return

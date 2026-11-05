@@ -1,19 +1,16 @@
 /**
  * The synthetic cart's ids 31, 32 and 103 (the line-guided grinder): see the Ids list in syntheticSpriteRom.ts.
- * Split out to keep that file under the content gate's byte-token limit. Hand-written test opcodes; the
- * id 103 handler has the opcode SKELETON of the vanilla grinder's (operands that name a label are free), which
- * is what `grinderDrawsBeforeSnap` reads.
+ * Split out to keep that file under the content gate's byte-token limit. Hand-written test opcodes: the id 103
+ * handler is an entry of our own and a dispatch of our own, and `grinderDrawsBeforeSnap` RUNS them and watches the
+ * calls (it does not read their bytes).
  */
 import type { DispatchShape } from '../../../src/rom/sprites/interp/LineGuided'
 import type { SyntheticOptions } from './syntheticSpriteRom'
 
-/** Where id 103's handler sits, and the shape of its dispatch block (the gate's expected shape here, not vanilla's). */
+/** Where id 103's handler sits, its dispatch block, and the calls the gate expects of this cart: draw, interact, line step. */
 export const GRINDER_HANDLER = 0x019200
 export const GRINDER_DISPATCH_AT = 0x019220
-export const GRINDER_DISPATCH: DispatchShape = {
-  sha: 'b0a612c755212e49d450d6043bad791dc6421eb05d5a1e006ff000e0406decbd',
-  targets: [0x018600, 0x019400, 0x019280, 0x019280, 0x019282, 0x019290],
-}
+export const GRINDER_DISPATCH: DispatchShape = { arm: [0x019400, 0x019282, 0x019290] }
 
 /** `drawSub`: the shared one-piece draw routine, ending in RTS. */
 export function putGrinderRoutines(
@@ -46,35 +43,25 @@ export function putGrinderRoutines(
   put(0x019400, [...(gate ? [0xfe, 0x50, 0x16, 0xbd, 0x50, 0x16, ...gate] : []), ...drawSub])
   put(0x019282, [0x6b])
   put(0x019280, [0x60])
-  // id 103 handler: LineGrinder's 17 shape bytes (TrueFrame/SpriteLock test, sound, JMP), then the dispatch block of
-  // CODE_01D9A7 around its draw JSR and the JMP to the line step; the step here is the +4 move.
+  // id 103 handler: an entry of our own (SpriteLock/TrueFrame test, JMP), then a dispatch block of our own;
+  // the step here is the +4 move.
+  // Our own entry: LDA SpriteLock / ORA flag,X / STA $0C / LDA TrueFrame / AND #7 / ORA $0C / STA $000C / JMP.
   const handler = (dispatchAt: number) => [
-    0xa5,
-    0x13,
-    0x29,
-    0x07,
-    0x1d,
-    0x26,
-    0x16,
-    0x05,
-    0x9d,
-    0xd0,
-    0x05,
-    0xa9,
-    0x00,
-    0x8d,
-    0xf9,
-    0x1d,
+    ...[0xa5, 0x9d, 0x1d, 0x26, 0x16, 0x85, 0x0c, 0xa5, 0x13, 0x29, 0x07, 0x05, 0x0c, 0x8d, 0x0c, 0x00],
+    ...[0x4c, dispatchAt & 0xff, (dispatchAt >> 8) & 0xff],
+  ] // prettier-ignore
+  // Our own dispatch: JSR draw, JSL interact (an RTL), JMP step; `alteredGrinder` calls the interact first.
+  const draw = [0x20, 0x00, 0x94]
+  const interact = [0x22, 0x82, 0x92, 0x01]
+  const dispatch = [
+    ...(o.alteredGrinder ? [...interact, ...draw] : [...draw, ...interact]),
     0x4c,
-    dispatchAt & 0xff,
-    (dispatchAt >> 8) & 0xff,
+    0x90,
+    0x92,
   ]
-  const dispatch = [0xb5, 0x9e, 0xc9, o.alteredGrinder ? 0x5f : 0x60, 0xf0, 0x30, 0xc9, 0x61, 0x90, 0x30, 0xc9, 0x69, 0xd0, 0x05, 0x20, 0x00, 0x86, 0x80, 0x07, 0xc9, 0x67, 0xd0, 0x08, 0x20, 0x00, 0x94, 0x20, 0x80, 0x92, 0x80, 0x07, 0x20, 0x80, 0x92, 0x22, 0x82, 0x92, 0x01, 0x4c, 0x90, 0x92] // prettier-ignore
   put(GRINDER_HANDLER, handler(GRINDER_DISPATCH_AT))
   put(GRINDER_DISPATCH_AT, dispatch)
-  // A second copy for id 31: its $9E is 31, so it takes the `< $61` branch out of the span (+$3A), where the
-  // draw, interact and line step run as in the $67 arm.
+  // A second copy for id 31, whose MAIN can point at the grinder handler (id31IsGrinder).
   put(0x019500, handler(0x019520))
   put(0x019520, dispatch)
-  put(0x01955a, [0x20, 0x00, 0x94, 0x20, 0x80, 0x92, 0x4c, 0x90, 0x92])
 }

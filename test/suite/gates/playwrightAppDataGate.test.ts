@@ -60,6 +60,7 @@ interface Isolation {
 
 /** Loads the config the way Playwright does in each process: fresh module state. */
 function loadConfig(): { config: any; iso: Isolation } {
+  process.env.HB_SKIP_INSTALL_GUARD = '1' // load-only gate; the guard has its own tests (#1038)
   delete nodeRequire.cache[CONFIG]
   delete nodeRequire.cache[ISOLATION]
   const config = nodeRequire(CONFIG)

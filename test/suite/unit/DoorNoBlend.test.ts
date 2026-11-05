@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { composeScreen, type ScreenInput, type SourceKey } from '../../../src/rom/model/ColorMath'
-import { doorPixelsUnderMath } from '../support/doorBlend'
+import { blendedOnlyByLayer3, doorPixelsUnderMath } from '../support/doorBlend'
 import { hiddenPixelStrength } from '../../../src/rom/render/HiddenTiles'
 
 const W = 8
@@ -130,5 +130,27 @@ describe('the corpus predicate goes red on a planted defect (#936)', () => {
   it('a pixel with no placed sprite under the tile, or a flame plane only, is not a door pixel', () => {
     expect(plant(7, ['sprites2', 'l1High'], false)).toEqual({ doorPixels: 0, blended: 0 })
     expect(plant(7, ['spritesL2Low', 'l1High'])).toEqual({ doorPixels: 0, blended: 0 })
+  })
+})
+
+describe('the Layer 3 exception tells the covering layer apart (#563)', () => {
+  const by = (cgadsub: number, layer: string) => {
+    const out = { l1: 0, l2: 0, l3: 0 }
+    const main = ['sprites2', `${layer}High`]
+    const planes = { sprites2: new Uint8ClampedArray([9, 9, 9, 255]), [`${layer}High`]: new Uint8ClampedArray([1, 2, 3, 255]) } // prettier-ignore
+    doorPixelsUnderMath(main, planes, new Uint32Array([3]), cgadsub, out)
+    return out
+  }
+  it('counts a blended door pixel under the plane whose bit is in CGADSUB, and only that one', () => {
+    expect(by(0x07, 'l1')).toEqual({ l1: 1, l2: 0, l3: 0 })
+    expect(by(0x07, 'l2')).toEqual({ l1: 0, l2: 1, l3: 0 })
+    expect(by(0x07, 'l3')).toEqual({ l1: 0, l2: 0, l3: 1 })
+    expect(by(0x20, 'l3')).toEqual({ l1: 0, l2: 0, l3: 0 })
+  })
+  it('exempts a screen only when Layer 3 alone blended its doors', () => {
+    expect(blendedOnlyByLayer3({ l1: 0, l2: 0, l3: 4 })).toBe(true)
+    expect(blendedOnlyByLayer3({ l1: 1, l2: 0, l3: 4 })).toBe(false)
+    expect(blendedOnlyByLayer3({ l1: 0, l2: 2, l3: 4 })).toBe(false)
+    expect(blendedOnlyByLayer3({ l1: 0, l2: 0, l3: 0 })).toBe(false)
   })
 })

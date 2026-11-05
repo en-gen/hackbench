@@ -7,6 +7,7 @@
  * once from the real `layers_v5` capture set (161 entries) minus the 18
  * empty-Layer-1 maps the issue names, and is not regenerated at runtime.
  */
+import { hex3s } from '../../src/rom/hex'
 
 /** Vanilla boss-mode slots ($09/$0B/$10) `LoadLevel` never loads a Layer 1 stream for. */
 export const EMPTY_FOREGROUND_MAPS: readonly number[] = [
@@ -37,4 +38,4 @@ export const FG_GATE_MAPS: readonly number[] = [
 export const idToCaptureName = (id: number): string => id.toString(16).padStart(3, '0')
 
 /** `$105` display form for reports. */
-export const idToHex = (id: number): string => '$' + id.toString(16).toUpperCase().padStart(3, '0')
+export const idToHex = hex3s

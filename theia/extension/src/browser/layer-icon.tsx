@@ -44,6 +44,8 @@ export function LayerIcon({ glyph }: { glyph: LayerGlyph }): React.ReactElement 
 export function LayerToggle(props: {
   glyph: LayerGlyph
   label: string
+  /** The tooltip when it differs from the accessible name `label` (a detail line, #967). */
+  title?: string
   pressed: boolean
   disabled?: boolean
   control: string
@@ -59,7 +61,7 @@ export function LayerToggle(props: {
       }
       aria-pressed={props.pressed}
       disabled={props.disabled}
-      title={props.label}
+      title={props.title ?? props.label}
       aria-label={props.label}
       onClick={props.onClick}
     >

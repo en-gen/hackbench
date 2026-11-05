@@ -1,0 +1,3 @@
+### Fixed
+
+- The palette-animation walk of a relocated routine had four opcode lengths wrong in its private table: `$61` ADC (dp,X) and `$81` STA (dp,X) were 3 bytes instead of 2, `$62` PER and `$82` BRL were 2 instead of 3. A routine crossing one of them lost its place and the CGRAM write was missed. It now shares the dispatch walker's table. Evidence: synthetic routines for ADC (dp,X), STA (dp,X) and PER, each red on the old table and green on the new one, plus 8-bit and 16-bit LDX/ORA immediates that pin the M/X polarity (65816 opcode map, hardware). BRL's length is never read by the palette walk, which follows it as a jump, so it has no case.

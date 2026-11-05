@@ -121,6 +121,23 @@ describe('the walk reaches what the bytes call', () => {
     rom.writeAt(0x039300, [...jsr(TARGET), ...RTS])
     expect([...run(rom).reached.keys()]).toEqual(['wanted'])
   })
+  it('follows a JML into another bank, where falling through cannot reach', () => {
+    const rom = blankRom()
+    rom.writeAt(AT, [0x5c, 0x00, 0x93, 0x04, ...RTS]) // JML $049300 ; RTS
+    rom.writeAt(0x049300, [...jsl(TARGET), ...RTS])
+    expect([...run(rom).reached.keys()]).toEqual(['wanted'])
+  })
+
+  it('wraps a BRA across the bank edge within the bank', () => {
+    // Bank $40 maps its low half too, so the wrapped target is real code.
+    // Unmasked, the sum carries into the bank byte and lands in bank $41.
+    const rom = blankRom()
+    const far = 0x409000
+    rom.writeAt(0x40fffe, [0x80, 0x10]) // BRA +$10 -> $400010
+    rom.writeAt(0x400010, [0x20, 0x00, 0x90, ...RTS]) // JSR $9000
+    const r = run(rom, 0x40fffe, { watch: new Map([[far, 'far']]) })
+    expect([...r.reached.keys()]).toEqual(['far'])
+  })
 })
 
 describe('the walk stops rather than decoding data as code', () => {

@@ -16,7 +16,13 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { createProject } from '../../../src/project/Project'
-import { aliasKey, readAliases, setAlias, ALIAS_MAX_LENGTH } from '../../../src/project/Aliases'
+import {
+  aliasKey,
+  readAliases,
+  readMapAliasesOrError,
+  setAlias,
+  ALIAS_MAX_LENGTH,
+} from '../../../src/project/Aliases'
 
 let tmp: string
 let manifestPath: string
@@ -264,5 +270,31 @@ describe('a namespace that is not itself an object', () => {
     setAlias(manifestPath, 'music.level', 0x05, 'Boss')
 
     expect(readAliases(manifestPath, 'music.level')).toEqual({ '05': 'Boss' })
+  })
+})
+
+describe('readMapAliasesOrError (no theia, no ROM)', () => {
+  it('returns the map table and no error for a valid file', () => {
+    writeAliasesFile({ map: { '105': 'Sky bridge' } })
+    expect(readMapAliasesOrError(manifestPath)).toEqual({ aliases: { '105': 'Sky bridge' } })
+  })
+
+  it('an unparseable file gives an empty table and a reason with the parse detail, no path', () => {
+    writeAliasesFileRaw('{ not json')
+    const r = readMapAliasesOrError(manifestPath)
+    expect(r.aliases).toEqual({})
+    expect(r.error).toMatch(/^is not valid JSON \(.+\)$/)
+    expect(r.error).not.toContain(tmp)
+  })
+
+  it('a top level that is not an object gives an empty table and a reason with no path', () => {
+    writeAliasesFileRaw('[1, 2]')
+    const r = readMapAliasesOrError(manifestPath)
+    expect(r.aliases).toEqual({})
+    expect(r.error).toBe('is not an object of namespaces')
+  })
+
+  it('a missing file is no error', () => {
+    expect(readMapAliasesOrError(manifestPath)).toEqual({ aliases: {} })
   })
 })

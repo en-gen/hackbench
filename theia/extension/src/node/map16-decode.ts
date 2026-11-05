@@ -15,6 +15,7 @@
  */
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
+import { hex4 } from '../../../../src/rom/hex'
 import { FULL_WORD_MASK } from '../../../../src/rom/PaletteOp'
 import type { SetWordRequest } from '../../../../src/project/WorkingRomRegistry'
 import {
@@ -657,11 +658,6 @@ export function sharedTileTest(rom: RomFile, layer: Map16Layer): (base: number) 
 /** The word a field edit produces, or the reason it will not be written. */
 export type NextWordResult = { status: 'ok'; word: number } | { status: 'refused'; reason: string }
 
-/** `$03E0`, the form WorkingRomRegistry records an op's words in. */
-export function hexWord(word: number): string {
-  return `$${(word & 0xffff).toString(16).toUpperCase().padStart(4, '0')}`
-}
-
 /**
  * The op a quadrant edit becomes, or the reason it will not be written.
  *
@@ -683,6 +679,7 @@ export type Map16WriteGate =
   | { status: 'unavailable'; reason: string }
   | { status: 'refused'; reason: string }
 
+/** Decides whether a Map16 quadrant write may reach the ROM; every failure is a refused or unavailable result, never a throw, and none lands a write at a guessed address. */
 export function gateQuadrantWrite(
   rom: RomFile,
   tileset: number,
@@ -747,8 +744,8 @@ export function gateQuadrantWrite(
     status: 'ok',
     write: {
       romAddr,
-      oldHex: hexWord(oldWord),
-      newHex: hexWord(next.word),
+      oldHex: `$${hex4(oldWord & 0xffff)}`,
+      newHex: `$${hex4(next.word & 0xffff)}`,
       // A Map16 subtile word is not a BGR555 color: bit 15 is vertical flip,
       // real data. See PaletteOp.ts's `Op.mask`.
       mask: FULL_WORD_MASK,

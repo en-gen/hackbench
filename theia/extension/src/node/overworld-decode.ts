@@ -18,7 +18,7 @@ import {
   readOverworldL2,
   type OwHalfLayers,
 } from '../../../../src/rom/OverworldL2'
-import { deriveOverworldAreas } from '../../../../src/rom/OverworldAreas'
+import { deriveOverworldAreas, type AreaFingerprints } from '../../../../src/rom/OverworldAreas'
 import { OW_WINDOW_H, OW_WINDOW_W, cropWindow } from '../../../../src/rom/OverworldWindow'
 import {
   OW_HALF_H,
@@ -56,6 +56,7 @@ function titleCgram(rom: SmwRom): { rows: RgbaRow[]; backdrop: RgbaColor } | str
 export interface OverworldViewFingerprints {
   cgram?: readonly string[]
   l2?: readonly string[]
+  areas?: AreaFingerprints
 }
 
 /**
@@ -137,8 +138,11 @@ export function decodeOverworldArea(
 }
 
 /** The explorer's child rows: the areas the ROM names (area 0 is the Overworld row), or why none. */
-export function decodeOverworldAreas(rom: SmwRom): OverworldAreasDto {
-  const set = deriveOverworldAreas(rom.rom)
+export function decodeOverworldAreas(
+  rom: SmwRom,
+  fps: OverworldViewFingerprints = {},
+): OverworldAreasDto {
+  const set = deriveOverworldAreas(rom.rom, fps.areas)
   if ('unavailable' in set) return { status: 'unavailable', reason: set.unavailable }
   return {
     status: 'ok',
@@ -154,7 +158,7 @@ export function decodeAreaView(
   area: number,
   fps: OverworldViewFingerprints = {},
 ): OverworldDto {
-  const set = deriveOverworldAreas(rom.rom)
+  const set = deriveOverworldAreas(rom.rom, fps.areas)
   if ('unavailable' in set) return unavailable(set.unavailable)
   const a = set.areas.find(x => x.area === area)
   if (!a) return unavailable(`The ROM names no area ${area}.`)

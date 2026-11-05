@@ -40,6 +40,7 @@ import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { ProjectContext } from './project-context'
 import { ReactWidget, Message } from '@theia/core/lib/browser'
 import { WheelBinding, ZoomController } from './zoom-controller'
+import { GridToggleButton } from './grid-toggle-button'
 import { ZoomStepper } from './zoom-stepper'
 import { GridOverlay } from './grid-overlay'
 import { ThemeService } from '@theia/core/lib/browser/theming'
@@ -958,17 +959,7 @@ export class Map16ViewWidget extends ReactWidget implements ProjectBound {
           <div className="hb-map16-toolbar-actions">
             <ZoomStepper controller={this.zoomController} />
             <span className="hb-toolbar-sep" />
-            <button
-              data-control="grid-toggle"
-              type="button"
-              className={'hb-icon-btn' + (this.showGrid ? ' hb-icon-btn-on' : ' hb-icon-btn-off')}
-              aria-pressed={this.showGrid}
-              title={this.showGrid ? 'Hide grid' : 'Show grid'}
-              aria-label={this.showGrid ? 'Hide grid' : 'Show grid'}
-              onClick={() => this.toggleGrid()}
-            >
-              <span className="codicon codicon-table" />
-            </button>
+            <GridToggleButton on={this.showGrid} onToggle={() => this.toggleGrid()} />
             <button
               data-control="play-toggle"
               type="button"

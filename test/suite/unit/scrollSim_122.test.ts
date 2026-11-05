@@ -33,14 +33,10 @@ const CSV = join(MESEN_FIXTURES_DIR, '122', 'l2_scroll.csv')
 
 const CHECK_FIELDS: readonly FieldKey[] = ['l2xspd', 'l2xupd', 'nl2x']
 
-describe.skipIf(!vanillaRomPresent)(
+describe.skipIf(!vanillaRomPresent || !fs.existsSync(CSV))(
   'scrollSim - $122 capture validation (L2 cmd $0D, Fast BG scroll)',
   () => {
     it('post-setup state matches capture row 1 on L2 X fields', () => {
-      if (!fs.existsSync(CSV)) {
-        console.warn(`[skip] ${CSV} not found`)
-        return
-      }
       const cap = loadCapture(CSV)
       const sim = simFromCapture(cap[0])
       const m = firstMismatch(sim.stateAtFrame(0), cap[0], CHECK_FIELDS)
@@ -48,7 +44,6 @@ describe.skipIf(!vanillaRomPresent)(
     })
 
     it('L2 X auto-scroll matches every active captured frame', () => {
-      if (!fs.existsSync(CSV)) return
       const cap = loadCapture(CSV)
       const sim = simFromCapture(cap[0])
 

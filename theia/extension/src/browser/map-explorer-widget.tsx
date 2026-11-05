@@ -41,12 +41,10 @@ import {
   TreeModel,
   TreeNode,
   TreeProps,
-  TreeWidget,
   CompositeTreeNode,
   ExpandableTreeNode,
   SelectableTreeNode,
   TreeSelection,
-  createTreeContainer,
 } from '@theia/core/lib/browser'
 import { CommandService, Emitter, MessageService } from '@theia/core/lib/common'
 import { OVERWORLD_FOCUS_COMMAND_ID, OVERWORLD_OPEN_AREA_COMMAND_ID } from './overworld-view-widget'
@@ -62,6 +60,8 @@ import {
   ProjectService,
   SpecialMapNodeDto,
 } from '../common/project-protocol'
+import { ExplorerTreeWidget, createExplorerTreeContainer } from './explorer-search'
+import { mapAlias, mapSlotRow, type SearchRow } from './explorer-match'
 
 export const MAP_EXPLORER_ID = 'hackbench.map-explorer'
 
@@ -101,6 +101,8 @@ export interface MapTreeNode extends CompositeTreeNode, SelectableTreeNode {
   /** Pointer-table slot, or -1 for a grouping folder or the Overworld row. */
   index: number
   mapName: string | null
+  /** The project's name for this slot (meta/aliases.json), drawn so a search for it can be seen to match. */
+  alias?: string
   kind: 'map' | 'loop' | 'truncated' | 'group' | 'message'
   category: MapCategory
   /** Set on a 'bonus' row: which flag sends the player there. */
@@ -167,11 +169,51 @@ const iconFor = (node: MapTreeNode): string =>
       ? 'codicon-warning'
       : CATEGORY_ICONS[node.category]
 
+/** A group folder's name without the count its caption adds. */
+const groupName = (n: MapTreeNode): string =>
+  n.id === 'group:unassigned' ? 'Unassigned' : n.id.replace(/^group:user:/, '')
+
 export const slotLabel = (index: number): string =>
   `$${index.toString(16).toUpperCase().padStart(3, '0')}`
 
 @injectable()
-export class MapExplorerWidget extends TreeWidget {
+export class MapExplorerWidget extends ExplorerTreeWidget {
+  protected readonly searchNoun = 'maps'
+
+  /**
+   * A slot row matches by slot number and its ROM name. The slot label is not
+   * text, or `10` would also hit every `$x10` by substring. The project's 'map'
+   * aliases (loadMaps) match too; they refresh on the next load.
+   */
+  protected searchRow(node: TreeNode): SearchRow | undefined {
+    const n = node as MapTreeNode
+    if (n.kind === 'message') return undefined
+    // A folder's shown name carries its count ("Unassigned (12)"); match the raw name.
+    if (n.kind === 'group') return { folder: true, texts: [groupName(n)] }
+    // Loop, truncated and no-pointer rows are markers: Enter on them opens nothing.
+    const openable = n.kind === 'map' && !n.noPointer
+    if (n.category === 'overworld' || n.category === 'overworld-area')
+      return { openable, texts: [n.name ?? ''] }
+    if (isSpecial(n.category)) {
+      return { ...mapSlotRow(n.index, n.name, this.mapAliases), openable }
+    }
+    return { ...mapSlotRow(n.index, n.mapName, this.mapAliases), openable }
+  }
+
+  /** The alias field for a node, or nothing: spread into the node literal. */
+  protected aliasOf(index: number): { alias?: string } {
+    const alias = mapAlias(index, this.mapAliases)
+    return alias ? { alias } : {}
+  }
+
+  /** meta/aliases.json 'map' namespace as of the last load, keyed by hex slot. */
+  protected mapAliases: Record<string, string> = {}
+
+  protected openMatch(node: TreeNode): boolean {
+    this.fireOpen(node as MapTreeNode, true)
+    return true
+  }
+
   @inject(CommandService) protected readonly commands!: CommandService
   @inject(ProjectService) protected readonly projects!: ProjectService
   @inject(MessageService) protected readonly messages!: MessageService
@@ -192,6 +234,8 @@ export class MapExplorerWidget extends TreeWidget {
 
   /** Set when meta/groups.json failed to read; group editing is refused while set. */
   protected groupsError: string | undefined
+  /** The previous load's aliases.json reason, so the toast fires once per reason. */
+  protected lastAliasesError: string | undefined
 
   /** Chains group writes so a second edit always starts from the first one's result. */
   protected writeQueue: Promise<void> = Promise.resolve()
@@ -246,7 +290,7 @@ export class MapExplorerWidget extends TreeWidget {
     // build a group from, not to preview.
     this.toDispose.push(
       this.model.onSelectionChanged(nodes => {
-        if (!this.restoringSelection && nodes.length === 1) {
+        if (!this.restoringSelection && !this.selectingFromFilter && nodes.length === 1) {
           this.fireOpen(nodes[0] as MapTreeNode, false)
         }
       }),
@@ -290,6 +334,7 @@ export class MapExplorerWidget extends TreeWidget {
       this.mapCount = 0
       this.groups = []
       this.groupsError = undefined
+      this.lastAliasesError = undefined
       const reason = err instanceof Error ? err.message : String(err)
       this.setRoot([this.message(`Could not load maps: ${reason}`)])
       this.messages.error(reason)
@@ -303,6 +348,7 @@ export class MapExplorerWidget extends TreeWidget {
       this.mapCount = 0
       this.groups = []
       this.groupsError = undefined
+      this.lastAliasesError = undefined
       this.setRoot([
         this.message(`Locate ${result.baseRom.title || 'the base ROM'} to load its maps`),
       ])
@@ -312,6 +358,8 @@ export class MapExplorerWidget extends TreeWidget {
     this.mapCount = result.tree.mapCount
     this.groups = result.rawGroups
     this.groupsError = result.groupsError
+    this.mapAliases = result.mapAliases ?? {}
+    const aliasesError = result.aliasesError
 
     const areas = await this.loadAreaRows(manifestPath)
     if (generation !== this.loadGeneration) return
@@ -321,9 +369,17 @@ export class MapExplorerWidget extends TreeWidget {
       this.overworldNode(areas),
     ]
     if (this.groupsError) {
-      rows.push(this.message(`Groups unavailable: ${this.groupsError}`))
+      rows.push(this.message(`Groups unavailable: ${this.groupsError}`, 'message:groups'))
       this.messages.error(`meta/groups.json: ${this.groupsError}`)
     }
+    if (aliasesError) {
+      const note = `Map names unavailable: meta/aliases.json ${aliasesError}`
+      rows.push(this.message(note, 'message:aliases'))
+      // The row stays on every load; the toast only when the reason changes,
+      // so a group edit's reload does not repeat it.
+      if (aliasesError !== this.lastAliasesError) this.messages.error(note)
+    }
+    this.lastAliasesError = aliasesError
     rows.push(...result.tree.groups.map(g => this.userGroupNode(g)))
     // The count is rows actually listed under the folder, not a derived ROM
     // figure: a map that moved into a group no longer counts here.
@@ -450,6 +506,7 @@ export class MapExplorerWidget extends TreeWidget {
       name: slotLabel(dto.index),
       index: dto.index,
       mapName: dto.name,
+      ...this.aliasOf(dto.index),
       kind: dto.kind,
       category,
       parent,
@@ -473,6 +530,7 @@ export class MapExplorerWidget extends TreeWidget {
       name: SPECIAL_LABELS[dto.role],
       index: dto.index,
       mapName: dto.name,
+      ...this.aliasOf(dto.index),
       kind: 'map',
       category: dto.role,
       parent: undefined,
@@ -819,9 +877,10 @@ export class MapExplorerWidget extends TreeWidget {
     }
   }
 
-  protected message(text: string): MapTreeNode {
+  /** Rows are keyed by id, so two notes in one tree need two ids. */
+  protected message(text: string, id = 'message'): MapTreeNode {
     return {
-      id: 'message',
+      id,
       name: text,
       index: -1,
       mapName: null,
@@ -1013,6 +1072,11 @@ export class MapExplorerWidget extends TreeWidget {
     if (isSpecial(map.category)) {
       return [
         <span key="label">{map.name}</span>,
+        map.alias ? (
+          <span key="alias" className="hb-map-alias">
+            {map.alias}
+          </span>
+        ) : null,
         <span key="slot" className="hb-map-slot hb-map-trailing">
           {slotLabel(map.index)}
         </span>,
@@ -1028,6 +1092,11 @@ export class MapExplorerWidget extends TreeWidget {
       map.mapName ? (
         <span key="name" className="hb-map-name">
           {map.mapName}
+        </span>
+      ) : null,
+      map.alias ? (
+        <span key="alias" className="hb-map-alias">
+          {map.alias}
         </span>
       ) : null,
       suffix ? (
@@ -1060,22 +1129,19 @@ function withoutSlots(groups: MapGroupDto[], slots: number[]): MapGroupDto[] {
 }
 
 export function createMapExplorerWidget(parent: interfaces.Container): MapExplorerWidget {
-  const child: Container = createTreeContainer(parent, {
-    widget: MapExplorerWidget,
-    props: {
-      // Without this a row click toggles expansion as well as selecting, so a
-      // folder cannot be opened without collapsing it.
-      expandOnlyOnExpansionToggleClick: true,
-      globalSelection: true,
-      // Theia already indents rows that have no expansion chevron, so their
-      // icons line up with the expandable ones. Its default of 22px is 2px
-      // wider than the toggle actually occupies (measured), which left the
-      // icon column visibly ragged wherever leaves and folders are siblings.
-      expansionTogglePadding: 20,
-      // Ctrl+click toggles a row, Shift+click selects a range, per the spec.
-      multiSelect: true,
-      contextMenuPath: MAP_EXPLORER_CONTEXT_MENU,
-    },
+  const child: Container = createExplorerTreeContainer(parent, MapExplorerWidget, {
+    // Without this a row click toggles expansion as well as selecting, so a
+    // folder cannot be opened without collapsing it.
+    expandOnlyOnExpansionToggleClick: true,
+    globalSelection: true,
+    // Theia already indents rows that have no expansion chevron, so their
+    // icons line up with the expandable ones. Its default of 22px is 2px
+    // wider than the toggle actually occupies (measured), which left the
+    // icon column visibly ragged wherever leaves and folders are siblings.
+    expansionTogglePadding: 20,
+    // Ctrl+click toggles a row, Shift+click selects a range, per the spec.
+    multiSelect: true,
+    contextMenuPath: MAP_EXPLORER_CONTEXT_MENU,
   })
   return child.get(MapExplorerWidget)
 }

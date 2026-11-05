@@ -11,6 +11,8 @@ call.
   plus the active protocols every turn. An unregistered session gets only a
   registration block naming both manuals; register from your title, then read
   yours before anything else.
+- **Coordinating sessions** (Planning, Decisions, Overwatch, Testing): start
+  with `claude --agent <name>`; the role file in `.claude/agents/` is yours.
 - **Role agents:** your role file in `.claude/agents/` plus this file.
 - **Side quest:** when the owner says side quest in your chat, you work that
   one problem yourself: no registration, team or hand-offs, questions to the
@@ -175,16 +177,21 @@ Each one corresponds to a defect that actually reached review in this repo.
 
 ## Enforced mechanically
 
-`npm install` sets `core.hooksPath` to `.githooks`. Two gates run on
-pre-commit, pre-push and in CI:
+`npm install` sets `core.hooksPath` to `.githooks`. There is no pre-commit
+hook (#1183; refinement in #1163); `.githooks/pre-push` is the only hook.
 
-- `tools/scripts/check-staged-style.sh`: ESLint at `--max-warnings 0` and
-  Prettier check over staged JS/TS/CSS. Warnings are fatal.
-  `test/suite/gates/lintGate.test.ts` proves both halves go red.
-- `tools/scripts/check-content.mjs` (#678): blocks ROM-derived bytes (the
-  copyright rule in `docs/testing.md`; `.gitignore` alone is defeated by
-  `git add -f`) and em-dashes in added lines. `--no-verify` only with a reason
-  stated in the PR.
+- CI `static` job: `npm run lint` (ci.yml:102; ESLint over `src test tools
+  theia` and root `*.js *.mjs *.ts`, `--max-warnings 0`; the root `vitest*.config.ts`
+  files are covered, #1185) and `npm run format:check` (ci.yml:105; Prettier over JS/TS/CSS
+  tree-wide). `tools/scripts/check-staged-style.sh` is not called by
+  anything now (kept for #1163); `test/suite/gates/lintGate.test.ts` proves
+  the lint and format scripts go red.
+- `tools/scripts/check-content.mjs` (#678): ROM-derived bytes are blocked on
+  pre-push and in CI (`range`, `history`); em-dashes in added lines only in
+  CI `range` (and `staged` mode, which no hook runs). `.gitignore` alone is
+  defeated by `git add -f` (copyright rule: `docs/testing.md`).
+  `git push --no-verify` skips pre-push only; CI has no bypass, so say why
+  in the PR.
 
 ## Claim discipline
 
@@ -229,7 +236,16 @@ unapproved phases.
 
 Every agent follows these. Role-specific rules are in `.claude/agents/`.
 
+- Start from files, not memory: read your state file and `git log --oneline -20`
+  first; end with work committed and the state file current.
 - Test first: see it fail on the old code before the fix lands.
+- **Done contract.** The plan pairs each acceptance criterion with the test or
+  command that proves it. Reviewers and the verifier grade every criterion pass
+  or fail; nobody relaxes or rewords one.
+- Never delete, skip or weaken a failing test to get green; fix the test or the
+  code. A test that is no longer valid may go, with the test and the reason in
+  the PR description; the adversarial reviewer and the verifier each grade the
+  reason, and a disagreement fails the item.
 - Report exact test counts, passed and skipped. A mutation sweep you design is
   a smoke test, not coverage evidence; never write "all killed".
 - Batches (captures, sweeps, bulk generation): deliver ONE sample and stop
@@ -239,8 +255,13 @@ Every agent follows these. Role-specific rules are in `.claude/agents/`.
   committed.
 - ROM and disassembly questions go to `smw-mcp` before raw ASM reads or
   ad-hoc ROM scripts; log hand-answered ones in `smw-mcp/docs/query-log.md`.
-- One agent per worktree, at `C:/Projects/.worktrees/hackbench/<task>`,
-  never inside the repo or beside it.
+- One agent per worktree, at `<main checkout>/.worktrees/<task>` (gitignored), made
+  with this form, which is safe from the main checkout or any linked worktree
+  (a bare relative `git worktree add .worktrees/...` run inside a linked
+  worktree nests the new one in it, and removing the parent deletes the child):
+  `git -C "$(git rev-parse --path-format=absolute --git-common-dir)/.." worktree add .worktrees/<task> -b feature/<task> origin/develop`.
+  Worktrees still on the old `C:/Projects/.worktrees/hackbench/<task>` path
+  finish where they are. Session state is `<main checkout>/.overwatch` (#1202).
 - Never certify your own work. Never merge, rebase a pushed branch, or
   force-push.
 - Never load images into context; decide from numbers. Images are for the
@@ -249,6 +270,11 @@ Every agent follows these. Role-specific rules are in `.claude/agents/`.
   explicit `model`.
 - `npm run gitnexus` refreshes the index after a commit. `.gitnexusrc` and the
   script both stop analyze rewriting the marked region below (#644).
+- Add a Mermaid diagram to an authored doc where it makes a flow, sequence or
+  structure clearer (no blank lines inside the block).
+- Every harness part (a role agent, a review pass, a gate) assumes the model
+  cannot manage alone. When one stops catching anything, propose removing it
+  to the BA rather than keeping it by habit.
 - Reusing other authors' code, and never contacting outside maintainers:
   [docs/decisions/2026-10-16-third-party-code.md](docs/decisions/2026-10-16-third-party-code.md).
 

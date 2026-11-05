@@ -98,6 +98,8 @@ export class SpriteBus implements Bus {
   onWramWrite: ((off: number, v: number) => void) | null = null
   /** Called for every hardware-register write ($2000-$43FF) with the 16-bit address and value. */
   onHwWrite: ((reg: number, v: number) => void) | null = null
+  /** Called for every SRAM write with the offset in the 32 KB buffer and the value (`recordWrites` does not see them). */
+  onSramWrite: ((off: number, v: number) => void) | null = null
   /** Every hardware register address ($2000-$43FF, bank-folded) written, with counts. */
   readonly hwWrites = new Map<number, number>()
   onInstruction?: (addr: number, op: number) => void
@@ -106,6 +108,8 @@ export class SpriteBus implements Bus {
    * the inputs a seed has to supply. Off by default (one extra branch per read).
    */
   inputs: Set<number> | null = null
+  /** Called for every WRAM read with the offset; null (the default) costs one branch per read. */
+  onRead: ((off: number) => void) | null = null
   /** Cart SRAM window ($70-$7D/$F0-$FD:0000-7FFF), one 32 KB buffer; reads before any write are 0. */
   readonly sram = new Uint8Array(SRAM_SIZE)
   private written = new Uint8Array(WRAM_SIZE)
@@ -167,6 +171,7 @@ export class SpriteBus implements Bus {
     const w = this.wramOffset(addr)
     if (w >= 0) {
       if (this.inputs && !this.written[w]) this.inputs.add(w)
+      this.onRead?.(w)
       return this.wram[w]
     }
     const bank = addr >>> 16
@@ -225,6 +230,7 @@ export class SpriteBus implements Bus {
     const lo = addr & 0xffff
     if (this.isSram(bank, lo)) {
       this.sram[lo] = v
+      this.onSramWrite?.(lo, v)
       return
     }
     if ((bank & 0x7f) >= 0x40 || lo < 0x2000 || lo >= 0x4400) return

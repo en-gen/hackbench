@@ -26,11 +26,13 @@ export function decodeSwitchButton(
   }
 }
 
+/** Switch palace toggle; an unavailable switch shows its plain reason, with the technical detail as the tooltip's second line (#967). */
 export function SwitchToggle(props: {
   kind: Map16SwitchKind
   images: SwitchButtonImages | undefined
   pressed: boolean
   reason?: string
+  detail?: string
   scale: number
   data: Record<string, string>
   onClick(): void
@@ -44,6 +46,7 @@ export function SwitchToggle(props: {
       label={SWITCH_LABELS[props.kind]}
       pressed={pressed}
       reason={images ? undefined : props.reason}
+      detail={images ? undefined : props.detail}
       onClick={props.onClick}
       data={props.data}
     />

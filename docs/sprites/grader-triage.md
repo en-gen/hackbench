@@ -76,6 +76,15 @@ runner zeroes cluster sprites in `load`, and the grader drops flame pieces from 
 attributes by slot (C). Assert: the part list for $33 at map 1d4 416,240 has no OAM index 124-127; the
 30 listed cases grade close or better.
 
+**A, measured after the grader cleared the loaded cluster cells (#980).** The grader seed now clears `$18B8` and
+`$1892-$18A5` as `levelSeed` does (#809). Chosen-pass totals over the 1,957 records ('rom' seed, hardware timeline;
+one machine, one run each, commit 17dbd4d0): before exact 998 / shape 803 / close 18 / wrong 125 / empty 13 / missAtK
+25, after exact 1018 / shape 810 / close 18 / wrong 97 / empty 14 / missAtK 29. Of the 28 records that changed: map
+101 14 wrong to exact, 1d4 5 and 1cd 1 wrong to exact, 01f `$67` 7 wrong to shape, and one wrong to empty (map 101 `$54`
+slot 0, whose only recorded tile is OAM entry 124, a castle-flame piece, so the model drawing nothing is correct).
+Pinned by `spriteGrade.captures.test.ts` (map 101 tally 14 exact / 6 wrong / 1 empty, and the raised floors) and by
+`SpriteReport.test.ts` (the report grader against a mirrored loop); both go red with the clearing removed.
+
 **B, graded pass (161: 89 exact at a later pass, 72 shape-only).** The policy grades the first pass that
 draws (`SpriteModel.chosen`, the first pass with any OAM parts, `SpriteRunner.ts:526-527`; it is pass 0 in 153 of the 161, pass 4 in 5, 11 in 2, 19 in 1; the probe read the same `chosen`, so the counts stand). No recorded frame equals it, but a later pass equals one
 exactly (89) or up to position (72, sprites that move: $72 41 of 72 shape cases, $09 16). The match is at pass 1
@@ -88,7 +97,7 @@ on purpose), so two options: grade any pass against any frame (grader-only), or 
 to pass N. Assert for N=4: wrong over all graded at most 190 and exact at least 880.
 
 **K, stationary-shell list ids (35).** All 35 are $04-$07 whose list byte is $DA-$DD and whose capture
-record has `initFrame` null: 38 of the 2,262 spawn records in `layers_v5` (not of the 1,957 gradable) have it null: 35 Koopa records (list ids $DA-$DC, sprites $04-$07) and 3 records labelled $39 (list id $DE, maps 021 x2 and 11d; not part of this cause). All 35 Koopa
+record has `initFrame` null: 38 of the 2,262 spawn records in `layers_v5` (not of the 1,957 gradable) have it null: 35 Koopa records (list ids $DA-$DC, sprites $04-$07) and 3 records labelled $39 (list id $DE, maps 021 x2 and 11d; not part of this cause: $DE spawns five Eeries and only the first carries the list index, `bank_02.asm:6305-6308`, so the recorder links one per placement; docs/sprites/sprite-de-five-eeries.md). All 35 Koopa
 records are wrong. The level loader sends every list id from $DA up to $E0 to status 9 (`bank_02.asm:5348-5350`) and, for the Koopa ids, makes the sprite number `id - $DA + 4`; no INIT (`SMWDisX bank_02.asm:5339-5340`, `:5348-5350`, `:5360-5373`, `:5455-5461`). The runner
 seeds the number alone with status 1, so it runs a walking Koopa's INIT and draws two parts where the
 capture shows one. This is a real product defect: the map draws a walking Koopa for a stationary shell.
@@ -114,46 +123,81 @@ Traced and fixed (#840). The leak was `Machine.writtenOam()` counting every OAM 
 pass, by any code. The game's sprite loop stores the slot it is on in `$15E9` before running it
 (`SMWDisX bank_01.asm:110-125`, `STX CurSpriteProcess` at 123) and each slot's OAM index comes from its own slot
 (`bank_01.asm:143-152`), so a write made while `$15E9` names another slot is that slot's. The runner now keeps a
-write only when `$15E9` equals the sprite's own slot, on every pass.
+write as the sprite's own part only when `$15E9` equals the sprite's slot, on every pass and in a neighbor run alike
+(#841's neighbor run already did; the plain run's "any write" rule is gone).
 
 - $61: INIT (`CODE_02ED8A`, `bank_02.asm:14503-14534`) spawns up to 3 more $61 (status 8, `SpriteNumber,Y`), which
-  draw themselves in their own slots (`bank_02.asm:14544-14573`). Map 10a at 160,384 now gives 1 part.
-- $1E: INIT (`bank_01.asm:687-729`) spawns one $87 Lakitu cloud, which draws in its own slot (`LakituCloudGfx`,
-  `bank_01.asm:14115`). Map 1c4 at 1120,224 now gives 2 parts. Same cause as $61. (Probe, one machine, 2026-10-17:
-  the extra writes on $1E were under slots holding $87 and $14.)
-- $B9 is not the same cause: its INIT is a bare RTS (`bank_01.asm:890`) and it spawns nothing. Its two wrong records
-  (map 004 at 144,336 "model drew 21", map 101 at 96,336 and 1840,336 "model drew 5") were OAM written under `$15E9`
-  values 0-19 by the cluster sprite loop: `CODE_02F810` does `LDX #$13` / `STX $15E9` (`bank_02.asm:15950-15958`), and
-  it is reached from the runner's own frame through `ActivateClusterSprite` -> `JSL CODE_02F808` (`bank_01.asm:128-130`).
-  The writing PCs (one machine, 2026-10-17) are `$02:FD76` (in `CODE_02FBC7`) on map 004 and `$02:FA4E` (in
-  `CODE_02FA16`) on map 101. $B9's own tiles are written under its own sprite slot (PCs `$01:9F2A`, `$03:8DB4`). The
-  filter drops the cluster writes whose index differs from the sprite slot, so 101 grades exact. On 004 $B9 sits in
-  sprite slot 6, so cluster index 6's write is still credited to it: its "close" grade is two misattributions
-  agreeing, not a separate defect.
-- $2B's former spawn-oracle extra tile was also a cluster write (`$02:F983`, `$15E9` = 9), now filtered.
-- The map view still draws companions (owner principle D52: a sprite the hardware shows never draws as nothing). `PassResult.companions`
-  holds writes made under a sprite slot this run spawned (status non-zero, not the sprite's own); `modelResult` draws
-  `parts` plus `companions` ($61 4 pieces, $1E 7, as before #840), the grader and sprite report read `parts` only. Writes under
-  `$15E9` values that name no spawned slot (the cluster loop's 0-19) are in neither list ($B9 on 101: 1 part, 0 companions).
+  draw themselves in their own slots (`CODE_02EDD8`, `bank_02.asm:14544-14573`). Map 10a at 160,384 gives 1 part and
+  3 companions.
+- $1E: INIT (`InitLakitu`, `bank_01.asm:687-729`) spawns one $87 Lakitu cloud, which draws in its own slot
+  (`LakituCloudGfx`, `bank_01.asm:14115`). Map 1c4 at 1120,224 gives 2 parts and 5 companions. Same cause as $61.
+  (Probe, one machine, 2026-10-17: the extra writes on $1E were under slots holding $87 and $14.)
+- $B9 is not the same cause: its INIT is a bare RTS (`Return0185C2`, `bank_01.asm:890`, the shared `RTS` after
+  `InitPiranha`) and it spawns nothing. Its two wrong records (map 004 at 144,336 "model drew 21", map 101 at 96,336
+  and 1840,336 "model drew 5") were OAM written under `$15E9` values 0-19 by the cluster sprite loop: `CODE_02F810`
+  does `LDX #$13` / `STX $15E9` (`bank_02.asm:15950-15958`), and it is reached from the runner's own frame through
+  `ActivateClusterSprite` -> `JSL CODE_02F808` (`bank_01.asm:128-130`). The writing PCs (one machine, 2026-10-17
+  probe) are `$02:FD76` on map 004 and `$02:FA4E` on map 101. Traced from the nearest preceding label (offset in
+  bytes): `$02:FD76` is `CODE_02FD48` +46, the Boo ring's tile store (`STA OAMTileNo+$100,Y` after `BooRingTiles`,
+  `bank_02.asm:16651`); `$02:FA4E` is `CODE_02FA16` +56, the castle flame's tile store (`bank_02.asm:16255`). $B9's own
+  tiles are written under its own sprite slot (PCs `$01:9F2A`, `CODE_019E95` +149, `bank_01.asm:4083`, and `$03:8DB4`,
+  `DATA_038D66` +78, `bank_03.asm:1698`; for these two only the label and offset were taken from the disassembly
+  index, the exact instruction line was not traced). The filter drops the cluster writes whose index differs from the
+  sprite slot, so 101 grades exact (it was already exact on develop at `a028e0dc`, so #840 does not change it). On 004
+  $B9 sits in sprite slot 6, so cluster index 6's write is still credited to it: its "close" grade is two
+  misattributions agreeing, not a separate defect.
+- $2B's former spawn-oracle extra tile was also a cluster write (`$02:F983`, `$15E9` = 9; `CODE_02F967` +28, the Sumo
+  Bro flame tile store, `bank_02.asm:16145`), now filtered.
+- The map view still draws companions (owner principle D52: a sprite the hardware shows never draws as nothing).
+  `PassResult.companions` holds writes made under a sprite slot this run spawned: status non-zero, not the sprite's
+  own, and not a neighbor the #841 run placed (a placed neighbor draws on its own turn and the map draws it itself).
+  A tile byte belongs to the last slot that wrote it, so a reused OAM tile is decoded once. `drawnParts` is `parts`
+  plus `companions`: the chosen pass, the "drew no tile" test, `modelResult`, the pose frames and the spawn readers
+  (`SpawnedChildren`, `FiveEeries`) use it, so a spawner that draws only through its companions still draws. The grader
+  and sprite report read `parts` only. Writes under `$15E9` values that name neither the sprite's own slot nor a
+  spawned slot (the cluster loop's 0-19) are in neither list unless the value equals the sprite's own slot ($B9 on
+  101: 1 part, 0 companions).
 - Remaining limit: a cluster sprite whose index equals the sprite's slot, and Mario/Yoshi OAM drawn through
   `CODE_01C9E2` under the caller's `$15E9` (`bank_01.asm:10051`), are still credited to the sprite. Not a regression
   (the old code credited all of it); the cluster OAM leak work (#809, `ClusterOamLeak`) is the follow-up.
 
-Grader, `spriteGrade.captures.test.ts` (1957 records, 'rom' seed, one machine): before
-exact 1033, shape 803, close 18, wrong 90, empty 13 (develop at the #837 merge); after exact 1063, shape 814, close 26, wrong 41, empty 13.
-49 records improved from "wrong" and none graded worse (compared record by record, same order). The fix also
-cleared $33, $22, $24, $25, $3E, $54 and $67 records whose extra parts were written under other slots.
+Grader, `spriteGrade.captures.test.ts` (1957 records, 'rom' seed, vanilla ROM, `layers_v5`, one machine, measured
+2026-11-04): develop `a028e0dc` alone exact 1906, close 17, wrong 33, empty 1; the #840 branch merged with it exact
+1917, close 17, wrong 22, empty 1. 11 records improved from "wrong" to "exact" (6 of $61 on map 10a, 5 of $1E on maps
+11f, 132, 1c4, 1c5) and none graded worse (compared record by record, same order). Spawn tier (201 ids, 16 passes,
+same machine and date): develop alone 2,792 exact, 260 exact-empty, 15 wrong; merged 2,792, 275, 0 (id $2B). Map view
+pictures, 9 maps x 256 ids at rest, develop against the merged head: 0 of 2,304 differ. (The earlier counts in this
+paragraph, exact 1063 / wrong 41, were against the pre-#842 grader and are superseded.)
 
 **H, companion absent (14).** $9C scans slots 0-9 for a $9B (Hammer Brother) and draws it on the platform
-(`bank_02.asm:12114-12142`, `PutHammerBroOnPlat`). The runner runs the sprite alone, so ours has 4 parts
-and the capture 8 in all 14 (maps 006, 126, 127, 1c0, 1c4, 1c5, 11e). Fix: spawn the level's neighbouring
-$9B for sprites that scan for one, or record the dependency in `dependsOn`. Assert: $9C on map 006 at 1168,272
-draws 8 parts equal to one captured frame.
+(`bank_02.asm:12118-12148`, `PutHammerBroOnPlat`; `HammerBroGfx` 12044-12091). The $9B draws nothing in its own
+turn (`bank_02.asm:11964-11969` draws only at status 2), so the capture's 8 parts under the platform's slot are 4 of
+the platform and 4 of the bro. The runner ran the sprite alone: 4 parts, in all 14 (maps 006, 126, 127, 1c0, 1c4,
+1c5, 11e). **Fixed (#841):** a run whose own code read the number or status table at another slot while its
+slot was running (`scansSlots`) is run again with the map's neighbors (`neighboursOf`: its screen and the one
+each side, nearest first, at most 9) in the other slots, counting only OAM written under its own `$15E9`; that run
+is used when it adds parts and keeps the ones the run alone had (`dependsOn: neighbours`). Measured (one machine, vanilla
+cart, `spriteGrade.captures.test.ts`): base develop 6d23b7b0 against the merge head, one machine: exact 1053 to 1058, shape 810 to 819, wrong 62 to 48, close 18, empty 14, and only the 14 $9C rows changed (all better); all 14 $9C records
+leave "wrong" (5 exact, 9 shape); no record graded worse. Without the "keeps
+the parts it had" rule, 26 other records graded worse (sprites that scan the slots for collisions), so that rule is
+load-bearing.
+
+The neighbors the sprite drew itself (it read their `$15EA` OAM index on its own turn) are recorded in
+`PassResult.drew` by list index, with the OAM entries written for each. In the map view such a sprite (the $9B) stays in
+the list, flagged `drawnBy` its parent (D52): it gets no marker, its area is the tiles the parent drew for it, it can be
+hit, named and selected (it wins the hit over its parent's bitmap, which holds the same pixels), and the view does not
+paint it again. A lone $9B has no drawn pass, so any placeholder the parent drew is claimed, whatever its reason; a
+sprite with extra bits keeps its marker. The group is drawn at the parent's spawn frame (D137): however far the parent
+had moved from its anchor when it drew the children comes off every part of the pass. The $9C draws before it moves
+(`bank_02.asm:12115-12148`), so its shift is 0 and the grades above are unchanged; a parent that moves first (synthetic
+fixture in `NeighbourScan.test.ts`, swept over +x, -x, +y, -y) is the case it changes. Evidence scope: vanilla ROM maps
+$006 and $126 for the claim, synthetic cart for the rest, one machine.
 
 **S, floating-platform sink (9).** $A4 on map 102 only. INIT runs the sink loop (`bank_01.asm:6815-6837`):
 ours ends 32 px below the list y (anchor y 432 for a list y of 400) while the capture's first draw is at
 the list y within 16 px, so the lower two parts are off screen in ours (2 parts against 4). The inputs that
-stop the sink (liquid contact) were not found; water flag in the loaded image is 0. Assert: anchor
+stop the sink were found in #842: the loader skipped the Layer 3 handler, see
+[sprite-a4-floating-spike-ball.md](sprite-a4-floating-spike-ball.md). Assert: anchor
 y of $A4 at 912,400 on map 102 is within 16 px of 400.
 
 **U, one-pose differences (8).** $16 x2, $37 x2, $30, $28, $93, $26: same part count (or close) but one

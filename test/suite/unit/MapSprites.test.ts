@@ -13,6 +13,8 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
   drawSprites,
+  mapSpriteFrames,
+  type SpriteDrawResult,
   mapSprites,
   readStream,
   spriteLayer,
@@ -93,6 +95,44 @@ describe('drawSprites', () => {
   })
 })
 
+describe('drawSprites: chars a sprite uploads to the player slots (#980)', () => {
+  // A buffer whose piece at $2000 is solid color 3, so a slot pointed there is recognisable.
+  const buffer = () => {
+    const bytes = new Uint8Array(0xb000 - 0x2000)
+    bytes.fill(0xff, 0, 0x40)
+    return { ok: true as const, bytes }
+  }
+  // SP1 reaching char $406, which holds the left-1/right-2 pattern of char $400.
+  const WIDE = { ...MODEL, vram: { sp1: [...SP1, ...Array(6).fill(SP1[0])] } }
+  const draw = (...uploads: { slot: number; ptr: number }[]) => (): SpriteDrawResult => ({ ...ok(part(0x406, 0, 0)), uploads }) // prettier-ignore
+
+  it("draws the sprite's own chars where the map's SP1 has others, and only that sprite's", () => {
+    const model = { ...WIDE, playerGraphics: buffer }
+    const [a, b] = drawSprites([spr(0, 0, 0, 0x33), spr(1, 4, 0, 0x10)], model, s => s.index === 0 ? draw({ slot: 3, ptr: 0x2000 })() : ok(part(0x406, 0, 0))) // prettier-ignore
+    expect(px(decode(a!), 8, 0, 0)[0]).toBe(9 * 16 + 15)
+    expect(px(decode(b!), 8, 0, 0)[0]).toBe(9 * 16 + 1)
+    expect(a).not.toHaveProperty('unverified')
+  })
+
+  it('draws the map chars, with the reason as the sprite note, when the buffer cannot be read', () => {
+    const model = { ...WIDE, playerGraphics: () => ({ ok: false as const, reason: 'not stock' }) } // prettier-ignore
+    const [s] = drawSprites([spr(0, 0, 0, 0x33)], model, draw({ slot: 3, ptr: 0x2000 }))
+    expect(s).toMatchObject({ status: 'drawn', unverified: expect.stringContaining('not stock') })
+    expect(px(decode(s!), 8, 0, 0)[0]).toBe(9 * 16 + 1)
+  })
+
+  it('keeps an earlier note and adds the reason, and does the same when no buffer reader is given', () => {
+    const [s] = drawSprites([spr(0, 0, 0, 0x33)], WIDE, () => ({ ...draw({ slot: 3, ptr: 0x2000 })(), unverified: 'seed' }) as SpriteDrawResult) // prettier-ignore
+    expect(s).toMatchObject({ status: 'drawn', unverified: expect.stringMatching(/^seed; its chars come from/) }) // prettier-ignore
+  })
+
+  it('does not read the buffer for a sprite that uploaded nothing', () => {
+    const read = vi.fn(buffer)
+    drawSprites([spr(0, 0, 0)], { ...MODEL, playerGraphics: read }, () => ok(part(0x401, 0, 0)))
+    expect(read).not.toHaveBeenCalled()
+  })
+})
+
 describe('drawSprites: extra bits, palette splice', () => {
   it('marks a custom sprite (bit 3) but draws one that only has bit 2, which vanilla uses', () => {
     const withBits = (raw0: number) => ({ ...spr(0, 1, 1), raw: [raw0, 0, 0x10] }) as LevelSprite
@@ -100,6 +140,33 @@ describe('drawSprites: extra bits, palette splice', () => {
     expect(a).toMatchObject({ status: 'placeholder', reason: 'extraBits' })
     expect(b!.status).toBe('drawn')
     expect(c).toMatchObject({ reason: 'extraBits' })
+  })
+
+  it('a sprite its parent drew stays in the list, flagged, with the parent-drawn tiles and no marker (#1049, D52)', () => {
+    const child = (index: number) => ({ index, parts: [part(0x401, 0, -16)] })
+    const parent = (kids: ReturnType<typeof child>[]): EngineResult => ({ ...ok(part(0x401, 0, 0)), children: kids }) as EngineResult // prettier-ignore
+    const list = [spr(10, 3, 2, 0x9c), spr(11, 3, 2, 0x9b), spr(12, 9, 2, 0x9b)]
+    const draw = (kids: ReturnType<typeof child>[]) => (s: LevelSprite): EngineResult => s.spriteId === 0x9c ? parent(kids) : ok() // prettier-ignore
+    // Index 11 is the one $9C drew; 12 draws nothing and nothing drew it, so it keeps its marker.
+    const [p, c, m] = drawSprites(list, MODEL, draw([child(11)]))
+    expect(c).toMatchObject({ index: 11, id: 0x9b, status: 'drawn', drawnBy: 10, x: 48, y: 32 })
+    expect(c!.reason).toBeUndefined()
+    // Its area is the tiles the parent drew for it (16 px above the anchor), not a 16 x 16 marker at the anchor.
+    expect(c!.box).toEqual({ x0: 48, y0: 16, x1: 56, y1: 24 })
+    expect(c!.parts).toHaveLength(1)
+    expect(p!.drawnBy).toBeUndefined()
+    expect(m).toMatchObject({ index: 12, status: 'placeholder', reason: 'noParts' })
+    // The same list with no claim keeps both markers, so the flag is the claim and not the id.
+    expect(drawSprites(list, MODEL, draw([])).map(d => [d.index, d.status])).toEqual([[10, 'drawn'], [11, 'placeholder'], [12, 'placeholder']]) // prettier-ignore
+  })
+
+  it('claims a placeholder whatever its reason, but never an extra-bits one (#1049)', () => {
+    const kids = [{ index: 11, parts: [part(0x401, 0, -16)] }]
+    const stub = (s: LevelSprite): EngineResult => s.spriteId === 0x9c ? ({ ...ok(part(0x401, 0, 0)), children: kids } as EngineResult) : ({ ok: false, reason: 'drew no OAM tile in 64 passes' } as EngineResult) // prettier-ignore
+    const [, c] = drawSprites([spr(10, 3, 2, 0x9c), spr(11, 3, 2, 0x9b)], MODEL, stub)
+    expect(c).toMatchObject({ status: 'drawn', drawnBy: 10 })
+    const custom = { ...spr(11, 3, 2, 0x9b), raw: [0x08] }
+    expect(drawSprites([spr(10, 3, 2, 0x9c), custom], MODEL, stub)[1]).toMatchObject({ status: 'placeholder', reason: 'extraBits' }) // prettier-ignore
   })
 
   it('splices only the parts on the note row', () => {
@@ -143,6 +210,35 @@ describe('spriteLayer', () => {
     expect(r).toMatchObject({ orientation: 'vertical', width: 512, height: 256, screenCount: 2 })
     expect(r.sprites[0]).toMatchObject({ x: 48, y: 21 * 16 })
     expect(r.note).toBeUndefined()
+  })
+
+  it('puts a sprite note on the map note line once, and on its entry', () => {
+    const h = { ...MODEL, isVertical: false, screenCount: 1 }
+    /** An engine reply that carries a sprite note, to prove the note reaches the map's note line once. */
+    const said = () => ({ ...ok(part(0x401, 0, 0)), note: 'Only 4 of the 5 Eeries appear.' }) as EngineResult & { note: string } // prettier-ignore
+    const r = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x10, 0x20, 0x02, 0x10, END]), h, said)
+    expect(r.sprites.map(s => s.note)).toEqual(['Only 4 of the 5 Eeries appear.', 'Only 4 of the 5 Eeries appear.']) // prettier-ignore
+    expect(r.note).toBe('Only 4 of the 5 Eeries appear.')
+  })
+
+  it('names each sprite from the sprite name table (#981)', () => {
+    const h = { ...MODEL, isVertical: false, screenCount: 1 }
+    const r = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x33, 0x20, 0x02, 0xf0, 0x30, 0x03, 0x28, END]), h, stub) // prettier-ignore
+    expect(r.sprites.map(s => [s.id, s.name])).toEqual([[0x33, 'Podoboo'], [0xf0, 'Scroll command 9: Unused (vanilla)'], [0x28, 'Big Boo']]) // prettier-ignore
+  })
+
+  it('gives no name to a sprite drawn as a placeholder because its identity is not vanilla (#981)', () => {
+    const h = { ...MODEL, isVertical: false, screenCount: 1 }
+    // Extra bits set on id $28: the placeholder must not wear the vanilla name; the plain $28 beside it keeps it.
+    const r = spriteLayer(Uint8Array.from([0, 0x18, 0x01, 0x28, 0x20, 0x02, 0x28, END]), h, stub)
+    expect(r.sprites.map(s => [s.reason, s.name])).toEqual([['extraBits', undefined], [undefined, 'Big Boo']]) // prettier-ignore
+    // Header bit 2 alone (0x04) is drawn as the vanilla sprite (see the test above), so it is named as one: name and art agree.
+    const bit2 = spriteLayer(Uint8Array.from([0, 0x14, 0x01, 0x28, END]), h, stub)
+    expect(bit2.sprites.map(s => [s.status, s.name])).toEqual([['drawn', 'Big Boo']])
+    // A repointed handler: the engine refuses with customHandler, and that sprite is not named either.
+    const custom = () => ({ ok: false as const, failure: { kind: 'customHandler' as const, spriteId: 0x28, table: 'main' as const, expected: 0, found: 1 } }) // prettier-ignore
+    const c = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x28, END]), h, custom as never)
+    expect(c.sprites.map(s => [s.reason, s.name])).toEqual([['customHandler', undefined]])
   })
 
   it('notes a stream cut before its end marker, and still draws what is there', () => {
@@ -330,6 +426,7 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
   }
 
   // 24: 21 plus the 3 stationary shells on $106 ($DB at 272,368 and 1312,368; $DA at 1664,368), drawn since #837.
+  // $3E (the P-switch) draws too, now INIT runs for the picture (D139 D); the other sprite is marked (D52).
   it('draws 24 of the 25 sprites of $106 and marks the rest, every one with a matching bitmap', () => {
     const r = run(0x106)
     expect(r.sprites).toHaveLength(25)
@@ -358,5 +455,43 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
     expect(r.sprites).toHaveLength(34)
     expect(r.sprites.filter(s => s.status === 'drawn')).toHaveLength(32)
     for (const s of r.sprites.filter(s => s.status === 'placeholder')) expect(s.reason).toMatch(/^(refused: |drew no OAM tile)/) // prettier-ignore
+  })
+
+  // Maps 006 and 126 hold every vanilla $9C beside its $9B (one machine, one run).
+  it('lists each $9B beside a $9C as drawn by it, on $006 and $126', () => {
+    const six = run(0x6).sprites
+    expect(six.find(s => s.index === 11)).toMatchObject({ id: 0x9b, status: 'drawn', drawnBy: 10 })
+    for (const map of [0x6, 0x126]) {
+      const bros = run(map).sprites.filter(s => s.id === 0x9b)
+      expect(bros.length).toBeGreaterThan(0)
+      for (const b of bros) expect(b, `map ${map.toString(16)} index ${b.index}`).toMatchObject({ status: 'drawn' }) // prettier-ignore
+      expect(bros.every(b => b.drawnBy !== undefined)).toBe(true)
+    }
+  })
+
+  it('the Properties preview of a $9B its platform drew says so in plain words, not "drew no OAM tile" (#1049)', () => {
+    const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
+    for (const [map, index] of [
+      [0x6, 11],
+      [0x126, 28],
+    ] as const) {
+      const f = mapSpriteFrames(new L1ModelCache(), bytes, romPath(VANILLA), map, index)
+      if (f.status !== 'ok') throw new Error(JSON.stringify(f))
+      expect(f.frames).toEqual([])
+      expect(f.reason, `map ${map.toString(16)} index ${index}`).toMatch(/^Drawn as part of the sprite it rides with/) // prettier-ignore
+      expect(f.reason).not.toMatch(/OAM|\$/)
+    }
+    // A sprite nobody drew keeps the engine's own reason.
+    const lone = mapSpriteFrames(new L1ModelCache(), bytes, romPath(VANILLA), 0x6, 10)
+    expect(lone.status === 'ok' && lone.frames.length).toBeGreaterThan(0)
+  })
+
+  it("the Properties preview's first frame is the map's own bitmap for the $9C on $006 (frame 0 IS the map's picture)", () => {
+    const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
+    const cache = new L1ModelCache()
+    const map = run(0x6).sprites.find(s => s.index === 10)!
+    const f = mapSpriteFrames(cache, bytes, romPath(VANILLA), 0x6, 10)
+    if (f.status !== 'ok') throw new Error(JSON.stringify(f))
+    expect(f.frames[0]!.rgba).toBe(map.rgba)
   })
 })

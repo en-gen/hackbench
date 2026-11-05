@@ -7,11 +7,28 @@
  */
 import { describe, it, expect } from 'vitest'
 import type { RgbaColor } from '../../../src/rom/GraphicsDecoder'
-import { parseLevelHeader } from '../../../src/rom/LevelParser'
+import { isLevelModeVertical, parseLevelHeader } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
-import { SmwRom } from '../../../src/rom/SmwRom'
+import { SmwRom, type MapEntrances } from '../../../src/rom/SmwRom'
 import { withCrusher } from '../../../src/rom/L3CodeGate'
-import { buildL3Verdict, type L3Inputs, type L3Verdict } from '../../../src/rom/model/L3Model'
+import {
+  CAMERA_HOOKED,
+  entranceCameraX,
+  isStockCameraSetup,
+  readCameraSetup,
+  readEntranceCameraGate,
+  STOCK_CAMERA_SETUP,
+} from '../../../src/rom/L3EntranceCamera'
+import { createHash } from 'node:crypto'
+import {
+  buildL3Verdict,
+  EXIT_GRAPH_UNAVAILABLE,
+  SCREEN_EXIT_CAMERA,
+  type L3Inputs,
+  type L3Verdict,
+} from '../../../src/rom/model/L3Model'
+import { readL3SmashLoadPos } from '../../../src/rom/L3Smash'
+import { firstLanding } from '../../../src/rom/sprites/interp/SmashLanding'
 import {
   drawL3Planes,
   screenResult,
@@ -21,7 +38,7 @@ import { MAP_PLANE_KEYS } from '../../../theia/extension/src/common/project-prot
 import { composeScreen } from '../../../src/rom/model/ColorMath'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 import { COLORS, hGrid, inputs, px, sub, tile } from '../support/mapInputs'
-import { modeTablesRom, STANDARD_MODES, sweepLayouts, withLayer3 } from '../support/l3Rom'
+import { modeTablesRom, STANDARD, STANDARD_MODES, sweepLayouts, withLayer3 } from '../support/l3Rom'
 import type { ModeLayout } from '../../../src/rom/LevelScreenTables'
 import {
   FALLBACK_SCREENS,
@@ -64,6 +81,9 @@ const L3_COLOR = 6
 /** Layer 2's color after the 5-bit round trip the math stage applies to a sub-screen pixel. */
 const L2_COLOR = ((35 >> 3) << 3) | ((35 >> 3) >> 2)
 const solid2 = (priority: boolean) => tile(2, [sub(3, 2, priority), sub(3, 2, priority), sub(3, 2, priority), sub(3, 2, priority)]) // prettier-ignore
+/** A level mode whose main screen is BG3 alone and whose sub screen is BG1 and BG2, as $018's mode 0E. */
+const BG3_ALONE_MODE = 14
+const aloneLayouts = (): ModeLayout[] => sweepLayouts().map((l, m) => (m === BG3_ALONE_MODE ? { main: 0x04, sub: 0x03, cgadsub: 0x24, special: 0, vertical: 0 } : l)) // prettier-ignore
 const rom5 = () => withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 0, setting: 2, settingsByte: 2, word: L3_WORD(true) }) // prettier-ignore
 
 describe('layer 3 gate, every level mode (synthetic header and mode tables)', () => {
@@ -181,21 +201,29 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
     const l3 = { ...verdict(false, null), cgadsub: null }
     expect(wireOf({ ...l1Of(0, 0, false), l3 }).math).toBeNull()
   })
+  it('an unreached map is one line of its own, after the layer 3 position note (#945)', () => {
+    const routeNote =
+      'No route from the overworld reaches this map, so it opens at the first screen.'
+    const l3 = verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYReasons: ['because'] }))
+    const w = wireOf({ ...l1Of(0, 0, false), l3, routeNote })
+    expect(w.layerNotes.filter(n => n === routeNote)).toHaveLength(1)
+    expect(w.layerNotes).toEqual(['Layer 3 position unverified: because', routeNote])
+  })
   it('an unverified layer 3 camera is a layer note on a map that still draws it (#860)', () => {
-    const drawn = (note?: string) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: note })) // prettier-ignore
+    const drawn = (...notes: string[]) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYReasons: notes.length ? notes : undefined })) // prettier-ignore
     const w = wireOf({ ...l1Of(0, 0, false), l3: drawn('because') })
     expect(w.layerNotes).toEqual(['Layer 3 position unverified: because'])
     expect(w.planes.l3Low ?? w.planes.l3High).toBeTruthy()
     expect(wireOf({ ...l1Of(0, 0, false), l3: drawn() }).layerNotes).toEqual([])
   })
   describe('one reason shared by the background height and the layer 3 position reads once (#926)', () => {
-    const drawn = (note?: string) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: note })) // prettier-ignore
+    const drawn = (...notes: string[]) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYReasons: notes.length ? notes : undefined })) // prettier-ignore
     const withL2 = (reasons: string[]) => ({
       ok: true as const,
       l2: { kind: 'objects' as const, grid: [[null]], tiles: [], dy: 0, reasons, note: `Background height unverified: ${reasons.join(' ')}` }, // prettier-ignore
     })
-    const notes = (reasons: string[], l3Note: string) =>
-      wireOf({ ...l1Of(0, 0, false), l2: withL2(reasons), l3: drawn(l3Note) }).layerNotes
+    const notes = (reasons: string[], ...l3Notes: string[]) =>
+      wireOf({ ...l1Of(0, 0, false), l2: withL2(reasons), l3: drawn(...l3Notes) }).layerNotes
     it('the same gate reason on both parts is one line naming both', () => {
       expect(notes(['gate'], 'gate')).toEqual(['Background height and Layer 3 position unverified: gate']) // prettier-ignore
     })
@@ -205,9 +233,15 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
     it('a gate plus a dy note on L2 with the same gate on L3: the gate once, the dy note kept', () => {
       expect(notes(['gate', 'dy'], 'gate')).toEqual(['Background height and Layer 3 position unverified: gate', 'Background height unverified: dy']) // prettier-ignore
     })
+    it('the graph reason stays a Layer 3 line while the gate reason both layers give is merged (#910)', () => {
+      const gate = 'the level-start code is not stock'
+      const graph = EXIT_GRAPH_UNAVAILABLE
+      const m = { ...l1Of(0, 0, false), l2: withL2([gate]), l3: drawn(gate, graph) }
+      expect(wireOf(m).layerNotes).toEqual([`Background height and Layer 3 position unverified: ${gate}`, `Layer 3 position unverified: ${graph}`]) // prettier-ignore
+    })
   })
   describe('the note lines for every reason overlap of the two parts (#926)', () => {
-    const drawn = (note?: string) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYUnverified: note })) // prettier-ignore
+    const drawn = (...notes: string[]) => verdict(false, l3Of([word(8, 0, L3_WORD(false))], { camYReasons: notes.length ? notes : undefined })) // prettier-ignore
     const withL2 = (reasons: string[]) => ({
       ok: true as const,
       l2: { kind: 'objects' as const, grid: [[null]], tiles: [], dy: 0, reasons, note: `Background height unverified: ${reasons.join(' ')}` }, // prettier-ignore
@@ -225,10 +259,19 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
       [['b', 'a'], 'b', [`${BOTH}: b`, 'Background height unverified: a']],
       [undefined, 'a', ['Layer 3 position unverified: a']],
     ]
+    const routeNote = 'No route from the overworld reaches this map, so it opens at the first screen.' // prettier-ignore
     for (const [l2, l3, expected] of cases) {
       it(`L2 ${JSON.stringify(l2)} with L3 ${JSON.stringify(l3)}`, () => {
-        const m = { ...l1Of(0, 0, false), ...(l2 ? { l2: withL2(l2) } : {}), l3: drawn(l3) }
+        const m = {
+          ...l1Of(0, 0, false),
+          ...(l2 ? { l2: withL2(l2) } : {}),
+          l3: drawn(...(l3 ? [l3] : [])),
+        }
         expect(wireOf(m).layerNotes).toEqual(expected)
+        // The route note (#945) is its own entry, last, exactly once, never joined onto a position note.
+        const guessed = wireOf({ ...m, routeNote }).layerNotes
+        expect(guessed).toEqual([...expected, routeNote])
+        expect(guessed.filter(n => n.includes(routeNote))).toHaveLength(1)
       })
     }
   })
@@ -290,11 +333,14 @@ describe('buildL3Verdict: screens, math and the layer 2 role', () => {
     const r = buildL3Verdict(blank, 5, l1Of(0, 0, false), BG_OK, chars, GATE_OK)
     expect(r).toMatchObject({ cgadsub: null, screens: FALLBACK_SCREENS, layer2Interactive: false })
   })
-  it('camera-locked layer 3 keeps BG3 in CGADSUB (not drawn; #563 inherits this)', () => {
-    const locked = withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 0, setting: 2, settingsByte: 0x81, word: L3_WORD(false) }) // prettier-ignore
-    const r = buildL3Verdict(locked, 5, l1Of(0, 0, false), BG_OK, chars, GATE_OK)
-    expect(r.reason).toMatch(/camera-locked/)
+  it('camera-locked layer 3 keeps BG3 in CGADSUB, drawn or refused (#563)', () => {
+    const locked = withLayer3(modeTablesRom(aloneLayouts()), { level: 5, tileset: 0, setting: 2, settingsByte: 0x81, word: L3_WORD(false) }) // prettier-ignore
+    const r = buildL3Verdict(locked, 5, l1Of(0, 0, false), BG_OK, chars, GATE_OK, undefined, undefined, undefined, () => GATE_OK) // prettier-ignore
+    expect(r.l3).not.toBeNull()
     expect(r.cgadsub! & 0x04).toBe(0x04)
+    const alone = buildL3Verdict(locked, 5, l1Of(BG3_ALONE_MODE, 0, false), BG_OK, chars, GATE_OK)
+    expect(alone.reason).toMatch(/camera-locked/)
+    expect(alone.cgadsub! & 0x04).toBe(0x04)
   })
   it('settings byte $00 off tilesets 1 and 3 is camera-locked but BG3 is still cleared (CODE_00A01B)', () => {
     const rom0 = withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 0, setting: 2, settingsByte: 0x00, word: L3_WORD(false) }) // prettier-ignore
@@ -310,15 +356,21 @@ describe('buildL3Verdict: screens, math and the layer 2 role', () => {
 
 describe('camera-locked layer 3 (synthetic settings bytes)', () => {
   const romFor = (tileset: number, byte: number) =>
-    withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset, setting: 2, settingsByte: byte, word: L3_WORD(false), row: 24 }) // prettier-ignore
+    withLayer3(modeTablesRom(aloneLayouts()), { level: 5, tileset, setting: 2, settingsByte: byte, word: L3_WORD(false), row: 24 }) // prettier-ignore
 
-  it('$81 and $BF are skipped on a tileset other than Castle1 and Underground1', () => {
+  it('$81 and $BF are drawn world-locked on a tileset other than Castle1 and Underground1 (#563)', () => {
     for (const byte of [0x81, 0xbf]) {
       for (const ts of [0, 2, 4, 15]) {
-        const v = buildL3Verdict(romFor(ts, byte), 5, l1Of(0, ts, false), BG_OK, chars, GATE_OK)
-        expect(v, `byte ${byte} tileset ${ts}`).toMatchObject({ l3: null, reason: /camera-locked/ })
+        const v = buildL3Verdict(romFor(ts, byte), 5, l1Of(0, ts, false), BG_OK, chars, GATE_OK, undefined, undefined, undefined, () => GATE_OK) // prettier-ignore
+        expect(v.l3?.worldLocked, `byte ${byte} tileset ${ts}`).toBeDefined()
+        expect(v.l3?.yPx).toBe(v.l3?.camYPx) // Layer3YPos = Layer1YPos: row R sits at level Y R*8
       }
     }
+  })
+
+  it('stays refused where BG3 is alone on the main screen (mode 0E, $018)', () => {
+    const v = buildL3Verdict(romFor(13, 0x81), 5, l1Of(BG3_ALONE_MODE, 13, false), BG_OK, chars, GATE_OK) // prettier-ignore
+    expect(v).toMatchObject({ l3: null, reason: 'Layer 3 not drawn yet: camera-locked layer 3' })
   })
 
   it('on Castle1 and Underground1 they are drawn at the fixed Y, $C0', () => {
@@ -433,6 +485,213 @@ describe('drawL3Planes (synthetic)', () => {
   })
 })
 
+describe('world-locked layer 3: byte $81 off Castle1 and Underground1 (synthetic, #563)', () => {
+  // Mario's start X is DATA_05F600's screen (low 5 bits) over DATA_05D750's low byte (MarioStartPos.ts).
+  const header6 = (ts: number, mode = 0) => parseLevelHeader([5, mode, 0, 0, ts]) // a 6 screen map
+  const romW = (ts = 9, startX = 544, layouts: ModeLayout[] = sweepLayouts()) => {
+    const r = withLayer3(modeTablesRom(layouts), { level: 5, tileset: ts, setting: 2, settingsByte: 0x81, word: L3_WORD(false), row: 8 }) // prettier-ignore
+    r.writeAt(0x05f600 + 5, [startX >> 8])
+    r.writeAt(0x05d750, [startX & 0xff])
+    return r
+  }
+  const stock = () => GATE_OK
+  const verdictW = (ts = 9, startX = 544, mode = 0, layouts?: ModeLayout[], gate = stock) => buildL3Verdict(romW(ts, startX, layouts), 5, { ...l1Of(mode, ts, false), header: header6(ts, mode) }, BG_OK, chars, GATE_OK, undefined, undefined, undefined, gate) // prettier-ignore
+  // Start - $8C, the camera's right buffer (bank_00.asm:13636-13642); no CODE_00F8AB adjustment at load.
+  const CAM_X = 544 - 0x8c
+  const alphaAt = (b: Uint8ClampedArray, x: number, y: number) => px(b, 256, x, y)[3]
+
+  it('is drawn: column 0 at the entrance camera X, a copy 512 px on, row R at map Y R * 8', () => {
+    const v = verdictW()
+    expect(v.reason).toBeNull()
+    expect(v.l3?.worldLocked).toEqual({ camXPx: CAM_X })
+    expect(v.l3?.yPx).toBe(v.l3?.camYPx)
+    // Map X 404 is screen 1 (x 256..511) at x 148; the copy at 916 is screen 3 at x 148. Row 8 is map Y 64.
+    for (const [screen, x] of [
+      [1, 148],
+      [3, 148],
+    ] as const) {
+      const p = drawL3Planes(v.l3!, screen).l3Low!
+      expect([alphaAt(p, x, 64), alphaAt(p, x + 7, 71), alphaAt(p, x - 1, 64), alphaAt(p, x + 8, 64), alphaAt(p, x, 72)], `screen ${screen}`).toEqual([255, 255, 0, 0, 0]) // prettier-ignore
+    }
+    expect(drawL3Planes(v.l3!, 0).l3Low).toBeNull() // nothing before the entrance camera
+    expect(drawL3Planes(v.l3!, 2).l3Low).toBeNull()
+  })
+
+  it('anchors at start - $8C across the map, clamped at $1F00 and not at the map length', () => {
+    // Inside the left buffer, the dead zone, just past it, mid map, the last screen of a 6 screen map ($5A0).
+    const starts = [0x20, 0x7f, 0x88, 0x8c, 0x8d, 0x120, 0x220, 0x5a0]
+    expect(starts.map(x => verdictW(9, x).l3?.worldLocked?.camXPx)).toEqual(starts.map(x => Math.max(0, x - 0x8c))) // prettier-ignore
+    expect(verdictW(9, 0x5a0).l3?.worldLocked?.camXPx).toBe(0x5a0 - 0x8c) // a clamp to the map's own 5 << 8 would give $500
+  })
+
+  it('refuses, saying why in plain words, when the camera code is not stock (a hack that patches it)', () => {
+    const v = verdictW(9, 544, 0, undefined, () => ({ ok: false, reason: 'x' }))
+    expect(v).toMatchObject({ l3: null, reason: CAMERA_HOOKED })
+    expect(v.reason).not.toMatch(/\$|0x|[0-9a-f]{4}/i) // no hex in a tooltip
+    expect(v.cgadsub! & 0x04).toBe(0x04)
+  })
+
+  it('checks the camera code by default: a ROM whose camera bytes are not stock is refused', () => {
+    // No gate argument, so readEntranceCameraGate runs on the synthetic cart, whose bytes there are zero.
+    const l1 = { ...l1Of(0, 9, false), header: header6(9) }
+    expect(buildL3Verdict(romW(), 5, l1, BG_OK, chars, GATE_OK)).toMatchObject({ l3: null, reason: CAMERA_HOOKED }) // prettier-ignore
+  })
+
+  it('draws where BG3 shares the main screen (BG1, BG2 or both) and refuses only where it is alone', () => {
+    for (const main of [0x05, 0x06, 0x07, 0x15]) {
+      const layouts = sweepLayouts().map((l, m) => (m === BG3_ALONE_MODE ? { ...STANDARD, main } : l)) // prettier-ignore
+      expect(verdictW(9, 544, BG3_ALONE_MODE, layouts).l3, `main ${main}`).not.toBeNull()
+    }
+    const alone = sweepLayouts().map((l, m) => (m === BG3_ALONE_MODE ? { ...STANDARD, main: 0x04 } : l)) // prettier-ignore
+    expect(verdictW(9, 544, BG3_ALONE_MODE, alone).l3).toBeNull()
+  })
+
+  it('keeps BG3 in color math: the drawn pixel is blended with the sub screen like a tide', () => {
+    const v = verdictW()
+    expect(v.cgadsub! & 0x04).toBe(0x04)
+    expect(v.l3?.tide).toBe(false)
+  })
+
+  it('tells the wire it drifts, and only then', () => {
+    const m = (l3: L3Verdict): MapInputs => ({ ...l1Of(0, 9, false), l3 })
+    expect(wireOf(m(verdictW())).layer3.drifts).toBe(true)
+    expect(
+      wireOf(m(verdict(false, l3Of([word(8, 0, L3_WORD(false))])))).layer3.drifts,
+    ).toBeUndefined()
+  })
+
+  it('leaves Castle1, Underground1, $80 and the tides as they were', () => {
+    for (const ts of [1, 3]) {
+      expect(verdictW(ts).l3?.yPx).toBe(0xc0)
+      expect(verdictW(ts).l3?.worldLocked).toBeUndefined()
+    }
+    for (const [byte, ts] of [
+      [0x80, 1],
+      [0x02, 0],
+      [0xc0, 0],
+    ] as const) {
+      const r = withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: ts, setting: 2, settingsByte: byte, word: L3_WORD(false) }) // prettier-ignore
+      const v = buildL3Verdict(r, 5, l1Of(0, ts, false), BG_OK, chars, GATE_OK, () => ({ ok: true, pos: null })) // prettier-ignore
+      expect(v.l3?.worldLocked, `byte ${byte}`).toBeUndefined()
+      expect(v.l3).not.toBeNull()
+    }
+  })
+
+  it('adds the entered-from-another-map reason for a screen-exit entry, not for a direct load', () => {
+    const at = (via?: MapEntrances) => buildL3Verdict(romW(), 5, { ...l1Of(0, 9, false), header: header6(9) }, BG_OK, chars, GATE_OK, undefined, via, undefined, stock).l3 // prettier-ignore
+    const reasons = (via?: MapEntrances) => at(via)?.camYReasons ?? []
+    const direct = { overworld: true, primary: false, secondary: [] }
+    expect(reasons(direct)).not.toContain(SCREEN_EXIT_CAMERA)
+    expect(reasons(undefined)).not.toContain(SCREEN_EXIT_CAMERA)
+    expect(reasons({ overworld: false, primary: true, secondary: [] })).toContain(
+      SCREEN_EXIT_CAMERA,
+    )
+    expect(reasons({ overworld: false, primary: false, secondary: [3] })).toContain(
+      SCREEN_EXIT_CAMERA,
+    )
+    expect(SCREEN_EXIT_CAMERA).not.toMatch(/\$|0x|[0-9a-f]{4}/i)
+    // The anchor is still drawn.
+    expect(at({ overworld: false, primary: true, secondary: [] })?.worldLocked).toBeDefined()
+  })
+
+  it('does not draw on a vertical map', () => {
+    const l1 = { ...l1Of(0, 9, false), header: header6(9), isVertical: true }
+    expect(buildL3Verdict(romW(), 5, l1, BG_OK, chars, GATE_OK).reason).toBe('Layer 3 not drawn yet: vertical maps') // prettier-ignore
+  })
+
+  it('does not draw on a Mode 7 room', () => {
+    const special = sweepLayouts().findIndex(l => l.special !== 0)
+    expect(verdictW(9, 544, special).l3).toBeNull()
+    expect(verdictW(9, 544, special).reason).toMatch(/Mode 7/)
+  })
+})
+
+describe('entranceCameraX and its code gate (synthetic, #563)', () => {
+  it('is start - $8C past the right buffer, else 0, never past $1F00', () => {
+    expect([0, 24, 0x80, 0x8b, 0x8c].map(x => entranceCameraX(x))).toEqual([0, 0, 0, 0, 0])
+    expect([0x8d, 0x318, 0x2000, 0x7000].map(x => entranceCameraX(x))).toEqual([1, 0x318 - 0x8c, 0x1f00, 0x1f00]) // prettier-ignore
+  })
+
+  // Synthetic filler for the one digest: not code of any ROM.
+  const body = Array.from({ length: 40 }, (_, i) => (i * 7 + 3) & 0xff)
+  const romWith = (at: number, bytes: number[]) => {
+    const r = new RomFile('c.sfc', Buffer.alloc(0x80000, 0))
+    r.writeAt(at, bytes)
+    return r
+  }
+  const spans = [{ addr: 0x00f6a3, length: 25 }, { addr: 0x00f6db, length: 15 }] // prettier-ignore
+  const digest = createHash('sha256').update(Buffer.from(body)).digest('hex') // the two spans joined: 25 + 15 bytes
+
+  it('one digest over the joined spans: a changed byte in either span fails it', () => {
+    const rom = () => {
+      const r = romWith(0x00f6a3, body.slice(0, 25))
+      r.writeAt(0x00f6db, body.slice(25))
+      return r
+    }
+    expect(readEntranceCameraGate(rom(), spans, digest, STOCK_CAMERA_SETUP)).toEqual({ ok: true })
+    for (const [at, i] of [
+      [0x00f6a3, 9],
+      [0x00f6db, 3],
+    ] as const) {
+      const hacked = rom()
+      hacked.writeAt(at + i, [0xea])
+      expect(readEntranceCameraGate(hacked, spans, digest, STOCK_CAMERA_SETUP).ok, `byte ${i} at ${at}`).toBe(false) // prettier-ignore
+    }
+  })
+
+  it('reads the load setup one field at a time, from the offsets the instructions use', () => {
+    // Distinct non-ROM values: each field must come from its own offset.
+    // GM11LoadLevel's seventeen bytes: JSR, LDA #, STA, JSR, INC abs (operand skipped), JSL.
+    const gm11 = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xf1, 0x01, 0x02] // prettier-ignore
+    expect(readCameraSetup(romWith(0x009705, gm11))).toMatchObject({
+      loadCallOp: 0x11,
+      loadCallTarget: 0x3322,
+      maxScreensOp: 0x44,
+      maxScreens: 0x55,
+      maxScreensStoreOp: 0x66,
+      maxScreensStore: 0x77, // prettier-ignore
+      scrollCallOp: 0x88,
+      scrollCallTarget: 0xaa99,
+      screenScrollOp: 0xbb,
+      updateCallOp: 0xee,
+      updateCallTarget: 0x01f1,
+      updateCallBank: 0x02, // prettier-ignore
+    })
+    expect(readCameraSetup(romWith(0x00a7b9, [0x91, 0x82, 0x73, 0x64, 0x55, 0x46]))).toMatchObject({
+      // prettier-ignore
+      triggerOp: 0x91,
+      trigger: 0x7382,
+      triggerStoreOp: 0x64,
+      triggerStore: 0x4655,
+    })
+  })
+
+  it('accepts only the named setup: any one field different is refused', () => {
+    expect(isStockCameraSetup(STOCK_CAMERA_SETUP)).toBe(true)
+    expect(isStockCameraSetup(null)).toBe(false)
+    for (const key of Object.keys(STOCK_CAMERA_SETUP) as (keyof typeof STOCK_CAMERA_SETUP)[]) {
+      const other = { ...STOCK_CAMERA_SETUP, [key]: STOCK_CAMERA_SETUP[key] ^ 1 }
+      expect(isStockCameraSetup(other), key).toBe(false)
+    }
+    // CameraMoveTrigger $00A0 or LastScreenHoriz $30 are the cases that move the camera.
+    expect(isStockCameraSetup({ ...STOCK_CAMERA_SETUP, trigger: 0x00a0 })).toBe(false)
+    expect(isStockCameraSetup({ ...STOCK_CAMERA_SETUP, maxScreens: 0x30 })).toBe(false)
+  })
+
+  it('a redirected JSL to UpdateScreenPosition, or JSR to the scroll setup, is refused', () => {
+    expect(isStockCameraSetup({ ...STOCK_CAMERA_SETUP, updateCallTarget: 0xf6e0 })).toBe(false)
+    expect(isStockCameraSetup({ ...STOCK_CAMERA_SETUP, updateCallBank: 0x05 })).toBe(false)
+    expect(isStockCameraSetup({ ...STOCK_CAMERA_SETUP, scrollCallTarget: 0xa7c2 })).toBe(false)
+    const redirected = { ...STOCK_CAMERA_SETUP, updateCallTarget: 0xf6e0 }
+    expect(readEntranceCameraGate(romWith(0x00f6a3, body), spans, digest, redirected).ok).toBe(false) // prettier-ignore
+  })
+
+  it('a ROM that does not carry the setup is refused when the digest is right', () => {
+    const rom = romWith(0x00f6a3, body)
+    expect(readEntranceCameraGate(rom, [{ addr: 0x00f6a3, length: 40 }], digest).ok).toBe(false)
+  })
+})
+
 describe('maps layer 3 is not drawn on (synthetic)', () => {
   it('a vertical map says so, whatever else would draw', () => {
     const l1 = { ...l1Of(3, 0, false), isVertical: true } // mode 3: standard layout, vertical
@@ -503,6 +762,7 @@ describe.skipIf(!hasRom(VANILLA))(
       const tbl = (a: number) => Array.from(rom.readAt(a, 32)!)
       const [main, sub2, cgadsub, special, vertical] = [0x058437, 0x058457, 0x058477, 0x058497, 0x058417].map(tbl) // prettier-ignore
       const seen = { checked: 0, drawn: 0, noLayer3: 0, locked: 0, special: 0 }
+      const worldLocked: Record<number, { y: number; cam: number }> = {}
       const drew: Record<number, boolean> = {}
       for (let id = 0; id < 512; id++) {
         const raw = smw.getLevelRawData(id)
@@ -523,7 +783,9 @@ describe.skipIf(!hasRom(VANILLA))(
           expect([id, v.layer2Interactive]).toEqual([id, (vertical![mode]! & 0x80) !== 0])
           expect([id, v.cgadsub! & 0x04]).toEqual([id, locked ? cgadsub![mode]! & 0x04 : 0])
           expect([id, v.cgadsub! & ~0x04]).toEqual([id, cgadsub![mode]! & ~0x04])
-          expect([id, v.l3 !== null]).toEqual([id, setting > 0 && !locked])
+          const world = locked && (main![mode]! & 0x03) !== 0 // BG3 not alone on the main screen
+          expect([id, v.l3 !== null]).toEqual([id, setting > 0 && (!locked || world)])
+          if (v.l3?.worldLocked) worldLocked[id] = { y: v.l3.yPx, cam: v.l3.worldLocked.camXPx }
           if (setting === 0) seen.noLayer3++
           else if (locked) seen.locked++
           else seen.drawn++
@@ -538,6 +800,13 @@ describe.skipIf(!hasRom(VANILLA))(
       // $10E and $1BD have no layer 3.
       for (const id of [0x009, 0x0e7, 0x1ce]) expect([id, drew[id]]).toEqual([id, true])
       for (const id of [0x018, 0x10e, 0x1bd]) expect([id, drew[id]]).toEqual([id, false])
+      // #563: exactly these three newly draw, at Layer3YPos $C0 (= Layer1YPos, the CODE_05BE8A copy); $018 stays out.
+      expect(
+        Object.keys(worldLocked)
+          .map(Number)
+          .sort((a, b) => a - b),
+      ).toEqual([0x011, 0x130, 0x1c1])
+      expect(Object.values(worldLocked).map(w => w.y)).toEqual([0xc0, 0xc0, 0xc0])
       console.log('layer 3 corpus sweep', JSON.stringify(seen))
     }, 60_000)
   },
@@ -547,12 +816,121 @@ describe('a $80 level under a smash sprite (synthetic, #807)', () => {
   const rom = () => withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset: 1, setting: 2, settingsByte: 0x80, word: L3_WORD(false) }) // prettier-ignore
   const verdictWith = (smash: Parameters<typeof buildL3Verdict>[6]) => buildL3Verdict(rom(), 5, l1Of(0, 1, false), BG_OK, chars, GATE_OK, smash) // prettier-ignore
 
-  it('takes the smasher position, and keeps $D0 with X 0 when no smasher is loaded', () => {
-    expect(verdictWith(() => ({ ok: true, pos: { x: 256, y: 160 } })).l3).toMatchObject({ xPx: 256, yPx: 160 }) // prettier-ignore
+  it('takes the landing the code gives, X and Y, and keeps $D0 with X 0 when no smasher is loaded', () => {
+    expect(verdictWith(() => ({ ok: true, pos: { x: -104, y: 160 } })).l3).toMatchObject({ xPx: -104, yPx: 160 }) // prettier-ignore
+    expect(verdictWith(() => ({ ok: true, pos: { x: -99, y: 96 } })).l3).toMatchObject({ xPx: -99, yPx: 96 }) // prettier-ignore
     expect(verdictWith(noSmash).l3).toMatchObject({ xPx: 0, yPx: 0xd0 })
   })
 
-  it('refuses with the reason when the smash read refuses', () => {
-    expect(verdictWith(() => ({ ok: false, reason: 'because' }))).toMatchObject({ l3: null, reason: 'because' }) // prettier-ignore
+  it('draws at the load-time position, with an unverified note, when the smash read refuses', () => {
+    const v = verdictWith(() => ({ ok: false, reason: 'because' }))
+    expect(v.l3).toMatchObject({ xPx: 0, yPx: 0xd0 })
+    expect(v.l3?.camYReasons).toContain('because')
+    expect(v.l3?.followsCamera).toBeUndefined()
   })
+
+  // A loader shape the interpreter refuses (the synthetic cart is not the game's): the real reader still decides by the sprite list.
+  const real = (sprites: () => { spriteId: number }[]) => (r: RomFile, i: number) => readL3SmashLoadPos(r, i, firstLanding, sprites as never) // prettier-ignore
+  it('a $80 map with no smasher draws layer 3 even when the loader cannot run', () => {
+    const v = verdictWith(real(() => [{ spriteId: 0x33 }]))
+    expect(v.l3).toMatchObject({ xPx: 0, yPx: 0xd0 })
+    expect((v.l3?.camYReasons ?? []).filter(r => /first landing/.test(r))).toEqual([])
+  })
+
+  it('a $80 map with a smasher and a loader that cannot run draws at the load-time position, with the reason', () => {
+    const v = verdictWith(real(() => [{ spriteId: 0x89 }]))
+    expect(v.l3).toMatchObject({ xPx: 0, yPx: 0xd0 })
+    expect(v.l3?.camYReasons?.find(r => /first landing/.test(r))).toMatch(
+      /^the smasher's first landing could not be worked out \(title map load/,
+    )
+    expect(v.l3?.followsCamera).toBeUndefined()
+  })
+})
+
+/**
+ * #997: a loaded smash sprite writes Layer3XPos/Layer3YPos every frame, so in the game the panel
+ * follows the camera (bank_00.asm:14778-14803; X re-set each cycle, bank_02.asm:11147-11166). A
+ * whole-map view has no camera, so it draws layer 3 as one copy (world x = column*8 + 128).
+ */
+describe('layer 3 under a smash sprite follows the camera: one copy (synthetic, #997)', () => {
+  const alpha = (b: Uint8ClampedArray | null, x: number, y: number) => (b ? px(b, 256, x, y)[3] : null) // prettier-ignore
+  // At Layer3XPos -128 BG3 column c sits at world x c*8 + 128, so the one copy spans world 128..639.
+  const X = -128
+  const at = (col: number, o: Partial<L3Inputs> = {}) => l3Of([word(8, col, L3_WORD(false))], { followsCamera: true, xPx: X, ...o }) // prettier-ignore
+
+  it('draws the whole panel, including the half past the entrance screen (world 256..)', () => {
+    // column 16 -> world 256: the first pixel of screen 1; column 24 -> world 320
+    expect(alpha(drawL3Planes(at(16), 1).l3Low, 3, 3)).toBe(255)
+    expect(alpha(drawL3Planes(at(24), 1).l3Low, 3 + 64, 3)).toBe(255)
+    expect(alpha(drawL3Planes(at(7), 0).l3Low, 184 + 3, 3)).toBe(255)
+  })
+
+  it('every column is drawn once, at world x = column*8 + 128, and nowhere at the 512 px repeat', () => {
+    for (let col = 0; col < 64; col++) {
+      const world = col * 8 + X * -1
+      const hits = [0, 1, 2, 3].filter(s => drawL3Planes(at(col), s).l3Low !== null)
+      expect(hits, `column ${col}`).toEqual([world >> 8])
+      expect(alpha(drawL3Planes(at(col), world >> 8).l3Low, (world & 255) + 3, 3), `column ${col}`).toBe(255) // prettier-ignore
+    }
+    // column 0 would repeat at world 128 + 512 = 640 (screen 2, x 128): nothing there.
+    expect(alpha(drawL3Planes(at(0), 2).l3Low, 128 + 3, 3)).toBeNull()
+    expect(alpha(drawL3Planes(at(63), 2).l3Low, 128 + 3, 3)).toBe(0)
+  })
+
+  it('a layer 3 that does not follow the camera still tiles: plain and tide', () => {
+    const words = [word(8, 0, L3_WORD(false))]
+    expect([0, 1, 2, 4].map(s => drawL3Planes(l3Of(words), s).l3Low !== null)).toEqual([true, false, true, true]) // prettier-ignore
+    expect([0, 1, 2].map(s => drawL3Planes(l3Of(words, { tide: true }), s).l3Low !== null)).toEqual([true, true, true]) // prettier-ignore
+  })
+
+  const rom = (byte: number, tileset: number) => withLayer3(modeTablesRom(sweepLayouts()), { level: 5, tileset, setting: 2, settingsByte: byte, word: L3_WORD(false) }) // prettier-ignore
+  const verdictFor = (byte: number, tileset: number, smash: Parameters<typeof buildL3Verdict>[6]) => buildL3Verdict(rom(byte, tileset), 5, l1Of(0, tileset, false), BG_OK, chars, GATE_OK, smash) // prettier-ignore
+
+  it('the verdict flags only a $80 map with a loaded smasher, and the wire carries it', () => {
+    const loaded = verdictFor(0x80, 1, () => ({ ok: true, pos: { x: -104, y: 160 } }))
+    expect(loaded.l3).toMatchObject({ followsCamera: true, xPx: -104, yPx: 160 })
+    expect(wireOf({ ...l1Of(0, 1, false), l3: loaded }).layer3.followsCamera).toBe(true)
+    // $80 with no loaded smasher stays at the fixed load position, and a tide is not smash-driven: both draw, unflagged.
+    for (const [byte, tileset, pos] of [
+      [0x80, 1, null],
+      [0x02, 0, { x: 1, y: 1 }],
+    ] as const) {
+      const v = verdictFor(byte, tileset, () => ({ ok: true, pos }))
+      expect(v.l3, `byte ${byte}`).not.toBeNull()
+      expect([byte, v.l3!.followsCamera]).toEqual([byte, undefined])
+    }
+    // Camera-locked bytes are refused whatever a smasher says.
+    for (const byte of [0x00, 0x82]) {
+      expect(verdictFor(byte, 0, () => ({ ok: true, pos: { x: 1, y: 1 } })).l3, `byte ${byte}`).toBeNull() // prettier-ignore
+    }
+    const plain = verdictFor(0x02, 0, () => ({ ok: true, pos: { x: 1, y: 1 } }))
+    expect(plain.l3?.followsCamera).toBeUndefined()
+    expect(wireOf({ ...l1Of(0, 0, false), l3: plain }).layer3.followsCamera).toBeUndefined()
+  })
+})
+
+describe.skipIf(!hasRom(VANILLA))('which vanilla maps take the smash path (corpus, #997)', () => {
+  it('exactly $01F, $1D4 and $1FC; each draws one copy: screens 0 and 1 only', () => {
+    const rom = RomFile.load(romPath(VANILLA))
+    const smw = new SmwRom(rom)
+    const hits: number[] = []
+    const verticalTable = Array.from(rom.readAt(0x058417, 32)!)
+    for (let id = 0; id < 512; id++) {
+      const raw = smw.getLevelRawData(id)
+      if (!raw) continue
+      const header = parseLevelHeader(raw)
+      const isVertical = isLevelModeVertical(header.levelMode, verticalTable)
+      const v = buildL3Verdict(rom, id, { header, isVertical, colors: [] }, BG_OK)
+      if (!v.l3?.followsCamera) continue
+      hits.push(id)
+      // The code's first landing (sprite X $FF98), not the old smash-cycle start of -128.
+      expect([id, v.l3.xPx, v.l3.yPx]).toEqual([id, -104, 160])
+      const screens = Math.max(header.levelLength, 1)
+      const l3 = { ...v.l3, colors: COLORS } // the sweep passes no palette; any opaque one shows the tiles
+      const drawn = Array.from({ length: screens }, (_, s) => drawL3Planes(l3, s)).map((p, s) => (p.l3Low || p.l3High ? s : -1)).filter(s => s >= 0) // prettier-ignore
+      expect(drawn, `map ${id.toString(16)}`).toEqual([0, 1]) // the panel spans world 160..~306, none past the one copy
+      console.log(`smash map $${id.toString(16)}: layer 3 on screens 0-1 of ${screens}, x ${v.l3.xPx} y ${v.l3.yPx}`) // prettier-ignore
+    }
+    expect(hits).toEqual([0x01f, 0x1d4, 0x1fc])
+  }, 60_000)
 })

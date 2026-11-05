@@ -186,8 +186,8 @@ describe.skipIf(!existsSync(SPAWN_DIR) || !hasRom(VANILLA))(
       if (process.env.SPRITE_SPAWN_OUT)
         writeFileSync(process.env.SPRITE_SPAWN_OUT, JSON.stringify(rows, null, 1))
       if (process.env.SPRITE_SPAWN_SEED === 'oracle') return
-      // Floors: measured 2026-10-17 on the #840 head (one machine, 'rom' seed): exact 2792 + exact-empty 275 =
-      // 3067, wrong 0 (2026-10-05, docs section 12: 3030 before the own-slot filter) minus a tolerance. The mutants
+      // Floors: measured 2026-11-04 on the #840 head merged with develop a028e0dc (one machine, 'rom' seed, 201 ids): exact 2792 +
+      // exact-empty 275 = 3067, wrong 0 (develop alone, no own-slot filter: 2792 + 260 = 3052, wrong 15; 2026-10-05, docs section 12: 3030) minus a tolerance. The mutants
       // they were set against (frame counter not ticked, RNG zero, X not set to the
       // slot, INIT retry removed) all fall below them or break a zero-count.
       expect(rows.length).toBe(FLOOR.ids)

@@ -27,6 +27,8 @@
  * the corpus. Static reads only; no emulator was run.
  */
 
+import { formatAddr } from '../addressing'
+import { hex2s } from '../hex'
 import type { RomFile } from '../RomFile'
 import { SPRITE_MAIN_PTR_TABLE, SPRITE_PTR_TABLE_COUNT } from './SpritePointerTables'
 
@@ -310,19 +312,18 @@ export function resolveDispatch(rom: RomFile, spriteId: number, bank = 0x01): Di
 
 /** One line for a tooltip or a warning. */
 export function dispatchMessage(r: DispatchResolution): string {
-  const hex = (n: number, w = 6) => `$${n.toString(16).toUpperCase().padStart(w, '0')}`
   switch (r.kind) {
     case 'direct':
-      return `handler ${hex(r.handler)}`
+      return `handler ${formatAddr(r.handler)}`
     case 'dispatched':
-      return `dispatched to ${hex(r.handler)} via ${hex(r.thunk.at)}`
+      return `dispatched to ${formatAddr(r.handler)} via ${formatAddr(r.thunk.at)}`
     case 'fallthrough':
-      return `unmatched by the chain at ${hex(r.thunk.target)}, falls through to ${hex(r.at)}`
+      return `unmatched by the chain at ${formatAddr(r.thunk.target)}, falls through to ${formatAddr(r.at)}`
     case 'chainRefused':
       return (
-        `stub ${hex(r.thunk.at)} leads to ${hex(r.thunk.target)}, which is not a readable chain ` +
-        `(expected ${r.refusal.expected} at ${hex(r.refusal.at)}, found ` +
-        `${r.refusal.found === null ? 'nothing' : hex(r.refusal.found, 2)})`
+        `stub ${formatAddr(r.thunk.at)} leads to ${formatAddr(r.thunk.target)}, which is not a readable chain ` +
+        `(expected ${r.refusal.expected} at ${formatAddr(r.refusal.at)}, found ` +
+        `${r.refusal.found === null ? 'nothing' : hex2s(r.refusal.found)})`
       )
     case 'unreadable':
       return 'handler pointer unreadable'

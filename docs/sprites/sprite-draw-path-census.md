@@ -241,7 +241,7 @@ Columns: stub = behind `Bank3SprHandler`; depth = distinct named routines on the
 | $7F | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C61A, PowerUpGfxRt |  |  |  |
 | $80 | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C61A, PowerUpGfxRt |  |  |  |
 | $81 | ChangingItem |  | ChangingItem | SHARED | G2 via PowerUpRt | 3 | Y |  |
-| $82 | BonusGame |  | BonusGame | BESPOKE | CODE_01DF4E |  |  |  |
+| $82 | BonusGame |  | BonusGame | BESPOKE | CODE_01DF4E |  |  | Drawn by the interpreter (#998): INIT writes nine blocks to slots 9..1 at fixed spots (`bank_01.asm:12675-12721`) and the loader image already holds its latch `$1B94`, so the per-sprite seed resets it (`src/rom/sprites/interp/InitLatches.ts`). The run uses the loader's top slot (`bank_02.asm:5377`, `5400-5405`) and is not re-based onto the placed spot (D158 / Decision 124). Evidence: HackBench's ROM-run loader image, vanilla `$000`/`$100`, one machine, emulated CPU; no hardware capture. |
 | $83 | Flying_Block |  | Flying_Block | SHARED | G2 via Flying_Block | 2 |  |  |
 | $84 | Flying_Block |  | Flying_Block | SHARED | G2 via Flying_Block | 2 |  |  |
 | $85 | InitFlying_Block |  | InitFlying_Block | NEITHER | - |  |  |  |
@@ -252,7 +252,7 @@ Columns: stub = behind `Bank3SprHandler`; depth = distinct named routines on the
 | $8A | YoshisHouseBirds |  | YoshisHouseBirds | BESPOKE | CODE_02F3EA |  |  |  |
 | $8B | YoshisHouseSmoke |  | YoshisHouseSmoke | BESPOKE | CODE_02F47C |  |  |  |
 | $8C | SideExit |  | SideExit | BESPOKE | CODE_02F4EB |  |  |  |
-| $8D | GhostHouseExit |  | GhostHouseExit | BESPOKE | CODE_02F5DA |  |  |  |
+| $8D | GhostHouseExit |  | GhostHouseExit | BESPOKE | CODE_02F5DA |  |  | screen-fixed: X = table - Layer1XPos, Y = table byte, gated on the low byte of Layer1XPos < $46 (bank_02.asm:15670-15708); map Y = Y + loader Layer1YPos (#1016) |
 | $8E | WarpBlocks |  | WarpBlocks | NEITHER | - |  |  |  |
 | $8F | ScalePlatforms |  | ScalePlatforms | BESPOKE | MushroomScaleGfx |  |  |  |
 | $90 | GasBubble |  | GasBubble | BESPOKE | CODE_02E3F5 |  |  |  |

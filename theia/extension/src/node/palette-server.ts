@@ -13,7 +13,7 @@
 import { inject, injectable } from '@theia/core/shared/inversify'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
-import { WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
+import { smwRomOf, WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
 import {
   buildStockTables,
   countCustomPaletteLevels,
@@ -75,7 +75,7 @@ export class PaletteServiceImpl implements PaletteService {
 
     let rom: SmwRom
     try {
-      rom = new SmwRom(RomFile.fromBytes(r.romPath, Buffer.from(r.working.bytes())))
+      rom = smwRomOf(r)
     } catch (err) {
       return { status: 'unreadable', reason: (err as Error).message }
     }

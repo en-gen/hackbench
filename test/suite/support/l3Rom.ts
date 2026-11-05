@@ -4,6 +4,7 @@
  * (F200 setting, per-tileset settings byte, Layer3Ptr entry, a one-tile stripe
  * image), all built here. No cart bytes.
  */
+import { le24 } from './le'
 import { RomFile } from '../../../src/rom/RomFile'
 import type { ModeLayout } from '../../../src/rom/LevelScreenTables'
 
@@ -13,8 +14,6 @@ const VT_SITE_AT = 0x058520
 export const STRIPE_AT = 0x0a8000
 const L3_SETTINGS = 0x009f88
 const L3_PTRS = 0x059000
-
-const long = (a: number) => [a & 0xff, (a >> 8) & 0xff, a >> 16]
 
 /** The mode tables for 32 modes plus the two load sites that name them, as CODE_0584E3 compiles. */
 export function modeTablesRom(layouts: readonly ModeLayout[]): RomFile {
@@ -28,9 +27,9 @@ export function modeTablesRom(layouts: readonly ModeLayout[]): RomFile {
   }
   // LDA.L main,X / STA.W $0D9D / LDA.L sub,X / STA.W $0D9E / LDA.L cgadsub,X / STA.B $40 / LDA.L special,X / STA.W $0D9B
   // prettier-ignore
-  rom.writeAt(SITE_AT, [0xbf, ...long(TABLE.main), 0x8d, 0x9d, 0x0d, 0xbf, ...long(TABLE.sub), 0x8d, 0x9e, 0x0d,
-    0xbf, ...long(TABLE.cgadsub), 0x85, 0x40, 0xbf, ...long(TABLE.special), 0x8d, 0x9b, 0x0d])
-  rom.writeAt(VT_SITE_AT, [0xbf, ...long(TABLE.vertical), 0x85, 0x5b]) // LDA.L VerticalTable,X / STA.B ScreenMode
+  rom.writeAt(SITE_AT, [0xbf, ...le24(TABLE.main), 0x8d, 0x9d, 0x0d, 0xbf, ...le24(TABLE.sub), 0x8d, 0x9e, 0x0d,
+    0xbf, ...le24(TABLE.cgadsub), 0x85, 0x40, 0xbf, ...le24(TABLE.special), 0x8d, 0x9b, 0x0d])
+  rom.writeAt(VT_SITE_AT, [0xbf, ...le24(TABLE.vertical), 0x85, 0x5b]) // LDA.L VerticalTable,X / STA.B ScreenMode
   return rom
 }
 export const SITE_BYTES = { at: SITE_AT, length: 27, stores: [0x8d, 0x9d, 0x0d] }
@@ -51,7 +50,7 @@ export function withLayer3(
   const entry = o.setting - 1 + o.tileset * 3
   rom.writeAt(0x05f200 + o.level, [o.setting << 6])
   rom.writeAt(L3_SETTINGS + entry, [o.settingsByte])
-  rom.writeAt(L3_PTRS + entry * 3, long(STRIPE_AT))
+  rom.writeAt(L3_PTRS + entry * 3, le24(STRIPE_AT))
   const vram = 0x5000 + (o.row ?? 8) * 32
   // One horizontal run of one tile: VRAM hi/lo, flags 0, byte count - 1 = 1, the word, terminator.
   rom.writeAt(STRIPE_AT, [vram >> 8, vram & 0xff, 0x00, 0x01, o.word & 0xff, o.word >> 8, 0xff])

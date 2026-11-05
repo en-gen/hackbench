@@ -199,7 +199,7 @@ Maps view, #566 PR B (`theia/extension/src/node/map-block-contents.ts`,
 - Item art is the sprite run on the 65816 core, as the map's sprite layer does (#585), set up
   by the game's OWN block spawn (owner ruling 2026-10-06, the second bounded exception in
   `.claude/rules/rom-interpretation.md`): the dispatcher `CODE_0288DC` (`bank_02.asm:1097-1119`) and
-  `GenSpriteFromBlk` (`:1122-1292`) run on the core, their shapes byte-checked
+  `GenSpriteFromBlk` (`:1122-1292`) run on the core, their shapes recognized by one fingerprint
   (`resolveBlockSpawn`), with the inputs they read seeded generically: the content index `_5` ($05),
   which comes from the resolver (`BlockContent.index`, so the balloon family keeps its own), TouchBlockXPos
   ($9A) and TouchBlockYPos ($98) from the block's position, LayerProcessing ($1933), YoshiIsLoose

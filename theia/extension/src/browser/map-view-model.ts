@@ -47,13 +47,71 @@ interface SpriteLayer {
   door: Uint32Array
 }
 
+/** The draw order, back to front: column order on a horizontal map, row order on a vertical one, stream index breaking ties. */
+function stackOrder(
+  sprites: readonly MapSpriteDto[],
+  g: ScreenGeometry,
+  onLayer2: boolean,
+): MapSpriteDto[] {
+  const vertical = g.orientation === 'vertical'
+  return sprites
+    .filter(s => !!s.fixedTo === onLayer2)
+    .sort((a, b) => (vertical ? a.y - b.y : a.x - b.x) || a.index - b.index)
+}
+
+/** A sprite's decoded bitmap, cached per DTO. */
+function bitmapOf(s: MapSpriteDto): { rgba: Uint8ClampedArray; prio: Uint8Array | null } {
+  let bmp = decoded.get(s)
+  if (!bmp) decoded.set(s, (bmp = { rgba: decodeRgba(s.rgba), prio: s.priority ? decodeBase64Bytes(s.priority) : null })) // prettier-ignore
+  return bmp
+}
+
+/** Whether `s` has an opaque pixel at map pixel (px, py). */
+function opaqueAt(s: MapSpriteDto, px: number, py: number): boolean {
+  const { x0, y0, x1, y1 } = s.box
+  if (px < x0 || px >= x1 || py < y0 || py >= y1) return false
+  return bitmapOf(s).rgba[((py - y0) * (x1 - x0) + (px - x0)) * 4 + 3] !== 0
+}
+
+/**
+ * The sprite that owns the map pixel (x, y), in map pixels: the topmost of the `stackOrder` `spriteLayer` draws
+ * with an opaque pixel there. Transparent pixels and Layer 2 flames hit nothing (#981). A sprite its parent drew
+ * (`drawnBy`) takes the hit over that parent wherever it has a pixel, whichever sorts on top, because the parent's
+ * bitmap holds the same pixels (D52).
+ */
+export function spriteAt(
+  sprites: readonly MapSpriteDto[],
+  g: ScreenGeometry,
+  x: number,
+  y: number,
+): MapSpriteDto | undefined {
+  const [px, py] = [Math.floor(x), Math.floor(y)]
+  const order = stackOrder(sprites, g, false)
+  for (let n = order.length - 1; n >= 0; n--) {
+    const s = order[n]!
+    if (!opaqueAt(s, px, py)) continue
+    // A sprite its parent drew is inside the parent's bitmap, which wins here when it sorts on top: the child takes the hit (D52).
+    return order.find(c => c.drawnBy === s.index && opaqueAt(c, px, py)) ?? s
+  }
+  return undefined
+}
+
+/** Where a hover anchor was placed: zoom and the strip's origin on screen, so a layout shift (not only a zoom) re-places it. */
+export const hoverPlacementKey = (zoom: number, rect: { left: number; top: number }): string =>
+  `${zoom}:${Math.round(rect.left)}:${Math.round(rect.top)}`
+
+/** What the hover shows for a sprite (#981): its plain name only, or nothing when the name table has none. */
+export function spriteName(s: Pick<MapSpriteDto, 'name'>): string | undefined {
+  return s.name || undefined
+}
+
 /**
  * One screen's sprites, or null when no sprite reaches it. A sprite is one
  * bitmap in map pixels, so one that crosses a screen edge is cut into every screen
- * it overlaps, and what spills past the map's top or bottom is clipped. Sprites
- * stack in column order on a horizontal map and row order on a vertical one (the
- * stream's order breaks ties), later ones on top; a pixel keeps the priority of
- * the sprite that wins it.
+ * it overlaps. What spills past the map is clipped here; off-map-extent.ts draws it in the
+ * canvas pad around the map (#1004). Sprites stack in column order on a horizontal map and
+ * row order on a vertical one (the stream's order breaks ties), later ones on top; a pixel
+ * keeps the priority of the sprite that wins it.
  */
 function spriteLayer(
   sprites: readonly MapSpriteDto[],
@@ -63,17 +121,16 @@ function spriteLayer(
 ): SpriteLayer | null {
   const vertical = g.orientation === 'vertical'
   const [left, top] = vertical ? [0, screen * g.height] : [screen * g.width, 0]
-  const order = sprites
-    .filter(s => !!s.fixedTo === onLayer2)
-    .sort((a, b) => (vertical ? a.y - b.y : a.x - b.x) || a.index - b.index)
+  const order = stackOrder(sprites, g, onLayer2)
   let out: SpriteLayer | null = null
   for (const [n, s] of order.entries()) {
+    // A sprite its parent drew is in the parent's bitmap already (#1049).
+    if (s.drawnBy !== undefined) continue
     const { x0, y0, x1, y1 } = s.box
     const [cx0, cx1] = [Math.max(x0, left), Math.min(x1, left + g.width)]
     const [cy0, cy1] = [Math.max(y0, top), Math.min(y1, top + g.height)]
     if (cx0 >= cx1 || cy0 >= cy1) continue
-    let bmp = decoded.get(s)
-    if (!bmp) decoded.set(s, (bmp = { rgba: decodeRgba(s.rgba), prio: s.priority ? decodeBase64Bytes(s.priority) : null })) // prettier-ignore
+    const bmp = bitmapOf(s)
     out ??= { rgba: new Uint8ClampedArray(g.width * g.height * 4), prio: new Uint8Array(g.width * g.height), door: new Uint32Array(g.width * g.height) } // prettier-ignore
     for (let y = cy0; y < cy1; y++) {
       for (let x = cx0; x < cx1; x++) {

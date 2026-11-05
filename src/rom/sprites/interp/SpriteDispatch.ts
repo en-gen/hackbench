@@ -14,7 +14,9 @@
 import { mirror } from '../../addressing'
 import type { RomFile } from '../../RomFile'
 import { spanFingerprint } from '../../SubmapFlagGate'
+import { Refusal, describe, nativeReset, runUntil } from '../../cpu/call'
 import { bytesAt, shapeMatches } from './Guards'
+import { recordWrites, RunCache, smwMachine, watchSram } from './Machine'
 
 export const ENTRY = {
   /** JSL: ZeroSpriteTables + LoadSpriteTables (bank_07.asm:1006). */
@@ -65,54 +67,56 @@ export function checkInitTables(rom: RomFile): ShapeResult {
 }
 
 /**
- * A recognised build of the block spawn dispatcher at `ENTRY.blockSpawn`: `length` bytes hashed as one span
- * (SHA-256, `spanFingerprint`) with the three JSL FindFreeSprSlot operand bytes at `callAt` zeroed, because
- * that operand is read and checked on its own. Branch displacements are hashed, so where each one lands is
- * fixed by the fingerprint and needs no separate check.
+ * A recognised build of the block spawn routine at `ENTRY.blockSpawn`: `length` bytes hashed as ONE contiguous
+ * span (SHA-256, `spanFingerprint`) with the free operands zeroed. The JSL FindFreeSprSlot operand (3 bytes at
+ * `callAt`) is read and checked on its own; `operands` are the other masked offsets (addresses a hack may
+ * move). Branch displacements are hashed, so where each one lands is fixed by the fingerprint.
  */
 export interface DispatcherSpan {
   length: number
   callAt: number
+  operands: readonly number[]
   fingerprints: readonly string[]
 }
 
+/** The masked offsets of `span`: the JSL operand, then its other free operands. */
+export const spanMask = (span: DispatcherSpan): number[] => [
+  span.callAt,
+  span.callAt + 1,
+  span.callAt + 2,
+  ...span.operands,
+]
+
 /**
- * CODE_0288DC (bank_02.asm:1097-1119): by the content index it calls FindFreeSprSlot or falls to
- * GenSpriteFromBlk at +$29; a free slot goes to the status write at +$46. Vanilla, measured on the ROM
- * by the corpus test in BlockSpawn.test.ts (#812). 41 bytes, past the 32-byte literal limit, so hashed.
+ * CODE_0288DC to the sprite status write inside GenSpriteFromBlk (bank_02.asm:1097-1142): the dispatcher, the
+ * free-slot search and the status write as one 81-byte span, 74 unknown after the 7 masked operands
+ * (#566, #812, #1082). Evidence for the digest: the vanilla USA ROM, one read, one machine, 2026-10-18;
+ * BlockSpawn.test.ts measures it on the corpus.
  */
 export const BLOCK_SPAWN_DISPATCHER: DispatcherSpan = Object.freeze({
-  length: 41,
+  length: 81,
   callAt: 34,
-  fingerprints: Object.freeze(['566e8d0a1dc1ecdf2f2399f8f74692e790564aaf8b63f2a461eea234014ea0c8']),
+  operands: Object.freeze([71, 72, 76, 77]),
+  fingerprints: Object.freeze(['53fd0df8db207572ceea5c312570fb43e1a13a8bbb097abbcc6253ca97d9dd38']),
 })
 
 /**
- * The block spawn's fixed shapes (bank_02.asm:1097-1142): the dispatcher by fingerprint, then the
- * free-slot countdown of GenSpriteFromBlk (LDX #$0B / LDA SpriteStatus,X / BEQ / DEX / CPX #$FF / BNE)
- * and, at CODE_028922, its status write (STX abs / LDY _5 / LDA abs,Y / STA SpriteStatus,X), byte-checked.
- * Anything else is refused. `dispatcher` replaces the real build for a synthetic ROM.
+ * The block spawn's fixed shape (bank_02.asm:1097-1142): the whole span by fingerprint, then the FindFreeSprSlot
+ * its masked JSL reaches. Anything else is refused. `dispatcher` replaces the real build for a synthetic ROM.
  */
 export function resolveBlockSpawn(
   rom: RomFile,
   dispatcher: DispatcherSpan = BLOCK_SPAWN_DISPATCHER,
 ): { ok: true; entry: number } | { ok: false; reason: string } {
-  const n = null
   const { length, callAt } = dispatcher
   const dispatch = rom.readAt(ENTRY.blockSpawn, length)
-  const fp = spanFingerprint(dispatch, [callAt, callAt + 1, callAt + 2])
+  const fp = spanFingerprint(dispatch, spanMask(dispatcher))
   if (fp === null || !dispatcher.fingerprints.includes(fp))
     return { ok: false, reason: 'the item block spawn dispatcher is not a build this reader knows' } // prettier-ignore
   // The operand is masked from the hash, so its call must reach the FindFreeSprSlot the game uses: the same address, with its own opening bytes.
   const call = dispatch![callAt]! | (dispatch![callAt + 1]! << 8) | (dispatch![callAt + 2]! << 16)
   if (call !== ENTRY.findFreeSprSlot || !matches(bytes(rom, call, 5), [0x64, 0x0e, 0x8b, 0x4b, 0xab]))
     return { ok: false, reason: 'the item block spawn dispatcher does not call the FindFreeSprSlot this reader knows' } // prettier-ignore
-  const head = bytes(rom, ENTRY.blockSpawn + 0x29, 12)
-  if (!matches(head, [0xa2, 0x0b, 0xbd, 0xc8, 0x14, 0xf0, n, 0xca, 0xe0, 0xff, 0xd0, n]))
-    return { ok: false, reason: 'the item block spawn does not start with the free-slot countdown this reader knows' } // prettier-ignore
-  const status = bytes(rom, ENTRY.blockSpawn + 0x46, 11)
-  if (!matches(status, [0x8e, n, n, 0xa4, 0x05, 0xb9, n, n, 0x9d, 0xc8, 0x14]))
-    return { ok: false, reason: 'the item block spawn does not write the sprite status the way this reader knows' } // prettier-ignore
   return { ok: true, entry: ENTRY.blockSpawn }
 }
 
@@ -168,44 +172,62 @@ export function resolveLoop(rom: RomFile): LoopResult {
   return { ok: true, setup: 0x010000 | (b![i + 6] | (b![i + 7] << 8)), handle: 0x010000 | (b![i + 9] | (b![i + 10] << 8)) } // prettier-ignore
 }
 
-/**
- * ExecutePtr, the 16-bit pointer-table jump (bank_00.asm:847): STY / PLY / STY /
- * REP #$30 / AND #$00FF / ASL / TAY / PLA / STA / INY / LDA [dp],Y / STA /
- * SEP #$30 / LDY / JML [dp]. The inline tables after each JSL are read as 16-bit
- * words only if the call really reaches this; ExecutePtrLong (24-bit entries) has a
- * different body and is refused.
- */
-const EXECUTE_PTR_SHAPE: (number | null)[] = [
-  0x84,
-  null,
-  0x7a,
-  0x84,
-  null,
-  0xc2,
-  0x30,
-  0x29,
-  0xff,
-  0x00,
-  0x0a,
-  0xa8,
-  0x68,
-  0x85,
-  null,
-  0xc8,
-  0xb7,
-  null,
-  0x85,
-  null,
-  0xe2,
-  0x30,
-  0xa4,
-  null,
-  0xdc,
-  null,
-  0x00,
-]
+/** WRAM table the ExecutePtr probe points its return frame at: 256 words, each one distinct. */
+const PROBE_TABLE = 0x1000
+const probeWord = (k: number): number => 0x9000 + k * 3
+const PROBE_X = 0x2a
+const PROBE_Y = 0x55
+/** The game's ExecutePtr is 16 instructions; 48 leaves room for a hook, and a run past it is a different routine. */
+const PROBE_STEPS = 48
 
-/** The three dispatch JSLs (HandleSprite, CallSpriteInit, CallSpriteMain) must reach one ExecutePtr. */
+/**
+ * Per .claude/rules/rom-interpretation.md stock-code exception (added in #1030): a fixed entry, a step budget and a
+ * refusal with a reason. The entry chain: HandleSprite (fixed, `ENTRY.handleSprite` or the loop's own JSR operand)
+ * -> its JSL operand -> ExecutePtr. Runs the routine at `entry` the way a JSL to
+ * ExecutePtr is called (bank_00.asm:847: A = index, the table inline after the call) for ALL 256 indices, and
+ * returns null when it is the 16-bit pointer-table jump, else why not. Each index must land on that table word,
+ * in the table's bank, with the call frame popped, X and Y kept, and no register or SRAM write. ExecutePtrLong
+ * reads 24-bit entries and lands elsewhere for every index but 0. The table is our own, in WRAM.
+ */
+function notWordTableJump(rom: RomFile, entry: number): string | null {
+  let m: ReturnType<typeof smwMachine>
+  try {
+    m = smwMachine(rom)
+  } catch (e) {
+    if (e instanceof Refusal) return e.message
+    throw e
+  }
+  const { bus, cpu } = m
+  for (let k = 0; k < 256; k++) {
+    bus.wram[PROBE_TABLE + 2 * k] = probeWord(k) & 0xff
+    bus.wram[PROBE_TABLE + 2 * k + 1] = probeWord(k) >> 8
+  }
+  const sram = watchSram(bus)
+  for (let k = 0; k < 256; k++) {
+    nativeReset(cpu)
+    const s0 = cpu.s
+    // The JSL frame: bank byte, then the address of the call's last byte (the table starts after it).
+    for (const b of [0x7e, (PROBE_TABLE - 1) >> 8, (PROBE_TABLE - 1) & 0xff]) {
+      bus.write(cpu.s, b)
+      cpu.s = (cpu.s - 1) & 0xffff
+    }
+    cpu.a = k
+    cpu.x = PROBE_X
+    cpu.y = PROBE_Y
+    cpu.pb = entry >>> 16
+    cpu.pc = entry & 0xffff
+    const want = probeWord(k)
+    const r = runUntil(cpu, PROBE_STEPS, c => c.pb === 0x7e && c.pc === want)
+    const why = describe(r, PROBE_STEPS)
+    if (why) return `index ${k}: ${why}`
+    if (cpu.s !== s0) return `index ${k}: the call frame was not popped (S=$${cpu.s.toString(16)})`
+    if (cpu.x !== PROBE_X || cpu.y !== PROBE_Y) return `index ${k}: X or Y was not kept`
+  }
+  if (bus.hwWrites.size !== 0) return 'it wrote a hardware register'
+  return sram.writes > 0 ? 'it wrote SRAM' : null
+}
+
+/** The dispatch JSLs (HandleSprite, CallSpriteMain) must reach one routine, and it must be the 16-bit ExecutePtr. */
 export function checkExecutePtr(rom: RomFile, jsl: number[][]): ShapeResult {
   // Keys fold the FastROM mirror ($80+ is the same code); the read keeps the raw bank (#513, #704).
   const targets = jsl.map(t => (t[2] << 16) | (t[1] << 8) | t[0])
@@ -216,9 +238,80 @@ export function checkExecutePtr(rom: RomFile, jsl: number[][]): ShapeResult {
     return { ok: false, reason: 'a dispatch call does not reach ROM' }
   if (new Set(targets.map(mirror)).size !== 1)
     return { ok: false, reason: 'the dispatch calls do not all reach the same routine' }
-  if (!matches(bytes(rom, targets[0], EXECUTE_PTR_SHAPE.length), EXECUTE_PTR_SHAPE))
-    return { ok: false, reason: 'the dispatch calls do not reach the 16-bit ExecutePtr' }
+  const why = notWordTableJump(rom, targets[0])
+  if (why)
+    return { ok: false, reason: `the dispatch calls do not reach the 16-bit ExecutePtr: ${why}` }
   return { ok: true }
+}
+
+/** Slots the CallSpriteInit probe runs as, and its step budget (the game's routine is 5 instructions, a hook may add some). */
+const INIT_SLOTS = [0, 5, 11]
+const INIT_STEPS = 48
+/** The JSL's own frame in page 1 of WRAM (S starts at $01FF): the only stack bytes the run may write. */
+const FRAME = [0x7e01fd, 0x7e01fe, 0x7e01ff]
+
+/**
+ * Per the stock-code exception (#1030): fixed entry, step budget, refusal with a reason. The entry chain:
+ * HandleSprite (fixed) -> the second word of its status table -> CallSpriteInit. Runs CallSpriteInit at `entry` for every sprite number 0..255 in several slots until it
+ * reaches `execPtr` (the routine HandleSprite calls). Each run must arrive through a JSL frame with the number from
+ * `number`,X as the index, and its only writes the run status (`runStatus`, the value HandleSprite compares with)
+ * into `status`,X and the frame itself. Returns where the inline table starts, the same in every run, or why not.
+ */
+const initCache = new RunCache<{ table: number } | { reason: string }>()
+function initTableOf(
+  rom: RomFile,
+  entry: number,
+  execPtr: number,
+  cells: { status: number; runStatus: number; number: number },
+): { table: number } | { reason: string } {
+  const key = [entry, execPtr, cells.status, cells.runStatus, cells.number].join(',')
+  const hit = initCache.lookup(rom, key)
+  if (hit) return hit
+  let m: ReturnType<typeof smwMachine>
+  try {
+    m = smwMachine(rom)
+  } catch (e) {
+    if (e instanceof Refusal) return { reason: e.message }
+    throw e
+  }
+  const { bus, cpu } = m
+  initCache.track(bus, rom)
+  const sram = watchSram(bus)
+  const clean = bus.snapshot()
+  let table = -1
+  for (const slot of INIT_SLOTS) {
+    for (let n = 0; n < 256; n++) {
+      bus.restore(clean)
+      // Every number is tried, so a read without X (cell 0, still zero) or with the wrong X shows.
+      bus.wram[cells.number + slot] = n
+      nativeReset(cpu)
+      const s0 = cpu.s
+      cpu.x = slot
+      cpu.pb = entry >>> 16
+      cpu.pc = entry & 0xffff
+      sram.writes = 0
+      const writes = recordWrites(bus)
+      const r = runUntil(cpu, INIT_STEPS, c => mirror((c.pb << 16) | c.pc) === mirror(execPtr))
+      writes.stop()
+      const at = `sprite $${n.toString(16)}, slot ${slot}`
+      const fail = (why: string) => initCache.store(rom, key, bus, { reason: `${at}: ${why}` })
+      const why = describe(r, INIT_STEPS)
+      if (why) return fail(why)
+      // Arrival is judged by the read's own mapping too: $7E:86FA folds to the same key as $FE:86FA but is WRAM, not code.
+      if (rom.readByte((cpu.pb << 16) | cpu.pc) === null) return fail('it ended outside ROM')
+      if (cpu.s !== s0 - 3) return fail('it did not arrive through a JSL frame')
+      if ((cpu.a & 0xff) !== n) return fail('the index was not the sprite number')
+      const only = (0x7e0000 + cells.status + slot) * 256 + cells.runStatus
+      const extra = writes.log.filter(w => !FRAME.includes(Math.floor(w / 256)))
+      if (extra.length !== 1 || extra[0] !== only) return fail('it wrote more than the run status')
+      if (sram.writes > 0) return fail('it wrote SRAM')
+      const ret = bus.read(cpu.s + 1) | (bus.read(cpu.s + 2) << 8)
+      const t = (bus.read(cpu.s + 3) << 16) | ((ret + 1) & 0xffff)
+      if (table >= 0 && t !== table) return fail('the table moved between runs')
+      table = t
+    }
+  }
+  return initCache.store(rom, key, bus, { table })
 }
 
 /** Reads both table bases from the dispatch code, or says what did not match. */
@@ -230,17 +323,25 @@ export function resolveTables(rom: RomFile, handle: number = ENTRY.handleSprite)
   const mainEntry = 0x010000 | (h![10] | (h![11] << 8))
   // Status 1 (INIT) is the second word of the status table that follows the JSL.
   const initEntry = 0x010000 | (h![18] | (h![19] << 8))
-  // CallSpriteInit: LDA #$08 / STA $14C8,X / LDA $9E,X / JSL ExecutePtr / table
-  const i = bytes(rom, initEntry, 11)
-  if (!matches(i, [0xa9, 0x08, 0x9d, 0xc8, 0x14, 0xb5, 0x9e, 0x22]))
-    return { ok: false, reason: 'CallSpriteInit is not the dispatch shape this reader knows' }
   // CallSpriteMain: STZ abs / LDA $9E,X / JSL ExecutePtr / table
   const m = bytes(rom, mainEntry, 9)
   if (!matches(m, [0x9c, null, null, 0xb5, 0x9e, 0x22]))
     return { ok: false, reason: 'CallSpriteMain is not the dispatch shape this reader knows' }
-  const ep = checkExecutePtr(rom, [h!.slice(13, 16), i!.slice(8, 11), m!.slice(6, 9)])
+  const ep = checkExecutePtr(rom, [h!.slice(13, 16), m!.slice(6, 9)])
   if (!ep.ok) return ep
-  return { ok: true, tables: { initTable: initEntry + 11, mainTable: mainEntry + 9 } }
+  // CallSpriteInit is run, not matched: its cells come from HandleSprite's and CallSpriteMain's own operands.
+  const execPtr = (h![15] << 16) | (h![14] << 8) | h![13]
+  const init = initTableOf(rom, initEntry, execPtr, {
+    status: h![1] | (h![2] << 8),
+    runStatus: h![6]!,
+    number: m![4]!,
+  })
+  if ('reason' in init)
+    return {
+      ok: false,
+      reason: `CallSpriteInit is not the dispatch shape this reader knows: ${init.reason}`,
+    }
+  return { ok: true, tables: { initTable: init.table, mainTable: mainEntry + 9 } }
 }
 
 export interface ResolvedHandler {

@@ -117,6 +117,12 @@ function exitObj(rawByte: number, secondary: boolean): number[] {
   return [0x00, secondary ? 0x02 : 0x01, 0x00, rawByte]
 }
 
+/** An exit whose own screen field (byte 0 & $1F) is `screen`; `newScreen` also advances the stream screen. */
+function exitAt(screen: number, rawByte: number, secondary = false, newScreen = false): number[] {
+  const [, b1, b2, b3] = exitObj(rawByte, secondary)
+  return [screen | (newScreen ? 0x80 : 0), b1!, b2!, b3!]
+}
+
 describe('SmwRom.buildLevelExitGraph', () => {
   it('reports DATA_05F800 unreadable on an image that ends where it starts', () => {
     // $05F800 is file offset $2F800; the gated code before it is all in range.
@@ -128,6 +134,14 @@ describe('SmwRom.buildLevelExitGraph', () => {
     const result = graphOf(smw)
     expect(result.graph.size).toBe(0)
     expect(result.unavailable).toMatch(/DATA_05F800 is unreadable/)
+  })
+
+  it('declines the graph when the screen-exit handler no longer files per screen (#957)', () => {
+    const rom = make4MbRom()
+    rom.writeAt(0x0db000 + 8, [0xea, 0xea, 0xea]) // the ExitTableLow store becomes NOPs
+    const result = graphOf(new SmwRom(rom))
+    expect(result.graph.size).toBe(0)
+    expect(result.unavailable).toMatch(/Screen exits/)
   })
 
   it('returns an empty Map when no level has any exit objects', () => {
@@ -186,8 +200,8 @@ describe('SmwRom.buildLevelExitGraph', () => {
       0,
       0,
       0,
-      ...exitObj(0x40, false), // -> $140, filler
-      ...exitObj(0x41, false), // -> $141, real
+      ...exitAt(0, 0x40), // -> $140, filler
+      ...exitAt(1, 0x41), // -> $141, real
       0xff,
     ])
     // Ten subarea-range slots share one pointer -- classifyLevels keeps only
@@ -215,9 +229,9 @@ describe('SmwRom.buildLevelExitGraph', () => {
       0,
       0,
       0,
-      ...exitObj(0xc0, false),
-      ...exitObj(0x02, false), // -> $002, a real root
-      ...exitObj(0xc9, false), // -> $0C9, not real
+      ...exitAt(0, 0xc0),
+      ...exitAt(1, 0x02), // -> $002, a real root
+      ...exitAt(2, 0xc9), // -> $0C9, not real
       0xff,
     ])
     setL1Ptr(rom, 0x002, 0x069000)
@@ -285,14 +299,14 @@ describe('SmwRom.buildLevelExitGraph', () => {
     const rom = make4MbRom()
     // Root $010 (flag 0): secondary exits $20 -> $050 and $21 -> $010 itself.
     setL1Ptr(rom, 0x010, 0x068000)
-    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitObj(0x20, true), ...exitObj(0x21, true), 0xff]) // prettier-ignore
+    setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exitAt(0, 0x20, true), ...exitAt(1, 0x21, true), 0xff]) // prettier-ignore
     rom.writeAt(ADDR.SEC_EXIT_DEST + 0x20, [0x50, 0x10])
     // $050: two primary exits, to itself and back to the root.
     setL1Ptr(rom, 0x050, 0x06a000)
-    setLevelData(rom, 0x06a000, [0, 0, 0, 0, 0, ...exitObj(0x50, false), ...exitObj(0x10, false), 0xff]) // prettier-ignore
+    setLevelData(rom, 0x06a000, [0, 0, 0, 0, 0, ...exitAt(0, 0x50), ...exitAt(1, 0x10), 0xff]) // prettier-ignore
     const result = graphOf(new SmwRom(rom))
-    expect(result.entrances?.get(0x010)).toEqual({ overworld: true, primary: true, secondary: [0x21] }) // prettier-ignore
-    expect(result.entrances?.get(0x050)).toEqual({ overworld: false, primary: true, secondary: [0x20] }) // prettier-ignore
+    expect(result.entrances?.get(0x010)).toEqual({ overworld: true, primary: true, secondary: [0x21], route: null }) // prettier-ignore
+    expect(result.entrances?.get(0x050)).toEqual({ overworld: false, primary: true, secondary: [0x20], route: 0x20 }) // prettier-ignore
     // The graph itself still drops the self-loops and the edge into a root.
     expect(result.graph.get(0x010)).toEqual([0x050])
     expect(result.graph.has(0x050)).toBe(false)
@@ -322,12 +336,141 @@ describe('SmwRom.buildLevelExitGraph', () => {
       rom.writeAt(ADDR.SEC_EXIT_DEST + 0x50, [0x60, 0x61])
       return graphOf(new SmwRom(rom))
     }
-    const lastSecondary = graphFor([...exitObj(0x50, false), ...exitObj(0x51, true)])
+    const lastSecondary = graphFor([...exitAt(0, 0x50, false), ...exitAt(1, 0x51, true)])
     expect(lastSecondary.graph.get(0x010)).toEqual([0x060, 0x061])
-    expect(lastSecondary.entrances?.get(0x060)).toEqual({ overworld: false, primary: false, secondary: [0x50] }) // prettier-ignore
-    const lastPrimary = graphFor([...exitObj(0x51, true), ...exitObj(0x50, false)])
+    expect(lastSecondary.entrances?.get(0x060)).toEqual({ overworld: false, primary: false, secondary: [0x50], route: 0x50 }) // prettier-ignore
+    const lastPrimary = graphFor([...exitAt(1, 0x51, true), ...exitAt(0, 0x50, false)])
     expect(lastPrimary.graph.get(0x010)).toEqual([0x051, 0x050])
-    expect(lastPrimary.entrances?.get(0x051)).toEqual({ overworld: false, primary: true, secondary: [] }) // prettier-ignore
+    expect(lastPrimary.entrances?.get(0x051)).toEqual({ overworld: false, primary: true, secondary: [], route: null }) // prettier-ignore
+  })
+
+  // #945 (D66 call 1): `route` is the entrance the walk reaches a map by first. Synthetic ROMs
+  // built here; the walk is one global breadth-first pass from the roots, a level's exits in
+  // object-stream order.
+  describe('route: the entrance first reached on the forward walk (#945)', () => {
+    const level = (rom: RomFile, map: number, at: number, exits: number[]) => {
+      setL1Ptr(rom, map, at)
+      setLevelData(rom, at, [0, 0, 0, 0, 0, ...exits, 0xff])
+    }
+    const dest = (rom: RomFile, id: number, to: number) => rom.writeAt(ADDR.SEC_EXIT_DEST + id, [to]) // prettier-ignore
+
+    it('single route: root to a sub area by secondary $20', () => {
+      const rom = make4MbRom()
+      level(rom, 0x010, 0x068000, exitObj(0x20, true))
+      dest(rom, 0x20, 0x50)
+      level(rom, 0x050, 0x06a000, [])
+      const e = graphOf(new SmwRom(rom)).entrances!
+      expect(e.get(0x010)?.route).toBeNull()
+      expect(e.get(0x050)?.route).toBe(0x20)
+    })
+
+    it('two routes: the early one wins even when a later one has the lower id', () => {
+      const rom = make4MbRom()
+      // Root exits: $0A5 -> $050 first, $030 -> $060 second. $060 then enters $050 by $020.
+      level(rom, 0x010, 0x068000, [...exitAt(0, 0xa5, true), ...exitAt(1, 0x30, true)])
+      dest(rom, 0xa5, 0x50)
+      dest(rom, 0x30, 0x60)
+      dest(rom, 0x20, 0x50)
+      level(rom, 0x050, 0x06a000, [])
+      level(rom, 0x060, 0x06b000, exitObj(0x20, true))
+      const into = graphOf(new SmwRom(rom)).entrances!.get(0x050)!
+      expect(into.secondary).toEqual([0x20, 0xa5])
+      expect(into.route).toBe(0xa5)
+    })
+
+    it('a sub area reachable only from another sub area takes the entrance on that exit', () => {
+      const rom = make4MbRom()
+      level(rom, 0x010, 0x068000, exitObj(0x20, true))
+      dest(rom, 0x20, 0x50)
+      level(rom, 0x050, 0x06a000, exitObj(0x21, true))
+      dest(rom, 0x21, 0x60)
+      level(rom, 0x060, 0x06b000, [])
+      expect(graphOf(new SmwRom(rom)).entrances!.get(0x060)?.route).toBe(0x21)
+    })
+
+    it('a primary exit that reaches the map first makes the route the primary entrance (null)', () => {
+      const rom = make4MbRom()
+      level(rom, 0x010, 0x068000, [...exitAt(0, 0x50, false), ...exitAt(1, 0x60, false)])
+      level(rom, 0x050, 0x06a000, [])
+      level(rom, 0x060, 0x06b000, exitObj(0x22, true))
+      dest(rom, 0x22, 0x50)
+      const into = graphOf(new SmwRom(rom)).entrances!.get(0x050)!
+      expect(into.secondary).toEqual([0x22])
+      expect(into.route).toBeNull()
+    })
+
+    it('a non-entry map entered first by a secondary exit and later by a primary one takes the secondary (route decides)', () => {
+      const rom = make4MbRom()
+      level(rom, 0x010, 0x068000, exitObj(0x30, true))
+      dest(rom, 0x30, 0x60)
+      level(rom, 0x011, 0x069000, exitObj(0x60, false))
+      level(rom, 0x060, 0x06a000, [])
+      const into = graphOf(new SmwRom(rom)).entrances!.get(0x060)!
+      expect(into.primary).toBe(true)
+      expect(into.secondary).toEqual([0x30])
+      expect(into.route).toBe(0x30)
+    })
+
+    it('fewest screen exits from any root wins over the earlier root', () => {
+      const rom = make4MbRom()
+      // Root $010 -> A $050 by $30 -> S $060 by $31 (two exits deep); root $020 -> S by $32 (one).
+      level(rom, 0x010, 0x068000, exitObj(0x30, true))
+      dest(rom, 0x30, 0x50)
+      level(rom, 0x050, 0x06a000, exitObj(0x31, true))
+      dest(rom, 0x31, 0x60)
+      level(rom, 0x020, 0x06c000, exitObj(0x32, true))
+      dest(rom, 0x32, 0x60)
+      level(rom, 0x060, 0x06b000, [])
+      const into = graphOf(new SmwRom(rom)).entrances!.get(0x060)!
+      expect(into.secondary).toEqual([0x31, 0x32])
+      expect(into.route).toBe(0x32)
+    })
+
+    it('a map the walk never enters has no record', () => {
+      const rom = make4MbRom()
+      level(rom, 0x010, 0x068000, [])
+      level(rom, 0x050, 0x06a000, [])
+      expect(graphOf(new SmwRom(rom)).entrances!.get(0x050)).toBeUndefined()
+    })
+  })
+
+  // ExitTableLow/High are filed per screen with a plain STA (bank_0D.asm:1428-1435), so a
+  // later exit object for a screen overwrites the earlier one (#957).
+  describe('last exit written per screen wins (#957)', () => {
+    const MAPS = [0x050, 0x051, 0x060, 0x061]
+    /** A map with the given exit objects and four real destination maps, as a built exit graph. */
+    const build = (exits: number[]) => {
+      const rom = make4MbRom()
+      setL1Ptr(rom, 0x010, 0x068000)
+      setLevelData(rom, 0x068000, [0, 0, 0, 0, 0, ...exits, 0xff])
+      for (const [i, m] of MAPS.entries()) {
+        setL1Ptr(rom, m, 0x06a000 + i * 0x100)
+        setLevelData(rom, 0x06a000 + i * 0x100, [0, 0, 0, 0, 0, 0x42, 0xff])
+      }
+      return graphOf(new SmwRom(rom))
+    }
+
+    it('keeps the later of two exits on screen 3, and the lone exit on screen 5', () => {
+      // A (screen 3) -> $050, B (screen 5) -> $051, C (screen 3) -> $060: A is overwritten.
+      const g = build([...exitAt(3, 0x50), ...exitAt(5, 0x51), ...exitAt(3, 0x60)])
+      expect(g.graph.get(0x010)).toEqual([0x051, 0x060])
+    })
+
+    it('files by the exit own screen field, not the screen the stream is on', () => {
+      // Different stream screens (0, then 1 via the new-screen bit), one named screen (3).
+      const g = build([...exitAt(3, 0x50), ...exitAt(3, 0x51, false, true)])
+      expect(g.graph.get(0x010)).toEqual([0x051])
+    })
+
+    it('keeps both when the screens differ only in bit 4 (3 and 19)', () => {
+      const g = build([...exitAt(3, 0x50), ...exitAt(0x13, 0x51)])
+      expect(g.graph.get(0x010)).toEqual([0x050, 0x051])
+    })
+
+    it('keeps both exits when the screens differ', () => {
+      const g = build([...exitAt(1, 0x50), ...exitAt(2, 0x51)])
+      expect(g.graph.get(0x010)).toEqual([0x050, 0x051])
+    })
   })
 })
 
