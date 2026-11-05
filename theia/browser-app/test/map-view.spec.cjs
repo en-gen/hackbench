@@ -3518,6 +3518,68 @@ test('a note on the sprites carries its technical text on the title only (#967)'
   await expect(el).toHaveAttribute('title', 'the flame spawn routine is not the vanilla shape')
 })
 
+/** Two sprites flagged for different causes, as the sprites reply carries them (#1166); a 1x1 clear bitmap each. */
+const UNVERIFIED_CAUSES = ['planted cause one; with a semicolon', 'planted cause two']
+const unverifiedReply = () => ({
+  status: 'ok',
+  orientation: 'horizontal',
+  screenCount: 1,
+  width: 256,
+  height: 432,
+  sprites: UNVERIFIED_CAUSES.map((unverified, index) => ({
+    index,
+    id: 0x20,
+    x: 16 * index,
+    y: 16,
+    box: { x0: 16 * index, y0: 16, x1: 16 * index + 1, y1: 17 },
+    rgba: 'AAAAAA==',
+    status: 'placeholder',
+    reason: 'refused: planted',
+    unverified,
+  })),
+  note: 'Unverified: 2 sprites may not be drawn exactly as in the game.',
+  noteDetail: UNVERIFIED_CAUSES.join('\n'),
+})
+
+test('the unverified note reads in plain words and every cause is on the tooltips (#1166)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openResolving(page, project.manifestPath, 'mapSprites', unverifiedReply())
+  const el = page.locator(`${root(0x105)} [data-note="sprites"]`)
+  await expect(el).toHaveText('Unverified: 2 sprites may not be drawn exactly as in the game.')
+  await expect(el).toHaveAttribute('title', UNVERIFIED_CAUSES.join('\n'))
+  // The note has no accessible name of its own; the raw text must not become one.
+  expect(await el.getAttribute('aria-label')).toBeNull()
+  const toggle = spriteToggle(page, 0x105)
+  await expect.poll(() => toggle.getAttribute('title')).toContain(UNVERIFIED_CAUSES[1])
+  const [label, ...causes] = (await toggle.getAttribute('title')).split('\n')
+  expect(label).toBe(await toggle.getAttribute('aria-label'))
+  expect(causes.join('\n')).toBe(UNVERIFIED_CAUSES.join('\n'))
+  expect(await toggle.getAttribute('aria-label')).not.toContain('planted')
+})
+
+test('a selected unverified sprite shows the plain Properties line, the cause on its tooltip only (#1166)', async ({
+  page,
+}) => {
+  const project = await createProject(page, path.join(tmp, 'MyHack'))
+  await openResolving(page, project.manifestPath, 'mapSprites', unverifiedReply())
+  await expect(spriteToggle(page, 0x105)).toBeEnabled()
+  // The map's own selection path (a click's selectSprite); the bitmaps here are clear, so a pointer click has nothing to hit.
+  await page.evaluate(async () => {
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', {
+      index: 0x105,
+    })
+    w.selectSprite(w.sprites.sprites[0])
+  })
+  const panel = page.locator('[id="hackbench.properties"]')
+  const line = panel.locator('[data-field="note"]', { hasText: 'Unverified' })
+  await expect(line).toHaveText('Unverified: this sprite may not be drawn exactly as in the game.')
+  await expect(line).toHaveAttribute('title', UNVERIFIED_CAUSES[0])
+  expect(await line.getAttribute('aria-label')).toBeNull()
+  expect(await panel.innerText()).not.toContain('planted cause')
+})
+
 test('a start position that cannot be worked out shows no note (#1008)', async ({ page }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openResolving(page, project.manifestPath, 'mapStart', {
