@@ -15,7 +15,7 @@
 import { spawnSync } from 'node:child_process'
 import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { commentMode, locateVanillaRom, textHits, windowSet } from './lib/rom-windows.mjs'
+import { commentMode, locateVanillaRom, maskHits, textHits, windowSet } from './lib/rom-windows.mjs'
 
 // ---------------------------------------------------------------------------
 // Rules (docs/testing.md has the prose version)
@@ -447,36 +447,49 @@ export function checkBlob(rawPath, buf) {
 const isScannableText = (path, buf) =>
   buf.length <= OVERSIZE_THRESHOLD && !isBinary(buf) && !isLockfile(normalizePath(path))
 
-/** Which entries the ROM-window rule reads: ADDED text files outside .md, never in whole-history
- * mode. A modified file would be judged on lines it did not add (101 of 1,512 files on develop
- * already hold a run, 2026-10-28), so a one-line edit would fail on old content, and history mode
- * would be red for good. Markdown prose lists addresses, not fixture bytes. */
-const windowRuleApplies = (e, buf, whole) =>
-  !whole && e.status === 'A' && !/.md$/i.test(e.path) && isScannableText(e.path, buf)
+/** Which entries the ROM rules read: files ADDED in the net diff (`added` holds `path NUL blob`),
+ * outside .md, never in whole-history mode. A modified file would be judged on lines it did not add
+ * (101 of 1,512 files on develop already hold a run, 2026-10-28), and a merge of develop lists
+ * develop's old files as added in `git log -m`, so an edit or a merge would fail on old content.
+ * Markdown prose lists addresses, not fixture bytes. */
+const romRulesApply = (e, buf, whole, added) =>
+  !whole &&
+  added.has(`${e.path}\0${e.blob}`) &&
+  !/.md$/i.test(e.path) &&
+  isScannableText(e.path, buf)
 
-/** ROM-window rule (#1053): a run of byte notation in a text file that matches an 8-byte window
- * of the vanilla ROM. `lookup` is any object with `has(windowKey)` (see hitRuns in
- * lib/rom-windows.mjs). Reports the line and window count, never the bytes. */
+/** ROM rules (#1053) on one text file. `rom-window`: a run of byte notation holding an 8-byte window
+ * of the vanilla ROM. `rom-mask`: a masked array (null, undefined, '??') whose fixed bytes sit in the
+ * ROM at those relative positions. `lookup` has `has(windowKey)` and, for rom-mask, `body`. Reports
+ * lines and counts, never bytes. */
 export function checkRomWindows(path, buf, lookup) {
   if (!lookup || !isScannableText(path, buf)) return []
-  return textHits(buf.toString('utf8'), lookup, 1, undefined, commentMode(path)).map(h => ({
-    rule: 'rom-window',
-    path,
-    where: `line ${h.at}, ${h.windows} window${h.windows === 1 ? '' : 's'}`,
-  }))
+  const text = buf.toString('utf8')
+  const mode = commentMode(path)
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`
+  return [
+    ...textHits(text, lookup, 1, undefined, mode).map(h => ({
+      rule: 'rom-window',
+      path,
+      where: `line ${h.at}, ${plural(h.windows, 'window')}`,
+    })),
+    ...maskHits(text, lookup, 1, mode).map(h => ({
+      rule: 'rom-mask',
+      path,
+      where: `line ${h.at}, ${plural(h.slices, 'slice')}`,
+    })),
+  ]
 }
 
-/** Combines checkPath + checkBlob (+ the ROM-window rule when `lookup` is given) for one entry. */
+/** Combines checkPath + checkBlob (+ the ROM rules when `lookup` is given) for one entry. */
 export function evaluateEntry(path, buf, lookup = null) {
   return [...checkPath(path), ...checkBlob(path, buf), ...checkRomWindows(path, buf, lookup)]
 }
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 
-/** THE one place the window lookup is chosen. Today only the real ROM (local) is used; with no ROM
- * (CI) there is no lookup and the rule is reported "not checked", never failed. The committed hashed
- * window set that would serve CI is held for owner ruling D155 (copyright weight of committing a
- * fingerprint of every vanilla window); when it lands, return it from here and nothing else changes. */
+/** THE one place the lookup is chosen: the real vanilla ROM, only where one is present (D155: no
+ * committed hash set). With none the ROM rules do not run, and main() says so. */
 export function romWindowLookup(env = process.env) {
   const rom = locateVanillaRom(env, REPO_ROOT)
   return existsSync(rom) ? windowSet(readFileSync(rom)) : null
@@ -612,6 +625,45 @@ function walkRawDiff(revArgs, { reverse = false } = {}) {
     })
   }
   return { entries, messages }
+}
+
+// The empty tree: the base for a ref that shares no history with the remote.
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+
+/** What a push is judged against: the independent merge-bases of `head` with every tip the remote has. */
+function pushBases(tips, head) {
+  const mbs = new Set()
+  for (const t of tips) {
+    const r = spawnGit(['merge-base', head, t])
+    if (r.status === 0) mbs.add(r.stdout.toString().trim())
+  }
+  const ind = mbs.size ? spawnGit(['merge-base', '--independent', ...mbs]) : null
+  const bases = ind?.status === 0 ? ind.stdout.toString().split('\n').filter(Boolean) : []
+  return bases.length ? bases : [EMPTY_TREE]
+}
+
+/** `path NUL blob` of the files ADDED in the net diff from each of `bases` to `head` (a file counts
+ * only if new against all of them). Not the per-commit walk: after a merge of develop, `git log -m`
+ * lists develop's old files as added. --no-renames, so a renamed file counts as added. */
+function netAdded(bases, head) {
+  let common = null
+  for (const b of bases) {
+    const f = git([
+      ...['diff', '--raw', '-z', '--no-renames', '--no-abbrev', '--diff-filter=A'],
+      ...GIT_DIFF_FLAGS,
+      ...[b, head],
+    ])
+      .toString('binary')
+      .split('\0')
+    const keys = new Set()
+    for (let i = 0; i + 1 < f.length; i += 2) {
+      const m = /^:\d{6} (\d{6}) [0-9a-f]{40} ([0-9a-f]{40}) A$/.exec(f[i])
+      if (m && m[1] !== '160000')
+        keys.add(`${Buffer.from(f[i + 1], 'binary').toString('utf8')}\0${m[2]}`)
+    }
+    common = common ? new Set([...common].filter(k => keys.has(k))) : keys
+  }
+  return common ?? new Set()
 }
 
 /** Staged (index) entries: git diff --cached --raw, no commit context. */
@@ -765,7 +817,7 @@ function readBlobs(unique, total) {
 }
 
 /** Evaluates a de-duplicated (path, blob) entry set plus commit messages. */
-function evaluateEntries(entries, messages = [], whole = false) {
+function evaluateEntries(entries, messages = [], whole = false, added = new Set()) {
   const seen = new Map() // `${path}\0${blob}` -> first entry (for "first added")
   for (const e of entries) {
     const key = `${e.path}\0${e.blob}`
@@ -778,7 +830,7 @@ function evaluateEntries(entries, messages = [], whole = false) {
     for (const e of list) {
       if (!blobs.has(e.blob)) continue
       const buf = blobs.get(e.blob)
-      const lk = windowRuleApplies(e, buf, whole) ? lookupOnce() : null
+      const lk = romRulesApply(e, buf, whole, added) ? lookupOnce() : null
       for (const hit of evaluateEntry(e.path, buf, lk))
         hits.push({ ...hit, commit: e.commit, blob: e.blob })
     }
@@ -786,10 +838,7 @@ function evaluateEntries(entries, messages = [], whole = false) {
   const blobShas = [...pathOf.keys()]
   let lookup
   const lookupOnce = () => {
-    if (lookup === undefined) {
-      lookup = romWindowLookup()
-      if (!lookup) process.stderr.write('check-content: rom-window rule not checked: no ROM\n')
-    }
+    if (lookup === undefined) lookup = romWindowLookup()
     return lookup
   }
   try {
@@ -929,7 +978,10 @@ function formatHit(h) {
 
 function runStaged() {
   assertNoGrafts()
-  const hits = [...evaluateEntries(stagedEntries()), ...emDashHits(['--cached'])]
+  const entries = stagedEntries()
+  // Staged mode keeps the cached status: A is added.
+  const added = new Set(entries.filter(e => e.status === 'A').map(e => `${e.path}\0${e.blob}`))
+  const hits = [...evaluateEntries(entries, [], false, added), ...emDashHits(['--cached'])]
   return dedupeReport(hits)
 }
 
@@ -938,7 +990,8 @@ function runRange(base, head) {
   requireCommit(base, 'range base')
   requireCommit(head, 'range head')
   const { entries, messages } = walkRawDiff([head, '--not', base])
-  const hits = [...evaluateEntries(entries, messages), ...emDashHits([base, head])]
+  const added = netAdded([base], head)
+  const hits = [...evaluateEntries(entries, messages, false, added), ...emDashHits([base, head])]
   return dedupeReport(hits)
 }
 
@@ -978,7 +1031,8 @@ function runPush(remote, stdinText) {
     requireCommit(localSha, 'pushed ref')
     const { entries, messages } = walkRawDiff([localSha, '--not', ...known])
     try {
-      hits.push(...evaluateEntries(entries, messages, known.length === 0))
+      const added = netAdded(pushBases(known, localSha), localSha)
+      hits.push(...evaluateEntries(entries, messages, known.length === 0, added))
     } catch (err) {
       if (err instanceof GateError) err.hits = [...hits, ...err.hits]
       throw err
@@ -1075,6 +1129,11 @@ function dedupeReport(hits) {
 
 function main(argv) {
   const [mode, ...rest] = argv
+  // History mode never applies the ROM rules; every other mode must say when they could not run.
+  if (mode !== 'history' && !existsSync(locateVanillaRom(process.env, REPO_ROOT)))
+    process.stderr.write(
+      'check-content: rom-window and rom-mask rules DID NOT RUN: no vanilla ROM found; added files were NOT checked for ROM bytes\n',
+    )
   let hits
   if (mode === 'staged') {
     hits = runStaged()
