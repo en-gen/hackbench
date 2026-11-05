@@ -117,7 +117,12 @@ export interface MapViewOptions {
   label: string
   /** The tree row's own icon, so the tab matches where it was opened from. */
   iconClass?: string
+  /** A New slot: nothing to read, so the view shows `NEW_SLOT_NOTE` instead of a map (#950 replaces it). */
+  isNew?: boolean
 }
+
+/** The one-line note an opened New slot shows until its empty editor exists (#950). */
+export const NEW_SLOT_NOTE = 'This slot is new. It has no map yet.'
 
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
 type Sprites = Extract<MapSpritesResult, { status: 'ok' }>
@@ -158,6 +163,7 @@ function AfterCommit({ run }: { run: () => void }): null {
   return null
 }
 
+/** Capitalizes a palace key for its switch's label. */
 const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
 @injectable()
@@ -354,8 +360,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     )
   }
 
+  /** Starts a map in this widget; a reused tab drops the earlier map's replies via the open counter. */
   async open(options: MapViewOptions): Promise<void> {
-    perfStart('open-maps')
     this.options = options
     this.id = `${MAP_VIEW_ID}:${options.index}`
     this.title.label = options.label
@@ -391,6 +397,15 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.pendingStart = undefined
     this.startState = 'pending'
     this.movedBeforeStart = false
+    if (options.isNew) {
+      // A reused tab must not keep the last map's sprite in the Properties panel beside a New slot.
+      this.selectSprite(undefined)
+      this.generation++
+      this.update()
+      return
+    }
+    // Started here, not at the top: only a map that draws a screen ends it, and a New slot never does.
+    perfStart('open-maps')
     void this.loadStart(++this.startSeq)
     this.update()
     this.refresh()
@@ -459,6 +474,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Drops every cached screen and reads the map again from the working copy. */
   protected refresh(): void {
+    // A New slot has nothing to read, so an edit elsewhere changes nothing here.
+    if (this.options?.isNew) return
     this.generation++
     this.update()
     this.pendingRestore = undefined
@@ -763,7 +780,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return Array.from({ length: last - first + 1 }, (_, i) => first + i)
   }
 
+  /** Asks for the screens now in view, skipping any already requested. */
   protected requestVisible(): void {
+    // A New slot shows a note, not a map: no screen is ever asked for.
+    if (this.options?.isNew) return
     this.sync()
     for (const s of this.visibleScreens()) void this.fetchScreen(s)
   }
@@ -775,7 +795,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected async fetchScreen(screen: number): Promise<void> {
     const o = this.options
     const key = this.key(screen)
-    if (!o || this.screens.has(key) || this.pending.has(key)) return
+    if (!o || o.isNew || this.screens.has(key) || this.pending.has(key)) return
     this.pending.add(key)
     const generation = this.generation
     let r: MapScreenResult
@@ -1276,6 +1296,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Refits while in fit mode; always asks for the screens now in view. */
   protected fitStrip(): void {
+    if (this.options?.isNew) return
     this.zoomController.refit()
     requestAnimationFrame(() => this.requestVisible())
   }
@@ -1301,7 +1322,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Shows or hides the collision overlay (`hackbench.maps.toggleCollision`); a refused map stays off. */
   toggleCollision(): void {
-    if (this.collisionWhy) return
+    if (this.options?.isNew || this.collisionWhy) return
     this.showCollision = !this.showCollision
     this.collisionSeq++ // off: a reply still on its way is not wanted; on: it is asked for afresh below
     if (this.showCollision && !this.collisionCurrent()) void this.loadCollision()
@@ -1315,7 +1336,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Whether the collision toggle can be used: what `hackbench.maps.toggleCollision` and the button share. */
   get canToggleCollision(): boolean {
-    return !this.collisionWhy
+    return !this.options?.isNew && !this.collisionWhy
   }
 
   /** The collision toggle's tooltip: what pressing it does, or why it cannot. */
@@ -1415,8 +1436,20 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return l3.reason ?? (l3.priority ? 'Layer 3 · Overlay' : 'Layer 3 · Background')
   }
 
+  /** The view of a New slot: one plain-words note, no toolbar and no error (D155). */
+  protected renderNewSlot(): React.ReactNode {
+    return (
+      <div className="hb-map-view-main" data-details="done" data-generation={this.generation}>
+        <div className="hb-map-view-empty" data-control="map-new-note">
+          {NEW_SLOT_NOTE}
+        </div>
+      </div>
+    )
+  }
+
   /** Renders the toolbar and canvas; every unavailable overlay title comes from the plain-word helpers (#967). */
   protected render(): React.ReactNode {
+    if (this.options?.isNew) return this.renderNewSlot()
     this.renderedZoom = this.zoomController.value
     return (
       <div

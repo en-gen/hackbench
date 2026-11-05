@@ -52,6 +52,7 @@ import { overworldRows, opensArea, type AreaRow } from './map-explorer-areas'
 import { GfxService } from '../common/gfx-protocol'
 import { ProjectContext } from './project-context'
 import { orderSpecials } from './map-explorer-order'
+import { titleWithWarning } from './map-explorer-warning'
 import {
   GroupedMapNodeDto,
   GroupedMapTreeDto,
@@ -112,10 +113,10 @@ export interface MapTreeNode extends CompositeTreeNode, SelectableTreeNode {
   area?: AreaRow
   /** Set on the Overworld row when its area list is unavailable: the reason, for its tooltip. */
   areasNote?: string
-  /** Set on a placeholder slot: how many slots share the placeholder room. */
-  sharedCount?: number
-  /** Set on a slot with no map data (Layer 1 pointer zero or unreadable): no tab opens, no group takes it. */
+  /** Set on a New slot (no map data yet): it opens the empty view, and no group takes it. */
   noPointer?: true
+  /** Set on a map whose data could not be read back: the row warns, opening it says so. */
+  unreadable?: true
 }
 
 type BonusRole = NonNullable<GroupedMapNodeDto['role']>
@@ -162,17 +163,19 @@ export const CATEGORY_ICONS: Record<MapCategory, string> = {
   message: 'codicon-info',
 }
 
+/** The warning icon wins over the role's own: a bad map says so on any row. */
 const iconFor = (node: MapTreeNode): string =>
-  node.role
-    ? BONUS_ROLES[node.role].icon
-    : node.area?.invalid
-      ? 'codicon-warning'
+  node.area?.invalid || node.unreadable
+    ? 'codicon-warning'
+    : node.role
+      ? BONUS_ROLES[node.role].icon
       : CATEGORY_ICONS[node.category]
 
 /** A group folder's name without the count its caption adds. */
 const groupName = (n: MapTreeNode): string =>
   n.id === 'group:unassigned' ? 'Unassigned' : n.id.replace(/^group:user:/, '')
 
+/** The `$0F3` form hackers use for a slot id; fixed width so rows sort and align. */
 export const slotLabel = (index: number): string =>
   `$${index.toString(16).toUpperCase().padStart(3, '0')}`
 
@@ -190,8 +193,8 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
     if (n.kind === 'message') return undefined
     // A folder's shown name carries its count ("Unassigned (12)"); match the raw name.
     if (n.kind === 'group') return { folder: true, texts: [groupName(n)] }
-    // Loop, truncated and no-pointer rows are markers: Enter on them opens nothing.
-    const openable = n.kind === 'map' && !n.noPointer
+    // Loop and truncated rows are markers: Enter on them opens nothing.
+    const openable = n.kind === 'map'
     if (n.category === 'overworld' || n.category === 'overworld-area')
       return { openable, texts: [n.name ?? ''] }
     if (isSpecial(n.category)) {
@@ -256,6 +259,8 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
     label: string
     pinned: boolean
     iconClass: string
+    /** A New slot: the view shows its empty state instead of reading the map. */
+    isNew: boolean
   }>()
   readonly onMapOpened = this.onMapOpenedEmitter.event
 
@@ -436,20 +441,14 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
    * separate Overworld folder to infer it from position).
    */
   protected unassignedNode(maps: GroupedMapNodeDto[]): MapTreeNode {
-    // Placeholders are counted apart so the figure beside the label stays the
+    // New slots are counted apart so the figure beside the label stays the
     // number of maps, not of slots (docs/glossary.md).
-    const placeholders = maps.filter(m => m.placeholder).length
-    const noData = maps.filter(m => m.noPointer).length
-    const mapRows = maps.length - placeholders - noData
-    const apart = [
-      placeholders > 0 ? `${placeholders} placeholder` : '',
-      noData > 0 ? `${noData} with no data` : '',
-    ].filter(Boolean)
+    const fresh = maps.filter(m => m.noPointer).length
     const node: MapTreeNode = {
       id: 'group:unassigned',
       name:
-        apart.length > 0
-          ? `Unassigned (${[mapRows, ...apart].join(', ')})`
+        fresh > 0
+          ? `Unassigned (${maps.length - fresh}, ${fresh} New)`
           : `Unassigned (${maps.length})`,
       index: -1,
       mapName: null,
@@ -513,8 +512,8 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
       children: [],
       selected: false,
     }
-    if (dto.placeholder) node.sharedCount = dto.sharedCount
     if (dto.noPointer) node.noPointer = true
+    if (dto.unreadable) node.unreadable = true
     node.children = dto.children.map(c => this.toNode(c, node, 'subarea'))
     if (node.children.length > 0) node.expanded = false
     return node
@@ -536,6 +535,7 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
       parent: undefined,
       children: [],
       selected: false,
+      ...(dto.unreadable ? { unreadable: true as const } : {}),
     }
   }
 
@@ -617,11 +617,11 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
         )
       return
     }
-    // A no-pointer slot has no map data to draw: selecting or activating it opens no tab.
-    if (!map || map.index < 0 || map.kind !== 'map' || map.noPointer || !this.manifestPath) return
+    if (!map || map.index < 0 || map.kind !== 'map' || !this.manifestPath) return
     this.onMapOpenedEmitter.fire({
       index: map.index,
       pinned,
+      isNew: map.noPointer === true,
       iconClass: `codicon ${iconFor(map)}`,
       label: isSpecial(map.category)
         ? (map.name ?? slotLabel(map.index))
@@ -648,8 +648,8 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
    */
   protected groupable(node: MapTreeNode): boolean {
     const { kind, category } = node
-    // A placeholder row (sharedCount set) is listed, not a map: no group takes it.
-    if (node.sharedCount !== undefined || node.noPointer) return false
+    // A New slot has no map yet, so no group takes it (D155).
+    if (node.noPointer) return false
     return kind === 'map' && (category === 'entry' || category === 'bonus' || category === 'orphan')
   }
 
@@ -1037,16 +1037,14 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
   ): React.Attributes & React.HTMLAttributes<HTMLElement> {
     const attrs = super.createNodeAttributes(node, props)
     const map = node as MapTreeNode
-    // A no-data slot says so whatever folder holds it: the tooltip does not depend on its category.
+    // A New slot says so whatever folder holds it: the tooltip does not depend on its category.
     if (map.noPointer) {
-      attrs.title = 'This slot has no map data'
+      attrs.title = 'New: nothing has been added to this slot yet'
     } else if (map.category === 'orphan') {
       attrs.title = 'Not reached from the overworld'
-      if (map.sharedCount !== undefined) {
-        attrs.title += `. This slot uses the shared placeholder room, which ${map.sharedCount} slots share.`
-      }
     }
     if (map.role && !map.noPointer) attrs.title = BONUS_ROLES[map.role].title
+    if (!map.noPointer) attrs.title = titleWithWarning(attrs.title, map.unreadable)
     if (map.area?.invalid) attrs.title = map.area.invalid
     if (map.areasNote) attrs.title = map.areasNote
     // Theia's own default caption only carries the node id on expandable
@@ -1089,6 +1087,11 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
       <span key="slot" className="hb-map-slot">
         {map.name}
       </span>,
+      map.noPointer ? (
+        <span key="new" className="hb-map-note" data-control="map-new">
+          New
+        </span>
+      ) : null,
       map.mapName ? (
         <span key="name" className="hb-map-name">
           {map.mapName}

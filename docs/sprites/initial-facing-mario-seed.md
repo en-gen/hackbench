@@ -34,19 +34,50 @@ maps `readLevelStart` can resolve it differs from the loader by dx -8 on 41 maps
   (the issue's set): named and excluded. This split uses the capture's `marioStart`, which differs from
   the loader's position on 31 of the 126 capture maps; none of the 2224 records with both changes
   side of the sprite when the loader's position replaces it (reproduced here, one machine).
-- The other 2162 are compared: 2149 match the capture's `$157C`, 13 differ and are listed in the
-  test (maps `11e`, `11f`, `126`, `132`, `1c4`, `1c5`).
+- The other 2162 are compared: 2158 match the capture's `$157C`, 4 differ and are listed in the
+  test (the Lakitu riders on `11f`, `132`, `1c4`, `1c5`). Before #1243 it was 2149 and 13: the 9 other
+  differences were a test defect (below).
+- INIT runs under the id the loader placed, not the capture's id. The capture reads `$9E` at the DRAW
+  (`recEndFrame`, `headless_capture.lua:1418`), while `$157C` is read at the end of the INIT frame
+  (`:1771`); on `11e` slot 6 that is frame 956 against 970. An Exploding Block (`$4C`) has become another
+  sprite by the draw. The key is the list id below `$C9` (`bank_02.asm:5365-5370`) and the capture's
+  id from `$C9` up (`placedInitId`, `test/suite/support/gradeTimeline.ts`). Shells (`$DA`-`$DD`) get
+  status 9 and no INIT (`bank_02.asm:5361`), so they never reach the comparison. Not modeled: the
+  special-world remap (`5464-5471`) and the Silver P-Switch coin (`5477-5487`); neither fires in these
+  captures. All 2262 records join to a list entry.
+- 63 records have a capture id different from the list id: 10 placed as `$4C` (13 are placed; 3 are still `$4C` at
+  the draw; the 10 became `$00` 1, `$04` 4, `$0F` 4, `$15` 1); 35 shells (`$DA` 7, `$DB` 16, `$DC` 6,
+  `$DD` 6) and 3 `$DE` to `$39` (five Eeries, `bank_02.asm:5312-5318`), which are exactly the 38 records
+  with no INIT; and 15 `$E0` (three chain platforms, `bank_02.asm:5325-5331`), which keep the capture's id.
+  The test pins the below-`$C9` pairs, so a new one goes red.
+
+## `$4C` (Exploding Block) facing at INIT (#1243, fixed)
+
+The 9 Koopa/Goomba-type mismatches (8 on `11e`, 1 on `126`) were a test defect. All 9 are list id `$4C`.
+Its INIT `InitExplodingBlk` (`bank_01.asm:307`, `544-554`) stores the number it will become in
+`SpriteTableC2` and never calls FaceMario, so `$157C` stays 0 from `InitSpriteTables`; the block becomes
+that sprite at `bank_02.asm:13281-13283`. The test had run the Koopa/Goomba INIT that the record's draw-time
+id names, which gave 1.
+
+Mesen write probe (values below are what it logged):
+- Sample, map `11e` slot 6 (listX 2848): `$9E` = `$4C` and `$157C` = 0 through the INIT frame 956.
+  At frame 969 `InitSpriteTables` ran with `$9E` = `$00`, then the store at `bank_02.asm:13289`
+  (`STA $157C,X`) wrote 1.
+- Control, slot 7 (listX 2592, Red Koopa): at INIT (frame 914) the store at `bank_01.asm:850`
+  (`STA $157C,X` in FaceMario) wrote 1.
+- Mario `$94`/`$D1` = 16 and `$96`/`$D3` = 368 in every logged write, so capture timing is not involved.
+
+The other 8 records rest on the same list id and on the test, which asserts ours = 0 for each of the 10
+`$4C` records that differ at the draw and checks `SpriteTableC2` against the capture's draw-time id. The
+Mesen probe did not run on `126` or the other `11e` records.
+
+Evidence scope: vanilla ROM `6b47bb75` (SHA-1 `6b47bb75d16514b6a476aa0c73a683a2a4c18765`, SHA-256
+`0838e531fe22c077528febe14cb3ff7c492f1f5fa8de354192bdff7137c27f5b`), Mesen 2.1.1, hackbench-validation
+`48d348c`, two probe runs on `11e` slots 6 and 7 only, one machine. SMWDisX `bank_01/MEMO.md` (`b7bda02`)
+holds the finding.
 
 ## Open items (follow-ups, not fixed here)
 
-- The 9 Koopa/Goomba-type mismatches (8 on `11e`, 1 on `126`) are unexplained. Data (reproduced here on
-  the layers_v5 captures): on `11e` Mario is held left at (16, 368) and the capture has `$157C` 1 for
-  all 6 such records at `listX` <= 2592 and 0 for all 8 at `listX` >= 2848 (`initFrame` >= 956); on
-  `126` the one such record (x 3024, frame 988) reads 0. The capture's `firstRealFacing` is also 0 for
-  each, so hardware held 0 into the first MAIN. We seed Mario left too and give 1. A capture-timing
-  artifact is one reading (the capture reads `$157C` at the end of the INIT frame, `headless_capture.lua`
-  in en-gen/hackbench-validation, `capture/mesen`, lines ~1324 and ~1771), unconfirmed: no write
-  breakpoint has been run. A real interpreter divergence is not excluded, and the cause is not found.
 - The 4 Lakitu rider (`$1E`) mismatches (`11f`, `132`, `1c4`, `1c5`) are not a map view defect. The map
   view draws Lakitu's facing correctly in slots 0-9 (#1007, tested: `test/suite/unit/sprites/LakituFacing.test.ts`,
   `it.each` "map $%s: pass-0 $157C follows SubHorizPos in slots 0-9, stay 0 in

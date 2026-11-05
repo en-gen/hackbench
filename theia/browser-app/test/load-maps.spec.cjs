@@ -18,8 +18,8 @@ const { maxDepth } = require('./tree-depth.cjs')
 const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 
-/** Vanilla's documented map count, from docs/glossary.md. */
-const VANILLA_MAPS = 235
+/** Vanilla's documented map count, from docs/glossary.md: every one of its 512 slots (#949). */
+const VANILLA_MAPS = 512
 
 const GET_SVC = `function getSvc(name) {
   const d = window.theia.container._bindingDictionary
@@ -100,8 +100,6 @@ async function loadMaps(page, dir, rom = ROM) {
       rootIds: roots.map(r => r.id),
       // Entry maps and orphans in ONE folder: there is no separate Overworld.
       unassignedTop: (group('unassigned')?.children || []).length,
-      placeholderTop: (group('unassigned')?.children || []).filter(n => n.sharedCount !== undefined)
-        .length,
       unassignedRows: (group('unassigned')?.children || []).map(n => ({
         index: n.index,
         category: n.category,
@@ -110,11 +108,9 @@ async function loadMaps(page, dir, rom = ROM) {
       // Walk the roots themselves, not just their children: Title Screen and
       // New Game ARE maps rather than folders, so descending past them would
       // drop two real maps from the count.
-      // Placeholder rows are listed slots, not maps (#901): counted apart.
       distinct: new Set(
         roots
           .flatMap(walk)
-          .filter(n => n.sharedCount === undefined)
           .map(n => n.index)
           .filter(i => i >= 0),
       ).size,
@@ -137,7 +133,7 @@ test('a new project loads every map its cartridge holds', async ({ page }) => {
   const result = await loadMaps(page, path.join(tmp, 'MyHack'))
 
   expect(result.error).toBeUndefined()
-  // The binding assertion. 235 is the glossary's documented figure for
+  // The binding assertion. 512 is the glossary's documented figure for
   // vanilla, and it is derived from the cart rather than assumed, so a hack
   // would report its own number here.
   expect(result.mapCount).toBe(VANILLA_MAPS)
@@ -405,11 +401,8 @@ test('the Unassigned label counts what it claims to count', async ({ page }) => 
   expect(result.groups[2]).toBe('Overworld')
 
   expect(result.unassignedTop).toBeGreaterThan(0)
-  // Placeholder slots are rows too (#901) but sit beside the figure, not in it.
-  expect(result.placeholderTop).toBeGreaterThan(0)
-  expect(result.groups[3]).toBe(
-    `Unassigned (${result.unassignedTop - result.placeholderTop}, ${result.placeholderTop} placeholder)`,
-  )
+  // Slots on the shared pointer are ordinary maps (#949): the figure is the row count.
+  expect(result.groups[3]).toBe(`Unassigned (${result.unassignedTop})`)
 })
 
 test('the map rows are rendered and reachable, not just in the model', async ({ page }) => {

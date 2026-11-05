@@ -306,7 +306,7 @@ On vanilla, over all 512 slots:
 | L2     | 34              | 16                                  | 494            |
 | sprite | 177             | 29                                  | 364            |
 
-Restricting to the 235 maps (L1 not the filler `$068000`): 63 share an L1
+Restricting to the 235 slots that are not on the common pointer (L1 not the filler `$068000`; the 277 on it are maps too, #949): 63 share an L1
 pointer with another map, in 21 groups. Reading sprite pointers 2 bytes
 wide, 56 of the 63 share all three pointers with another map (`$015` and
 `$016` do; their sprite entries are both `DP1Sprites015`,
