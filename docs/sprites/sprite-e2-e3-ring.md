@@ -62,10 +62,11 @@ All line numbers are SMWDisX `bank_02.asm` unless a bank is named. No assembly i
   entry, #981), over the normal OAM priority planes (priority 3).
 - A routine or call-path part that is not the vanilla shape does not blank the ring (owner
   ruling D52, option B): the ring is drawn from the code as it stands and the sprite is flagged
-  `unverified`, naming the part (the spawn, the draw, the two draw helpers, the loader route, the
-  cluster spawn entry, the $E2/$E3 branch, the cluster loop, the dispatch call and its target,
-  the type-4 dispatch entry; the spawn, draw, helpers and the 84-byte contact test CODE_02FE71,
-  which the draw runs, are the fingerprinted spans). Fingerprints cover the routines only, not the data tables. What
+  `unverified`, naming the part: the spawn, the draw, the two draw helpers and the 84-byte
+  contact test CODE_02FE71 (which the draw runs) are fingerprinted spans; the call path is run on
+  the core like the flames' (`ClusterPath.ts`, D126), once for each of $E2 and $E3, and names the
+  loader route, the $E2/$E3 branch to the ring spawn, or the cluster loop, with the
+  address of any fetch outside the expected code. Fingerprints cover the routines only, not the data tables. What
   still keeps the marker, with its reason: no level image, a run that does not return or leaves
   ROM, a vertical map (owner call B: the loader hands the spawn the screen's Y boundary as the
   ring's X there, 5232-5238, so the ROM's own ring would be at the wrong place), the extra-bits
@@ -88,3 +89,4 @@ All line numbers are SMWDisX `bank_02.asm` unless a bank is named. No assembly i
 - Not modelled: the turning (the map holds angle 0), the animation (EffFrame selects the
   tile; the map shows the image's frame), the contact test, a second simultaneous ring, a
   ring's angle after earlier rings, and any ring in a vertical map.
+- The call-path gate shared with the castle flames: [cluster-path-gate.md](cluster-path-gate.md).
