@@ -179,6 +179,41 @@ describe('what the gate must accept and where its limits sit', () => {
   })
 })
 
+describe('the layout allowances and the checks on stack, spawn and cache', () => {
+  const LP = STANDIN.loop
+
+  it('a branch to an address listed in exits is accepted, by its FastROM mirror too; unlisted it is flagged', () => {
+    const rom = edit([STANDIN.route, [0xc0, 0x55, 0xf0, 0x7e]])
+    expect(names(pathMismatches(rom, FLAMES))).toEqual([ROUTE])
+    for (const exits of [[0x02f8e2], [0x82f8e2]])
+      expect(pathMismatches(rom, { ...FLAMES, layout: { ...STANDIN_LAYOUT, exits } })).toEqual([])
+  })
+
+  it('a loop that returns with a byte left on the stack is flagged for the stack alone', () => {
+    // BRA to an island inside a widened loop span: PLB, push a copy of the return frame and a spare byte, RTL.
+    const layout = { ...STANDIN_LAYOUT, loop: [LP, LP + 0x30] as const }
+    const island = [0xab, 0xf4, 0, 0, 0xf4, 0xff, 0x7e, 0x6b]
+    const rom = edit([LP + 17, [0x80, 0x0d]], [LP + 0x20, island])
+    expect(pathMismatches(rom, { ...FLAMES, layout })).toEqual([
+      'the cluster loop (the stack is not restored)',
+    ])
+  })
+
+  it('a spawn with a conditional branch out of its own span is accepted: its branches are its own', () => {
+    // LDX #0 / LDY #0 / BNE away (Z is set, so never taken) / RTS
+    const spawn = [0xa2, 0x00, 0xa0, 0x00, 0xd0, 0x10, 0x60]
+    const rom = edit([STANDIN.ringSpawn, spawn])
+    expect(pathMismatches(rom, { ...RING, spawnLength: spawn.length })).toEqual([])
+  })
+
+  it('a cached verdict handed out twice is still unchanged by the second caller', () => {
+    const rom = hack('loop skips slot 0', true)
+    pathMismatches(rom, FLAMES)
+    pathMismatches(rom, FLAMES).push('junk')
+    expect(pathMismatches(rom, FLAMES)).not.toContain('junk')
+  })
+})
+
 describe('each hacked path, for both carts', () => {
   it.each(PATH_HACKS.flatMap(h => [[h.name, h, true] as const, [h.name, h, false] as const]))(
     '%s (flames: %s)',

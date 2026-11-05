@@ -15,7 +15,7 @@ import { hasRom, romPath, VANILLA } from '../../support/corpus'
 const REPO = join(__dirname, '../../../..')
 /**
  * SubmapFlagGate.ts: three stock-code literals (the overworld index guard, the CODE_05D8A2 block and the
- * secondary-exit branch) still wait for #1109; 20 files under src/ import the module and 19 tests. Pinned per
+ * secondary-exit branch) still wait for #1109; 20 files under src/ import the module and 18 tests. Pinned per
  * literal (line, windows) so the count cannot grow, and a fix has to delete this entry.
  */
 const DEFERRED = {

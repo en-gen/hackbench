@@ -1,7 +1,7 @@
 /**
  * The call path from a level's sprite list to the cluster spawns and draws (castle flames $E6, rotating
- * ring $E2/$E3), written for a synthetic cart: INVENTED code that is not the game's, at addresses that are
- * not the game's (D126, FINGERPRINT MINIMUM rule 9). A byte-for-byte match with the ROM at 5 or more bytes
+ * ring $E2/$E3), written for a synthetic cart: INVENTED code that is not the game's; the route and the dispatch block sit at
+ * addresses that are not the game's (the entry and loop keep theirs) (D126, FINGERPRINT MINIMUM rule 9). A byte-for-byte match with the ROM at 5 or more bytes
  * is checked by ClusterPathStandInNoVanilla.test.ts against the vanilla ROM (one machine, one image). The
  * gate in ClusterPath.ts runs this code on the core; `STANDIN_LAYOUT` tells it where this cart keeps it.
  * Evidence scope: synthetic bytes; the vanilla ROM's own path is proven in the corpus blocks.

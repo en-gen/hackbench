@@ -31,7 +31,6 @@ const GATE_FILES = [
  */
 const NOT_CODE: Record<string, string[]> = {
   'src/rom/sprites/interp/RotatingRing.ts': ['0xe2, 0xe3', '0xf0, 0x7f', '0xf0, 0x7f'],
-  'src/rom/sprites/interp/ClusterPath.ts': ['0x91, 0x42'],
 }
 
 /** Two byte literals (or one and a `null` mask) in a row, comments aside: a stored byte array. */

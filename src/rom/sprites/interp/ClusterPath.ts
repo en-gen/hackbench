@@ -5,7 +5,7 @@
  *
  * Runs, each over three WRAM states and each ended at a named address:
  * - the loader route (CODE_02A8C0, bank_02.asm:5348-5355), entered with the sprite id in A, a stream offset
- *   in Y and a hand-off in _0.._2, must reach the spawn dispatcher (CODE_02AAC0, :5631-5641) with `_3` set
+ *   in Y, must reach the spawn dispatcher (CODE_02AAC0, :5631-5641) with `_3` set
  *   and the id in A; the dispatcher must reach the spawn with the activate flag stored (run with the cell
  *   preset to 0 and to $FF, so only a store makes it 1); the spawn must return into the route, which must hand
  *   back to LoadNextSprite (:5267) with the stack, X and Y as it found them. X and Y are swept (0, a low
@@ -18,17 +18,18 @@
  *
  * Every instruction fetch between an entry and its target must lie in `ClusterLayout`'s spans (the route,
  * the dispatcher, the spawn, the loop, the dispatch block and ExecutePtr). A fetch anywhere else is a hook
- * or a wrapper: the stage is flagged and the address named. Beyond the spawn, three more checks, each
- * a seeded fill used only to catch a stray effect (D126, fourth exception): every conditional branch of the
- * route, dispatcher and loop must fall through into a span and go to a span or an `exits` address (taken or
- * not, so a branch on game state to foreign code is flagged without a seed that takes it); WRAM writes are
- * limited to the stack, the hand-off cells, the activate flag, CurSpriteProcess and ExecutePtr's scratch
+ * or a wrapper: the stage is flagged and the address named. Beyond the spawn, two more checks: every conditional branch
+ * of the route, dispatcher and loop must fall through into a span and go to a span or an `exits` address
+ * (taken or not, so a branch to foreign code is flagged without a seed; this check uses none); a seeded fill
+ * (D126, fourth exception) catches a stray effect. WRAM writes are
+ * limited to the stack, the hand-off cell _3, the activate flag, CurSpriteProcess and ExecutePtr's scratch
  * (the spawn's own writes are not limited: they are its job).
  * GAP, stated and not closed: the callers of these fixed entries are not run. The long call to the loop
  * (bank_01.asm:130) and the $E7 threshold before the route (bank_02.asm:5290) are reached only by entering at
  * the routine, so a hack that blanks that call or lowers that threshold is not seen here; reaching them would
  * mean running the sprite-list loader and the main sprite loop on seeded level data.
- * The seeded fill covers $0000-$1FFF; cells above are zero. A hacked path is not followed past its first
+ * The seeded fill covers $0000-$1FFF; cells above are zero. A seed catches a dependence on game state only on
+ * a cell the seeds differ on: a threshold compare on a cell above $1FFF, or one all seeds hold alike, passes. A hacked path is not followed past its first
  * foreign fetch.
  * Evidence scope: vanilla USA ROM, one machine, 2026-11-03; the three corpus hacks that hook the loop are
  * pinned in ClusterPathGate.corpus.test.ts.
@@ -51,11 +52,10 @@ const SPAWN_ENTRY = 0x02aac0
 /** LoadNextSprite (bank_02.asm:5267): where the route hands back to the loader's list loop. */
 const LOAD_NEXT_SPRITE = 0x02a846
 const BUDGET = 3000
-/** The ExecutePtr routine is a few instructions; its span is generous because its shape is checked on its own. */
+/** The ExecutePtr routine is a few instructions; its span is generous because foreign code inside it is reported as a loop hook (a ROM that patches ExecutePtr gets the note). */
 const EXEC_SPAN = 0x30
 /** Marks "this cell must be written by the code under test": a value no check expects. */
 const UNSET = 0xa5
-const HAND_OFF = [0x91, 0x42, 0x17]
 /** The eight conditional branches (BPL BMI BVC BVS BCC BCS BNE BEQ) are the opcodes with these five low bits; BRA is not. */
 const isBranch = (op: number): boolean => (op & 0x1f) === 0x10
 
@@ -92,7 +92,7 @@ export const VANILLA_LAYOUT: ClusterLayout = {
   // ExecutePtr's _0.._3 (bank_00.asm:847-862).
   scratch: [0, 4],
   // CODE_02A8D0 (the route's `< $E1` branch); the dispatcher's targets that are not the sprite's own spawn: the
-  // JMP before it (:5628), CODE_02AA6C, CODE_02AA8D and CODE_02AB11 (:5631-5641).
+  // JMP before it (:5629), CODE_02AA6C, CODE_02AA8D and CODE_02AB11 (:5631-5641).
   exits: [0x02a8d0, 0x02aabd, 0x02aa6c, 0x02aa8d, 0x02ab11],
 }
 
@@ -143,7 +143,7 @@ interface Limits {
 
 /**
  * Deterministic WRAM states: seed 0 is all zero, the others pseudo-random fills of $0000-$1FFF (a route that
- * depends on game state fails one).
+ * reads a cell the seeds differ on may fail one).
  */
 function seedWram(w: Uint8Array, k: number): void {
   w.fill(0)
@@ -250,7 +250,7 @@ function trace(
 type Setting = readonly [seed: number, x: number, y: number, marker: number]
 /**
  * X is 0, low, $80 and up, and Y 0, 1, low and $80 and up, so a branch on a register flag goes both ways; the
- * marker is 0 and $FF (only a store makes either 1). Each of these settings is needed by a row of PATH_HACKS.
+ * marker is 0 and $FF (only a store makes either 1). The first is the baseline; seed 2, X 0, X $80 and Y 1 each have a PATH_HACKS row.
  */
 const SETTINGS: readonly Setting[] = [
   [0, 5, 7, 0],
@@ -270,7 +270,6 @@ function routeRun(
   const w = bus.wram
   seedWram(w, seed)
   clearCluster(w)
-  w.set(HAND_OFF, 0)
   w[ACTIVATE_CLUSTER] = marker
   // Until the spawn runs, only the stack, the stream offset the route hands over and the flag may be written.
   let spawned = false
