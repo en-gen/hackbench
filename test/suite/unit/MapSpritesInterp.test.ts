@@ -19,9 +19,8 @@ import type { MapSpriteDto } from '../../../theia/extension/src/common/project-p
 import type { SpriteModel, SpritePart } from '../../../src/rom/sprites/interp/SpriteRunner'
 import {
   cameraFor,
-  EARLIER_SPRITE_REASON,
-  unverifiedNote,
   drawSprites,
+  EARLIER_SPRITE_REASON,
   engineDrawer,
   interpDrawer,
   interpParts,
@@ -29,6 +28,7 @@ import {
   spriteLayer,
   modelResult,
   partKey,
+  unverifiedNote,
   type SpriteDrawer,
 } from '../../../theia/extension/src/node/map-sprites'
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
@@ -405,6 +405,9 @@ describe('drawSprites with runtime palette writes', () => {
   })
 })
 
+/** A sprite flagged for `why`, or not flagged when `why` is omitted; the status does not matter to the note (#1166). */
+const mk = (n: number, why?: string) => ({ id: n, x: 0, y: 0, status: 'drawn', ...(why ? { unverified: why } : {}) }) as MapSpriteDto // prettier-ignore
+
 describe('a refused level loader marks every sprite unverified', () => {
   // A cart of zeros has no level loader: loadLevelState refuses it.
   const blank = RomFile.fromBytes('blank.sfc', Buffer.alloc(0x80000))
@@ -443,7 +446,6 @@ describe('a refused level loader marks every sprite unverified', () => {
   })
 
   it('names the count in words, and lists every distinct cause one per line (#1166)', () => {
-    const mk = (n: number, why?: string) => ({ id: n, x: 0, y: 0, status: 'placeholder', ...(why ? { unverified: why } : {}) }) as MapSpriteDto // prettier-ignore
     const one = unverifiedNote([mk(1, 'cause a; with semicolon'), mk(2)])
     expect(one).toEqual({ note: 'Unverified: 1 sprite may not be drawn exactly as in the game.', detail: 'cause a; with semicolon' }) // prettier-ignore
     const two = unverifiedNote([mk(1, 'cause a'), mk(2, 'cause b'), mk(3, 'cause a')])
@@ -454,7 +456,6 @@ describe('a refused level loader marks every sprite unverified', () => {
 
   it('the memory-setting and earlier-sprite reasons stay out of the note, in the detail (#1166)', () => {
     const memory = 'this map uses sprite memory setting 3; the bonus game blocks were only checked for setting 1, so some may be missing' // prettier-ignore
-    const mk = (n: number, why: string) => ({ id: n, x: 0, y: 0, status: 'drawn', unverified: why }) as MapSpriteDto // prettier-ignore
     const r = unverifiedNote([mk(1, memory), mk(2, EARLIER_SPRITE_REASON), mk(3, 'level loader refused (x); drawn from a placement-only seed')]) // prettier-ignore
     expect(r!.note).toBe('Unverified: 3 sprites may not be drawn exactly as in the game.')
     expect(r!.note).not.toMatch(/memory|earlier|loader/)
