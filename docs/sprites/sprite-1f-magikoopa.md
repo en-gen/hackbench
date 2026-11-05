@@ -230,11 +230,19 @@ palette 7.
 Fix (`theia/extension/src/node/map-sprites.ts`, `runtimeColors`), for every
 sprite and with no id test: draw the colors CGRAM holds at the end of the run
 (the run's net writes, last write per color wins, drawn pass or not). The
-picture is marked `unverified` with a plain reason when those colors are not
-known to be settled: they changed in the last 16 passes (a vanilla fade writes a
-rung every 4 passes, so a fade up to 4x slower is caught; a slower one cannot be
-told from a settled run), or the sprite first drew inside that tail (a late
-start has had no time to write, so a quiet tail proves nothing). The run is not
+picture is marked `unverified` ("... so they may differ in the game") when
+those colors may not be the settled ones:
+
+1. a color changed at any pass of the last 16 (every pass of the tail is
+   compared with the one before). A vanilla fade writes a rung every 4 passes,
+   so a fade up to 4x slower is caught;
+2. the sprite's first drawn pass is inside that tail (a late start has had no
+   time to write, so a quiet tail proves nothing). The test uses the run's
+   first drawn pass, not the pass a frame of the animation is drawn from;
+3. the sprite stopped drawing at some pass after its first and its end colors
+   differ from those at the drawn pass: a fade-out followed by a new cycle.
+
+A run no longer than 16 passes (a short caller) is not checked. The run is not
 lengthened. Whether the fade finishes depends on the placement: state 0 waits
 on `GetRand` and a ground test.
 
@@ -243,8 +251,9 @@ Evidence (vanilla ROM, one machine):
 - Placed spot on `$11C`: 262 of 387 opaque pixels were not a captured row-15
   color before, 0 after, not marked.
 - Every vanilla sprite on the 488 maps that build (3387 sprites; 24 maps did
-  not build): bitmaps identical to develop for all but `$1F` on `$11C`, and no
-  sprite newly `unverified`. The net CGRAM colors of `$C5` (`BooBossPals`) are
+  not build) and every frame `framesOf` gives them (8879): bitmaps identical to
+  develop for all but `$1F` on `$11C` (1 sprite, 2 frames), and 0 sprites and 0
+  frames newly `unverified`. The net CGRAM colors of `$C5` (`BooBossPals`) are
   the same on all 64 passes; only the length of its write list differs.
 - Grid of the `$1F` placement over `$11C` (screens 0-9, every 3rd tile, 540
   spots, stream bytes patched): 294 draw, of which 192 are correct and not
@@ -253,8 +262,15 @@ Evidence (vanilla ROM, one machine):
   inside the last 16 passes); none is wrong without a mark. Same grid on
   `$1FE`: 217 draw; 134 correct and not marked, 40 wrong and marked, 43 correct
   and marked; none wrong without a mark.
-- Timing patches at the placed spot on `$11C` (`$01:C00A` = 10 or 16, `$01:C023` = 4):
-  all drawn, all marked.
+- Timing patches at the `$11C` placed spot (picture wrong against rung 7 in all
+  of them):
+  - marked: `$01:C00A` = 10 or 16; `$01:C023` = 4; the fade-out cases
+    (`$01:C00A`/`$01:C023` = 3/1, 3/2, 3/4, 3/6, 2/12, 1/20, where the sprite
+    fades out, leaves and starts a new cycle);
+  - NOT marked (silent): `$01:C00A` = 21, 22, 31, 36, 40 (the slower fades the
+    16-pass tail cannot see). Values 17 to 20 and 23 to 30 were not run. A
+    fade whose rungs land more than 16 passes apart is a known limit of this
+    check.
 - `$1FE` at its placed spot draws no tile in the run (a placeholder): it has no
   pixels to compare, and there is no capture for it (`captures/layers_v5/1fe.zip`
   does not exist), so nothing is claimed about its colors.

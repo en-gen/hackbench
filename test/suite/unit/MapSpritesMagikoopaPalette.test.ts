@@ -34,19 +34,23 @@ interface Plan {
   /** Pass number -> the writes made on that pass; the model reports them cumulatively. */
   writes: Record<number, ReturnType<typeof rung>>
   passes?: number
+  /** The pass the picture is drawn from when it is not the first drawn one (a frame of the sprite's animation). */
+  chosen?: number
+  /** Passes [from, to) in which the sprite is not drawn although it draws before and after (it left and came back). */
+  gap?: [number, number]
 }
 const run = (id: number, plan: Plan): SpriteModel => {
   const n = plan.passes ?? PASSES
   const acc: PassResult['palette'] = []
   const passes: PassResult[] = Array.from({ length: n }, (_, p) => {
     acc.push(...(plan.writes[p] ?? []))
-    const drawn = p >= plan.first && p <= (plan.lastDrawn ?? n - 1)
+    const drawn = p >= plan.first && p <= (plan.lastDrawn ?? n - 1) && !(plan.gap && p >= plan.gap[0] && p < plan.gap[1]) // prettier-ignore
     return { pass: p, pos: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, parts: drawn ? [part()] : [], uploads: [], palette: [...acc] } // prettier-ignore
   })
   return {
     id,
     anchor: { x: 0, y: 0, rawX: 0, rawY: 0 },
-    chosen: plan.first,
+    chosen: plan.chosen ?? plan.first,
     dependsOn: [],
     steps: [],
     passes,
@@ -114,12 +118,58 @@ describe('runtime palette on the map (#1097)', () => {
 
   it('marks a sprite that only starts drawing at the very end, though its tail has no writes', () => {
     const d = draw(run(0x1f, { first: 60, writes: {} }))
-    expect(d.unverified).toMatch(/end of the 64-pass run/)
+    expect(d.unverified).toMatch(/only appeared/)
   })
 
   it('does not mark a short run: the tail test needs a run longer than its window', () => {
     expect(
       draw(run(0x1f, { first: 1, passes: 8, writes: { 2: rung(0) } })).unverified,
     ).toBeUndefined()
+  })
+
+  it.each([2, 4, 6, 8, 16])(
+    'marks one color flipping every %i passes to the end of the run',
+    period => {
+      const writes: Plan['writes'] = { 2: rung(0) }
+      for (let p = 4, k = 1; p < PASSES; p += period, k++) writes[p] = [{ index: ROW + 3, bgr555: 0x1111 * (k % 2 ? 1 : 2) }] // prettier-ignore
+      expect(draw(run(0x1f, { first: 1, writes })).unverified, `period ${period}`).toMatch(
+        /still changing/,
+      )
+    },
+  )
+
+  it('does not mark colors that settled at pass 40, well before the last 16 passes', () => {
+    expect(
+      draw(run(0x1f, { first: 1, writes: { ...fade().writes, 40: rung(4) } })).unverified,
+    ).toBeUndefined()
+  })
+
+  it('a first draw at exactly the start of the tail is late; one pass before is not', () => {
+    expect(draw(run(0x1f, { first: PASSES - 17, writes: {} })).unverified).toMatch(/only appeared/)
+    expect(draw(run(0x1f, { first: PASSES - 18, writes: {} })).unverified).toBeUndefined()
+  })
+
+  it('judges a late start by the first drawn pass, not by the frame drawn (an animation frame at pass 50)', () => {
+    expect(draw(run(0x1f, { ...fade(), chosen: 50 })).unverified).toBeUndefined()
+  })
+
+  it('marks a sprite that stopped being drawn after its colors changed since the picture', () => {
+    const p = { ...fade(), lastDrawn: 30, writes: { ...fade().writes, 40: rung(5) } }
+    expect(draw(run(0x1f, p)).unverified).toMatch(/not drawn throughout/)
+  })
+
+  it('does not mark a sprite that stopped being drawn when its colors did not change since the picture', () => {
+    expect(
+      draw(run(0x1f, { first: 1, lastDrawn: 30, writes: { 0: rung(0) } })).unverified,
+    ).toBeUndefined()
+  })
+
+  it('marks a sprite that left and came back (a fade-out and a new cycle) when its colors changed since the picture', () => {
+    const p: Plan = {
+      ...fade(),
+      gap: [30, 59],
+      writes: { ...fade().writes, 24: rung(7), 40: rung(0) },
+    }
+    expect(draw(run(0x1f, p)).unverified).toMatch(/not drawn throughout/)
   })
 })

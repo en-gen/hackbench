@@ -413,36 +413,37 @@ export function runWithUploads(rom: RomFile, id: number, seed: SpriteSeed): RunM
 }
 
 /**
- * Passes at the end of a run that must show no change in CGRAM before its colors count as settled. A fade writes a
- * new rung each time its timer runs out (vanilla Magikoopa: every 4 passes, SMWDisX bank_01.asm:8715-8722 with the
- * timer set to 4), so 16 passes catches a fade up to 4x slower than that. Slower, or a run too short to finish, cannot
- * be told from a settled one; that is why the picture is marked rather than claimed. Vanilla map $11C settles at
- * pass 30 of 63 (one machine).
+ * Passes at the end of a run in which no color may change for them to count as settled. A fade writes a rung each
+ * time its timer runs out (vanilla Magikoopa: every 4 passes, SMWDisX bank_01.asm:8715-8722), so 16 catches a fade
+ * up to 4x slower; a slower one looks settled and is not caught. Vanilla map $11C settles at pass 30 of 63.
  */
 const SETTLE_TAIL = 16
 
 /** The colors CGRAM holds after pass `p`: the run's writes are cumulative and the last one to a color wins. */
 const netColors = (m: RunModel, p: number) => new Map(m.passes[p]!.palette.map(w => [w.index, w.bgr555] as const)) // prettier-ignore
+const sameColors = (a: Map<number, number>, b: Map<number, number>) => a.size === b.size && [...a].every(([i, v]) => b.get(i) === v) // prettier-ignore
 
 /**
- * The CGRAM colors a sprite's picture is drawn with, and why they may be wrong (#1097). The chosen pass is a pose
- * policy, not a palette one: the Magikoopa's first drawn frame is the casting pose it draws on leaving state 0
- * (JSR CODE_01BE82, bank_01.asm:8474), before the fade has uploaded anything (CODE_01C028, bank_01.asm:8733-8755),
- * so the chosen pass's writes left the level's row showing. CGRAM keeps what the run wrote, drawn or not, so the
- * colors are the run's net writes at its last pass. Unsettled when those still changed in the last SETTLE_TAIL
- * passes, or the sprite first drew inside that tail (a late start has had no time to write; its quiet tail proves
- * nothing). Derivation: docs/sprites/sprite-1f-magikoopa.md section 5.
+ * The CGRAM colors a picture is drawn with (#1097). The chosen pass is a pose policy: the Magikoopa's first drawn
+ * frame comes before any upload (bank_01.asm:8474, 8733-8755), so its writes left the level's row showing. CGRAM
+ * keeps what the run wrote, drawn or not, so use the net writes at the last pass. Marked when they may be wrong:
+ * a color changed in any of the last SETTLE_TAIL passes; the sprite first drew inside that tail (no time to write);
+ * or it stopped drawing at some pass and its colors changed since the picture (a fade-out and a new cycle).
+ * Docs: docs/sprites/sprite-1f-magikoopa.md section 5.
  */
 function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
   const last = m.passes.length - 1
   const net = netColors(m, last)
   const writes = [...net].map(([index, bgr555]) => ({ index, bgr555 }))
+  // A run no longer than the window (a short caller) cannot say anything about settling.
   if (last < SETTLE_TAIL) return { writes }
-  const before = netColors(m, last - SETTLE_TAIL)
-  if ([...net].some(([i, v]) => before.get(i) !== v) || before.size !== net.size)
-    return { writes, why: `its CGRAM colors were still changing at the end of the ${m.passes.length}-pass run, so the colors drawn are those of its last frame` } // prettier-ignore
-  if ((m.chosen ?? 0) >= last - SETTLE_TAIL)
-    return { writes, why: `it first drew at the end of the ${m.passes.length}-pass run, before its colors could settle` } // prettier-ignore
+  const end = ' when the check ended, so they may differ in the game'
+  for (let p = last - SETTLE_TAIL + 1; p <= last; p++)
+    if (!sameColors(netColors(m, p), netColors(m, p - 1))) return { writes, why: `its colors were still changing${end}` } // prettier-ignore
+  const first = m.passes.findIndex(p => p.parts.length > 0)
+  if (first >= last - SETTLE_TAIL) return { writes, why: `it only appeared${end}` }
+  if (m.passes.slice(first).some(p => !p.parts.length) && !sameColors(net, netColors(m, m.chosen!)))
+    return { writes, why: `it was not drawn throughout and its colors had changed${end}` }
   return { writes }
 }
 

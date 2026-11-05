@@ -10,7 +10,7 @@
  * in the vanilla table, so a sprite on the wrong rung or on the level row fails. The offsets name the pose the map
  * draws (the casting pose it draws on leaving state 0); a change of pose is a change to this spec.
  * Hardware reference: layers_v5/11c windows/screen_00 CGRAM row 15 columns 0-7 equal this rung
- * (MapSpritesMagikoopaPalette.corpus.test.ts compares every pixel).
+ * (MapSpritesMagikoopaPalette.corpus.test.ts checks every pixel is one of those colors).
  * Plants for the verifier (each must turn this red; restore after):
  * - theia/extension/src/node/map-sprites.ts `runtimeColors`: `netColors(m, m.chosen ?? 0)` for the end colors (the
  *   first drawn pass, no upload yet);
