@@ -91,8 +91,6 @@ describe('the window checker', () => {
  * CI goes red the moment an entry is added.
  */
 interface Region {
-  from: number
-  to: number
   why: string
 }
 export const ALLOWED: readonly Region[] = []
@@ -107,9 +105,7 @@ describe('the allow list ratchet', () => {
     expect(allowListProblems(ALLOWED)).toEqual([])
   })
   it('planted: one entry makes it red', () => {
-    expect(allowListProblems([{ from: 0x1000, to: 0x1000, why: 'r' }])).toEqual([
-      'r: the allow list must stay empty (#1073)',
-    ])
+    expect(allowListProblems([{ why: 'r' }])).toEqual(['r: the allow list must stay empty (#1073)'])
   })
 })
 
