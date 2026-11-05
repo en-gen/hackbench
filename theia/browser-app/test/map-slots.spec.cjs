@@ -362,7 +362,9 @@ test('a map whose data cannot be read stays a map: the row warns, opening it say
 }) => {
   await load(page, patchedRom())
   const row = await rowOf(page, UNREADABLE)
-  expect(await row.getAttribute('title')).toBe("This map's data could not be read")
+  expect(await row.getAttribute('title')).toBe(
+    "Not reached from the overworld\nThis map's data could not be read",
+  )
   await expect(row.locator('.codicon-warning')).toHaveCount(1)
   await expect(row.locator('[data-control="map-new"]')).toHaveCount(0)
 
