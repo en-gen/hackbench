@@ -187,42 +187,13 @@ export interface MapDetailsNotLocated {
 }
 
 /**
- * What one map holds, read from the cartridge.
- *
- * Every field is decoded from the level header, whose bit layout and ASM
- * citations live in src/rom/LevelParser.ts. Nothing here is inferred: a field
- * this build cannot read is absent rather than defaulted.
+ * What the map view reads of one map's header. Nothing is inferred:
+ * `levelMode` is absent when the level data cannot be read.
  */
 export interface MapDetailsDto {
   index: number
-  name: string | null
-  /** Why `name` is null when the translevel mapping itself is unreadable,
-   *  rather than the slot simply having no name. */
-  nameUnavailable?: string
-  /** Why the slot's level data could not be read. When set, every field
-   *  below it is absent, and nothing past the name is claimed. */
-  levelDataUnavailable?: string
-  /** The five header bytes, so the user can check the decode themselves. */
-  headerBytes?: number[]
-  screens?: number
-  /** Absent when the object walk did not end on $FF; see `objectsUnavailable`. */
-  objectCount?: number
-  /** Why `objectCount` is absent when level data was read. */
-  objectsUnavailable?: string
-  /** Absent when VerticalTable could not be read; see `orientationUnavailable`. */
-  isVertical?: boolean
-  /** Why `isVertical` is absent. Set only when it is. */
-  orientationUnavailable?: string
-  /** Absent when the sprite stream could not be read; see `spriteUnavailable`. */
-  spriteCount?: number
-  /** Why `spriteCount` is absent. Set only when it is. */
-  spriteUnavailable?: string
   /** The header's level mode, for the unverified-mode warning (#618). */
   levelMode?: number
-  /** Decoded header fields, label and value, in header-byte order. */
-  header?: Array<{ label: string; value: string }>
-  /** Why the GFX files the tileset and sprite set name may not be what loads. */
-  gfxAssignmentNote?: string
 }
 
 /**
@@ -626,7 +597,7 @@ export interface ProjectService {
    * Read one map out of the project's working copy.
    *
    * Answers `rom-not-located` when the base ROM is not on this machine. A slot
-   * with no readable level data is a field on the result, not a failure; a
+   * with no readable level data answers its index alone, not a failure; a
    * throw means an unexpected failure.
    */
   mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto | MapDetailsNotLocated>

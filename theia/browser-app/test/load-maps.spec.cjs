@@ -8,6 +8,7 @@
  */
 const { test, expect } = require('@playwright/test')
 const { CART, shownWords, makeUntitledAndUnlocated } = require('./rom-words.cjs')
+const { viewSettled, STRIP_WORDS } = require('./strip-gone.cjs')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -198,7 +199,11 @@ test('$022 lists its five sub areas flat, none expandable (#434)', async ({ page
   expect(rows.every(r => r.drawn && !r.chevron)).toBe(true)
 })
 
-/** Create a project against `rom` and open the map view for `index`, returning its shown text. */
+/**
+ * Create a project against `rom`, open the map view for `index`, and wait for the details reply
+ * of THIS open to be painted. The tab is named by widget id and by the generation the open
+ * started, so a reused tab's previous map or ROM (still `done`) cannot satisfy the wait.
+ */
 async function openMapView(page, rom, dir, index = 0x105) {
   const manifestPath = path.join(dir, `${path.basename(dir)}.hbproj`)
   await page.evaluate(
@@ -208,153 +213,144 @@ async function openMapView(page, rom, dir, index = 0x105) {
     },
     { romPath: rom, directory: dir, name: path.basename(dir) },
   )
-  await page.evaluate(
+  const tab = await openTab(page, manifestPath, index)
+  return tab
+}
+
+/** Opens the map view tab for `index` and waits until the view has settled; returns `{ id, scope }`. */
+async function openTab(page, manifestPath, index) {
+  const tab = await page.evaluate(
     async ({ mp, index, label }) => {
       const w = await getWidget('hackbench.map-view')
       await w.open({ manifestPath: mp, index, label, iconClass: '' })
       const shell = getSvc('ApplicationShell')
       await shell.addWidget(w, { area: 'main' })
       await shell.activateWidget(w.id)
+      return { id: w.id, generation: w.generation }
     },
     { mp: manifestPath, index, label: index.toString(16) },
   )
-  await page.waitForSelector('.hb-map-view-body', { timeout: 15000 })
-  return shownWords(page, '.hb-map-view-body')
+  const scope = `[id="${tab.id}"] .hb-map-view-main`
+  await page.waitForSelector(`${scope}[data-details="done"][data-generation="${tab.generation}"]`, {
+    timeout: 15000,
+  })
+  await viewSettled(page, tab.id)
+  return { id: tab.id, scope }
 }
 
-/** WCAG contrast of `sel`'s text against its nearest opaque background. */
-async function textContrast(page, sel) {
-  return page.evaluate(sel => {
-    const el = document.querySelector(sel)
-    let node = el
-    let bg = 'rgba(0, 0, 0, 0)'
-    while (node) {
-      bg = getComputedStyle(node).backgroundColor
-      if (!/^(rgba\(0, ?0, ?0, ?0\)|transparent)$/.test(bg)) break
-      node = node.parentElement
-    }
-    const lum = s =>
-      s
-        .match(/[\d.]+/g)
-        .slice(0, 3)
-        .map(c => c / 255)
-        .map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
-        .reduce((sum, c, i) => sum + [0.2126, 0.7152, 0.0722][i] * c, 0)
-    const [a, b] = [lum(getComputedStyle(el).color), lum(bg)]
-    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
-  }, sel)
+/** Hooks the facts strip and the Header panel drew; none exists now (ruling D121). */
+const STRIP_HOOKS = [
+  '.hb-map-view-facts',
+  '.hb-map-view-title',
+  '.hb-map-view-summary',
+  '.hb-map-view-header',
+  '.hb-map-view-table',
+  '.hb-map-view-raw',
+  '[data-control="header-panel"]',
+  '[data-control="map-start-note"]',
+  '[data-note="gfx-assignment"]',
+  'details',
+]
+
+/**
+ * The strip and Header panel are absent from `tab`: none of their elements, and none of their
+ * words in the tab's children other than the toolbar (whose sprite tooltips and the sprite
+ * notes are kept and say similar words). The reply has been painted, by `openTab`'s wait.
+ */
+async function expectNoStrip(page, tab) {
+  for (const hook of STRIP_HOOKS) {
+    await expect(page.locator(`${tab.scope} ${hook}`), hook).toHaveCount(0)
+  }
+  const outside = await page.evaluate(
+    sel =>
+      [...document.querySelector(sel).children]
+        .filter(c => !c.classList.contains('hb-map-view-toolbar'))
+        .map(c => c.innerText)
+        .join(' | '),
+    tab.scope,
+  )
+  expect(outside).not.toMatch(STRIP_WORDS)
 }
 
 /**
- * A ROM whose level GFX call goes through Lunar Magic's ExGFX hook picks its
- * GFX files per level from a list this view does not read, so the tileset and
- * sprite set it shows are marked. Needs the GPW2 corpus ROM.
+ * A ROM whose level GFX call goes through Lunar Magic's ExGFX hook used to get a red "graphics
+ * may not match" caveat in the facts strip. The strip is gone and the caveat waits for the
+ * map Properties panel (#1023): neither a hook ROM nor a stock one shows it. Needs the GPW2
+ * corpus ROM.
  */
-test('a ROM that picks GFX per level shows the map marked; a stock ROM is not marked', async ({
+test('a ROM that picks GFX per level shows no graphics caveat, and neither does a stock ROM', async ({
   page,
 }) => {
   test.skip(!fs.existsSync(romPath(GPW2)), 'needs the GPW2 corpus ROM')
-  const NOTE = '.hb-map-view-body [data-note="gfx-assignment"]'
-  await openMapView(page, ROM, path.join(tmp, 'StockGfxMark'))
-  await expect(page.locator(NOTE)).toHaveCount(0)
-
-  await openMapView(page, romPath(GPW2), path.join(tmp, 'HookGfxMark'))
-  await expect(page.locator(NOTE)).toBeVisible()
-  const body = '.hb-map-view-body:has([data-note="gfx-assignment"])'
-  expect(await page.locator(NOTE).textContent()).toContain('FG/BG and sprite GFX files')
-  expect(await page.locator(NOTE).textContent()).not.toMatch(CART)
-  expect(await textContrast(page, NOTE)).toBeGreaterThanOrEqual(4.5)
-  // Shown, not blanked: the decoded header is still there.
-  expect(await shownWords(page, body)).toMatch(/\d+ screens/)
-  // The decoded header sits in the tab's folded Header panel, beside the facts.
-  const tab = '.hb-map-view-main:has([data-note="gfx-assignment"])'
-  await expect(page.locator(`${tab} .hb-map-view-table tr`)).not.toHaveCount(0)
+  await expectNoStrip(page, await openMapView(page, ROM, path.join(tmp, 'StockGfxMark')))
+  await expectNoStrip(page, await openMapView(page, romPath(GPW2), path.join(tmp, 'HookGfxMark')))
 })
 
-test('the map view shows a sprite count on an unpatched ROM', async ({ page }) => {
-  const view = await openMapView(page, ROM, path.join(tmp, 'Unpatched'))
-  expect(view).toMatch(/\d+ sprites/)
+test('the map view shows no counts or name line on an unpatched ROM', async ({ page }) => {
+  const tab = await openMapView(page, ROM, path.join(tmp, 'Unpatched'))
+  await expectNoStrip(page, tab)
+  // $105 is Yoshi's Island 1: its name was the strip's title and is not shown now.
+  expect(await shownWords(page, tab.scope)).not.toMatch(/YOSHI'S ISLAND 1/i)
 })
 
-test('the map view shows the real name on an unpatched ROM, not "name unavailable"', async ({
-  page,
-}) => {
-  // $105 is Yoshi's Island 1; the negative control for the two patched-ROM
-  // name-unavailable cases below.
-  const view = await openMapView(page, ROM, path.join(tmp, 'Unpatched'))
-  expect(view).toMatch(/YOSHI'S ISLAND 1/i)
-  expect(view).not.toMatch(/name unavailable/i)
-})
+/**
+ * Each patch below used to turn one strip warning on (sprites, name, level data, objects
+ * unavailable). Those warnings are not shown until #1023 (ruling D121), and the map view still
+ * opens: the details reply landed (openMapView waits for it) and the words are absent.
+ */
+const PATCHED = [
+  {
+    why: 'a sprite-pointer read that is patched',
+    dir: 'SpritePatched',
+    patch: bytes => {
+      // $05D8F5 is the `LDA.B #$07` opcode in CODE_05D8B7 (bank_05.asm:7257);
+      // headerless LoROM file offset $2D8F5.
+      expect(bytes[0x2d8f5]).toBe(0xa9)
+      bytes[0x2d8f5] = 0x00
+    },
+  },
+  {
+    why: 'overworld entry code that is patched',
+    dir: 'NamePatched',
+    patch: bytes => {
+      // $05D8B1 is the BEQ CODE_05D8A2 reads for the submap high byte
+      // (bank_05.asm:7224); the four edited corpus ROMs hold a JSL there.
+      expect(bytes[0x2d8b1]).toBe(0xf0)
+      bytes[0x2d8b1] = 0x22
+    },
+  },
+  {
+    why: 'level data that is out of the ROM',
+    dir: 'LevelDataPatched',
+    patch: bytes => {
+      // $05E311 is the bank byte of $105's Layer 1 pointer: Layer1Ptrs (bank_05.asm:7680)
+      // + $105 * 3 + 2. $7E moves it into WRAM. Headerless LoROM file offset $2E311.
+      expect(bytes[0x2e311]).toBe(0x06)
+      bytes[0x2e311] = 0x7e
+    },
+  },
+  {
+    why: 'an object stream that never reaches $FF',
+    dir: 'ObjectsPatched',
+    patch: bytes => {
+      // Points $105's Layer 1 pointer ($05E30F, headerless offset $2E30F) at the ROM's last 16
+      // bytes ($0FFFF0), filled with zeros: a header, then objects that run off the end.
+      expect(bytes.length).toBe(0x80000)
+      bytes.fill(0x00, 0x7fff0)
+      bytes.set([0xf0, 0xff, 0x0f], 0x2e30f)
+    },
+  },
+]
+for (const { why, dir, patch } of PATCHED) {
+  test(`a ROM with ${why} shows no strip warning`, async ({ page }) => {
+    const patched = path.join(tmp, `${dir}.sfc`)
+    const bytes = fs.readFileSync(ROM)
+    patch(bytes)
+    fs.writeFileSync(patched, bytes)
 
-test('a ROM whose sprite-pointer read is patched shows sprites unavailable, with why', async ({
-  page,
-}) => {
-  // $05D8F5 is the `LDA.B #$07` opcode in CODE_05D8B7 (bank_05.asm:7257);
-  // headerless LoROM file offset $2D8F5.
-  const patched = path.join(tmp, 'sprite-patched.sfc')
-  const bytes = fs.readFileSync(ROM)
-  expect(bytes[0x2d8f5]).toBe(0xa9)
-  bytes[0x2d8f5] = 0x00
-  fs.writeFileSync(patched, bytes)
-
-  const view = await openMapView(page, patched, path.join(tmp, 'SpritePatched'))
-  expect(view).toMatch(/sprites unavailable/i)
-  expect(view).toMatch(/neither vanilla nor a recognized hook/i)
-})
-
-test('a ROM whose overworld entry code is patched shows the name unavailable, with why', async ({
-  page,
-}) => {
-  // $05D8B1 is the BEQ CODE_05D8A2 reads for the submap high byte
-  // (bank_05.asm:7224); the four edited corpus ROMs hold a JSL there.
-  // Headerless LoROM file offset $2D8B1.
-  const patched = path.join(tmp, 'name-patched.sfc')
-  const bytes = fs.readFileSync(ROM)
-  expect(bytes[0x2d8b1]).toBe(0xf0)
-  bytes[0x2d8b1] = 0x22
-  fs.writeFileSync(patched, bytes)
-
-  const view = await openMapView(page, patched, path.join(tmp, 'NamePatched'))
-  expect(view).toMatch(/name unavailable/i)
-  expect(view).toMatch(/rebuilt by another editor/i)
-})
-
-test('a map whose level data is out of the ROM shows level data unavailable, with why', async ({
-  page,
-}) => {
-  // $05E311 is the bank byte of $105's Layer 1 pointer: Layer1Ptrs (bank_05.asm:7680)
-  // + $105 * 3 + 2. $7E moves it into WRAM. Headerless LoROM file offset $2E311.
-  const patched = path.join(tmp, 'level-data-patched.sfc')
-  const bytes = fs.readFileSync(ROM)
-  expect(bytes[0x2e311]).toBe(0x06)
-  bytes[0x2e311] = 0x7e
-  fs.writeFileSync(patched, bytes)
-
-  const view = await openMapView(page, patched, path.join(tmp, 'LevelDataPatched'))
-  expect(view).toMatch(/level data unavailable/i)
-  expect(view).toMatch(/\$7E88DD does not address this ROM's data/)
-  // The name does not come from the level data, so it still shows.
-  expect(view).toMatch(/YOSHI'S ISLAND 1/i)
-})
-
-test('a map whose object stream never reaches $FF shows objects unavailable, with why', async ({
-  page,
-}) => {
-  // Points $105's Layer 1 pointer ($05E30F, headerless offset $2E30F) at the
-  // ROM's last 16 bytes ($0FFFF0), filled with zeros: a header, then objects
-  // that run off the end of the ROM without a $FF terminator.
-  const patched = path.join(tmp, 'objects-patched.sfc')
-  const bytes = fs.readFileSync(ROM)
-  expect(bytes.length).toBe(0x80000)
-  bytes.fill(0x00, 0x7fff0)
-  bytes.set([0xf0, 0xff, 0x0f], 0x2e30f)
-  fs.writeFileSync(patched, bytes)
-
-  const view = await openMapView(page, patched, path.join(tmp, 'ObjectsPatched'))
-  expect(view).toMatch(/objects unavailable/i)
-  expect(view).toMatch(/did not reach its \$FF terminator/)
-  expect(view).not.toMatch(/\d+ objects/)
-})
+    await expectNoStrip(page, await openMapView(page, patched, path.join(tmp, dir)))
+  })
+}
 
 test('the maps are grouped, not dumped in a flat list', async ({ page }) => {
   const result = await loadMaps(page, path.join(tmp, 'MyHack'))
@@ -767,16 +763,10 @@ test('the map explorer and map view speak of ROMs, never cartridges', async ({ p
   const dir = path.join(tmp, 'Words')
   const manifestPath = path.join(dir, 'MyHack.hbproj')
   await loadMaps(page, dir)
-  await page.evaluate(async mp => {
-    const w = await getWidget('hackbench.map-view')
-    await w.open({ manifestPath: mp, index: 0x105, label: '105', iconClass: '' })
-    const shell = getSvc('ApplicationShell')
-    await shell.addWidget(w, { area: 'main' })
-    await shell.activateWidget(w.id)
-  }, manifestPath)
-  await page.waitForSelector('.hb-map-view-body', { timeout: 15000 })
-  const view = await shownWords(page, '.hb-map-view-body')
-  expect(view).toMatch(/105/)
+  const tab = await openTab(page, manifestPath, 0x105)
+  const view = await shownWords(page, tab.scope)
+  // A positive control: the words were read from the opened map's tab, not an empty node.
+  expect(view).toMatch(/Yellow switch palace/)
   expect(view).not.toMatch(CART)
 
   makeUntitledAndUnlocated(manifestPath)
