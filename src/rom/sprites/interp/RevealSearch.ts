@@ -13,9 +13,18 @@
 import type { SpriteModel } from './SpriteRunner'
 import { withSeed, type SeedOverride, type SpriteSeed } from './SpriteSeed'
 
-/** What made a hidden sprite draw; the node side words it. Order is the search order (D142). */
+/**
+ * What made a hidden sprite draw; the node side words it. Order is the search order (D142). `none-found` is never
+ * returned by the search: the node side sets it when the sprite drew at rest and no condition revealed it.
+ */
 export type RevealCondition =
-  'mario-at-sprite' | 'mario-left' | 'mario-right' | 'more-frames' | 'p-switch' | 'on-off'
+  | 'mario-at-sprite'
+  | 'mario-left'
+  | 'mario-right'
+  | 'more-frames'
+  | 'p-switch'
+  | 'on-off'
+  | 'none-found'
 
 export type RevealResult =
   /** Drew at rest and in every probe: nothing changes. */
