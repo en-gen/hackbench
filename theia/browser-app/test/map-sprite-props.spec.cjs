@@ -170,7 +170,7 @@ test('clicking a sprite opens the Properties panel with its id, name, position, 
     await expect(p.locator('[data-field="id"]')).toHaveText(hex(s.id))
     await expect(p.locator('[data-field="name"]')).toHaveText(s.name)
     await expect(p.locator('[data-field="position"]')).toHaveText(
-      `Column ${Math.floor(s.x / 16)}, row ${Math.floor(s.y / 16)}`,
+      `Column ${Math.floor((s.stored ?? s).x / 16)}, row ${Math.floor((s.stored ?? s).y / 16)}`,
     )
     // The map view's own list: same part count, same palette rows.
     await expect(p.locator('[data-field="parts"] li')).toHaveCount(s.parts.length)
@@ -341,4 +341,68 @@ test('a sprite reload (an edit or refresh) clears the panel', async ({ page }) =
     getSvc('WidgetManager').tryGetWidget('hackbench.map-view', { index }).refresh()
   }, SLOT)
   await expect(panel(page).locator('[data-subject="none"]')).toHaveText('No sprite selected')
+})
+
+// D156: a chainsaw is drawn where the game first has it ON ITS LINE (the pass after the line step's lock), the tile the map
+// stores it on is outlined while it is selected, and the panel says it is drawn where it first sits on its line. An
+// even-column chainsaw starts behind the scroll in every spawn the loader allows, so it stays on its stored tile (no outline)
+// and the panel says it never appears in play.
+// Plant: delete the `stored-tile` element from the map view and the count assertion goes red; drop the note's "on its line"
+// wording and the first test goes red; stop setting `note` and the second goes red.
+test('a chainsaw drawn away from its stored tile outlines that tile while selected, and the panel says it is drawn where it first sits on its line', async ({
+  page,
+}) => {
+  const SAW_MAP = 0x00f
+  const map = await openMap(page, SAW_MAP)
+  const saws = map.stack.filter(s => s.id === 0x65 && s.status === 'drawn' && s.stored && map.own(s)) // prettier-ignore
+  expect(saws.length, 'drawn chainsaws with a stored tile on map $00F').toBeGreaterThan(0)
+  // Every chainsaw with a stored tile is an odd column (the even ones never appear and carry no stored tile), and it moved.
+  for (const s of saws) expect(s.stored.x & 0x10, `saw at column ${s.stored.x / 16}`).toBe(0x10)
+  const [mapW] = [map.reply.orientation === 'vertical' ? map.reply.width : map.reply.width * map.reply.screenCount] // prettier-ignore
+  for (const saw of [saws[0], saws[saws.length - 1]]) {
+    expect(saw.x !== saw.stored.x || saw.y !== saw.stored.y).toBe(true)
+    expect(saw.onLine, 'how it reached the line').toMatch(/^(step|fell)$/)
+    const at = map.own(saw)
+    await map.click(at.x, at.y)
+    const tile = page.locator(`${rootOf(SAW_MAP)} [data-control="stored-tile"]`)
+    await expect(tile).toHaveCount(1)
+    const g = await page.evaluate(
+      ({ edge, tile }) => {
+        const [e, t] = [document.querySelector(edge), document.querySelector(tile)]
+        const [er, tr] = [e.getBoundingClientRect(), t.getBoundingClientRect()]
+        return { left: tr.left - er.left, top: tr.top - er.top, w: tr.width, edgeW: er.width }
+      },
+      { edge: stripOf(SAW_MAP), tile: `${rootOf(SAW_MAP)} [data-control="stored-tile"]` },
+    )
+    const zoom = g.edgeW / mapW
+    expect(Math.abs(g.left - saw.stored.x * zoom)).toBeLessThan(2)
+    expect(Math.abs(g.top - saw.stored.y * zoom)).toBeLessThan(2)
+    expect(Math.abs(g.w - 16 * zoom)).toBeLessThan(2)
+    await expect(panel(page).locator('[data-field="note"]').filter({ hasText: 'where it first sits on its line' })).toHaveCount(1) // prettier-ignore
+  }
+  const e = map.emptyPixel()
+  await map.click(e.x, e.y)
+  await expect(page.locator(`${rootOf(SAW_MAP)} [data-control="stored-tile"]`)).toHaveCount(0)
+})
+
+test('a chainsaw that never appears stays on its stored tile, with no outline, and the panel says it never appears in play', async ({
+  page,
+}) => {
+  const SAW_MAP = 0x00f
+  const map = await openMap(page, SAW_MAP)
+  const never = map.stack.filter(s => s.id === 0x65 && s.note === 'never appears in play' && map.own(s)) // prettier-ignore
+  // The seven even-column chainsaws of map $00F (list indexes 6, 9, 12, 14, 17, 19, 21).
+  expect(never.length, 'chainsaws that never appear on map $00F').toBe(7)
+  for (const saw of never) {
+    expect(saw.stored, 'no stored tile: the picture is on it').toBeUndefined()
+    expect(saw.x & 0x10, 'an even column').toBe(0)
+  }
+  const saw = never[0]
+  const at = map.own(saw)
+  await map.click(at.x, at.y)
+  await expect(panel(page).locator('[data-field="note"]').filter({ hasText: 'never appears in play' })).toHaveCount(1) // prettier-ignore
+  await expect(page.locator(`${rootOf(SAW_MAP)} [data-control="stored-tile"]`)).toHaveCount(0)
+  await expect(panel(page).locator('[data-field="position"]')).toHaveText(
+    `Column ${Math.floor(saw.x / 16)}, row ${Math.floor(saw.y / 16)}`,
+  )
 })

@@ -76,6 +76,8 @@ export interface SpriteSeed {
   pSwitch?: number
   /** $14AF OnOffSwitch (rammap.asm:1667): the ON/OFF switch state. Absent: the loaded image's value. */
   onOff?: number
+  /** The map's own loader placed this sprite at map load (its SpriteLoadStatus byte is set): it also spawns at the map-load camera. */
+  opening?: boolean
 }
 
 export const SPRITE_SEED: SpriteSeed = {
