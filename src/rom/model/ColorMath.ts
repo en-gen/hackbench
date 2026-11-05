@@ -78,6 +78,7 @@ function top(i: ScreenInput, list: readonly SourceKey[], at: number, flips?: Map
   let sum = [0, 0, 0]
   let cover = 0
   let bit = 0
+  let onTop: { rgb: Rgb; w: number } | undefined
   let k = list.length - 1
   for (; k >= 0 && cover < 1; k--) {
     const data = i.planes[list[k]!]
@@ -90,8 +91,15 @@ function top(i: ScreenInput, list: readonly SourceKey[], at: number, flips?: Map
       (d >> 1) & WHOLE_DOOR &&
       list[k]!.startsWith('sprites') &&
       !list[k]!.startsWith('spritesL2')
-    )
+    ) {
       a *= d >> 1 === i.lift ? 1 : hiddenPixelStrength(d & 1, 0, flips.get(d >> 1))
+      // A dim one is set aside like a sprite a tile covers: the tile beneath keeps its CGADSUB bit and the sprite
+      // part skips the math (D60 B). Over nothing it stays a plain dim pixel.
+      if (a < 1) {
+        onTop ??= { rgb: data.subarray(at, at + 3) as unknown as Rgb, w: a }
+        continue
+      }
+    }
     // Sprites take no part in color math yet: palettes 4-7 only (snes9x gfx.cpp:819) needs the
     // sprite palette split, which #564's pixels do not carry.
     if (cover === 0) bit = list[k]!.startsWith('sprites') ? 0 : LAYER_BIT[list[k]!.slice(0, 2) as keyof typeof LAYER_BIT] // prettier-ignore
@@ -99,11 +107,12 @@ function top(i: ScreenInput, list: readonly SourceKey[], at: number, flips?: Map
     sum = sum.map((v, c) => v + data[at + c]! * w)
     cover += w
   }
+  if (cover === 0 && onTop) return { rgb: onTop.rgb, cover: onTop.w, bit: 0, door: undefined }
   if (cover === 0) return null
   const rgb = sum.map(v => Math.round(v / cover)) as unknown as Rgb
   const sprite = flips && coveredSprite(i, list, at, k)
-  let door: { rgb: Rgb; w: number } | undefined
-  if (sprite) {
+  let door: { rgb: Rgb; w: number } | undefined = onTop
+  if (sprite && !onTop) {
     const d = i.doors![at / 4]!
     const w = d >> 1 === i.lift ? 1 : hiddenPixelStrength(d & 1, 0, flips.get(d >> 1))
     door = { rgb: sprite as unknown as Rgb, w }
