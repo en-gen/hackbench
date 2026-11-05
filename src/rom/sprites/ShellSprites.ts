@@ -34,7 +34,7 @@ const SITES: { what: string; at: number; want: (number | null)[] }[] = [
 ]
 
 /** ASSUMPTION, not fact: ids below $C9 run plain when a loader site fails. A hook at $02A866 ahead of the $C9 split could still make a lower id a shell. */
-const FIRST_SPECIAL = 0xc9
+export const FIRST_SPECIAL = 0xc9
 
 /**
  * The shell mapping for list id `id`: `shell` is undefined when the loader does not make `id` a

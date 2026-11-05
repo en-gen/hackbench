@@ -19,7 +19,6 @@ import { parseLevelSprites, type LevelSprite } from '../../../../src/rom/LevelPa
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { spanFingerprint } from '../../../../src/rom/SubmapFlagGate'
 import { bytesAt } from '../../../../src/rom/sprites/interp/Guards'
-import type { PathCheck } from '../../../../src/rom/sprites/interp/CastleFlames'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { runOnce, type SpritePart } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
@@ -46,6 +45,15 @@ import {
 } from '../../support/vanillaWindows'
 import { CAPTURE_DIR, freshRom, hasRom, romPath, VANILLA } from '../../support/corpus'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
+import {
+  clusterPathStandIn,
+  LOOP,
+  PATH_HACKS,
+  ROUTE,
+  STANDIN,
+  STANDIN_LAYOUT,
+  tableWord,
+} from '../../support/clusterPathStandIn'
 
 const LEVEL = 0x105
 const off = (snes: number) => (snes >>> 16) * 0x8000 + ((snes & 0xffff) - 0x8000)
@@ -96,35 +104,6 @@ const pad = (b: number[], n: number) => [
   b[b.length - 1]!,
 ]
 
-/**
- * The call path to the ring, written for this cart: the same addresses and the same checks as PATH in RotatingRing.ts, but
- * arbitrary bytes that the run never executes (it calls the spawn and the draw directly), so no vanilla code is committed.
- * `routinesOf` hands the gate these shapes; the vanilla shapes are proven on the corpus.
- */
-const CART_PATH: PathCheck[] = [
-  { what: 'the loader route to the sprite spawn', at: 0x02a8c0, length: 12, print: 'route' },
-  {
-    what: 'the cluster spawn entry',
-    at: 0x02aac0,
-    want: [0x41, 0x42, 0x43, null, null, 0x46, 0x47, 0x48, null],
-  },
-  { what: 'the cluster loop', at: 0x02f808, length: 24, mask: [11, 12], print: 'loop' },
-  { what: 'the cluster dispatch call', at: 0x02f821, want: [0x22, null, null, null] },
-  { what: 'the $E2/$E3 branch to the ring spawn', at: 0x02aad1, want: [0x51, 0x52, 0x53, 0x54] },
-  { what: 'the cluster dispatch entry for type 4', at: 0x02f82d, want: [0x61, 0x62] },
-]
-/** What is written for CART_PATH: a null operand becomes $77, the loader's shell-site head is the cart's own, and the dispatch call keeps the cart's ExecutePtr ($00:86FA), which checkExecutePtr reads. */
-// prettier-ignore
-const PATH_BYTES: [number, number[]][] = [
-  [0x02a8c4, [0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]], // the route's own bytes after the shell site's CMP / BCC head
-  [0x02f808, Array.from({ length: 24 }, (_, i) => (i * 37 + 11) & 0xff)], // the loop's own 24 bytes
-  ...CART_PATH.flatMap((c): [number, number[]][] => {
-    if (!('want' in c)) return []
-    if (c.at === 0x02f821) return [[c.at, [0x22, 0xfa, 0x86, 0x00]]]
-    return [[c.at, c.want.map(v => v ?? 0x77)]]
-  }),
-]
-
 function ringRom(tweak: (bytes: Uint8Array) => void = () => {}, cart: SyntheticOptions = {}) {
   const bytes = new Uint8Array(buildSyntheticRom(cart).buffer)
   const put = (snes: number, b: number[]) => {
@@ -133,9 +112,10 @@ function ringRom(tweak: (bytes: Uint8Array) => void = () => {}, cart: SyntheticO
   }
   put(0x02ab11, pad(spawn, 103))
   put(0x02fa98, pad(draw, 291))
-  for (const [at, b] of PATH_BYTES) put(at, b)
+  for (const [at, b] of clusterPathStandIn()) put(at, b)
   tweak(bytes)
-  return RomFile.fromBytes('ring.sfc', bytes)
+  const rom = RomFile.fromBytes('ring.sfc', bytes)
+  return rom
 }
 
 /** The fingerprints of this cart's own routines (the vanilla ones are for the vanilla bytes). */
@@ -143,15 +123,16 @@ const routinesOf = (rom: RomFile): RingRoutines => {
   const sha = (spans: readonly (readonly [number, number])[]) =>
     spanFingerprint(Uint8Array.from(spans.flatMap(([at, n]) => bytesAt(rom, at, n)!)))!
   return {
-    path: CART_PATH,
-    route: spanFingerprint(Uint8Array.from(bytesAt(rom, 0x02a8c0, 12)!))!,
-    loop: spanFingerprint(Uint8Array.from(bytesAt(rom, 0x02f808, 24)!), [11, 12])!,
     spawn: sha(RING_SPANS.spawn),
     draw: sha(RING_SPANS.draw),
     helpers: sha(RING_SPANS.helpers),
     contact: sha(RING_SPANS.contact),
+    layout: STANDIN_LAYOUT,
   }
 }
+
+/** A gate verdict without the detail the path stages append in parentheses. */
+const names = (xs: string[]) => xs.map(x => x.replace(/ \(.*\)$/, ''))
 
 /** WRAM offset of the synthetic stream: byte i holds $40 + i, except offset 7 (the ENTRY's), which holds 5. */
 const STREAM_AT = 0xf000
@@ -178,7 +159,7 @@ const parts = (rom: RomFile, e = ENTRY) => {
 }
 
 /** Every byte run this file writes into the cart, as [address, bytes]. */
-const writes = (): [number, number[]][] => [[0x02ab11, pad(spawn, 103)], [0x02fa98, pad(draw, 291)], ...PATH_BYTES] // prettier-ignore
+const writes = (): [number, number[]][] => [[0x02ab11, pad(spawn, 103)], [0x02fa98, pad(draw, 291)], ...clusterPathStandIn()] // prettier-ignore
 
 // No ROM-derived bytes in the repo: no 8-byte window of what this file writes may equal the vanilla ROM at the same address.
 // Compared in memory, nothing stored. Skipped without the corpus; the check itself is proven by the planted case below.
@@ -319,13 +300,21 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
     const changed = (at: number, to: number) => ringRom(b => (b[off(at)] = to))
     it('an untouched cart has no flags', () => expect(ringGate(ringRom(), clean)).toEqual([]))
     it.each([
-      [0x02ab11, 0x42, 'the ring spawn routine'], // first byte of the span
-      [0x02ab11 + 102, 0x42, 'the ring spawn routine'], // last byte of the span
       [0x02fa98, 0x42, 'the ring draw routine'],
       [0x02fa98 + 290, 0x42, 'the ring draw routine'],
     ])('a changed byte at $%s names %s, and only it', (at, to, what) => {
       expect(ringGate(changed(at, to), clean)).toEqual([what])
     })
+    // The spawn is RUN by the route check, so a WDM in it (a run the core refuses) also fails the route's return.
+    it.each([0x02ab11, 0x02ab11 + 102])(
+      'a refused opcode at $%s names the spawn and the route that cannot return',
+      at => {
+        expect(names(ringGate(changed(at, 0x42), clean))).toEqual([
+          'the $E2/$E3 branch to the ring spawn',
+          'the ring spawn routine',
+        ])
+      },
+    )
     it.each([
       [0x02ab11 + 50, 'the ring spawn routine'],
       [0x02fa98 + 200, 'the ring draw routine'],
@@ -342,18 +331,26 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
       [0x02fd48 + 111, 'the ring draw helpers'],
       [0x02fe71, 'the ring contact test'],
       [0x02fe71 + 83, 'the ring contact test'],
-      [0x02f821, 'the cluster dispatch call'],
-      [0x02a8c0, 'the loader route to the sprite spawn'],
-      [0x02aac0, 'the cluster spawn entry'],
-      [0x02aad1, 'the $E2/$E3 branch to the ring spawn'],
-      [0x02aad3, 'the $E2/$E3 branch to the ring spawn'],
-      [0x02f808, 'the cluster loop'],
-      [0x02f82d, 'the cluster dispatch entry for type 4'],
-      [0x02f82e, 'the cluster dispatch entry for type 4'],
-    ])('a changed byte at $%s names %s', (at, what) => {
-      const rom = ringRom(b => (b[off(at)] = (b[off(at)]! + 1) & 0xff))
-      expect(ringGate(rom, clean)).toEqual([what])
+      [STANDIN.dispatch, `${LOOP}|the cluster dispatch call target`, 1], // the dispatch call's opcode: no JSL, no target
+      [STANDIN.loop + 1, LOOP, 0x10], // the loop starts at slot 16: slot 0 is never visited
+      [STANDIN.routeBody + 7, ROUTE, 0x20],
+      [STANDIN.entry + 17, 'the $E2/$E3 branch to the ring spawn', 0x40],
+      [tableWord(4), LOOP, 0x40],
+      [tableWord(4) + 1, LOOP, 0x40],
+    ])('a changed byte at $%s names %s', (at, what, delta = 1) => {
+      const rom = ringRom(b => (b[off(at)] = (b[off(at)]! + delta) & 0xff))
+      expect(names(ringGate(rom, clean))).toEqual(what.split('|'))
     })
+    const STAGE = { route: ROUTE, dispatch: 'the $E2/$E3 branch to the ring spawn', loop: LOOP }
+    it.each(PATH_HACKS.map(h => [h.name, h] as const))(
+      'a hacked path (%s) is flagged by its stage',
+      (_, h) => {
+        const rom = ringRom(b => h.edits(false).forEach(([at, v]) => b.set(v, off(at))))
+        const got = ringGate(rom, clean)
+        expect(names(got)).toEqual([STAGE[h.stage]])
+        expect(got[0]).toMatch(h.why)
+      },
+    )
     it('a span that cannot be read is named as unreadable, not hashed from what did read', () => {
       // $02:0000 is below the LoROM window (lo < $8000): no cart byte, so bytesAt gives null for that span.
       const spans = { ...RING_SPANS, helpers: [RING_SPANS.helpers[0], [0x020000, 4]] } as never
@@ -362,7 +359,7 @@ describe('the rotating ring from the routines (synthetic cart)', () => {
       expect(ringGate(ringRom(), clean, spans)).not.toContain('the ring draw helpers')
     })
     it('a changed dispatch call target is named', () => {
-      const rom = changed(0x02f822, 0x00)
+      const rom = changed(STANDIN.dispatch + 1, 0x00)
       expect(ringGate(rom, clean)).toContain('the cluster dispatch call target')
     })
   })
@@ -387,14 +384,11 @@ describe('the rotating ring: edges the gate and the seed can hit (synthetic cart
   it('an empty cart reads no routine bytes: every part is flagged, nothing throws', () => {
     // Out-of-range reads mirror (SpriteBus.romOffset), so only a zero-size ROM gives bytesAt null.
     const flags = ringGate(RomFile.fromBytes('empty.sfc', new Uint8Array(0)), routinesOf(ringRom()))
-    // The complete ordered list: every PATH part, the call target, then the four routine spans.
-    expect(flags).toEqual([
+    // The complete ordered list: every path run, the call target, then the four routine spans.
+    // (An empty ROM stops the route at its first fetch, so only the route and the loop are named.)
+    expect(flags.map(f => f.replace(/ \((?!unreadable).*\)$/, ''))).toEqual([
       'the loader route to the sprite spawn',
-      'the cluster spawn entry',
       'the cluster loop',
-      'the cluster dispatch call',
-      'the $E2/$E3 branch to the ring spawn',
-      'the cluster dispatch entry for type 4',
       'the cluster dispatch call target',
       'the ring spawn routine (unreadable)',
       'the ring draw routine (unreadable)',

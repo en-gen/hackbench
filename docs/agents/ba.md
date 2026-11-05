@@ -5,7 +5,7 @@
 ## First turn
 
 1. Call get-session on `self` for your title and desktop id (`local_...`). A title `BA` means run `node <script> register <desktop id> ba`; the only session on the machine registers `both <team>` instead. Re-register as `ba` the day a second session appears and takes the team.
-2. Read `.hackbench-state/ba.md` in the main checkout (the path the hook prints) if it exists; create it from the template below with `node <script> handoff ba` ONLY IF IT DOES NOT EXIST, never over an existing one.
+2. Read `.overwatch/ba.md` in the main checkout (the path the hook prints) if it exists; create it from the template below with `node <script> handoff ba` ONLY IF IT DOES NOT EXIST, never over an existing one.
 3. Read `docs/README.md` Current state and `docs/decisions/README.md`.
 
 ## Your role
@@ -21,11 +21,12 @@ You plan with the owner and distribute work across teams. You author and file ev
 - **Resume prompts.** A lead's clear for `self` runs when its turn ends, and a message that arrives first drops it. So on receiving a lead's resume prompt: (1) call get-session on that lead's desktop id until `isRunning` is false and `lastActivityAt` is later than the prompt's arrival (a few calls; the clear follows its last message within seconds); (2) then send the prompt back verbatim, and append the next assignment only after a lead's Close (after a context-cap clear, send the prompt alone); (3) never send a lead anything between its resume prompt and that idle check.
 - **The morning brief.** When `day-shift` returns after a night, follow `docs/runbooks/morning-brief.md`.
 - **Decision briefs** to the owner follow `docs/agents/decision-briefs.md`.
+- **Outside contributors.** A fork PR or outside issue is held for the owner, never assigned, merged or armed. Follow `docs/runbooks/outside-contributors.md`.
 - **Do no hands-on work.** Lookups go to a `grunt` on Haiku, briefed with the return format.
 
 ## Your state file
 
-`.hackbench-state/ba.md` in the main checkout, gitignored. Write it only with `node <script> handoff ba` (full text on stdin; `ba` is a reserved name; the app blocks Write and Edit from a worktree). Update it whenever the map changes. Template:
+`.overwatch/ba.md` in the main checkout, gitignored. Write it only with `node <script> handoff ba` (full text on stdin; `ba` is a reserved name; the app blocks Write and Edit from a worktree). Update it whenever the map changes. Template:
 
 ```
 # BA state

@@ -12,7 +12,9 @@ or resolve review items yourself, an agent does it and you cite its report.
 This file wins on:
 
 - Worktrees: `using-git-worktrees` puts them in `.claude/worktrees/`. Agents
-  create them with `git worktree add` at the house path instead.
+  create them at the house path instead, with this form (a bare relative
+  `worktree add` run inside a linked worktree nests the new one in it):
+  `git -C "$(git rev-parse --path-format=absolute --git-common-dir)/.." worktree add .worktrees/<task> -b feature/<task> origin/develop`.
 - Reviews: both its reviewers are replaced by the role agents below,
   dispatched by `subagent_type`, never `general-purpose`.
 - Finishing: `finishing-a-development-branch` is replaced by Ship below.
@@ -39,7 +41,7 @@ This file wins on:
 
 - Dispatch by `subagent_type`, run in the background, and send independent
   tasks in parallel. One agent per worktree at
-  `C:/Projects/.worktrees/hackbench/<task>`, on `feature/<name>` off `develop`.
+  `<main checkout>/.worktrees/<task>` (older ones may still sit at `C:/Projects/.worktrees/hackbench/<task>`), on `feature/<name>` off `develop`.
 - **Always pass `model` explicitly**, matching the table. A per-call `model`
   beats the role's frontmatter, so passing the same value costs nothing and
   guards against silent inheritance (Sep 24-25: 22 of 24 spawns passed no
@@ -108,6 +110,7 @@ from anyone with write access. In practice that is CodeRabbit, which approves
 once its comments are resolved (`.coderabbit.yaml`); GitHub cannot require
 the approval to be CodeRabbit's, so a human approval merges it too.
 
+- A fork PR never auto-merges and no agent merges it: `docs/runbooks/outside-contributors.md`.
 - Once the verifier has passed, the steward turns on auto-merge
   (`gh pr merge <n> -R en-gen/hackbench --auto --squash --author-email engenb@gmail.com`) and confirms it took
   (`gh pr view <n> --json autoMergeRequest`); the command has failed silently. An existing auto-merge request keeps its old email: run `--disable-auto` first, then re-arm (#612).

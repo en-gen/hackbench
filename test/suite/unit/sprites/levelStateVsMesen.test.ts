@@ -89,7 +89,7 @@ const maps = (root: string): string[] =>
 
 const pins = (s: string): string[] => s.split(' ')
 const MAP16_COUNTS = pins(
-  '002:2816 095:64 096:32 097:32 098:64 099:64 09a:64 09b:32 0be:2816 0c1:2816 0cc:64 0d5:64 0d9:64 102:2816 127:2816 195:64 196:32 197:32 198:64 199:64 19a:64 19b:32 1c7:32',
+  '095:64 096:32 097:32 098:64 099:64 09a:64 09b:32 0cc:64 0d5:64 0d9:64 195:64 196:32 197:32 198:64 199:64 19a:64 19b:32 1c7:32',
 )
 // Level-independent dumps that different pointers legitimately share: the mode 9 and mode 16 boss
 // arenas (the capture holds the game's arena fill; these are the maps in MAP16_COUNTS above), and
@@ -100,7 +100,9 @@ const SHARED_IMAGES = [
   ['095', '098', '099', '09a', '0cc', '0d5', '0d9', '195', '198', '199', '19a'],
   ['09b', '19b', '1c7'],
 ]
-const PAST_END = ['002', '0be', '0c1', '102', '127']
+// None since #842: the tide levels' differences were the buffer past the map's end, which the Layer 3 handler's
+// CODE_00A045 clears on a tide level (bank_00.asm:4219-4235) as the game does before the sprites run.
+const PAST_END: string[] = []
 const LOADER_VS_MESEN = pins(
   '095:-16,256 096:-64,-65136 097:-64,-65136 098:-16,256 099:-16,256 09a:-16,256 09b:-16,256 0cc:-16,256 0d5:-16,256 0d9:-16,256 195:-16,256 196:-64,-65136 197:-64,-65136 198:-16,256 199:-16,256 19a:-16,256 19b:-16,256 1c7:-16,256',
 )
@@ -146,7 +148,7 @@ describe.skipIf(!hasRom(VANILLA) || !existsSync(root))(
       expect(real().length).toBe(154)
       const r = map16Differences(real())
       expect(r.counts).toEqual(MAP16_COUNTS)
-      expect(r.counts.length).toBe(23)
+      expect(r.counts.length).toBe(18)
       expect(r.pastEndOnly).toEqual(PAST_END)
     }, 300_000)
 

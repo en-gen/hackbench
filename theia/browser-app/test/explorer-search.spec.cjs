@@ -21,7 +21,7 @@ const path = require('path')
 const os = require('os')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
-const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
+const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 
 const GET_SVC = `function getSvc(name) {
@@ -223,8 +223,8 @@ function rowOf(which, n) {
       const raw = n.id === 'group:unassigned' ? 'Unassigned' : n.id.replace(/^group:user:/, '')
       return { folder: true, texts: [raw] }
     }
-    // Loop, truncated and no-pointer rows are markers: Enter opens nothing on them.
-    const openable = n.kind === 'map' && !n.noPointer
+    // Loop and truncated rows are markers: Enter opens nothing on them. A New slot opens (#949).
+    const openable = n.kind === 'map'
     if (n.category === 'overworld' || n.category === 'overworld-area') {
       return { openable, texts: [name] }
     }
@@ -962,7 +962,7 @@ test('maps: after a real row click, Ctrl+F draws the search box before any key, 
       ),
     IDS.maps,
   )
-  const leaves = all.filter(n => drawn.includes(n.id) && n.kind === 'map' && !n.noPointer)
+  const leaves = all.filter(n => drawn.includes(n.id) && n.kind === 'map')
   const target = leaves.find(n => n.index >= 0)
   const other = leaves.find(n => n.id !== target?.id && n.index !== target?.index && n.index >= 0)
   expect(target && other, 'fixture: two drawn openable map rows').toBeTruthy()

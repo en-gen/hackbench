@@ -24,7 +24,7 @@ import {
   WorkingRomResult,
 } from '../../../../src/project/WorkingRomRegistry'
 import { buildMapDetails } from './map-details'
-import { L1ModelCache, mapScreen, startResult, toolbarArtOf } from './map-screen'
+import { L1ModelCache, mapBeyond, mapScreen, startResult, toolbarArtOf } from './map-screen'
 import { mapCollision, mapCollisionCheck, probeStateOf } from './map-collision'
 import { mapSpriteFrames, mapSprites } from './map-sprites'
 import { mapBlockContents } from './map-block-contents'
@@ -129,6 +129,19 @@ export class ProjectServiceImpl implements ProjectService {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     return mapScreen(this.screens, r.working.bytes(), r.romPath, index, screen, switchFlags, switches) // prettier-ignore
+  }
+
+  /** One screen past the map's last, L2 and L3 only, through the same model cache as `mapScreen` (#1197). */
+  async mapBeyond(
+    manifestPath: string,
+    index: number,
+    screen: number,
+    switchFlags: SwitchFlagsDto,
+    switches: SwitchStateDto,
+  ): Promise<MapScreenResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    return mapBeyond(this.screens, r.working.bytes(), r.romPath, index, screen, switchFlags, switches) // prettier-ignore
   }
 
   async mapSprites(manifestPath: string, index: number): Promise<MapSpritesResult> {

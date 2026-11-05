@@ -68,11 +68,10 @@ export interface MapNodeDto {
   index: number
   name: string | null
   kind: 'map' | 'loop' | 'truncated'
-  /** The slot uses the shared placeholder room, which `sharedCount` slots share. */
-  placeholder?: true
-  sharedCount?: number
-  /** The slot's Layer 1 pointer is zero or unreadable: no map data, nothing to open. */
+  /** A New slot: its Layer 1 pointer is zero or points outside the ROM file, so there is no map data. */
   noPointer?: true
+  /** A map whose data could not be read back; the row warns and opening it says so. */
+  unreadable?: true
   children: MapNodeDto[]
 }
 
@@ -87,9 +86,7 @@ export interface SpecialMapNodeDto extends MapNodeDto {
 export interface MapTreeCountsDto {
   entrances: number | null
   unassigned: number
-  /** Placeholder slots, listed beside the unassigned maps but counted apart. */
-  placeholders: number
-  /** Slots with no Layer 1 pointer, listed beside the unassigned maps but counted apart. */
+  /** New slots, listed beside the unassigned maps but counted apart. */
   noPointer: number
 }
 
@@ -187,42 +184,13 @@ export interface MapDetailsNotLocated {
 }
 
 /**
- * What one map holds, read from the cartridge.
- *
- * Every field is decoded from the level header, whose bit layout and ASM
- * citations live in src/rom/LevelParser.ts. Nothing here is inferred: a field
- * this build cannot read is absent rather than defaulted.
+ * What the map view reads of one map's header. Nothing is inferred:
+ * `levelMode` is absent when the level data cannot be read.
  */
 export interface MapDetailsDto {
   index: number
-  name: string | null
-  /** Why `name` is null when the translevel mapping itself is unreadable,
-   *  rather than the slot simply having no name. */
-  nameUnavailable?: string
-  /** Why the slot's level data could not be read. When set, every field
-   *  below it is absent, and nothing past the name is claimed. */
-  levelDataUnavailable?: string
-  /** The five header bytes, so the user can check the decode themselves. */
-  headerBytes?: number[]
-  screens?: number
-  /** Absent when the object walk did not end on $FF; see `objectsUnavailable`. */
-  objectCount?: number
-  /** Why `objectCount` is absent when level data was read. */
-  objectsUnavailable?: string
-  /** Absent when VerticalTable could not be read; see `orientationUnavailable`. */
-  isVertical?: boolean
-  /** Why `isVertical` is absent. Set only when it is. */
-  orientationUnavailable?: string
-  /** Absent when the sprite stream could not be read; see `spriteUnavailable`. */
-  spriteCount?: number
-  /** Why `spriteCount` is absent. Set only when it is. */
-  spriteUnavailable?: string
   /** The header's level mode, for the unverified-mode warning (#618). */
   levelMode?: number
-  /** Decoded header fields, label and value, in header-byte order. */
-  header?: Array<{ label: string; value: string }>
-  /** Why the GFX files the tileset and sprite set name may not be what loads. */
-  gfxAssignmentNote?: string
 }
 
 /**
@@ -339,6 +307,16 @@ export interface MapSpriteDto {
   x: number
   y: number
   box: { x0: number; y0: number; x1: number; y1: number }
+  /**
+   * Where the map stores this sprite (its list position, in map pixels), present only when the picture is drawn
+   * elsewhere because the sprite's own INIT shifts it before its first frame (R16, D85 B). The map highlights this
+   * tile when the sprite is selected; `x`, `y` stay the drawn anchor.
+   */
+  stored?: { x: number; y: number }
+  /** With `stored`: where the sprite's start-up code left it, before its first step (`x`, `y` are where it is first drawn). */
+  afterInit?: { x: number; y: number }
+  /** With `stored`: how it got onto its line from there: by its first steps, or after a fall. Absent: no line was reached. */
+  onLine?: 'step' | 'fell'
   rgba: string
   /**
    * The parts the bitmap was blitted from, in the order drawn (#984): the Properties view lists them from
@@ -365,8 +343,11 @@ export interface MapSpriteDto {
    */
   fixedTo?: 'layer2'
   /**
-   * Present when the sprite was run from a placement-only seed because the
-   * level loader refused this ROM: drawn, but not run from the level's state.
+   * Present when HackBench cannot vouch that the sprite is drawn exactly as in the game. The engine's own
+   * words, several causes joined by `; `, and the set grows over time. For example: the level loader refused
+   * this ROM (run from a placement-only seed), the map's memory setting differs from the one checked, or an
+   * earlier sprite may hold its slot. For tooltips only: the map's note and the Properties line say it in
+   * plain words (#1166).
    */
   unverified?: string
   /** A plain-words line about what the map shows of this sprite, not a flaw (for example fewer Eeries than the placement asks for); the map's note line carries it too. */
@@ -616,13 +597,25 @@ export interface ProjectService {
    * Read one map out of the project's working copy.
    *
    * Answers `rom-not-located` when the base ROM is not on this machine. A slot
-   * with no readable level data is a field on the result, not a failure; a
+   * with no readable level data answers its index alone, not a failure; a
    * throw means an unexpected failure.
    */
   mapDetails(manifestPath: string, index: number): Promise<MapDetailsDto | MapDetailsNotLocated>
 
   /** Draw one screen of a map's L1 (foreground) from the working copy. */
   mapScreen(
+    manifestPath: string,
+    index: number,
+    screen: number,
+    switchFlags: SwitchFlagsDto,
+    switches: SwitchStateDto,
+  ): Promise<MapScreenResult>
+
+  /**
+   * One screen PAST the map's last (screen >= screenCount), L2 and L3 planes only, for the gutter (#1197).
+   * Read from the same working-copy model as `mapScreen`; a screen number outside the screens past the end is refused.
+   */
+  mapBeyond(
     manifestPath: string,
     index: number,
     screen: number,

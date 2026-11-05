@@ -241,7 +241,7 @@ Columns: stub = behind `Bank3SprHandler`; depth = distinct named routines on the
 | $7F | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C61A, PowerUpGfxRt |  |  |  |
 | $80 | BalloonKeyFlyObjs |  | BalloonKeyFlyObjs | BESPOKE | CODE_01C61A, PowerUpGfxRt |  |  |  |
 | $81 | ChangingItem |  | ChangingItem | SHARED | G2 via PowerUpRt | 3 | Y |  |
-| $82 | BonusGame |  | BonusGame | BESPOKE | CODE_01DF4E |  |  |  |
+| $82 | BonusGame |  | BonusGame | BESPOKE | CODE_01DF4E |  |  | Drawn by the interpreter (#998): INIT writes nine blocks to slots 9..1 at fixed spots (`bank_01.asm:12675-12721`) and the loader image already holds its latch `$1B94`, so the per-sprite seed resets it (`src/rom/sprites/interp/InitLatches.ts`). The run uses the loader's top slot (`bank_02.asm:5377`, `5400-5405`) and is not re-based onto the placed spot (D158 / Decision 124). Evidence: HackBench's ROM-run loader image, vanilla `$000`/`$100`, one machine, emulated CPU; no hardware capture. |
 | $83 | Flying_Block |  | Flying_Block | SHARED | G2 via Flying_Block | 2 |  |  |
 | $84 | Flying_Block |  | Flying_Block | SHARED | G2 via Flying_Block | 2 |  |  |
 | $85 | InitFlying_Block |  | InitFlying_Block | NEITHER | - |  |  |  |

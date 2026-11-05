@@ -1,6 +1,10 @@
 /** The map tab's layer wording (#562): pure, so it runs without a Theia shell. */
 import { describe, it, expect } from 'vitest'
-import { romMissingMessage } from '../../../theia/extension/src/browser/map-view-messages'
+import {
+  romMissingMessage,
+  unverifiedCauses,
+  withDetail,
+} from '../../../theia/extension/src/browser/map-view-messages'
 import { layer2Label } from '../../../theia/extension/src/browser/map-layer-labels'
 
 describe('layer 2 role tooltip', () => {
@@ -19,5 +23,18 @@ describe('missing base ROM message (#786)', () => {
     expect(m).toContain('The base ROM X is not on this machine.')
     expect(m).toContain('File > Project Properties...')
     expect(m).toContain('locate it again')
+  })
+})
+
+describe('unverifiedCauses: the Sprites tooltip lists every distinct cause (#1166)', () => {
+  it('one per line, in order, each once; a cause holding "; " stays whole', () => {
+    expect(unverifiedCauses([{ unverified: 'a; b' }, {}, { unverified: 'c' }, { unverified: 'a; b' }])).toBe('a; b\nc') // prettier-ignore
+  })
+  it('nothing when no sprite is flagged', () => {
+    expect(unverifiedCauses([{}, {}])).toBeUndefined()
+    expect(unverifiedCauses([])).toBeUndefined()
+  })
+  it('hangs on the label as its later lines, so the label stays plain', () => {
+    expect(withDetail('Label', unverifiedCauses([{ unverified: 'x' }, { unverified: 'y' }]))).toBe('Label\nx\ny') // prettier-ignore
   })
 })

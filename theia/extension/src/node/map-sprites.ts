@@ -62,6 +62,7 @@ import { readMarioStartPos } from '../../../../src/rom/MarioStartPos'
 import {
   runOnce,
   RAM,
+  drawnParts,
   type SpriteModel as BaseModel,
   type PaletteWrite,
   type SpritePart,
@@ -153,6 +154,14 @@ export type SpriteDrawResult =
   | (Omit<Extract<EngineResult, { ok: true }>, 'parts'> & {
       parts: DrawPart[]
       anchor?: { x: number; y: number }
+      /** Where the level stores the sprite, when the picture is drawn elsewhere (INIT shifts it before its first frame, R16). */
+      stored?: { x: number; y: number }
+      /** With `stored`: where the sprite's start-up code left it, before its first step. */
+      afterInit?: { x: number; y: number }
+      /** With `stored`: how the sprite got onto its line from where start-up left it (its first steps, or a fall). */
+      onLine?: 'step' | 'fell'
+      /** The list spot the DTO reports (hover, selection, drag) when the picture stands elsewhere: the game lays it out itself (D158 / Decision 124, InitLatches.ts). */
+      listPos?: { x: number; y: number }
       /** CGRAM colors the sprite's own code set by its drawn frame (interpreter only). */
       runtimePalette?: PaletteWrite[]
       /** The player-buffer slots the drawn frame's run pointed Mario's tile DMA at (interpreter only; #980). */
@@ -260,15 +269,22 @@ export function drawSprites(
         unverified = unverified ? `${unverified}; ${why}` : why
       }
     }
-    const pixels = res.parts.map(p => upload?.get(p.charNum) ?? getCharPixels(model.vram, p.charNum)) // prettier-ignore
-    // One missing char would draw as a hole, so the whole sprite is marked.
-    if (pixels.some(p => !p)) return placeholder(s, 'charsNotLoaded')
+    const art = res.parts.map(p => upload?.get(p.charNum) ?? getCharPixels(model.vram, p.charNum)) // prettier-ignore
+    // A missing char would draw as a hole: draw the pieces that have art (the sprite's own and its companions alike),
+    // say how many do not, and keep the marker only when none does. `parts` and `pixels` stay index-aligned.
+    const parts = res.parts.filter((_, i) => art[i])
+    const pixels = art.filter(a => a)
+    if (parts.length === 0) return placeholder(s, 'charsNotLoaded')
+    if (parts.length < res.parts.length) {
+      const why = `${res.parts.length - parts.length} of ${res.parts.length} pieces are not drawn: their graphics are not in this map's loaded sprite graphics` // prettier-ignore
+      unverified = unverified ? `${unverified}; ${why}` : why
+    }
     const [ax, ay] = 'anchor' in res && res.anchor ? [res.anchor.x, res.anchor.y] : [pixelX(s), s.y * TILE] // prettier-ignore
     const box = {
-      x0: ax + Math.min(...res.parts.map(p => p.dx)),
-      y0: ay + Math.min(...res.parts.map(p => p.dy)),
-      x1: ax + Math.max(...res.parts.map(p => p.dx)) + 8,
-      y1: ay + Math.max(...res.parts.map(p => p.dy)) + 8,
+      x0: ax + Math.min(...parts.map(p => p.dx)),
+      y0: ay + Math.min(...parts.map(p => p.dy)),
+      x1: ax + Math.max(...parts.map(p => p.dx)) + 8,
+      y1: ay + Math.max(...parts.map(p => p.dy)) + 8,
     }
     const width = box.x1 - box.x0
     const out = new Uint8ClampedArray(width * (box.y1 - box.y0) * 4)
@@ -281,7 +297,7 @@ export function drawSprites(
     // The sprite's own CGRAM writes (WRAM upload list, palette mirror, direct), per sprite.
     const runtime = new Map<number, number>()
     for (const w of ('runtimePalette' in res && res.runtimePalette) || []) runtime.set(w.index, w.bgr555) // prettier-ignore
-    res.parts.forEach((p, i) => {
+    parts.forEach((p, i) => {
       const note = res.paletteNote
       const row = (c: number): RgbaColor => {
         // Only the parts on the row the handler uploads to; another row keeps the level's colors.
@@ -292,14 +308,18 @@ export function drawSprites(
       }
       blit(out, prio, width, p, [ax + p.dx - box.x0, ay + p.dy - box.y0], pixels[i]!, row)
     })
+    const at = ('listPos' in res && res.listPos) || { x: ax, y: ay }
     return {
       index: s.index,
       id: s.spriteId,
-      x: ax,
-      y: ay,
+      x: at.x,
+      y: at.y,
       box,
       rgba: base64(out),
-      parts: res.parts.map(p => ({ char: p.charNum, palette: p.palette, flipX: p.flipX, flipY: p.flipY, dx: p.dx, dy: p.dy })), // prettier-ignore
+      ...('stored' in res && res.stored ? { stored: res.stored } : {}),
+      ...('afterInit' in res && res.afterInit ? { afterInit: res.afterInit } : {}),
+      ...('onLine' in res && res.onLine ? { onLine: res.onLine } : {}),
+      parts: parts.map(p => ({ char: p.charNum, palette: p.palette, flipX: p.flipX, flipY: p.flipY, dx: p.dx, dy: p.dy })), // prettier-ignore
       priority: base64(new Uint8ClampedArray(prio.buffer)),
       status: 'drawn',
       ...(unverified ? { unverified } : {}),
@@ -409,24 +429,109 @@ export function runWithUploads(rom: RomFile, id: number, seed: SpriteSeed): RunM
   return Object.assign(runOnce(rom, id, seed, { atRest: true, probe: p.probe }), { uploads: p.byPass }) // prettier-ignore
 }
 
+/**
+ * Fewest quiet passes at the end of a run before its colors count as settled. A vanilla fade writes a rung every
+ * 4 passes (SMWDisX bank_01.asm:8715-8722); vanilla map $11C goes quiet at pass 30 of 63 (one machine).
+ */
+const SETTLE_TAIL = 16
+
+/** The colors CGRAM holds after pass `p`: the run's writes are cumulative and the last one to a color wins. */
+const netColors = (m: RunModel, p: number) => new Map(m.passes[p]!.palette.map(w => [w.index, w.bgr555] as const)) // prettier-ignore
+/** True when two net color maps hold the same color at every index. */
+const sameColors = (a: Map<number, number>, b: Map<number, number>) => a.size === b.size && [...a].every(([i, v]) => b.get(i) === v) // prettier-ignore
+
+/**
+ * The CGRAM colors a picture is drawn with (#1097). The chosen pass is a pose policy: the Magikoopa's first drawn
+ * frame comes before any upload (bank_01.asm:8474, 8733-8755), so its writes left the level's row showing. CGRAM
+ * keeps what the run wrote, drawn or not, so use the net writes at the last pass. Marked when they may be wrong:
+ * not settled (the quiet span since the last change, scanning from pass 1, is under SETTLE_TAIL or no
+ * longer than the longest gap between earlier changes); first drawn inside the tail; or it left and the colors
+ * changed while away or differ from before it left or from its first picture. One change gives no gap to
+ * compare, so a lone update is marked too (vanilla: 0 such sprites or frames). Docs: sprite-1f-magikoopa.md s5.
+ */
+function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
+  const last = m.passes.length - 1
+  const net = netColors(m, last)
+  const writes = [...net].map(([index, bgr555]) => ({ index, bgr555 }))
+  // Guards the loops below and keeps hand-built models of a few passes from being marked; no production run is that short.
+  if (last < SETTLE_TAIL) return { writes }
+  const end = 'so its colors may differ in the game'
+  const first = m.passes.findIndex(p => drawnParts(p).length > 0)
+  if (first >= last - SETTLE_TAIL)
+    return { writes, why: `it only appeared when the check ended, ${end}` }
+  const changed = (p: number) => !sameColors(netColors(m, p), netColors(m, p - 1))
+  const events: number[] = []
+  for (let p = 1; p <= last; p++) if (changed(p)) events.push(p)
+  const quiet = last - (events[events.length - 1] ?? first)
+  const gap = Math.max(0, ...events.slice(1).map((e, i) => e - events[i]!))
+  if (events.length === 1) return { writes, why: `its colors changed only once, ${end}` }
+  if (quiet < SETTLE_TAIL || quiet <= gap)
+    return { writes, why: `its colors were still changing when the check ended, ${end}` }
+  const away = m.passes.map((_, p) => p).filter(p => p > first && !drawnParts(m.passes[p]!).length)
+  if (
+    away.length &&
+    (away.some(changed) ||
+      [first, ...away.filter(p => drawnParts(m.passes[p - 1]!).length).map(p => p - 1)].some(
+        p => !sameColors(net, netColors(m, p)),
+      ))
+  )
+    return { writes, why: `it disappeared partway through and its colors changed, ${end}` }
+  return { writes }
+}
+
+const UNCHECKED_LOADER = "HackBench could not check whether this sprite appears in play (the map's sprite loader is not the stock one)" // prettier-ignore
+
+function unverifiedOf(m: RunModel, generic: string | undefined): { unverified?: string } {
+  const why = [
+    generic,
+    (m.shifted || m.neverAppears) && m.lineInitReason,
+    m.initMoved &&
+      m.lineGateReason &&
+      `drawn on its map tile although its start-up code moves it: ${m.lineGateReason}`,
+    m.spawnUnchecked && UNCHECKED_LOADER,
+    m.noLineReason,
+  ].filter(Boolean)
+  return why.length ? { unverified: why.join('; ') } : {}
+}
+
 /** What the interpreter shows for one sprite: its model, as the drawer's reply. */
 export function modelResult(m: RunModel): SpriteDrawResult {
   const generic = m.seedSource === 'generic'
-  const u = generic ? { unverified: `level loader refused (${m.seedReason}); drawn from a placement-only seed` } : {} // prettier-ignore
-  if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}`, ...u }
+  const why = [...(generic ? [`level loader refused (${m.seedReason}); drawn from a placement-only seed`] : []), ...(m.unverifiedReason ? [m.unverifiedReason] : [])] // prettier-ignore
+  if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}`, ...(why.length ? { unverified: why.join('; ') } : {}) } // prettier-ignore
   const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
+  const colors = pass ? runtimeColors(m) : undefined
+  if (colors?.why) why.push(colors.why)
+  const u = why.length ? { unverified: why.join('; ') } : {}
+  if (!pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
   const uploads = m.chosen === undefined ? undefined : m.uploads?.[m.chosen]
-  if (!m.anchor || !pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
+  if (!m.anchor) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
+  // The at-rest picture of a sprite whose INIT shifts it is drawn where INIT left it; its list position is the stored tile.
+  const stored = m.shifted
+    ? { stored: { x: m.anchor.rawX, y: m.anchor.rawY }, afterInit: m.initAt }
+    : {}
   return {
     ok: true,
-    parts: interpParts(pass.parts),
+    parts: interpParts(drawnParts(pass)),
     anchor: { x: m.anchor.x, y: m.anchor.y },
-    runtimePalette: pass.palette,
+    ...stored,
+    ...(m.neverAppears ? { note: 'never appears in play' } : {}),
+    ...(m.shifted && m.onLine ? { onLine: m.onLine } : {}),
+    ...(m.absolutePlacement
+      ? {
+          listPos: { x: m.anchor.rawX, y: m.anchor.rawY },
+          note: 'The game lays this sprite out itself, at fixed spots of the map; it does not follow where the list places it.',
+        }
+      : {}),
+    runtimePalette: colors!.writes,
     ...(pass.drew
       ? { children: pass.drew.children.map(c => ({ index: c.index, parts: interpParts(pass.parts.filter(p => c.oam.includes(p.oam))) })) } // prettier-ignore
       : {}),
     ...(uploads?.length ? { uploads } : {}),
     ...u,
+    // Every reason the picture is not fully checked stands: the generic seed, a patched INIT that moved the sprite, a refused gate
+    // that left it on its tile, a loader that could not be read, a line it never reached.
+    ...unverifiedOf(m, u.unverified),
     identity: { spriteId: m.id, mainHandler: 0, initHandler: 0, status: 'vanilla' },
   }
 }
@@ -454,6 +559,21 @@ function launcherResult(rom: RomFile, seed: SpriteSeed): SpriteDrawResult {
     ...(unverified ? { unverified } : {}),
     identity: { spriteId: l.torpedoId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
   }
+}
+
+/** Why a replay in the loader's top slot may differ when an earlier sprite of the list was loaded first (bank_02.asm:5400-5405: the search goes down from the top). */
+export const EARLIER_SPRITE_REASON =
+  'an earlier sprite in the list may have taken the slot the game puts this one in, so one block can differ by a pixel and in its item'
+
+/** True when a list entry before `s` was loaded at level start (SpriteLoadStatus set), so it may hold a slot the search would have used. */
+export function earlierSpriteLoaded(
+  list: readonly LevelSprite[],
+  s: LevelSprite,
+  loadStatus: (index: number) => number,
+): boolean {
+  return list.some(
+    e => e.index < s.index && e.index >= 0 && e.index < 128 && loadStatus(e.index) !== 0,
+  )
 }
 
 /** SpriteLoadStatus, SMWDisX rammap.asm:1968 (SMW_U.sym 00001938): one byte per sprite list entry, 128 of them. */
@@ -656,7 +776,17 @@ export function interpRunner(
     if (s.spriteId === FIVE_EERIES) return { direct: eeriesResult(rom, seed(camera), s, model.isVertical, eeriesRoutines) } // prettier-ignore
     if (s.spriteId === THREE_PLATFORMS) return { direct: platformsResult(rom, seed(camera), s, model.isVertical, platformRoutines) } // prettier-ignore
     if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
-    const m = run(rom, s.spriteId, seed(camera))
+    // The map's own loader placed it at map load (D156): it also spawns at the map-load camera.
+    const opening = !!w && s.index >= 0 && s.index < 128 && !!w[SPRITE_LOAD_STATUS + s.index]
+    let m = run(rom, s.spriteId, seed(camera, { opening }))
+    // A sprite placed at the game's own layout (the bonus game) was replayed in the loader's top slot; an earlier loaded sprite
+    // may have taken it, which moves one block by a pixel and changes its item (measured on $000, slots 9 vs 8): drawn, marked.
+    if (
+      m.absolutePlacement &&
+      !m.unverifiedReason &&
+      earlierSpriteLoaded(list, s, i => w?.[SPRITE_LOAD_STATUS + i] ?? 0)
+    )
+      m = { ...m, unverifiedReason: EARLIER_SPRITE_REASON }
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return { m, fixed: false } // prettier-ignore
     // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbor
@@ -664,11 +794,13 @@ export function interpRunner(
     // A sprite with its own gate on the camera ($8D draws only while low byte of Layer1XPos < $46, bank_02.asm:15670-15673)
     // may draw nothing there: the shift is tried the other way, and if that draws nothing too the probe
     // proves nothing and the run stands (no position is invented).
+    // A sprite drawn at fixed map positions (InitLatches.ts) has no screen-fixed parts, and its camera is not the loader's.
+    if (m.absolutePlacement) return { m, fixed: false }
     const dir = [x - camera.x < 128 ? -13 : 13, y - camera.y < 112 ? -11 : 11]
     for (const k of [1, -1]) {
       const shifted = { x: camera.x + dir[0]! * k, y: camera.y + dir[1]! * k }
       const probe = run(rom, s.spriteId, seed(shifted, { mainPasses: at + 1 }))
-      if (!probe.passes[at]?.parts.length) continue
+      if (!probe.passes[at] || !drawnParts(probe.passes[at]!).length) continue
       const fixed = fixOffsets(m, probe, loaderCam, w)
       return { m: fixed ?? m, fixed: !!fixed }
     }
@@ -692,8 +824,12 @@ function fixOffsets(
   loaded: Uint8Array,
 ): RunModel | null {
   const at = m.chosen
-  const pass = at === undefined ? undefined : m.passes[at]
-  const other = at === undefined ? undefined : probe.passes[at]
+  // Compared and rewritten as one list: a screen-fixed companion piece is fixed like the sprite's own.
+  const flat = (r: RunModel) => {
+    const q = at === undefined ? undefined : r.passes[at]
+    return q && { ...q, parts: drawnParts(q) }
+  }
+  const [pass, other] = [flat(m), flat(probe)]
   if (!m.anchor || !pass || !other) return null
   const anchor = m.anchor
   // Residue: the loader's entry is the part's X and Y, in an entry that is not all zero. Tile and
@@ -722,7 +858,7 @@ function fixOffsets(
       dy: f.y ? (p.oy >= 0xe0 ? p.oy - 256 : p.oy) + cam.y - anchor.y : p.dy,
     }
   })
-  return { ...m, passes: m.passes.map((q, i) => (i === at ? { ...q, parts } : q)) }
+  return { ...m, passes: m.passes.map((q, i) => (i === at ? { ...q, parts, companions: [] } : q)) }
 }
 
 /** Sprite $E6, whose spawn puts the castle flames on Layer 2 (CODE_02AAC0, SMWDisX bank_02.asm:5636-5637). */
@@ -828,10 +964,19 @@ const terminated = (data: Uint8Array) => {
   return false
 }
 
-/** The map-level line for sprites drawn without the ROM-run level state: they are shown, flagged. */
-const unverifiedNote = (sprites: readonly MapSpriteDto[]) => {
-  const u = sprites.find(s => s.unverified)?.unverified
-  return u ? `Unverified: ${sprites.filter(s => s.unverified).length} sprites ${u}.` : undefined
+/**
+ * The map-level line for sprites drawn without the ROM-run level state: shown, flagged. The line is plain words;
+ * every distinct cause (the loader's refusal, a memory setting, an earlier sprite) goes in `detail`, one per line,
+ * for the tooltip. Joined by newline, not `; `, because one cause can hold a `;` itself (#1166).
+ */
+export const unverifiedNote = (sprites: readonly MapSpriteDto[]) => {
+  const flagged = sprites.filter(s => s.unverified)
+  if (flagged.length === 0) return undefined
+  const n = flagged.length
+  return {
+    note: `Unverified: ${n} ${n === 1 ? 'sprite' : 'sprites'} may not be drawn exactly as in the game.`,
+    detail: [...new Set(flagged.map(s => s.unverified!))].join('\n'),
+  }
 }
 
 /** Placeholders drawn because the sprite may not be the vanilla one: the id's vanilla name would be a guess. */
@@ -858,6 +1003,7 @@ export function spriteLayer(
   const sprites = drawSprites(parseLevelSprites(data, model.isVertical), model, draw, dynamic).map(
     named,
   )
+  const unverified = unverifiedNote(sprites)
   return {
     status: 'ok',
     orientation: model.isVertical ? 'vertical' : 'horizontal',
@@ -870,11 +1016,12 @@ export function spriteLayer(
         terminated(data)
           ? undefined
           : 'The sprite stream has no end marker in the bytes read: sprites past them are not drawn.',
-        unverifiedNote(sprites),
+        unverified?.note,
         ...new Set(sprites.flatMap(s => (s.note ? [s.note] : []))),
       ]
         .filter(Boolean)
         .join(' ') || undefined,
+    ...(unverified ? { noteDetail: unverified.detail } : {}),
   }
 }
 
@@ -919,6 +1066,23 @@ const dynamicOf = (rom: RomFile) => (n: PaletteNote) => {
   return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore
 }
 
+/**
+ * The sprite layer with the castle flames folded in: their sprites appended, their note after the layer's on the
+ * visible line, and the two technical details kept apart, one per line, so neither is lost (#1166).
+ */
+export function withFlames(
+  layer: Extract<MapSpritesResult, { status: 'ok' }>,
+  flames: ReturnType<typeof castleFlameSprites>,
+): Extract<MapSpritesResult, { status: 'ok' }> {
+  const detail = [layer.noteDetail, flames.noteDetail].filter(Boolean).join('\n')
+  return {
+    ...layer,
+    sprites: [...layer.sprites, ...flames.sprites],
+    note: [layer.note, flames.note].filter(Boolean).join(' ') || undefined,
+    ...(detail ? { noteDetail: detail } : {}),
+  }
+}
+
 /** Runs the sprite interpreter at rest for every placed sprite on one map and folds the results into the served model; a Layer 1 refusal passes through as plain words with detail (#967). */
 function compute(
   cache: L1ModelCache,
@@ -947,12 +1111,7 @@ function compute(
     const layer = spriteLayer(data, withUploads, draw, dynamic)
     const flames = castleFlameSprites(rom.rom, base, stream, model, model.l2?.ok ? model.l2.l2.dy : undefined, dynamic) // prettier-ignore
     if (flames.sprites.length === 0 && !flames.note) return layer
-    return {
-      ...layer,
-      sprites: [...layer.sprites, ...flames.sprites],
-      note: [layer.note, flames.note].filter(Boolean).join(' ') || undefined,
-      ...(flames.noteDetail ? { noteDetail: flames.noteDetail } : {}),
-    }
+    return withFlames(layer, flames)
   } catch (err) {
     return unreadable((err as Error).message)
   }
@@ -982,7 +1141,7 @@ export function framesOf(
   if ('direct' in run) return { frames: [], reason: 'it is drawn by a special routine' }
   const { m, fixed } = run
   const ref = m.chosen === undefined ? undefined : m.passes[m.chosen]
-  if (!ref || !ref.parts.length) {
+  if (!ref || !drawnParts(ref).length) {
     const r = modelResult(m)
     return { frames: [], reason: 'reason' in r ? r.reason : 'drew no tile' }
   }
@@ -990,22 +1149,19 @@ export function framesOf(
   const drawAt = (q: typeof ref) => (m.snaps ? q.origin : q.pos)
   const seen = new Set<string>()
   const frames: MapSpriteDto[] = []
-  for (const pass of m.passes.filter(q => q.pass >= ref.pass && q.parts.length > 0)) {
+  for (const pass of m.passes.filter(q => q.pass >= ref.pass && drawnParts(q).length > 0)) {
     // dx' places the art where it stands relative to the sprite, on the chosen pass's anchor.
     const [ax, ay] = [pass.origin.x - drawAt(pass).x + drawAt(ref).x - ref.origin.x, pass.origin.y - drawAt(pass).y + drawAt(ref).y - ref.origin.y] // prettier-ignore
-    const parts = pass.parts.map(p => ({ ...p, dx: p.dx + ax, dy: p.dy + ay }))
-    const drawnParts = interpParts(parts)
-    const [mx, my] = [
-      Math.min(...drawnParts.map(p => p.dx)),
-      Math.min(...drawnParts.map(p => p.dy)),
-    ]
-    const key = drawnParts.map(p => [p.charNum, p.palette, +p.flipX, +p.flipY, p.dx - mx, p.dy - my].join()).sort().join(';') // prettier-ignore
+    const parts = drawnParts(pass).map(p => ({ ...p, dx: p.dx + ax, dy: p.dy + ay }))
+    const pieces = interpParts(parts)
+    const [mx, my] = [Math.min(...pieces.map(p => p.dx)), Math.min(...pieces.map(p => p.dy))]
+    const key = pieces.map(p => [p.charNum, p.palette, +p.flipX, +p.flipY, p.dx - mx, p.dy - my].join()).sort().join(';') // prettier-ignore
     if (seen.has(key)) continue
     seen.add(key)
     const shifted = {
       ...m,
       chosen: pass.pass,
-      passes: m.passes.map(q => (q === pass ? { ...q, parts } : q)),
+      passes: m.passes.map(q => (q === pass ? { ...q, parts, companions: [] } : q)),
     }
     const [f] = drawSprites([s], model, () => modelResult(shifted), dynamic)
     if (f!.status !== 'drawn') continue

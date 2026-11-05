@@ -19,7 +19,14 @@ export default defineConfig({
     ],
     // Wall-clock gates run alone through vitest.timing.config.ts (#668); the
     // minutes-long corpus sweeps run through vitest.corpus.config.ts (#653).
-    exclude: [...configDefaults.exclude, '**/*.timing.test.ts', '**/*.nightly.test.ts'],
+    exclude: [
+      ...configDefaults.exclude,
+      '**/*.timing.test.ts',
+      '**/*.nightly.test.ts',
+      // Nested task worktrees and session state (#1202): a worktree runs its own tests.
+      '.worktrees/**',
+      '.overwatch/**',
+    ],
     environment: 'node',
     // Up to HACKBENCH_RUN_SLOTS (3) full runs overlap, so each gets a third of the old half-the-cores share; HACKBENCH_VITEST_WORKERS overrides. Not yet measured (run-lock slots, docs/testing.md).
     maxWorkers: vitestWorkers(os.availableParallelism()),

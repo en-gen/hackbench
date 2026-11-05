@@ -6,28 +6,18 @@
  * Tier 2 (not graded): absolute position. The frame Mesen caught IS graded now: pass
  * k = drawnFrame - max(anchorFrame, initFrame + 1), with Mario at marioAtInit for INIT
  * and marioStart for MAIN and the frame counters seeded from the record (#844). Offsets
- * are still measured from the END-of-pass position, which skews exact vs shape (a sprite
- * that moved within the pass grades shape); the fix needs the draw-time position in
- * SpriteRunner.ts and spriteGrade.ts, a separate item. Set SPRITE_GRADE_OUT to a file path to
- * dump every graded record as JSON for classification.
+ * are measured from the sprite's position at its first OAM write (PassResult.drawPos, the moment the
+ * capture samples it, #842); the end-of-pass position skewed every sprite that moves after drawing.
+ * Set SPRITE_GRADE_OUT to a file path to dump every graded record as JSON for classification.
  *
  * The headline run asserts FLOORS (the measured count minus a tolerance) and a
  * planted-defect run asserts the same grader goes red, so a regression in the
  * runner moves a failing number, not just a log line.
  */
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { unzip } from '../../../../tools/scripts/capture_render'
 import type { RomFile } from '../../../../src/rom/RomFile'
 import { runSprite } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState, NO_CLUSTER_SPRITES } from '../../../../src/rom/sprites/interp/LevelLoader'
@@ -37,7 +27,6 @@ import type { LevelSprite } from '../../../../src/rom/LevelParser'
 import { levelSpriteList } from '../../support/levelSpriteList'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import {
-  CAPTURE_DIR,
   freshRom,
   hasCaptures,
   hasRom,
@@ -45,12 +34,8 @@ import {
   TOOLS_ROOT,
   VANILLA,
 } from '../../support/corpus'
-import {
-  gradedPass,
-  type PlacedSprite,
-  runnerId,
-  writeMarioStart,
-} from '../../support/gradeTimeline'
+import { loadCaptures, type Loaded, type Rec } from '../../support/captures'
+import { gradedPass, runnerId, writeMarioStart } from '../../support/gradeTimeline'
 import { oracleCells, oracleImage } from '../../support/oracleImage'
 import {
   grade,
@@ -59,24 +44,6 @@ import {
   type Grade,
   type RecordedPiece,
 } from '../../support/spriteGrade'
-
-interface Rec {
-  listIndex?: number
-  id: string
-  slot: number
-  listX: number
-  listY: number
-  cameraX: number
-  cameraY: number
-  marioAtInit?: { x: number; y: number }
-  initFrame?: number
-  drawnFrame?: number
-  trueFrame?: number
-  effFrame?: number
-  frames?: { frameIndex?: number; tiles?: RecordedPiece[] }[]
-  firstFrameIndex?: number
-  complete?: boolean
-}
 
 /** Every frame Mesen recorded for the sprite that has tiles. */
 function recordedFrames(r: Rec): RecordedPiece[][] {
@@ -98,43 +65,6 @@ function traceMap16(
   if (existsSync(lo) && existsSync(hi)) return { low: readFileSync(lo), high: readFileSync(hi) }
   if (strict) throw new Error(`map ${map}: Map16 table missing under ${root}`)
   return undefined
-}
-
-interface Loaded {
-  map: string
-  rec: Rec
-  wram: Uint8Array | null
-  /** capture_summary.json anchorFrame: when the sprites' MAIN starts running on hardware. */
-  anchorFrame?: number
-  /** scroll_pass.json marioStart: where Mario is held from the anchor on. */
-  marioStart?: { x: number; y: number }
-  /** sprites.json entries: the placed list ids by index. */
-  listed?: PlacedSprite[]
-}
-
-function loadAll(): Loaded[] {
-  const out: Loaded[] = []
-  for (const f of readdirSync(CAPTURE_DIR).sort()) {
-    const p = join(CAPTURE_DIR, f)
-    if (!f.endsWith('.zip')) continue
-    const name = f.slice(0, -4)
-    const entries = unzip(readFileSync(p))
-    const key = [...entries.keys()].find(k => k.endsWith('sprite_spawns.json'))
-    if (!key) continue
-    const j = JSON.parse(entries.get(key)!().toString('utf8'))
-    const wk = [...entries.keys()].find(k => k.endsWith('frame_0000_wram.bin'))
-    const wram = wk ? new Uint8Array(entries.get(wk)!()) : null
-    const jsonOf = (suffix: string): Record<string, unknown> => {
-      const k = [...entries.keys()].find(e => e.endsWith(suffix))
-      return k ? JSON.parse(entries.get(k)!().toString('utf8')) : {}
-    }
-    const anchorFrame = jsonOf('capture_summary.json').anchorFrame as number | undefined
-    const marioStart = jsonOf('scroll_pass.json').marioStart as Loaded['marioStart']
-    const listed = jsonOf('sprites.json').entries as Loaded['listed']
-    for (const rec of j.spawns ?? [])
-      out.push({ map: name, rec, wram, anchorFrame, marioStart, listed })
-  }
-  return out
 }
 
 type Row = Grade & { map: string; id: string; slot: number; [k: string]: unknown }
@@ -207,8 +137,9 @@ function gradeAll(
       mainPasses: Math.max(opts.passes ?? 64, timed ? k + 1 : 0),
       // Pass p runs at seed + 1 + p only when INIT takes one frame, so pass k lands on the frame
       // counters the capture recorded at the draw. SpriteRunner adds a frame per INIT retry
-      // (initFrames > 1: 22 timed records, map 102 $5D x13 and $A4 x9), and those see the counters
-      // 1 or 2 high. Without the fields every pass starts the animation at zero.
+      // (initFrames > 1), and those see the counters 1 or 2 high. Re-measured 2026-10-16
+      // after #842 (vanilla, 1957 records, one machine): no timed record retries INIT; before the
+      // loader ran the Layer 3 handler 22 did (map 102 $5D x13, $A4 x9). Without the fields every pass starts the animation at zero.
       ...(timed && rec.trueFrame !== undefined && rec.effFrame !== undefined
         ? {
             trueFrame: (rec.trueFrame - 1 - k) & 0xff,
@@ -230,8 +161,8 @@ function gradeAll(
       probe,
     })
     // Nothing drawn at the hardware's pass is a runner miss, counted apart so it cannot hide in the
-    // wrong total. It grades wrong when some pass draws; when none does (map 102 $5D) grade()
-    // returns empty whatever m.chosen is (test/suite/support/spriteGrade.ts:87).
+    // wrong total. It grades wrong when some pass draws; when none does grade()
+    // returns empty whatever m.chosen is (13 records before #842, none after) (test/suite/support/spriteGrade.ts:107).
     if (timed && m.passes[k]) {
       if (m.passes[k].parts.length) m.chosen = k
       else {
@@ -270,23 +201,29 @@ function gradeAll(
   return { rows, by, inputs, fallbacks, missAtK }
 }
 
-/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised for #841 (neighbor run): measured with the merge head against develop 6d23b7b0, one machine: exact 1058, exact+shape 1877, wrong 48, close 18, empty 14 (develop: 1053, 1863, 62, 18, 14); only the 14 $9C rows changed. */
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised for #840 (init companions): measured 2026-11-04 on the merge of develop a028e0dc, one machine, 1957 records: exact 1917, shape 0, close 17, wrong 22, empty 1, missAtK 7 (develop alone: 1906, 0, 17, 33, 1, 7; the 11 rows that changed are $61 and $1E, wrong to exact, none got worse). */
 const FLOOR = {
   graded: 1957,
-  exact: 1055,
-  exactOrShape: 1874,
+  // Measured on the merge of develop a9de2145 and #842 (offsets from the draw-time position, Layer 3 handler run),
+  // one machine, 2026-10-28: exact 1906, shape 0, close 17, wrong 33, empty 1 (the #842 head alone, before
+  // the merge: 1865, 0, 17, 75, 0). Shape is not floored: with shape at 0, exact + shape could never fire below the
+  // exact floor.
+  exact: 1900, // 1917 measured, develop a028e0dc alone 1906
   maxRefused: 0,
-  maxEmpty: 16,
-  maxWrong: 51,
-  maxMissAtK: 30,
+  maxShape: 5, // 0 measured
+  maxClose: 20, // 17 measured
+  maxEmpty: 5, // 1 measured
+  maxWrong: 30, // 22 measured (develop alone 33)
+  maxMissAtK: 10, // 7 measured
   // 38 measured (spawned records without initFrame); all-timed would read 0.
   minFallbacks: 30,
-  // 25 measured; a runner that stops counting misses (or stops grading at k) drops below.
-  minMissAtK: 20,
+  // 7 measured on the merge (3 on the #842 head alone, 25 before it: the 22 initFrames > 1 records missed until the
+  // loader ran the Layer 3 handler); a runner that stops counting misses (or stops grading at k) drops below.
+  minMissAtK: 3,
 }
 
 describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-load captures', () => {
-  const all = hasCaptures() && hasRom(VANILLA) ? loadAll() : []
+  const all = hasCaptures() && hasRom(VANILLA) ? loadCaptures() : []
 
   it('grades every recorded sprite, and holds the floors', () => {
     const rom = freshRom()
@@ -307,17 +244,16 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
       writeFileSync(process.env.SPRITE_GRADE_OUT, JSON.stringify({ summary, rows }, null, 1))
     console.log(summary)
     if (mode !== 'rom') return
-    // Mutants re-measured on the #838 head (one machine, 'rom' seed, 1957 records): an effOnly
-    // mutant (trueFrame left 0) gives exact 984 against the 985 floor, killed by 1; an initOnly
-    // mutant (k = drawn - (initFrame + 1)) gives 988 and survives, so this corpus does not tell
-    // anchor-based k from init-based k. gradeTimeline.test.ts pins that arithmetic itself.
-    // Floors: measured 2026-10-10 (docs section 13.3; re-measured after #838 kept the 224-255 band: exact 995, exact+shape 1800, wrong 125) minus a tolerance. The mutants they
-    // were set against (X not set to the slot, level sprites not zeroed, INIT retry
-    // removed) all fall below them.
+    // Floors: measured 2026-10-17 on the #842 head merged with #837 (vanilla, one machine, 1957 records: exact 1865,
+    // shape 0, close 17, wrong 75, empty 0, missAtK 3; 1830/0/17/110/0/3 before the merge) minus a tolerance. The #838-era mutant runs
+    // (effOnly: exact 984 against a 985 floor; initOnly: 988, survived, so this corpus does not tell
+    // anchor-based k from init-based k, which gradeTimeline.test.ts pins itself) were against the old
+    // counts and are not re-measured against these floors.
     expect(rows.length).toBe(FLOOR.graded)
     expect(by.exact ?? 0).toBeGreaterThanOrEqual(FLOOR.exact)
-    expect((by.exact ?? 0) + (by.shape ?? 0)).toBeGreaterThanOrEqual(FLOOR.exactOrShape)
     expect(by.refused ?? 0).toBeLessThanOrEqual(FLOOR.maxRefused)
+    expect(by.shape ?? 0).toBeLessThanOrEqual(FLOOR.maxShape)
+    expect(by.close ?? 0).toBeLessThanOrEqual(FLOOR.maxClose)
     expect(by.empty ?? 0).toBeLessThanOrEqual(FLOOR.maxEmpty)
     expect(by.wrong ?? 0).toBeLessThanOrEqual(FLOOR.maxWrong)
     // 38 records carry no initFrame (the spawned ones) and grade the old way.
@@ -334,6 +270,14 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     ['1db', '$37', 944, 304],
     ['11d', '$28', 272, 224],
     ['01a', '$30', 272, 368],
+    // The tide maps (#845): fish enter the liquid path once $5B bit 7 is set (hardware WRAM has it).
+    ['127', '$16', 400, 368],
+    ['127', '$16', 1296, 368],
+    ['1cc', '$93', 224, 368], // #846: moves after drawing; graded from where it drew
+    ['102', '$A4', 912, 400], // #842: sank 32 px until the loader ran the Layer 3 handler
+    // INIT spawns companions that draw in their own slots (#840): the recorded pieces are the sprite's alone, 1 and 2.
+    ['10a', '$61', 160, 384],
+    ['1c4', '$1E', 1120, 224],
   ])(
     'map %s %s at %i,%i grades exact',
     (map, id, x, y) => {
@@ -369,9 +313,9 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
 
   // A miss at k: the model draws nothing on the hardware's pass, which grades wrong. Without
   // `m.chosen = k` the grader falls back to the first drawing pass and the detail changes.
-  it('map 102 $A4 at 912,400 misses at k and grades wrong, not empty', () => {
+  it('map 0c3 $49 at 208,352 misses at k and grades wrong, not empty', () => {
     const one = all.filter(
-      a => a.map === '102' && a.rec.id === '$A4' && a.rec.listX === 912 && a.rec.listY === 400,
+      a => a.map === '0c3' && a.rec.id === '$49' && a.rec.listX === 208 && a.rec.listY === 352,
     )
     expect(one).toHaveLength(1)
     const { rows, missAtK } = gradeAll(freshRom(), one)

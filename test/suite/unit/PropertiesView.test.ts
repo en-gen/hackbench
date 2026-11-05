@@ -10,7 +10,9 @@ import { drawSprites } from '../../../theia/extension/src/node/map-sprites'
 import {
   animationText,
   framesReasonText,
+  shiftNote,
   spriteProps,
+  noteTitle,
 } from '../../../theia/extension/src/browser/sprite-props'
 import { followSubject } from '../../../theia/extension/src/browser/properties-follow'
 import { FramePlayer, type FramesState } from '../../../theia/extension/src/browser/sprite-frames'
@@ -102,8 +104,74 @@ describe('spriteProps: row and notes', () => {
     expect(spriteProps({ ...draw(), x: 88, y: 56 })).toMatchObject({ col: 5, row: 3 })
   })
   it('an unverified draw says so, and a verified one does not', () => {
-    expect(spriteProps({ ...draw(), unverified: 'seed was generic' }).notes).toContain('Unverified: seed was generic.') // prettier-ignore
+    const p = spriteProps({ ...draw(), unverified: 'seed was generic' })
+    expect(p.notes).toContain('Unverified: this sprite may not be drawn exactly as in the game.')
+    expect(p.notes.join(' ')).not.toContain('seed was generic')
+    expect(p.rawUnverified).toBe('seed was generic')
+    expect(spriteProps(draw()).rawUnverified).toBeUndefined()
     expect(spriteProps(draw()).notes.join(' ')).not.toMatch(/unverified/i)
+  })
+})
+
+describe('noteTitle: each note carries its own detail, or none (#1166)', () => {
+  const both = spriteProps({ ...draw(), status: 'placeholder', reason: 'refused: loop', unverified: 'seed was generic' }) // prettier-ignore
+  it('a sprite with both notes: Not drawn gets its reason, Unverified its cause', () => {
+    const titles = Object.fromEntries(both.notes.map(n => [n.split(':')[0], noteTitle(n, both)]))
+    expect(titles['Not drawn']).toBe(both.rawReason)
+    expect(titles['Unverified']).toBe('seed was generic')
+    expect(both.rawReason).not.toBe('seed was generic')
+  })
+  it('a line with no detail gets no title, and the fixed Behavior line never does', () => {
+    const plain = spriteProps(draw())
+    expect(plain.notes.map(n => noteTitle(n, plain))).toEqual([undefined])
+    const noReason = spriteProps({ ...draw(), status: 'placeholder' })
+    expect(noteTitle(noReason.notes[0]!, noReason)).toBeUndefined()
+    expect(noteTitle(both.notes.at(-1)!, both)).toBeUndefined()
+  })
+})
+
+describe('spriteProps: a sprite drawn away from its stored tile (R16)', () => {
+  const at = (x: number, y: number, stored?: { x: number; y: number }) => ({ ...draw(0x65), x, y, ...(stored ? { stored } : {}) }) // prettier-ignore
+  it('says how far it moved, worked out from the two positions: left, right, and with a vertical part', () => {
+    expect(shiftNote(at(80, 96, { x: 400, y: 96 }))).toMatch(
+      /moves it 320 px to the left before it is first drawn/,
+    )
+    expect(shiftNote(at(415, 96, { x: 400, y: 96 }))).toMatch(/moves it 15 px to the right before/)
+    expect(shiftNote(at(415, 90, { x: 400, y: 96 }))).toMatch(
+      /15 px to the right and 6 px up before/,
+    )
+    expect(shiftNote(at(415, 100, { x: 400, y: 96 }))).toMatch(
+      /15 px to the right and 4 px down before/,
+    )
+  })
+  it('splits the move honestly when start-up code and the first step both move it: the two parts come from the run', () => {
+    const both = shiftNote({
+      x: 412,
+      y: 96,
+      stored: { x: 400, y: 96 },
+      afterInit: { x: 408, y: 96 },
+    })
+    expect(both).toMatch(
+      /Its start-up code moves it 8 px to the right, and its first step 4 px to the right more, before it is first drawn/,
+    )
+    // Only the first step moved it (the start-up code left it where it is stored).
+    expect(
+      shiftNote({ x: 404, y: 96, stored: { x: 400, y: 96 }, afterInit: { x: 400, y: 96 } }),
+    ).toMatch(/^Its first step moves it 4 px to the right before it is first drawn/)
+    // Only the start-up code moved it: the first step added nothing, so the note is the plain one.
+    expect(
+      shiftNote({ x: 408, y: 96, stored: { x: 400, y: 96 }, afterInit: { x: 408, y: 96 } }),
+    ).toMatch(/^Its own start-up code moves it 8 px to the right before it is first drawn/)
+  })
+  it('says nothing when the picture is on its stored tile or no tile is stored', () => {
+    expect(shiftNote(at(400, 96))).toBeUndefined()
+    expect(shiftNote(at(400, 96, { x: 400, y: 96 }))).toBeUndefined()
+    expect(spriteProps(draw()).notes.join(' ')).not.toMatch(/start-up code/)
+  })
+  it('reports the stored tile as the sprite position, and carries the note', () => {
+    const p = spriteProps(at(80, 96, { x: 400, y: 96 }))
+    expect(p).toMatchObject({ col: 25, row: 6 })
+    expect(p.notes.join(' ')).toMatch(/The highlighted tile is where the map stores it/)
   })
 })
 

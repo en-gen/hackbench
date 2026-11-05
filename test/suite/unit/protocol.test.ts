@@ -306,7 +306,7 @@ describe('mainCheckoutDir', () => {
 })
 
 describe('the state directory', () => {
-  it('is .hackbench-state in the main checkout, also from a worktree', () => {
+  it('is .overwatch in a fresh main checkout, also from a worktree', () => {
     const main = tempDir('main-')
     execFileSync('git', ['init', '-q', main])
     execFileSync('git', ['-C', main, 'commit', '-q', '--allow-empty', '-m', 'root'], {
@@ -321,8 +321,8 @@ describe('the state directory', () => {
     const wt = path.join(tempDir('wt-'), 'w')
     execFileSync('git', ['-C', main, 'worktree', 'add', '-q', wt])
     const real = (p: string) => path.join(fs.realpathSync(path.dirname(p)), path.basename(p))
-    expect(STATE_DIR_NAME).toBe('.hackbench-state')
-    expect(real(stateDirFor(wt))).toBe(path.join(fs.realpathSync(main), '.hackbench-state'))
+    expect(STATE_DIR_NAME).toBe('.overwatch')
+    expect(real(stateDirFor(wt))).toBe(path.join(fs.realpathSync(main), '.overwatch'))
     expect(stateDirFor(wt)).not.toContain(path.join('.claude', 'state'))
   }, 30000)
 })
@@ -466,7 +466,7 @@ describe('migrateState', () => {
     })
     expect(r.status).toBe(0)
     expect(JSON.parse(r.stdout).copied).toContain('sessions.json')
-    expect(fs.existsSync(path.join(main, '.hackbench-state', 'sessions.json'))).toBe(true)
+    expect(fs.existsSync(path.join(main, '.overwatch', 'sessions.json'))).toBe(true)
   })
 })
 

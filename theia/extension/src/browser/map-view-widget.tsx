@@ -1,6 +1,6 @@
 /**
  * One map, opened from the explorer: its L1 (foreground) and L2 (background), drawn by the
- * backend a screen at a time (#421 step 3), with the header decode below.
+ * backend a screen at a time (#421 step 3).
  *
  * The strip requests only the screens in view plus one either side, and
  * caches them in THIS tab, keyed by screen and switch-palace state. Every
@@ -8,8 +8,7 @@
  * open maps never share toggles. A working-copy push drops the cache and
  * re-fetches, so an edit in any view repaints the map.
  *
- * The header's key facts stay in view; the full decode is a secondary
- * panel, every field traced to src/rom/LevelParser.ts, beside its bytes.
+ * The only header fact read here is the level mode, for the unverified-mode warning (#618).
  */
 import * as React from '@theia/core/shared/react'
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
@@ -65,6 +64,8 @@ import { MapGridOverlay } from './grid-overlay'
 import { CollisionOverlay } from './collision-overlay'
 import { RefusedOverlay } from './refused-overlay'
 import {
+  beyondScreens,
+  composeGutter,
   fadeMask,
   cellRect,
   centerScroll,
@@ -76,7 +77,7 @@ import {
   screensInView,
   type Pad,
 } from './off-map-extent'
-import { GUTTER_PX } from '../../../../src/rom/model/MapGutter'
+import { farGutter } from '../../../../src/rom/model/MapGutter'
 import { collisionKey, collisionPlan } from './map-view-state'
 import { MapViewStateStore } from './map-view-state-store'
 import { layer2Label } from './map-layer-labels'
@@ -96,6 +97,7 @@ import {
   romMissingMessage,
   unverifiedLabel,
   withDetail,
+  unverifiedCauses,
 } from './map-view-messages'
 
 export { slotLabel }
@@ -118,9 +120,28 @@ export interface MapViewOptions {
   label: string
   /** The tree row's own icon, so the tab matches where it was opened from. */
   iconClass?: string
+  /** A New slot: nothing to read, so the view shows `NEW_SLOT_NOTE` instead of a map (#950 replaces it). */
+  isNew?: boolean
 }
 
+/** The map note when the layers past the end could not be read: the map itself drew, so it only says so. */
+const GUTTER_UNREAD = 'The graphics layers past the end of the map could not be drawn.'
+
+/** The one-line note an opened New slot shows until its empty editor exists (#950). */
+export const NEW_SLOT_NOTE = 'This slot is new. It has no map yet.'
+
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
+
+/** A screen reply's planes decoded to images, for a map screen and a gutter screen alike. */
+const screenImages = (r: Layout): ScreenImages => ({
+  width: r.width,
+  height: r.height,
+  planes: Object.fromEntries(
+    MAP_PLANE_KEYS.map(k => [k, r.planes[k] === null ? null : new ImageData(decodeRgba(r.planes[k]!), r.width, r.height)]), // prettier-ignore
+  ) as ScreenImages['planes'],
+  screens: r.screens,
+  math: r.math,
+})
 type Sprites = Extract<MapSpritesResult, { status: 'ok' }>
 type Collision = Extract<MapCollisionResult, { status: 'ok' }>
 /** A refusal's plain words, and the technical text that belongs on a tooltip's second line (#967). */
@@ -159,6 +180,7 @@ function AfterCommit({ run }: { run: () => void }): null {
   return null
 }
 
+/** Capitalizes a palace key for its switch's label. */
 const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
 @injectable()
@@ -177,12 +199,23 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return this.options?.manifestPath
   }
   protected details: MapDetailsDto | undefined
-  protected error: string | undefined
-  /** The exception text behind `error`: a tooltip and the console, never the visible words (#786). */
-  protected errorDetail: string | undefined
   protected mapLayout: Layout | undefined
   /** The canvas for sprites the data places off the map, in its pad (#1004). */
   protected offMapCanvas: HTMLCanvasElement | null = null
+  /** The canvas for Layers 2 and 3 continuing through the far-end gutter (#1197); mounted only when the map has a gutter. */
+  protected gutterCanvas: HTMLCanvasElement | null = null
+  /**
+   * Gutter reads that failed, by cache key, with the technical text. A failed key is not asked again until `refresh`
+   * clears this. The map note is DERIVED from it (`gutterFailure`): it shows while a key the gutter needs now has
+   * failed, and only then. The map itself drew, so this is not a screen error.
+   */
+  protected readonly gutterFailed = new Map<string, string | undefined>()
+  /**
+   * The last reply that landed for each screen past the end, uncomposed, by screen number. `refresh` clears `screens`
+   * but not this, so an edit, flag or switch change draws the old planes (through the current toggles) until the new
+   * ones land; `open` clears it, so one map never shows another's. A failed current key draws clear instead.
+   */
+  protected readonly gutterLast = new Map<number, ScreenImages>()
   /** `pad` for one (layout, sprites) pair: it is read on every pointer move. */
   protected padMemo: { l: Layout; s: Sprites | undefined; pad: Pad } | undefined
   /** The sprite pixels outside the map for one (layout, sprites) pair, null when none reach outside. */
@@ -270,17 +303,16 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected readonly composites = new Map<number, HTMLCanvasElement>()
   protected readonly compositeRefs = new Map<number, (el: HTMLCanvasElement | null) => void>()
   protected scroller: HTMLDivElement | null = null
-  /** Refits when the strip's box changes, e.g. when the facts line arrives above it. */
+  /** Refits when the strip's box changes, e.g. when a note line arrives above it. */
   protected readonly resizes = new ResizeObserver(() => this.fitStrip())
   /** Bumped on every invalidation, so a reply to an older request is dropped. */
   protected generation = 0
+  /** The generation whose details reply has landed; `data-details` is `done` while it is current. */
+  protected detailsGeneration = -1
   /** Bumped only by `open`, so the start reply of an earlier map is dropped; an edit's refresh leaves it (#339). */
   protected startSeq = 0
   /** Where the player first enters this map, until the view has been scrolled to it once. */
   protected pendingStart: { x: number; y: number } | undefined
-  /** Why the start is not known: the view stays at screen 0 and says so. */
-  protected startWhy: string | undefined
-  protected startDetail: string | undefined
   /** Where this open's start stands, for the strip's `data-start` (a test waits on it, not on a timer). */
   protected startState: 'pending' | 'placed' | 'skipped' | 'unavailable' = 'pending'
   /** The view left offset 0 while the start was pending, even if it came back: the user has taken over. */
@@ -359,16 +391,16 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     )
   }
 
+  /** Starts a map in this widget; a reused tab drops the earlier map's replies via the open counter. */
   async open(options: MapViewOptions): Promise<void> {
-    perfStart('open-maps')
     this.options = options
     this.id = `${MAP_VIEW_ID}:${options.index}`
     this.title.label = options.label
     this.title.caption = `${options.label} (${slotLabel(options.index)})`
     this.title.iconClass = options.iconClass ?? 'codicon codicon-map'
     this.details = undefined
-    this.error = undefined
     this.mapLayout = undefined
+    this.gutterLast.clear()
     this.sprites = undefined
     this.setHoverSprite(undefined)
     this.spritesWhy = undefined
@@ -395,10 +427,17 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     }
     this.scroller?.scrollTo(0, 0)
     this.pendingStart = undefined
-    this.startWhy = undefined
-    this.startDetail = undefined
     this.startState = 'pending'
     this.movedBeforeStart = false
+    if (options.isNew) {
+      // A reused tab must not keep the last map's sprite in the Properties panel beside a New slot.
+      this.selectSprite(undefined)
+      this.generation++
+      this.update()
+      return
+    }
+    // Started here, not at the top: only a map that draws a screen ends it, and a New slot never does.
+    perfStart('open-maps')
     void this.loadStart(++this.startSeq)
     this.update()
     this.refresh()
@@ -422,8 +461,6 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       return
     }
     this.startState = 'unavailable'
-    this.startWhy = r.status === 'unavailable' ? r.reason : romMissingMessage(r.baseRom.title)
-    this.startDetail = r.status === 'unavailable' && 'detail' in r ? r.detail : undefined
     this.update()
   }
 
@@ -469,13 +506,17 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Drops every cached screen and reads the map again from the working copy. */
   protected refresh(): void {
+    // A New slot has nothing to read, so an edit elsewhere changes nothing here.
+    if (this.options?.isNew) return
     this.generation++
+    this.update()
     this.pendingRestore = undefined
     this.setHoverSprite(undefined)
     this.screens.clear()
     this.coveredIds.clear()
     this.lift = undefined
     this.pending.clear()
+    this.gutterFailed.clear()
     this.screenError = undefined
     this.screenErrorDetail = undefined
     void this.loadDetails()
@@ -573,6 +614,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.spritesVersion++
     this.update()
     this.sync()
+    // Off-map sprites can lengthen the far end: `keepViewOnPadChange` refits on a pad change and `fitStrip` asks for the visible screens, the gutter's included.
   }
 
   /**
@@ -661,27 +703,27 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.sync()
   }
 
+  /**
+   * Reads the header facts the view still uses (the level mode). A map whose details cannot be
+   * read, or whose base ROM is missing, shows nothing of its own for it (D121; the Properties
+   * panel, #1023, returns it): the exception goes to the console, and the missing ROM already
+   * shows through the screen error. Either way the reply has landed, which `data-details` says.
+   */
   protected async loadDetails(): Promise<void> {
     const o = this.options
     if (!o) return
     const generation = this.generation
     let details: MapDetailsDto | undefined
-    let error: string | undefined
-    let detail: string | undefined
     try {
       const r = await this.projects.mapDetails(o.manifestPath, o.index)
-      if ('status' in r) error = romMissingMessage(r.baseRom.title)
-      else details = r
+      if (!('status' in r)) details = r
     } catch (err) {
-      detail = rawText(err)
       console.error(`Map ${o.index.toString(16)} details failed:`, err)
-      error = "This map's details could not be read. Open the map again to try again."
     }
     // An older map's or edit's reply must not land over a newer one.
     if (generation !== this.generation) return
     this.details = details
-    this.error = error
-    this.errorDetail = detail
+    this.detailsGeneration = generation
     this.update()
   }
 
@@ -725,8 +767,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   }
 
   /**
-   * The canvas beyond each side of the map (D48 part 2, D145, #1004): the content the data places off
-   * it, rounded to tiles, plus the gutter beyond that at each long end. The ONE origin every pointer
+   * The canvas beyond each side of the map (D145, #1004, #1228): the content the data places off
+   * it, rounded to tiles, plus the gutter beyond that at the far end only. The ONE origin every pointer
    * and overlay consumer reads. It is derived from the layout and the sprites together, so it can change
    * when the sprites reply lands (`keepViewOnPadChange`).
    */
@@ -740,7 +782,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       ...(l.refusedCells ?? []).map(c => cellRect(c.x, c.y)),
       ...(this.sprites?.sprites ?? []).map(sp => sp.box),
     ]
-    const pad = offMapPad(w, h, rects, l.orientation === 'vertical')
+    const pad = offMapPad(w, h, rects, l.orientation === 'vertical', l.screenCount)
     this.padMemo = { l, s: this.sprites, pad }
     return pad
   }
@@ -772,9 +814,68 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return Array.from({ length: last - first + 1 }, (_, i) => first + i)
   }
 
+  /** Asks for the screens now in view, skipping any already requested. */
   protected requestVisible(): void {
+    // A New slot shows a note, not a map: no screen is ever asked for.
+    if (this.options?.isNew) return
     this.sync()
-    for (const s of this.visibleScreens()) void this.fetchScreen(s)
+    const visible = this.visibleScreens()
+    for (const s of visible) void this.fetchScreen(s)
+    // The gutter's layers are read once the map's last screen is in view, not on open.
+    const l = this.mapLayout
+    if (l && visible.includes(l.screenCount - 1)) void this.fetchBeyond()
+  }
+
+  /**
+   * Fetches the screens past the last one that the far-end canvas (content band plus gutter) spans, under
+   * the same cache key and generation rules as `fetchScreen`. A failed read leaves the gutter without
+   * layers; it raises no map error, because the map itself drew.
+   */
+  protected async fetchBeyond(): Promise<void> {
+    const o = this.options
+    if (!o) return
+    const generation = this.generation
+    await Promise.all(
+      this.gutterScreens().map(async screen => {
+        const key = this.key(screen)
+        if (this.screens.has(key) || this.pending.has(key) || this.gutterFailed.has(key)) return
+        this.pending.add(key)
+        let detail: string | undefined
+        const r = await this.projects
+          .mapBeyond(o.manifestPath, o.index, screen, this.view.state.flags, this.view.state.switches)
+          .catch(err => ((detail = rawText(err)), undefined)) // prettier-ignore
+        if (generation !== this.generation) return
+        this.pending.delete(key)
+        if (r?.status === 'ok') {
+          const images = screenImages(r)
+          this.screens.set(key, images)
+          // Only while the key is still current: a reply for an older flag or switch state must not become the fallback.
+          if (key === this.key(screen)) this.gutterLast.set(screen, images)
+          this.sync() // paint this screen now; another one still out must not hold it back
+          return
+        }
+        detail ??= r?.status === 'unavailable' ? (r.detail ?? r.reason) : undefined
+        console.error(`Map ${o.index.toString(16)} gutter ${screen} failed:`, r ?? detail)
+        this.gutterFailed.set(key, detail)
+        this.update()
+      }),
+    )
+    if (generation === this.generation) this.sync()
+  }
+
+  /** The screens past the last that the far-end canvas (content band plus gutter) spans now; none when the map has no gutter. */
+  protected gutterScreens(): number[] {
+    const l = this.mapLayout
+    if (!l || farGutter(l.screenCount) === 0) return []
+    const vertical = l.orientation === 'vertical'
+    const far = vertical ? this.pad.bottom : this.pad.right
+    return Array.from({ length: beyondScreens(far, vertical ? l.height : l.width) }, (_, i) => l.screenCount + i) // prettier-ignore
+  }
+
+  /** Why the gutter cannot be drawn now: the text of the first failed read among the screens it needs, else undefined. */
+  protected gutterFailure(): { detail?: string } | undefined {
+    const key = this.gutterScreens().map(s => this.key(s)).find(k => this.gutterFailed.has(k)) // prettier-ignore
+    return key === undefined ? undefined : { detail: this.gutterFailed.get(key) }
   }
 
   /**
@@ -784,7 +885,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected async fetchScreen(screen: number): Promise<void> {
     const o = this.options
     const key = this.key(screen)
-    if (!o || this.screens.has(key) || this.pending.has(key)) return
+    if (!o || o.isNew || this.screens.has(key) || this.pending.has(key)) return
     this.pending.add(key)
     const generation = this.generation
     let r: MapScreenResult
@@ -807,17 +908,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       this.update()
       return
     }
-    const image = (b64: string | null) =>
-      b64 === null ? null : new ImageData(decodeRgba(b64), r.width, r.height)
-    this.screens.set(key, {
-      width: r.width,
-      height: r.height,
-      planes: Object.fromEntries(
-        MAP_PLANE_KEYS.map(k => [k, image(r.planes[k])]),
-      ) as ScreenImages['planes'],
-      screens: r.screens,
-      math: r.math,
-    })
+    this.screens.set(key, screenImages(r))
     const l = this.mapLayout
     if (
       !l ||
@@ -900,6 +991,56 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     for (const [k, canvas] of this.canvases)
       if (k.startsWith(`${DISPLAY}:`)) this.syncDisplay(canvas, Number(k.split(':')[1]))
     this.syncOffMap()
+    this.syncGutterLayers()
+  }
+
+  /**
+   * Paints Layers 2 and 3 through the far end (#1197): the shown planes of each screen past the last,
+   * composed with the map's own stacking and color math (no Layer 1, sprites or flames), pixels no layer
+   * covered left clear, laid end to end and faded over the last `farGutter` px. Repainted when a layer
+   * toggle, a reply, an edit, the flags or switches or the pad change (all in `want`). Always composes: while a
+   * reply is out it draws the screen's last good planes, so a toggle hides only the layer it names.
+   */
+  protected syncGutterLayers(): void {
+    const c = this.gutterCanvas
+    const l = this.mapLayout
+    if (!c || !l) return
+    const vertical = l.orientation === 'vertical'
+    const far = vertical ? this.pad.bottom : this.pad.right
+    const [sw, sh] = [l.width, l.height]
+    const n = beyondScreens(far, vertical ? sh : sw)
+    // Per screen: the current key's reply ('c'), else its last good planes ('o'), but a failed current key draws clear ('x').
+    const shots = Array.from({ length: n }, (_, i) => {
+      const screen = l.screenCount + i
+      const key = this.key(screen)
+      const now = this.screens.get(key)
+      if (now) return { shot: now, state: 'c' }
+      if (this.gutterFailed.has(key)) return { shot: undefined, state: 'x' }
+      const last = this.gutterLast.get(screen)
+      return { shot: last, state: last ? 'o' : 'x' }
+    })
+    const [w, h] = vertical ? [sw, far] : [far, sh]
+    const want = `${this.generation}:${this.key(l.screenCount)}:${shots.map(x => x.state).join('')}:${+this.showL2}${+this.showL3}:${w}x${h}` // prettier-ignore
+    if (c.dataset.drawn === want) return
+    const gutterShots = shots.map(({ shot: x }) => x && { width: x.width, height: x.height, planes: Object.fromEntries(MAP_PLANE_KEYS.map(k => [k, x.planes[k]?.data ?? null])), lists: x.screens, math: x.math }) // prettier-ignore
+    const out = composeGutter(
+      gutterShots,
+      k => this.layerShown(k),
+      vertical,
+      w,
+      h,
+      farGutter(l.screenCount),
+    )
+    c.width = w
+    c.height = h
+    c.getContext('2d')?.putImageData(new ImageData(out, w, h), 0, 0)
+    c.dataset.drawn = want
+  }
+
+  /** Remembers the gutter-layers canvas (mounted only when the map has a gutter) and paints it at once. */
+  protected readonly gutterRef = (el: HTMLCanvasElement | null): void => {
+    this.gutterCanvas = el
+    this.syncGutterLayers()
   }
 
   /**
@@ -1194,8 +1335,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Click selection (#984): the sprite goes to the Properties panel until another click, a map change, hide or close. */
   protected selectSprite(next: MapSpriteDto | undefined): void {
+    const redraw = !!(this.selectedSprite?.stored || next?.stored)
     this.selectedSprite = next
     this.syncSelection()
+    // The stored-tile highlight follows the selection.
+    if (redraw) this.update()
     // Revealed on a pick, not on every sync: closing the panel must stay closed until the next click.
     if (next && this.isVisible) void this.commands.executeCommand(RevealPropertiesCommand.id)
   }
@@ -1282,6 +1426,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Refits while in fit mode; always asks for the screens now in view. */
   protected fitStrip(): void {
+    if (this.options?.isNew) return
     this.zoomController.refit()
     requestAnimationFrame(() => this.requestVisible())
   }
@@ -1307,7 +1452,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Shows or hides the collision overlay (`hackbench.maps.toggleCollision`); a refused map stays off. */
   toggleCollision(): void {
-    if (this.collisionWhy) return
+    if (this.options?.isNew || this.collisionWhy) return
     this.showCollision = !this.showCollision
     this.collisionSeq++ // off: a reply still on its way is not wanted; on: it is asked for afresh below
     if (this.showCollision && !this.collisionCurrent()) void this.loadCollision()
@@ -1321,7 +1466,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Whether the collision toggle can be used: what `hackbench.maps.toggleCollision` and the button share. */
   get canToggleCollision(): boolean {
-    return !this.collisionWhy
+    return !this.options?.isNew && !this.collisionWhy
   }
 
   /** The collision toggle's tooltip: what pressing it does, or why it cannot. */
@@ -1352,10 +1497,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** Tooltip for Sprites: the label first, then the technical detail as a second line, so raw text never leads (#967). */
   protected spritesTitle(): string {
     if (this.spritesWhy) return withDetail(this.spritesLabel(), this.spritesDetail)
-    return withDetail(
-      this.spritesLabel(),
-      this.sprites?.sprites.find(x => x.unverified)?.unverified,
-    )
+    return withDetail(this.spritesLabel(), unverifiedCauses(this.sprites?.sprites ?? []))
   }
 
   protected toggleSprites(): void {
@@ -1421,11 +1563,27 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return l3.reason ?? (l3.priority ? 'Layer 3 · Overlay' : 'Layer 3 · Background')
   }
 
+  /** The view of a New slot: one plain-words note, no toolbar and no error (D155). */
+  protected renderNewSlot(): React.ReactNode {
+    return (
+      <div className="hb-map-view-main" data-details="done" data-generation={this.generation}>
+        <div className="hb-map-view-empty" data-control="map-new-note">
+          {NEW_SLOT_NOTE}
+        </div>
+      </div>
+    )
+  }
+
   /** Renders the toolbar and canvas; every unavailable overlay title comes from the plain-word helpers (#967). */
   protected render(): React.ReactNode {
+    if (this.options?.isNew) return this.renderNewSlot()
     this.renderedZoom = this.zoomController.value
     return (
-      <div className="hb-map-view-main">
+      <div
+        className="hb-map-view-main"
+        data-details={this.detailsGeneration === this.generation ? 'done' : 'pending'}
+        data-generation={this.generation}
+      >
         <div className="hb-map-view-toolbar">
           <LayerToggle
             glyph="1"
@@ -1504,7 +1662,6 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           <GridToggleButton on={this.showGrid} onToggle={() => this.toggleGrid()} />
           <ZoomStepper controller={this.zoomController} fitControls />
         </div>
-        {this.renderFacts()}
         {this.mapLayout?.note && (
           <div className="hb-map-view-note" data-control="map-note">
             {this.mapLayout.note}
@@ -1529,6 +1686,15 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             {this.blocksWhy}
           </div>
         )}
+        {this.gutterFailure() && (
+          <div
+            className="hb-map-view-note"
+            data-note="gutter-layers"
+            title={this.gutterFailure()?.detail}
+          >
+            {GUTTER_UNREAD}
+          </div>
+        )}
         {this.mapLayout?.layerNotes.map(n => (
           <div key={n} className="hb-map-view-note" data-note="layers">
             {n}
@@ -1536,10 +1702,6 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
         ))}
         {this.renderStrip()}
         <AfterCommit run={this.afterCommit} />
-        <details className="hb-map-view-header" data-control="header-panel">
-          <summary>Header</summary>
-          {this.renderDecode()}
-        </details>
       </div>
     )
   }
@@ -1587,7 +1749,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   }
 
   /**
-   * The strip: checkerboard, back area (masked to fade over the gutters), one canvas stack per screen, then
+   * The strip: checkerboard, back area (masked to fade over the far-end gutter), one canvas stack per screen, then
    * the overlays. Every overlay is positioned from the one `pad`, so the map sits where its data says.
    */
   protected renderStrip(): React.ReactNode {
@@ -1605,13 +1767,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const z = this.zoom
     const [mapW, mapH] = this.mapPx(l)
     const origin = this.mapOrigin()
-    // The back color is solid across the map and fades to transparent over each long-end gutter only (D48 part 2,
-    // R24), by a mask, so the element's background-color stays the map's back color.
+    // The back color is solid from the near edge and fades to transparent over the far-end gutter only (#1228,
+    // replacing D48 part 2 and R24), by a mask, so the element's background-color stays the map's back color.
     const vertical = l.orientation === 'vertical'
     const back = `rgb(${l.backdrop.join(',')})`
-    const fade = fadeMask(vertical, GUTTER_PX * z)
-    // The strip's rect without the gutters: the outermost `GUTTER_PX` of each long-end pad (content grows inward of it).
-    const checker = vertical ? `${GUTTER_PX * z}px 0` : `0 ${GUTTER_PX * z}px`
+    const gz = farGutter(l.screenCount) * z
+    const fade = fadeMask(vertical, gz)
+    // The strip's rect without the gutter: it reaches the near canvas edge and stops short of the far-end gutter.
+    const checker = vertical ? `0 0 ${gz}px 0` : `0 ${gz}px 0 0`
     return (
       <div className="hb-map-grid-host">
         <div
@@ -1650,12 +1813,12 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             style={{ padding: `${pad.top * z}px ${pad.right * z}px ${pad.bottom * z}px ${pad.left * z}px` }} // prettier-ignore
             onClick={e => {
               const strip = e.currentTarget.getBoundingClientRect()
-              // Strip pixels to map pixels: the gutter before screen 0 is not map.
+              // Strip pixels to map pixels: the pad before screen 0 (content only) is not map.
               this.selectSprite(this.spriteUnder((e.clientX - strip.left) / this.zoom - pad.left, (e.clientY - strip.top) / this.zoom - pad.top)) // prettier-ignore
             }}
           >
-            {/* The checkerboard is confined to the map and its content bands: the gutter, where the back color
-                fades out, shows the panel behind it (D48 part 2). */}
+            {/* The checkerboard reaches the near canvas edge and stops at the far-end gutter, where the back color
+                fades out and the panel shows behind it (#1228). */}
             <div
               className="hb-checkerboard"
               data-layer="checkerboard"
@@ -1707,6 +1870,19 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
                 />
               </div>
             ))}
+            {farGutter(l.screenCount) > 0 && !this.screenError && (
+              <canvas
+                className="hb-map-view-gutter-layers"
+                data-layer="gutter-layers"
+                style={{
+                  left: (vertical ? pad.left : pad.left + mapW) * z,
+                  top: (vertical ? pad.top + mapH : pad.top) * z,
+                  width: (vertical ? mapW : pad.right) * z,
+                  height: (vertical ? pad.bottom : mapH) * z,
+                }}
+                ref={this.gutterRef}
+              />
+            )}
             {l.refusedCells && !this.screenError && (
               <RefusedOverlay
                 cells={l.refusedCells}
@@ -1729,6 +1905,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
                 className="hb-map-view-edge"
                 data-control="map-edge"
                 style={{ left: pad.left * z, top: pad.top * z, width: mapW * z, height: mapH * z }}
+              />
+            )}
+            {this.selectedSprite?.stored && (
+              <div
+                className="hb-map-stored-tile"
+                data-control="stored-tile"
+                title="Where the map stores this sprite"
+                style={{ left: (pad.left + this.selectedSprite.stored.x) * z, top: (pad.top + this.selectedSprite.stored.y) * z, width: 16 * z, height: 16 * z }} // prettier-ignore
               />
             )}
             {this.showCollision && this.collisionCurrent() && (
@@ -1768,125 +1952,5 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected layerShown(plane: LayerKey): boolean {
     if (plane === SPRITES) return this.showSprites
     return plane.startsWith('l2') ? this.showL2 : plane.startsWith('l3') ? this.showL3 : this.showL1
-  }
-
-  /** What a reader wants at a glance: which map, how big, and what is unavailable and why. */
-  protected renderFacts(): React.ReactNode {
-    if (this.error) {
-      return (
-        <div
-          className="hb-map-view-body hb-map-view-facts hb-map-view-error"
-          title={this.errorDetail}
-        >
-          {this.error}
-        </div>
-      )
-    }
-    const d = this.details
-    if (!d) return null
-    const title = (
-      <h2 className="hb-map-view-title">
-        <span className="hb-map-slot">{slotLabel(d.index)}</span>
-        {d.name ? (
-          <span className="hb-map-name">{d.name}</span>
-        ) : d.nameUnavailable ? (
-          <span title={d.nameUnavailable}>name unavailable</span>
-        ) : null}
-      </h2>
-    )
-    if (d.levelDataUnavailable) {
-      return (
-        <div className="hb-map-view-body hb-map-view-facts">
-          {title}
-          <div className="hb-map-view-summary">
-            <span title={d.levelDataUnavailable}>level data unavailable</span>
-          </div>
-        </div>
-      )
-    }
-    return (
-      <div className="hb-map-view-body hb-map-view-facts">
-        {title}
-        <div className="hb-map-view-summary">
-          {d.screens} screens,{' '}
-          {d.isVertical !== undefined ? (
-            d.isVertical ? (
-              'vertical'
-            ) : (
-              'horizontal'
-            )
-          ) : (
-            <span title={d.orientationUnavailable}>orientation unavailable</span>
-          )}
-          {' · '}
-          {d.objectCount !== undefined ? (
-            `${d.objectCount} objects`
-          ) : (
-            <span title={d.objectsUnavailable}>objects unavailable</span>
-          )}
-          {' · '}
-          {d.spriteCount !== undefined ? (
-            `${d.spriteCount} sprites`
-          ) : (
-            <span title={d.spriteUnavailable}>sprites unavailable</span>
-          )}
-          {this.startWhy && (
-            <>
-              {' · '}
-              <span
-                data-control="map-start-note"
-                title={withDetail(this.startWhy, this.startDetail)}
-              >
-                start unavailable
-              </span>
-            </>
-          )}
-        </div>
-        {/* With the facts, not in the folded header: it qualifies the picture. */}
-        {d.gfxAssignmentNote && (
-          <div className="hb-map-view-error hb-map-view-note" data-note="gfx-assignment">
-            {d.gfxAssignmentNote}
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  protected renderDecode(): React.ReactNode {
-    const d = this.details
-    if (!d)
-      return (
-        <div className="hb-map-view-empty" title={this.error ? this.errorDetail : undefined}>
-          {this.error ?? 'Reading the ROM...'}
-        </div>
-      )
-    if (!d.headerBytes || !d.header) {
-      return (
-        <div className="hb-map-view-empty">
-          <span title={d.levelDataUnavailable}>level data unavailable</span>
-        </div>
-      )
-    }
-    const bytes = d.headerBytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ')
-    return (
-      <>
-        <table className="hb-map-view-table">
-          <tbody>
-            {d.header.map(f => (
-              <tr key={f.label}>
-                <th>{f.label}</th>
-                <td>{f.value}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {/* The decode above is a claim; these are the bytes it was made from. */}
-        <div className="hb-map-view-raw">
-          <span>Header bytes</span>
-          <code>{bytes}</code>
-        </div>
-      </>
-    )
   }
 }

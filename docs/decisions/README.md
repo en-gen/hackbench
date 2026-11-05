@@ -6,9 +6,15 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 
 | File | State | Decides |
 | --- | --- | --- |
+| [2026-11-05-gutter-layers-through-band.md](2026-11-05-gutter-layers-through-band.md) | Proposed | Layers 2 and 3 also run through an off-map content band before the gutter; an object-stream Layer 2 shows only tiles the stream wrote past the edge, usually none (#1197) |
+| [2026-11-05-fails-to-parse-means-no-end-marker.md](2026-11-05-fails-to-parse-means-no-end-marker.md) | Proposed | a pointed slot "fails to parse" when a stock-size walk finds no end marker within 128 KB or before the file ends; the exit graph keeps its 8 KB cap (D155) |
+| [2026-11-05-line-guided-picks-read-drawnparts.md](2026-11-05-line-guided-picks-read-drawnparts.md) | Proposed | line-guided picks read `drawnParts` instead of `.parts` after #840 (four reads, nothing else changed in #987's code) |
+| [2026-11-04-map-gutter-far-end-only.md](2026-11-04-map-gutter-far-end-only.md) | Ruled | the map view gutter is one screen (256 px) at the far end only, none before position 0 and none at 32 screens; replaces the left half of D48 part 2 and R24 (D172) |
+| [2026-11-04-state-inside-repo-cutover.md](2026-11-04-state-inside-repo-cutover.md) | Proposed | hooks and settings stay unchanged and the cutover leaves a junction at the old state folder name |
+| [2026-11-03-gm12-gate-window-hooks.md](2026-11-03-gm12-gate-window-hooks.md) | Ruled | a hook in GM12PrepLevel before the $0D9B test is an accepted limit, no guard; the warn path is follow-up #1205 (D159) |
 | [2026-10-29-keep-staged-check-scripts.md](2026-10-29-keep-staged-check-scripts.md) | Proposed | keep the staged-check scripts and their gate test as tooling for #1163 |
 | [2026-10-17-map-notes-rom-scope.md](2026-10-17-map-notes-rom-scope.md) | Proposed | whole-ROM map notes are shown once under This ROM, never on each map |
-| [2026-10-17-map-draw-notes-stay-above-map.md](2026-10-17-map-draw-notes-stay-above-map.md) | Proposed | map draw notes stay above the map and are also listed |
+| [2026-10-17-map-draw-notes-panel-only.md](2026-10-17-map-draw-notes-panel-only.md) | Ruled | map draw notes appear only in the Properties panel, no lines over the map (D111 call 2 / "D95B") |
 | [2026-10-17-missing-base-rom-is-a-project-problem.md](2026-10-17-missing-base-rom-is-a-project-problem.md) | Proposed | a missing base ROM is a project problem, not a map note |
 | [2026-10-17-map-facts-plain-labels.md](2026-10-17-map-facts-plain-labels.md) | Proposed | plain labels: Layout, Collected items remembered, Tile graphics |
 | [2026-10-17-graphics-note-names-lunar-magic.md](2026-10-17-graphics-note-names-lunar-magic.md) | Proposed | the graphics note keeps the Lunar Magic wording |
@@ -32,3 +38,8 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 | [2026-10-16-third-party-code.md](2026-10-16-third-party-code.md) | Ruled | reuse open-source code with a fitting licence and visible credit; no strong GPL; agents never contact outside maintainers |
 | [2026-10-16-side-quest.md](2026-10-16-side-quest.md) | Ruled | side quest is a per-session mode, not a protocol: one session works one problem with no orchestration |
 | [2026-10-19-map-view-gutter-details.md](2026-10-19-map-view-gutter-details.md) | Proposed | map view gutter and badge details: solid content bands, fade to panel, grid across gutters, edge line, drawn-box growth, issue count meaning |
+| [2026-11-03-bonus-game-grid-fixed-positions.md](2026-11-03-bonus-game-grid-fixed-positions.md) | Ruled | bonus game sprite $82: the nine-block grid draws at the game's fixed positions, not around the placed spot or a drag (D158 / Decision 124 A) |
+| [2026-11-03-tide-l3-load-x.md](2026-11-03-tide-l3-load-x.md) | Ruled | no load step sets tide X; HackBench draws phase 0; the capture's 271 is the 15 frames before its anchor; bytes $02-$7F are tides in the core |
+| [2026-10-17-pr-before-locked-test-run.md](2026-10-17-pr-before-locked-test-run.md) | Proposed | open the PR before the locked test run when the lock queue is long; arm auto-merge only after it passes |
+| [2026-10-20-line-guided-gate-calls.md](2026-10-20-line-guided-gate-calls.md) | Proposed | line-guided gate names each call target by routine fingerprint, interact slot unhashed; old Travel tests dropped; rope in round 2; NMI vector check; slot-3 poke sweep; first frame at rest by the run, no id list |
+| [2026-10-29-line-guided-first-frame-on-line.md](2026-10-29-line-guided-first-frame-on-line.md) | Ruled | line-guided sprites at rest are drawn where the game first has them on their line; one that starts behind the scroll in every loader spawn stays on its tile ("never appears in play") |

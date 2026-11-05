@@ -1,0 +1,87 @@
+# Runs the ROM corpus tests on a branch, before merging or to measure a fix.
+# They need a real ROM, so they run in the private
+# en-gen/hackbench-validation repo on the owner's hardware, nightly against
+# develop; this workflow is the manual path, as e2e-dispatch.yml is for the
+# Playwright suite. Agents use it only once en-gen/hackbench#536 is live
+# (docs/decisions/2026-10-04-rom-ci-on-owner-hardware.md).
+#
+# Only a ref of this repo runs: the target refuses a fork's before anything
+# reaches the runner. Its results are counts and per-test milliseconds, on the
+# remote run's summary and as its durations artifact.
+name: corpus-dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      hackbench_ref:
+        description: 'hackbench ref to test. Defaults to this run ref.'
+        required: false
+        type: string
+      runs:
+        description: 'how many times to run the suites with the ROMs, 1 to 10'
+        required: false
+        default: '1'
+        type: string
+      load:
+        description: 'none, or cpu: one busy process per core during the runs'
+        required: false
+        default: 'none'
+        type: choice
+        options: [none, cpu]
+
+# GITHUB_TOKEN is unused: the dispatch authenticates with E2E_DISPATCH_TOKEN.
+permissions: {}
+
+env:
+  TARGET_REPO: en-gen/hackbench-validation
+  TARGET_WORKFLOW: corpus-nightly.yml
+
+jobs:
+  corpus:
+    name: Corpus tests (remote)
+    runs-on: ubuntu-latest
+    # Starts the remote run and hands back its link. No waiting here: it queues
+    # behind whatever the one runner is doing, and can take hours.
+    timeout-minutes: 5
+    steps:
+      - name: Trigger
+        env:
+          # Fine-grained PAT, Actions read and write on TARGET_REPO only.
+          # GITHUB_TOKEN cannot write to another repository.
+          GH_TOKEN: ${{ secrets.E2E_DISPATCH_TOKEN }}
+          REF: ${{ inputs.hackbench_ref || github.sha }}
+          RUNS: ${{ inputs.runs }}
+          LOAD: ${{ inputs.load }}
+          DISPATCH_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          : "${GH_TOKEN:?E2E_DISPATCH_TOKEN is not set on this repository}"
+
+          # A dispatch only starts a workflow whose file is on the target's
+          # DEFAULT branch. Without this check the POST returns success, no
+          # run starts, and this job reports green having tested nothing.
+          if ! gh api "repos/$TARGET_REPO/actions/workflows/$TARGET_WORKFLOW" >/dev/null 2>&1; then
+            echo "::error::$TARGET_WORKFLOW is not on $TARGET_REPO's default branch, so a dispatch would be silently discarded." >&2
+            exit 1
+          fi
+
+          before=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "Requesting corpus run for hackbench $REF, runs $RUNS, load $LOAD"
+          gh workflow run "$TARGET_WORKFLOW" --repo "$TARGET_REPO" \
+            --ref "$(gh api "repos/$TARGET_REPO" --jq .default_branch)" \
+            -f "hackbench_ref=$REF" -f "runs=$RUNS" -f "load=$LOAD" -f "dispatch_id=$DISPATCH_ID"
+
+          # workflow run returns no id; the target titles its run with ours.
+          run_id=''
+          for _ in $(seq 1 30); do
+            sleep 5
+            run_id=$(gh run list --repo "$TARGET_REPO" --workflow "$TARGET_WORKFLOW" \
+              --created ">=$before" --limit 50 --json databaseId,displayTitle \
+              --jq "map(select(.displayTitle | endswith(\" $DISPATCH_ID\"))) | .[0].databaseId // empty")
+            [ -n "$run_id" ] && break
+          done
+          if [ -z "$run_id" ]; then
+            echo "::error::Dispatched but no run appeared within 150s." >&2
+            exit 1
+          fi
+          echo "[Remote run](https://github.com/$TARGET_REPO/actions/runs/$run_id)" | tee -a "$GITHUB_STEP_SUMMARY"

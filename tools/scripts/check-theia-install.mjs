@@ -19,8 +19,11 @@ const isLink = p => {
     return false
   }
 }
+// A nested task worktree (<root>/.worktrees/x, #1202) is another checkout even
+// though it sits under root, so a link into it does not count as inside.
 const inside = (root, p) => {
   const rel = path.relative(root, p)
+  if (rel.split(path.sep)[0] === '.worktrees') return false
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
 }
 

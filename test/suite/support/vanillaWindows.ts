@@ -18,26 +18,31 @@ export function stripHeader(file: Uint8Array): Uint8Array {
 export const loadVanillaBytes = (path: string): Uint8Array =>
   stripHeader(new Uint8Array(readFileSync(path)))
 
-const key = (b: Uint8Array, i: number): string => Buffer.from(b.buffer, b.byteOffset + i, WINDOW).toString('latin1') // prettier-ignore
+const key = (b: Uint8Array, i: number, w: number = WINDOW): string => Buffer.from(b.buffer, b.byteOffset + i, w).toString('latin1') // prettier-ignore
 
-/** Every window of `bytes`, as a set the cart is searched against. */
-export function windowSet(bytes: Uint8Array): Set<string> {
+/** Every window of `bytes` (`w` long, default WINDOW), as a set the cart is searched against. */
+export function windowSet(bytes: Uint8Array, w: number = WINDOW): Set<string> {
   const s = new Set<string>()
-  for (let i = 0; i + WINDOW <= bytes.length; i++) s.add(key(bytes, i))
+  for (let i = 0; i + w <= bytes.length; i++) s.add(key(bytes, i, w))
   return s
 }
 
-const distinct = (b: Uint8Array, i: number): number => new Set(b.subarray(i, i + WINDOW)).size
+const distinct = (b: Uint8Array, i: number, w: number = WINDOW): number =>
+  new Set(b.subarray(i, i + w)).size
 
 /** The SNES address (LoROM, bank 0 first) of a file offset. */
 export const snesOf = (off: number): string =>
   `$${(off >> 15).toString(16).toUpperCase().padStart(2, '0')}:${(0x8000 | (off & 0x7fff)).toString(16).toUpperCase().padStart(4, '0')}` // prettier-ignore
 
 /** The SNES address of every window of `cart` that is also a vanilla window; adjacent hits are not merged. */
-export function vanillaHits(cart: Uint8Array, vanilla: ReadonlySet<string>): string[] {
+export function vanillaHits(
+  cart: Uint8Array,
+  vanilla: ReadonlySet<string>,
+  w: number = WINDOW,
+): string[] {
   const hits: string[] = []
-  for (let i = 0; i + WINDOW <= cart.length; i++)
-    if (distinct(cart, i) >= MIN_DISTINCT && vanilla.has(key(cart, i))) hits.push(snesOf(i))
+  for (let i = 0; i + w <= cart.length; i++)
+    if (distinct(cart, i, w) >= MIN_DISTINCT && vanilla.has(key(cart, i, w))) hits.push(snesOf(i))
   return hits
 }
 

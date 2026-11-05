@@ -20,6 +20,19 @@ const model = (parts: ReturnType<typeof part>[]): SpriteModel =>
     chosen: 0,
   }) as unknown as SpriteModel
 
+describe('passPieces measures from the draw position (#842)', () => {
+  it('uses drawPos, not the end-of-pass pos, when they differ', () => {
+    const m = model([part(100, 16)])
+    m.passes[0]!.pos = { x: 10, y: 20 }
+    m.passes[0]!.origin = { x: 10, y: 20 }
+    m.passes[0]!.drawPos = { x: 6, y: 17 }
+    // piece offset 0 from the origin; the sprite stood 4 left and 3 above it when it drew
+    expect(passPieces(m, 0)[0]).toMatchObject({ dx: 4, dy: 3 })
+    delete m.passes[0]!.drawPos
+    expect(passPieces(m, 0)[0]).toMatchObject({ dx: 0, dy: 0 })
+  })
+})
+
 describe('passPieces and the capture drop rule', () => {
   it('keeps pieces in the 224-255 band and drops only Y == $F0', () => {
     const tiles = passPieces(model([part(232, 16), part(248, 8), part(224, 8), part(0xf0, 8)]), 0)

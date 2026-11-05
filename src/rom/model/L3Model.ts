@@ -68,7 +68,7 @@ export interface L3Inputs {
    * and not where the layer sits a few seconds in (#563, docs/rom/layer3-world-locked.md).
    */
   worldLocked?: { camXPx: number }
-  /** A tide ($00-$7F settings byte) tiles every 256 px and draws one copy of its two-copy tilemap. */
+  /** A tide ($01-$7F settings byte; $00 is not one) tiles every 256 px and draws one copy of its two-copy tilemap. */
   tide: boolean
   /**
    * Why `camYPx` is a best reading, not confirmed (#860, #910), one sentence each. A list like L2's

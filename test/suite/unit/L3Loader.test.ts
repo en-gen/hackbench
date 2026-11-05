@@ -247,10 +247,9 @@ describe('classifyL3Routine', () => {
     )
   })
 
-  it('returns tide ONLY for settingsByte === $01 (Tide_UpAndDown)', () => {
+  it('returns tide for settingsByte === $01 (Tide_UpAndDown)', () => {
     // Per CODE_05C494 (bank_05.asm:5576-5578): DEC A; BNE CODE_05C4EC means
-    // Y animation runs only when Layer3TideSetting === 1. Bytes $00 and
-    // $02..$7F take other paths and don't update Layer3YPos.
+    // Y animation runs only when Layer3TideSetting === 1.
     expect(classifyL3Routine({ layer3Setting: 1, settingsByte: 0x01, tileset: 0 }).kind).toBe(
       'tide',
     )
@@ -262,9 +261,9 @@ describe('classifyL3Routine', () => {
     )
   })
 
-  it('returns fixed for byte $02 (Tide_Stationary - Y is static at $40)', () => {
+  it('returns tide for byte $02 (Tide_Stationary - tide X, Y static at $40; #808)', () => {
     expect(classifyL3Routine({ layer3Setting: 2, settingsByte: 0x02, tileset: 8 }).kind).toBe(
-      'fixed',
+      'tide',
     )
   })
 
@@ -452,14 +451,14 @@ describe.skipIf(!romPresent)('L3Loader (ROM-only)', () => {
     expect(load!.initialYPx).toBe(0x40) // Tide_Stationary → $40 = 64
   })
 
-  it("readL3RoutineSummary level $102 (Yoshi's Island 4 sublevel) → fixed / Tide_Stationary", () => {
+  it("readL3RoutineSummary level $102 (Yoshi's Island 4 sublevel) → tide / Tide_Stationary", () => {
     // $102 has tileset 8, layer3Setting 2, settings byte $02 (Tide_Stationary).
-    // Per the fix: only byte $01 animates Y, so $02 → kind:'fixed'. Init Y
-    // stays at $40 from l3InitialYPx (canonical Tide_Stationary value).
+    // Only byte $01 animates Y, so $02 is a tide with isTideUpAndDown false (#808).
+    // Init Y stays at $40 from l3InitialYPx (canonical Tide_Stationary value).
     const rom = SmwRom.open(ROM_PATH)
     const sum = readL3RoutineSummary(rom.rom, 0x102, 8)
     expect(sum.layer3Setting).toBeGreaterThan(0)
-    expect(sum.kind).toBe('fixed')
+    expect(sum.kind).toBe('tide')
     expect(sum.isTideUpAndDown).toBe(false)
     expect(sum.initialYPx).toBe(0x40)
   })
