@@ -16,7 +16,7 @@
  *
  * Planted-offset sanity for the verifier (each should turn the named cases red): drop `- pad.left` or
  * `- pad.top` in updateHover (hover, on $105 and $109), drop `+ pad.top` from the sprite anchor (the anchor
- * case on $109), write `(y + pad.top) * w + x` without `+ pad.left` in offMapSpritePixels (the $C4/$DD/$102
+ * case on $109), write `(y + pad.top) * w + x` without `+ pad.left` in offMapSpritePixels (the $C4/$DD/$110
  * canvas-pixel cases), make the back area a solid color (the fade case), or request screens outside the
  * map in visibleScreens (any case would then show a screen error).
  */
@@ -396,38 +396,59 @@ test('$DD: platform pixels land in the left pad: 8 px rounds up to one 16 px til
   expect(px.map).toBe(0)
 })
 
-test('$102: sprites 24 px below the map grow the bottom by 32 px (24 rounds up to 32) and there is no gutter below', async ({
+// The bottom band rests on map $110: its Ball 'n Chain ($9E, stream index 11) hangs 16 px below the map at rest
+// (box bottom 448 on a 432 px map; sweep of vanilla, one machine, 2026-11-05). Map $102 used to have 24 px of
+// sprites below the map, but that came from the 64-pass run letting its floating platforms and spike balls sink
+// in a level with no water; #1119 (a94e1f4d) draws them at their placed spot, and their INIT does not move them
+// (InitFloatingPlat, SMWDisX bank_01.asm:6815-6817; InitFloatSpkBall, bank_01.asm:6795-6805). $9E's INIT only sets
+// its chain length (InitBallNChain, bank_01.asm:531-537), so #1231 (INIT moves count) leaves the 16 px as it is.
+test('$110: a sprite 16 px below the map grows the bottom by 16 and there is no gutter below', async ({
   page,
 }) => {
-  await openMap(page, 0x102)
-  await spritesLanded(page, 0x102)
-  await zoomAt(page, 0x102, 'zoom-actual')
-  const r = await rects(page, 0x102)
+  await openMap(page, 0x110)
+  await spritesLanded(page, 0x110)
+  await zoomAt(page, 0x110, 'zoom-actual')
+  const r = await rects(page, 0x110)
   const zoom = r.screen.w / 256
-  expectPad(pads(r, zoom), { left: 0, top: 0, right: G, bottom: 32 })
-  const px = await canvasPixels(page, 0x102)
+  expectPad(pads(r, zoom), { left: 0, top: 0, right: G, bottom: 16 })
+  const px = await canvasPixels(page, 0x110)
   expect(px.below).toBeGreaterThan(0)
   expect(px.above).toBe(0)
 })
 
-test('$102: Fit frames the map and its bottom band: the whole strip fits the view with no vertical scroll', async ({
+test('$110: with a synthetic box 24 px below the map the bottom grows by 32 (24 rounds up to 32), not the real 16', async ({
   page,
 }) => {
-  await openMap(page, 0x102)
-  await spritesLanded(page, 0x102)
-  await click(page, 0x102, 'zoom-fit')
+  // 36 px tall, its last 24 below the map's 432 px bottom (asserted below); the real sprite alone gives 16.
+  await page.evaluate(() => (window.__hbExtra = [{ x0: 64, y0: 420, x1: 96, y1: 456 }]))
+  await openMap(page, 0x110)
+  await spritesLanded(page, 0x110)
+  await zoomAt(page, 0x110, 'zoom-actual')
+  const r = await rects(page, 0x110)
+  const zoom = r.screen.w / 256
+  expect(r.edge.h / zoom).toBeCloseTo(432, 0)
+  expectPad(pads(r, zoom), { left: 0, top: 0, right: G, bottom: 32 })
+})
+
+test('$110: Fit frames the map and its bottom band: the whole strip fits the view with no vertical scroll', async ({
+  page,
+}) => {
+  await openMap(page, 0x110)
+  await spritesLanded(page, 0x110)
+  await click(page, 0x110, 'zoom-fit')
   await page.waitForTimeout(600)
   const m = await page.evaluate(sel => {
     const sc = document.querySelector(`${sel} [data-control="map-scroller"]`)
     const strip = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
     return { clientH: sc.clientHeight, scrollH: sc.scrollHeight, stripH: strip.height }
-  }, root(0x102))
+  }, root(0x110))
   expect(m.stripH).toBeLessThanOrEqual(m.clientH + 1)
   expect(m.scrollH).toBeLessThanOrEqual(m.clientH + 1)
-  // And Fit used the bottom band: 432 map px + 32 px, not 432 alone.
-  const r = await rects(page, 0x102)
+  // And Fit used the bottom band: the map's height + 16 px, not the map alone.
+  const r = await rects(page, 0x110)
   const zoom = r.screen.w / 256
-  expect(r.strip.h / zoom).toBeCloseTo(432 + 32, 0)
+  expect(r.strip.h / zoom).toBeCloseTo(r.edge.h / zoom + 16, 0)
+  expect(r.edge.h / zoom).toBeCloseTo(432, 0)
 })
 
 test('marks far past the end draw raw, in a canvas grown to hold them with the far-end gutter beyond', async ({
@@ -531,34 +552,34 @@ for (const { index, screenW, vertical } of [
 }
 
 test('the grid runs across the far-end gutter and the growth band', async ({ page }) => {
-  await openMap(page, 0x102)
-  await spritesLanded(page, 0x102)
-  await zoomAt(page, 0x102, 'zoom-actual')
+  await openMap(page, 0x110)
+  await spritesLanded(page, 0x110)
+  await zoomAt(page, 0x110, 'zoom-actual')
   // The grid is on by default (#920): a click here would turn it off. Make sure of it, as map-view.spec.cjs does.
-  const toggle = page.locator(`${root(0x102)} [data-control="grid-toggle"]`)
+  const toggle = page.locator(`${root(0x110)} [data-control="grid-toggle"]`)
   if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   // The map view's own grid canvas (scoped to this view: another view's grid canvas also carries the class).
-  const grid = page.locator(`${root(0x102)} canvas.hb-grid-overlay`)
+  const grid = page.locator(`${root(0x110)} canvas.hb-grid-overlay`)
   await expect(grid).toHaveCount(1, { timeout: 15000 })
   await page.waitForTimeout(500)
   let lines = JSON.parse(await grid.getAttribute('data-grid-lines'))
   // Scrolled to 0 the map starts at the canvas edge: the map's first screen line is at 0, with no gutter before it.
   expect(lines.x.find(l => l.pos === 0).weight).toBe(5)
   // Scrolled to the end, tile lines run on across the far-end gutter, well past the map's last screen line.
-  const screens = (await rects(page, 0x102)).screens
+  const screens = (await rects(page, 0x110)).screens
   await page.evaluate(sel => {
     const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
     s.scrollLeft = s.scrollWidth
-  }, root(0x102))
+  }, root(0x110))
   await page.waitForTimeout(500)
   lines = JSON.parse(await grid.getAttribute('data-grid-lines'))
   expect(Math.max(...lines.x.map(l => l.pos))).toBeGreaterThan(screens * 256 + G / 2)
-  // The bottom growth band (48 px below the map) has lines too, once scrolled to it.
+  // The bottom growth band (16 px below the map) has lines too, once scrolled to it.
   await page.evaluate(sel => {
     const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
     s.scrollTop = s.scrollHeight
-  }, root(0x102))
+  }, root(0x110))
   await page.waitForTimeout(500)
   lines = JSON.parse(await grid.getAttribute('data-grid-lines'))
   expect(Math.max(...lines.y.map(l => l.pos))).toBeGreaterThan(432)
