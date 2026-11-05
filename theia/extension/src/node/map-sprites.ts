@@ -67,6 +67,7 @@ import {
   type PaletteWrite,
   type SpritePart,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { isRopeId, ropeModel } from '../../../../src/rom/sprites/interp/RopeLength'
 import {
   castleFlames,
   VANILLA_FLAME_ROUTINES,
@@ -778,7 +779,11 @@ export function interpRunner(
     if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
     // The map's own loader placed it at map load (D156): it also spawns at the map-load camera.
     const opening = !!w && s.index >= 0 && s.index < 128 && !!w[SPRITE_LOAD_STATUS + s.index]
-    let m = run(rom, s.spriteId, seed(camera, { opening }))
+    // The rope draws its length from the slot the loader gives it (RopeLength.ts, #1230): run in that slot, not slot 0.
+    const rope = !!w && isRopeId(s.spriteId)
+    let m = rope
+      ? ropeModel(rom, { id: s.spriteId, setting: w![0x1692]!, x, y, vertical: model.isVertical }, slot => run(rom, s.spriteId, seed(camera, { opening, slot }))) // prettier-ignore
+      : run(rom, s.spriteId, seed(camera, { opening }))
     // A sprite placed at the game's own layout (the bonus game) was replayed in the loader's top slot; an earlier loaded sprite
     // may have taken it, which moves one block by a pixel and changes its item (measured on $000, slots 9 vs 8): drawn, marked.
     if (
@@ -795,7 +800,8 @@ export function interpRunner(
     // may draw nothing there: the shift is tried the other way, and if that draws nothing too the probe
     // proves nothing and the run stands (no position is invented).
     // A sprite drawn at fixed map positions (InitLatches.ts) has no screen-fixed parts, and its camera is not the loader's.
-    if (m.absolutePlacement) return { m, fixed: false }
+    // A rope is not screen-fixed, and its probe would run in another slot than the picture.
+    if (m.absolutePlacement || rope) return { m, fixed: false }
     const dir = [x - camera.x < 128 ? -13 : 13, y - camera.y < 112 ? -11 : 11]
     for (const k of [1, -1]) {
       const shifted = { x: camera.x + dir[0]! * k, y: camera.y + dir[1]! * k }

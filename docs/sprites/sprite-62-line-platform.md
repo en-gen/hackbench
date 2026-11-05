@@ -69,3 +69,13 @@ right of their tile, on its row, and none of the 6 `$62` or 12 `$64` do (7 maps,
 tile whose INIT is not one of the two stock line-guided INITs (`InitLineGuidedSpr`, and `InitLineRope` with the
 `InitLinePlat` tail it falls into) is flagged unverified (`lineInitReason`), whatever its id, and still runs. The note says how
 much of the move was start-up code and how much its first step.
+
+## The rope ($64) at its in-game length (#1230, D152 / Decision 103 E)
+
+The draw uses 5 tiles, or 9 when the slot it runs in is 6 or higher and the sprite memory setting is not 0 (`bank_01.asm:12583-12589`; the same test sizes the OAM at 12624-12628). The level loader picks the slot (`bank_02.asm:5376-5405`): the top slot of `SpriteSlotMax[setting]`, searching down to `SpriteSlotStart[setting]` (not tested itself; `$FF` runs through slot 0), with `ReservedSprite1/2` ids taking their own ranges. `$64` is `ReservedSprite2` on setting 1 only, and only when bit 4 of the spawn coordinate on the scroll axis is set (`CMP #$64`, `AND #$10`, 5389-5393): an odd 16 px column in a horizontal map, an odd row in a vertical one (`$00` is Layer1X or Layer1Y plus the offset, 5217-5240). That odd rope searches from `SpriteSlotMax2` (7) down; an even one searches 5 to 0.
+
+Map view: `SlotPick.ts` fingerprints the 62-byte pick (one SHA-256, none masked), reads the table addresses from its operands, and walks the same search; `RopeLength.ts` runs the rope's own draw in the slot the loader gives it, so the ROM's branch yields the tile count and no length is written in HackBench. Where ordinary sprites can take the same slots (settings 2 to 7 and the like), the draw is run in the top slot and in the last slot of the range; the parts only the top run drew are tagged `door` (shown in the screen door once #1132's door is wired). Setting 0 draws 5 tiles in every slot. A loader that is not the fingerprinted one, or a setting past the tables, keeps slot 0 (5 tiles) and the Properties tooltip says so.
+
+Assumption, not modelled: slots 6 and 7 on setting 1 are reachable only by `$5F` and odd `$64`, so an odd rope is long unless three or more of those are alive at once; no earlier-sprite occupancy is simulated. The slot does not move the first frame: the line walk's positions are the same in slot 5 and 7 on map `$00F` (corpus test); only the motor tile, which the draw takes from the slot and `EffFrame` (`bank_01.asm:12574-12582`), can differ.
+
+Evidence: Mesen 2 on map `$00F`, one machine, 4 of 4 runs: columns 205 and 241 in slot 7 (long), columns 164, 186, 210, 216 short. Maps `$0DD`, `$12A` and `$12C` are uncaptured; the corpus test pins what the rule draws there.

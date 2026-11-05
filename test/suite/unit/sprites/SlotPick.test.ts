@@ -66,3 +66,15 @@ describe.skipIf(!hasRom(VANILLA))('slotWalk (vanilla loader, corpus)', () => {
     expect(w(63, 0)).toMatchObject({ status: 'setting' })
   })
 })
+
+describe('the short slot always exists (case 2: no crash when every ordinary slot is busy)', () => {
+  it('sweeps every setting, id kind and parity on the synthetic loader', () => {
+    for (let s = 0; s < ROWS.max.length; s++)
+      for (const id of [SPECIAL, RESERVED1, 0x01])
+        for (const a of [0, 0x10]) {
+          const r = walk(s, id, a)
+          expect(r.status, `${s}/${id}/${a}`).toBe('ok')
+          if (r.status === 'ok') expect(r.short).toBeLessThanOrEqual(r.long)
+        }
+  })
+})

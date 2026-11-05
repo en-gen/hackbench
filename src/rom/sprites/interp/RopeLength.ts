@@ -7,6 +7,7 @@
 import type { RomFile } from '../../RomFile'
 import type { CodeFingerprint } from './InitLatches'
 import { slotWalk } from './SlotPick'
+import { VANILLA_DISPATCH } from './LineGuided'
 import { drawnParts, type SpriteModel, type SpritePart } from './SpriteRunner'
 
 /** The coordinate the loader tests: Y in a vertical map, X in a horizontal one (bank_02.asm:5217-5240, the `$00` the pick reads). */
@@ -17,6 +18,9 @@ export const alongScroll = (x: number, y: number, vertical: boolean): number => 
  * out and the rope shows its short length (as before), never a solid long one the ruling does not allow.
  */
 export const DOOR_WIRED = false
+
+/** The ids whose line-guided arm calls the rope draw (`VANILLA_DISPATCH`, hash-gated in the runner), not an id list of this module. */
+export const isRopeId = (id: number): boolean => VANILLA_DISPATCH.byId?.[id]?.includes('rope') === true
 
 export interface RopeAt {
   id: number
@@ -58,7 +62,7 @@ export function ropeModel<M extends SpriteModel>(rom: RomFile, at: RopeAt, runAt
     return { ...m, unverifiedReason: m.unverifiedReason ?? `${w.reason}, so the rope is shown at its short length` }
   }
   const long = runAt(w.long)
-  if (w.short === null || w.short === w.long) return long
+  if (w.short === w.long) return long
   const short = runAt(w.short)
   const [a, b] = [short.anchor, long.anchor]
   if (short.chosen !== long.chosen || a?.x !== b?.x || a?.y !== b?.y)

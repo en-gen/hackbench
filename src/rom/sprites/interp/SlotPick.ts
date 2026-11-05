@@ -24,7 +24,7 @@ const SLOTS = 12
 
 /** D103: a `status` for a read that can be refused. */
 export type SlotWalk =
-  | { status: 'ok'; long: number; short: number | null }
+  | { status: 'ok'; long: number; short: number }
   | { status: 'unrecognized' | 'setting' | 'unreadable'; reason: string }
 
 interface Tables {
@@ -86,7 +86,8 @@ function slotsOf(r: Range): number[] {
  * The slot `id` lands in on this map, in both cases the length can depend on. `setting` is $1692, `along` the spawn
  * coordinate on the scroll axis (X in a horizontal map, Y in a vertical one: the loader's `$00`, bank_02.asm:5217-5240).
  * `long`: every slot free, so the top of the range. `short`: every slot an ORDINARY sprite can take is busy except the
- * last one the search reaches. With no ordinary sprite in the range (the reserved slots) the two are the same slot.
+ * last one the search reaches, so a short slot always exists. With no ordinary sprite in the range (the reserved slots)
+ * the two are the same slot.
  * `spec` is a test hook for a synthetic cart's own fingerprint.
  */
 export function slotWalk(
@@ -110,6 +111,7 @@ export function slotWalk(
   if (long >= SLOTS) return { status: 'unreadable', reason: 'the loader gives a slot outside the sprite table' }
   const reachable = new Set(slotsOf(ordinary))
   const last = mineSlots[mineSlots.length - 1]!
-  const short = mineSlots.find(x => !(reachable.has(x) && x !== last))
-  return { status: 'ok', long, short: short !== undefined && short < SLOTS ? short : null }
+  // Never null: the last slot of the range is not in `busy`.
+  const short = mineSlots.find(x => !(reachable.has(x) && x !== last))!
+  return { status: 'ok', long, short }
 }
