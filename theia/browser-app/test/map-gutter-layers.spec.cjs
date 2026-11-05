@@ -22,6 +22,7 @@
  *   G5 the canvas z-index goes above the off-map canvas (110 -> 130): the sprite cases.
  *   G6 fetchBeyond drops its `generation !== this.generation` guard: the stale-reply case.
  *   G7 a failed read leaves `pending` (the delete moves above the status check): the failure case (it would re-ask).
+ *   G9 loadSprites drops its `requestVisible()` call: the late-sprites case.
  *   G8 the gutter canvas repaints blank while replies are pending (drop the `shots.some(x => !x)` keep): the edit case.
  */
 const { test, expect } = require('@playwright/test')
@@ -64,10 +65,19 @@ test.afterEach(async ({ page }) => {
  */
 async function openSynthetic(
   page,
-  { screens, vertical = false, boxes = [], mode = 'ok', math = null, l2Rows = null },
+  {
+    screens,
+    vertical = false,
+    boxes = [],
+    mode = 'ok',
+    math = null,
+    l2Rows = null,
+    spritesDelay = 0,
+    scrollEarly = false,
+  },
 ) {
   await page.evaluate(
-    async ({ index, screens, vertical, boxes, mode, math, l2Rows }) => {
+    async ({ index, screens, vertical, boxes, mode, math, l2Rows, spritesDelay }) => {
       window.__beyond = []
       const [width, height] = vertical ? [512, 256] : [256, 432]
       const orientation = vertical ? 'vertical' : 'horizontal'
@@ -122,7 +132,10 @@ async function openSynthetic(
             },
           }
         },
-        mapSprites: () => ({ status: 'ok', orientation, screenCount: screens, width, height, sprites }),
+        mapSprites: async () => {
+          if (spritesDelay) await new Promise(r => setTimeout(r, spritesDelay))
+          return { status: 'ok', orientation, screenCount: screens, width, height, sprites }
+        },
       } // prettier-ignore
       const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index })
       w.projects = new Proxy({}, {
@@ -133,11 +146,18 @@ async function openSynthetic(
       await shell.addWidget(w, { area: 'main' })
       await shell.activateWidget(w.id)
     },
-    { index: INDEX, screens, vertical, boxes, mode, math, l2Rows },
+    { index: INDEX, screens, vertical, boxes, mode, math, l2Rows, spritesDelay },
   )
   await expect
     .poll(() => page.locator(`${root} .hb-map-view-screen`).count(), { timeout: 30000 })
     .toBe(screens)
+  if (scrollEarly) {
+    // Scroll to the end while the sprites are still out, so only the gutter-wide pad is known.
+    await page.locator(`${root} [data-control="zoom-actual"]`).click()
+    await page.waitForTimeout(600)
+    await scrollEnd(page, vertical)
+    await expect.poll(() => page.evaluate(() => window.__beyond)).toEqual([screens])
+  }
   await expect
     .poll(
       () =>
@@ -148,8 +168,10 @@ async function openSynthetic(
       { timeout: 30000 },
     )
     .toBe(true) // prettier-ignore
-  await page.locator(`${root} [data-control="zoom-actual"]`).click()
-  await page.waitForTimeout(600)
+  if (!scrollEarly) {
+    await page.locator(`${root} [data-control="zoom-actual"]`).click()
+    await page.waitForTimeout(600)
+  }
 }
 
 const scrollEnd = (page, vertical) =>
@@ -220,7 +242,7 @@ test('the layers run through the gutter, in the right place, and fade to clear a
   )
   xs.forEach((x, i) => {
     expect(Math.abs(px[i][3] - 255 * (1 - (x + 0.5) / G)), `alpha at ${x}`).toBeLessThanOrEqual(1)
-    expectRgb(px[i], l2At(x, 300, 1), `color at ${x}`)
+    if (px[i][3] >= 120) expectRgb(px[i], l2At(x, 300, 1), `color at ${x}`) // premultiplied: a near-clear pixel cannot hold its color
   })
   expect(px[4][3]).toBeLessThanOrEqual(2)
   // Layer 3 (pure blue) is over Layer 2 where it has pixels, by the map own stacking.
@@ -304,6 +326,21 @@ test('screens past the end land end to end in order, and a content band stays so
   expect(px[4][3]).toBeLessThanOrEqual(2)
 })
 
+test('sprites that land after the scroll widen the far pad, and the screens that now fit are fetched without another scroll', async ({
+  page,
+}) => {
+  // The sprite is 100 px past the edge, so the far pad grows from 256 to 128 + 256 once it lands: a second screen.
+  await openSynthetic(page, {
+    screens: 2,
+    boxes: [[2 * 256 + 100, 50]],
+    spritesDelay: 1500,
+    scrollEarly: true,
+  })
+  await expect.poll(() => page.evaluate(() => window.__beyond), { timeout: 15000 }).toEqual([2, 3])
+  const size = await painted(page)
+  expect(size.w).toBe(128 + G)
+})
+
 test('an off-map sprite draws at full strength over the layers', async ({ page }) => {
   await openSynthetic(page, { screens: 2, boxes: [[2 * 256 + 100, 50]] })
   await scrollEnd(page, false)
@@ -325,7 +362,13 @@ test('an off-map sprite draws at full strength over the layers', async ({ page }
     return Array.from(c.getContext('2d').getImageData(2 * 256 + 108, 58, 1, 1).data)
   }, root)
   expect(sprite).toEqual([255, 255, 255, 255]) // opaque white, over a layer pixel that is not
-  expectRgb((await pixels(page, [[108, 58]]))[0], l2At(108, 58, 1))
+  // Under the sprite the layers are NOT white: Layer 3 (blue, rows 0 to 99) on top there, Layer 2 below row 99.
+  const [under, below] = await pixels(page, [
+    [108, 58],
+    [108, 150],
+  ])
+  expect(under).toEqual([0, 0, 255, 255])
+  expectRgb(below, l2At(108, 150, 1))
 })
 
 test('a vertical map continues Layer 2 down through its bottom gutter and fades it', async ({
@@ -342,7 +385,7 @@ test('a vertical map continues Layer 2 down through its bottom gutter and fades 
   )
   ys.forEach((y, i) => {
     expect(Math.abs(px[i][3] - 255 * (1 - (y + 0.5) / G)), `alpha at ${y}`).toBeLessThanOrEqual(1)
-    expectRgb(px[i], l2At(300, y, 1), `color at ${y}`)
+    if (px[i][3] >= 120) expectRgb(px[i], l2At(300, y, 1), `color at ${y}`)
   })
   // No Layer 3 on a vertical map; hiding Layer 2 clears the gutter.
   await toggle(page, 'l2')
