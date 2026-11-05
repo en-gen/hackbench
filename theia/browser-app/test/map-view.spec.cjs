@@ -3592,7 +3592,13 @@ test('a selected unverified sprite shows the plain Properties line, the cause op
     'Unverified: this sprite may not be drawn exactly as in the game.',
   )
   await expect(detail).toBeHidden()
-  await expect(line).toHaveAttribute('title', UNVERIFIED_CAUSES[0])
+  // The title sits on the summary, so it only describes it; on the details it would become the group's name.
+  await expect(summary).toHaveAttribute('title', UNVERIFIED_CAUSES[0])
+  expect(await line.getAttribute('title')).toBeNull()
+  await expect(summary).toHaveAccessibleName(
+    'Unverified: this sprite may not be drawn exactly as in the game.',
+  )
+  await expect(line).not.toHaveAccessibleName(/planted cause/)
   expect(await line.getAttribute('aria-label')).toBeNull()
   expect(await summary.getAttribute('aria-label')).toBeNull()
   // Keyboard: focus the summary and press Enter; the cause opens beneath it.
