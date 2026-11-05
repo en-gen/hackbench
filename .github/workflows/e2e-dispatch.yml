@@ -1,8 +1,8 @@
 # Runs the Playwright end-to-end suite, which lives in the private
 # en-gen/hackbench-validation repo because it needs a real ROM and
-# the ROM corpus can never be committed here. That repo holds the OneDrive
-# credential; this one holds only a dispatch token scoped to its Actions, so a
-# leak here cannot reach the ROM storage.
+# the ROM corpus can never be committed here. The ROMs sit on the owner's
+# runner, which that repo alone can reach; this one holds only a dispatch token
+# scoped to its Actions, so a leak here cannot reach them.
 #
 # The suite takes about 30 minutes, too long for every PR on the free plan's
 # Actions minutes. hackbench-validation runs it nightly against develop and
