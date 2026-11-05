@@ -397,11 +397,10 @@ test('$DD: platform pixels land in the left pad: 8 px rounds up to one 16 px til
 })
 
 // The bottom band rests on map $110: its Ball 'n Chain ($9E, stream index 11) hangs 16 px below the map at rest
-// (box bottom 448 on a 432 px map; sweep of vanilla, one machine, 2026-11-05). Map $102 used to have 24 px of
-// sprites below the map, but that came from the 64-pass run letting its floating platforms and spike balls sink
-// in a level with no water; #1119 (a94e1f4d) draws them at their placed spot, and their INIT does not move them
-// (InitFloatingPlat, SMWDisX bank_01.asm:6815-6817; InitFloatSpkBall, bank_01.asm:6795-6805). $9E's INIT only sets
-// its chain length (InitBallNChain, bank_01.asm:531-537), so #1231 (INIT moves count) leaves the 16 px as it is.
+// (box bottom 448 on a 432 px map; vanilla sweep, one machine, 2026-11-05). Map $102 no longer serves: its 24 px
+// came from the 64-pass run sinking floating platforms, and #1119 (a94e1f4d) draws them at their placed spot
+// (InitFloatingPlat, SMWDisX bank_01.asm:6815-6817). $9E's INIT only sets chain length (bank_01.asm:531-537),
+// so #1231 (INIT moves count) leaves the 16 px.
 test('$110: a sprite 16 px below the map grows the bottom by 16 and there is no gutter below', async ({
   page,
 }) => {
