@@ -410,19 +410,19 @@ describe.skipIf(!hasRom(VANILLA))(
 
 // #840: the neighbor run draws the sprite's own writes alone (#841); a companion is a plain-run notion. The map
 // view's cell count is what a viewer sees (a 16 x 16 piece is 4 cells).
-describe('companions and the neighbour run (#840)', () => {
+describe('companions and the neighbor run (#840)', () => {
   const cells = (m: ReturnType<typeof runOnce>) =>
     interpParts(drawnParts(m.passes[m.chosen!]!)).length
   const nb = (id: number, x: number) => ({ id, x, y: 0x70 })
 
-  it('neighbours whose own INIT spawns something add no companions: 8 cells, not 12', () => {
+  it('neighbors whose own INIT spawns something add no companions: 8 cells, not 12', () => {
     const seed = withSeed({ slot: 5, sprite: { x: 0x80, y: 0x80 }, neighbours: [nb(QUIET, 0x90), nb(83, 0xa0)] }) // prettier-ignore
     const m = runOnce(cart(), SCANNER, seed)
     expect(m.passes[m.chosen!]!.companions ?? []).toEqual([])
     expect(cells(m)).toBe(8)
   })
 
-  it("a sprite's own companion keeps the run alone: the neighbour run that cannot draw it is not adopted", () => {
+  it("a sprite's own companion keeps the run alone: the neighbor run that cannot draw it is not adopted", () => {
     const m = runOnce(cart({ spawnInit: true }), SCANNER, withSeed({ slot: 5, sprite: { x: 0x80, y: 0x80 }, neighbours: [nb(QUIET, 0x90)] })) // prettier-ignore
     expect(m.scansSlots).toBe(true)
     expect(m.neighbourRun).toBe('same')

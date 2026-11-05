@@ -72,7 +72,7 @@ describe('a write under another sprite slot ($15E9 15, id 84)', () => {
     expect(r.ok && r.parts.length).toBe(1)
   })
 
-  it('in a neighbour run it is in neither list (the neighbour run draws its own writes alone)', () => {
+  it('in a neighbor run it is in neither list (the neighbor run draws its own writes alone)', () => {
     const m = new Machine(rom, withSeed({ slot: SLOT, neighbours: [{ id: 0, x: 0x90, y: 0x70 }] }), 84, undefined, true) // prettier-ignore
     m.frame()
     m.clearOamWrites()

@@ -167,7 +167,7 @@ Grader, `spriteGrade.captures.test.ts` (1957 records, 'rom' seed, vanilla ROM, `
 1917, close 17, wrong 22, empty 1. 11 records improved from "wrong" to "exact" (6 of $61 on map 10a, 5 of $1E on maps
 11f, 132, 1c4, 1c5) and none graded worse (compared record by record, same order). Spawn tier (201 ids, 16 passes,
 same machine and date): develop alone 2,792 exact, 260 exact-empty, 15 wrong; merged 2,792, 275, 0 (id $2B). Map view
-pictures, 9 maps x 256 ids at rest, develop against the merged head: 0 of 2,304 differ. (The earlier counts in this
+pictures, develop against the merged head: 0 of 53,415 records differ, every placed sprite on the 488 available vanilla maps plus all 256 ids at each of the 196 sprite-bearing maps' first list entry, 24 maps unavailable, one machine, 2026-11-05, develop 05d062f7. (The earlier counts in this
 paragraph, exact 1063 / wrong 41, were against the pre-#842 grader and are superseded.)
 
 **H, companion absent (14).** $9C scans slots 0-9 for a $9B (Hammer Brother) and draws it on the platform

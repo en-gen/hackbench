@@ -158,7 +158,7 @@ describe.skipIf(!hasRom(VANILLA))('the map view equals develop on vanilla maps (
     [10, 7, 2],
     [2, 14, 3],
   ])(
-    'bonus game $82 on map 1d3 at list spot %i,%i (screen %i): 58 cells, the neighbour run changes nothing',
+    'bonus game $82 on map 1d3 at list spot %i,%i (screen %i): 58 cells, the neighbor run changes nothing',
     (x, y, screen) => {
       const o = open(0x1d3)
       const s = at(0x82, screen, x, y)
