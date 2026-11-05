@@ -429,6 +429,56 @@ export function runWithUploads(rom: RomFile, id: number, seed: SpriteSeed): RunM
   return Object.assign(runOnce(rom, id, seed, { atRest: true, probe: p.probe }), { uploads: p.byPass }) // prettier-ignore
 }
 
+/**
+ * Fewest quiet passes at the end of a run before its colors count as settled. A vanilla fade writes a rung every
+ * 4 passes (SMWDisX bank_01.asm:8715-8722); vanilla map $11C goes quiet at pass 30 of 63 (one machine).
+ */
+const SETTLE_TAIL = 16
+
+/** The colors CGRAM holds after pass `p`: the run's writes are cumulative and the last one to a color wins. */
+const netColors = (m: RunModel, p: number) => new Map(m.passes[p]!.palette.map(w => [w.index, w.bgr555] as const)) // prettier-ignore
+/** True when two net color maps hold the same color at every index. */
+const sameColors = (a: Map<number, number>, b: Map<number, number>) => a.size === b.size && [...a].every(([i, v]) => b.get(i) === v) // prettier-ignore
+
+/**
+ * The CGRAM colors a picture is drawn with (#1097). The chosen pass is a pose policy: the Magikoopa's first drawn
+ * frame comes before any upload (bank_01.asm:8474, 8733-8755), so its writes left the level's row showing. CGRAM
+ * keeps what the run wrote, drawn or not, so use the net writes at the last pass. Marked when they may be wrong:
+ * not settled (the quiet span since the last change, scanning from pass 1, is under SETTLE_TAIL or no
+ * longer than the longest gap between earlier changes); first drawn inside the tail; or it left and the colors
+ * changed while away or differ from before it left or from its first picture. One change gives no gap to
+ * compare, so a lone update is marked too (vanilla: 0 such sprites or frames). Docs: sprite-1f-magikoopa.md s5.
+ */
+function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
+  const last = m.passes.length - 1
+  const net = netColors(m, last)
+  const writes = [...net].map(([index, bgr555]) => ({ index, bgr555 }))
+  // Guards the loops below and keeps hand-built models of a few passes from being marked; no production run is that short.
+  if (last < SETTLE_TAIL) return { writes }
+  const end = 'so its colors may differ in the game'
+  const first = m.passes.findIndex(p => p.parts.length > 0)
+  if (first >= last - SETTLE_TAIL)
+    return { writes, why: `it only appeared when the check ended, ${end}` }
+  const changed = (p: number) => !sameColors(netColors(m, p), netColors(m, p - 1))
+  const events: number[] = []
+  for (let p = 1; p <= last; p++) if (changed(p)) events.push(p)
+  const quiet = last - (events[events.length - 1] ?? first)
+  const gap = Math.max(0, ...events.slice(1).map((e, i) => e - events[i]!))
+  if (events.length === 1) return { writes, why: `its colors changed only once, ${end}` }
+  if (quiet < SETTLE_TAIL || quiet <= gap)
+    return { writes, why: `its colors were still changing when the check ended, ${end}` }
+  const away = m.passes.map((_, p) => p).filter(p => p > first && !m.passes[p]!.parts.length)
+  if (
+    away.length &&
+    (away.some(changed) ||
+      [first, ...away.filter(p => m.passes[p - 1]!.parts.length).map(p => p - 1)].some(
+        p => !sameColors(net, netColors(m, p)),
+      ))
+  )
+    return { writes, why: `it disappeared partway through and its colors changed, ${end}` }
+  return { writes }
+}
+
 const UNCHECKED_LOADER = "HackBench could not check whether this sprite appears in play (the map's sprite loader is not the stock one)" // prettier-ignore
 
 function unverifiedOf(m: RunModel, generic: string | undefined): { unverified?: string } {
@@ -448,11 +498,14 @@ function unverifiedOf(m: RunModel, generic: string | undefined): { unverified?: 
 export function modelResult(m: RunModel): SpriteDrawResult {
   const generic = m.seedSource === 'generic'
   const why = [...(generic ? [`level loader refused (${m.seedReason}); drawn from a placement-only seed`] : []), ...(m.unverifiedReason ? [m.unverifiedReason] : [])] // prettier-ignore
-  const u = why.length ? { unverified: why.join('; ') } : {}
-  if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}`, ...u }
+  if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}`, ...(why.length ? { unverified: why.join('; ') } : {}) } // prettier-ignore
   const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
+  const colors = pass ? runtimeColors(m) : undefined
+  if (colors?.why) why.push(colors.why)
+  const u = why.length ? { unverified: why.join('; ') } : {}
+  if (!pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
   const uploads = m.chosen === undefined ? undefined : m.uploads?.[m.chosen]
-  if (!m.anchor || !pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
+  if (!m.anchor) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
   // The at-rest picture of a sprite whose INIT shifts it is drawn where INIT left it; its list position is the stored tile.
   const stored = m.shifted
     ? { stored: { x: m.anchor.rawX, y: m.anchor.rawY }, afterInit: m.initAt }
@@ -470,7 +523,7 @@ export function modelResult(m: RunModel): SpriteDrawResult {
           note: 'The game lays this sprite out itself, at fixed spots of the map; it does not follow where the list places it.',
         }
       : {}),
-    runtimePalette: pass.palette,
+    runtimePalette: colors!.writes,
     ...(pass.drew
       ? { children: pass.drew.children.map(c => ({ index: c.index, parts: interpParts(pass.parts.filter(p => c.oam.includes(p.oam))) })) } // prettier-ignore
       : {}),
