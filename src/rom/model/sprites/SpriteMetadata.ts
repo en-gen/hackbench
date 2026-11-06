@@ -208,7 +208,10 @@ export const SPRITE_METADATA: Readonly<Record<number, Readonly<SpriteMetadata>>>
   0x99: { displayName: 'Volcano Lotus' },
   0x9a: { displayName: 'Sumo Brother' },
   0x9b: { displayName: 'Hammer Brother' },
-  0x9c: { displayName: 'Hammer Brother Block' },
+  0x9c: {
+    displayName: 'Flying Hammer Bro platform',
+    source: 'bank_01.asm:1142 (in FlyingPlatform, 1142)',
+  },
   0x9d: { displayName: 'Bubble (with sprite)' },
   0x9e: { displayName: 'Ball and Chain' },
   0x9f: { displayName: 'Banzai Bill' },
