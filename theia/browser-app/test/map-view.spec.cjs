@@ -3937,13 +3937,13 @@ test('the preview tab carries the layer, sprite and collision toggles to the nex
   await expect(control(page, 'preview', 'collision-toggle')).toHaveAttribute('data-collision-state', 'ready', { timeout: 30000 }) // prettier-ignore
   await pressAll(page, 'preview')
   for (const c of toggles) await control(page, 'preview', c).click()
-  const flipped = await states()
+  const flipped = ['false', 'false', 'false', 'false', 'true'] // layers 1-3 and sprites off, collision on
+  await expect.poll(states).toEqual(flipped)
   await expect.poll(lines, { timeout: 60000 }).not.toBe('')
   const aLines = await lines()
   await clickRow(page, 0x011)
   expect(await states()).toEqual(flipped)
   expect(await pressedOf(page, 'preview')).toEqual(all('false'))
-  // Presses on A and the overlay on: B draws some lines, and not A's.
   await expect.poll(lines, { timeout: 60000 }).not.toBe('')
   expect(await lines()).not.toBe(aLines)
 })
