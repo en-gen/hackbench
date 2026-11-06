@@ -352,11 +352,11 @@ describe('the pass pick for every admitted id (synthetic cart, ids aliased to th
 
   it('keys the grinder fallback by the loaded number: a shell list id loaded as $67 stops at pass 1 too', () => {
     // Plant the loader so list id $DA loads as sprite 103 in status 1 (INIT runs): the status compare operand 1 rebases it,
-    // the ADC operand 103 is the new base. A real $67 here chooses pass 1; a list-id test would choose pass 0.
+    // the SBC operand is $D9, so id $DA is 1 past it and an ADC operand of 102 makes the number 103. A real $67 here chooses pass 1; a list-id test would choose pass 0.
     const rom = buildSyntheticRom({ grinderDrawsTwice: true })
     rom.writeAt(0x02a8d1, [0x01])
     rom.writeAt(0x02a979, [0x01])
-    rom.writeAt(0x02a983, [103])
+    rom.writeAt(0x02a983, [102])
     const shape = grinderShape(rom)
     const [shell, real] = [0xda, 103].map(id => runOnce(rom, id, seed, { grinderDispatch: shape }))
     expect(real!.chosen).toBe(1)
