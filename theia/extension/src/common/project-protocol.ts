@@ -327,8 +327,8 @@ export interface MapSpriteDto {
    */
   parts?: SpritePartDto[]
   /**
-   * Each pixel's OAM priority 0-3 (#795), one byte per `box` pixel, base64: the
-   * attribute bits 5:4 of the part that wins the pixel. Absent on a placeholder,
+   * Each pixel's OAM priority 0-3 (#795) in bits 0-1 and the rope's door-part flag (#1230) in bit 2, one byte
+   * per `box` pixel, base64: the part that wins the pixel. Absent on a placeholder,
    * which has no OAM entry and keeps the pre-#795 slot, priority 2.
    */
   priority?: string

@@ -15,6 +15,8 @@ const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 test.skip(!fs.existsSync(ROM), `vanilla ROM not present at ${ROM}`)
 
+const { PAGE_COMPOSE } = require('./pixel-canvas.cjs')
+
 const GET_SVC = `function getSvc(name) {
   const d = window.theia.container._bindingDictionary
   for (const k of d._map.keys()) {
@@ -30,6 +32,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto(APP, { waitUntil: 'domcontentloaded' })
   await page.waitForSelector('#theia-app-shell', { timeout: 90000 })
   await page.addScriptTag({ content: GET_SVC })
+  await page.addScriptTag({ content: PAGE_COMPOSE })
   await page.waitForFunction(() => window.theia?.container && getSvc('Symbol(ProjectService)'))
 })
 test.afterEach(() => tmp && fs.rmSync(tmp, { recursive: true, force: true }))
@@ -60,6 +63,8 @@ async function ropeTiles(page, romFile, name) {
   return reply.sprites
     .filter(s => s.id === 0x64)
     .map(s => ({
+      mp: project.manifestPath,
+      box: s.box,
       column: (s.stored ?? s).x / 16,
       tiles: s.parts.length / 4,
       unverified: s.unverified,
@@ -102,6 +107,37 @@ test('an edited sprite loader keeps every rope at 5 tiles and says why', async (
   }
 })
 
+/** The rope's own rows of map $0F read off the canvases: [pixels, pixels the composed picture draws as the sprite plane has them], solid tiles then door rows. */
+async function composedRows(page, rope) {
+  const root = '[id="hackbench.map-view:15"]'
+  const open = async ({ mp }) => {
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index: 15 })
+    await w.open({ manifestPath: mp, index: 15, label: 'f', iconClass: '' })
+    await getSvc('ApplicationShell').addWidget(w, { area: 'main' })
+    await getSvc('ApplicationShell').activateWidget(w.id)
+  }
+  await page.evaluate(open, { mp: rope.mp })
+  const screen = Math.floor(rope.box.x0 / 256)
+  const plane = `${root} canvas[data-screen="${screen}"][data-plane="sprites"]`
+  await page.locator(plane).evaluate(el => el.scrollIntoView({ inline: 'start', block: 'nearest' })) // prettier-ignore
+  await expect(page.locator(plane)).toHaveAttribute('data-drawn', /^\d+:\d+$/, { timeout: 30000 })
+  const rows = await page.evaluate(({ plane, root, screen, box }) => {
+    const [x, y, w, h] = [box.x0 - screen * 256, box.y0, box.x1 - box.x0, box.y1 - box.y0]
+    const sp = document.querySelector(plane).getContext('2d').getImageData(x, y, w, h).data
+    const comp = composeCanvases(planesOf(root, screen), x, y, w, h)
+    const out = { solid: [0, 0], door: [0, 0] }
+    for (let i = 0; i < w * h; i++) {
+      if (sp[i * 4 + 3] !== 255) continue
+      const part = Math.floor(i / w) < 80 ? out.solid : out.door
+      part[0]++
+      if ([0, 1, 2, 3].every(k => sp[i * 4 + k] === comp[i * 4 + k])) part[1]++
+    }
+    return out
+  }, { plane, root, screen, box: rope.box }) // prettier-ignore
+  await page.evaluate(() => getSvc('ApplicationShell').closeWidget('hackbench.map-view:15'))
+  return rows
+}
+
 test('a rope on a free-slot setting draws its extra length in the screen door, and on setting 1 the same 9 tiles are solid', async ({
   page,
 }) => {
@@ -111,9 +147,12 @@ test('a rope on a free-slot setting draws its extra length in the screen door, a
   bytes[stream] = (bytes[stream] & 0xc0) | 2 // setting 2: the top sprite slots are shared with ordinary sprites
   const edited = path.join(tmp, 'setting2.sfc')
   fs.writeFileSync(edited, bytes)
-  const [door, solid] = [await ropeTiles(page, edited, 'Door'), await ropeTiles(page, ROM, 'Solid')]
-  const at = (list, c) => list.find(r => r.column === c)
-  expect([at(door, 205).tiles, at(solid, 205).tiles]).toEqual([9, 9])
-  expect(at(door, 205).door).toBeGreaterThan(0)
-  expect(at(solid, 205).door).toBe(0)
+  const at = async (rom, name) => (await ropeTiles(page, rom, name)).find(r => r.column === 205)
+  const [door, solid] = [await at(edited, 'Door'), await at(ROM, 'Solid')]
+  expect([door.tiles, solid.tiles]).toEqual([9, 9])
+  // Composed picture at the rope's rows: the 5 solid tiles are the sprite plane as it is; below them the door tints about
+  // half the pixels (on setting 1 the same rows are untouched).
+  const [d, s] = [await composedRows(page, door), await composedRows(page, solid)]
+  const same = ([total, n]) => n / total
+  expect([same(d.solid) > 0.9, same(d.door) < 0.75, same(s.door) > 0.9, d.door[0] > 0]).toEqual([true, true, true, true]) // prettier-ignore
 })

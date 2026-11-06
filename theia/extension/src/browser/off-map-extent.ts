@@ -15,7 +15,9 @@ import {
   type ScreenInput,
   type SourceKey,
 } from '../../../../src/rom/model/ColorMath'
-import { decodeRgba } from './map16-pixels'
+import { decodeBase64Bytes, decodeRgba } from './map16-pixels'
+import { DOOR_PART_BIT } from '../../../../src/rom/model/ColorMath'
+import { hiddenPixelStrength } from '../../../../src/rom/render/HiddenTiles'
 import { MAX_BEYOND_SCREENS, farGutter } from '../../../../src/rom/model/MapGutter'
 
 /** One map tile in map pixels; the pad is whole tiles so the grid runs on across the margin. */
@@ -227,7 +229,7 @@ export const cellRect = (x: number, y: number): Rect => ({
 export const insideMap = (x: number, y: number, mapW: number, mapH: number): boolean =>
   x >= 0 && y >= 0 && x < mapW && y < mapH
 
-const decoded = new WeakMap<MapSpriteDto, Uint8ClampedArray>()
+const decoded = new WeakMap<MapSpriteDto, { rgba: Uint8ClampedArray; prio: Uint8Array | null }>()
 
 /**
  * The sprite pixels that fall OUTSIDE the map, on a bitmap of the padded size (the map's
@@ -248,14 +250,17 @@ export function offMapSpritePixels(
   for (const s of order) {
     const { x0, y0, x1, y1 } = s.box
     let bmp = decoded.get(s)
-    if (!bmp) decoded.set(s, (bmp = decodeRgba(s.rgba)))
+    if (!bmp) decoded.set(s, (bmp = { rgba: decodeRgba(s.rgba), prio: s.priority ? decodeBase64Bytes(s.priority) : null })) // prettier-ignore
     for (let y = Math.max(y0, -pad.top); y < Math.min(y1, mapH + pad.bottom); y++) {
       for (let x = Math.max(x0, -pad.left); x < Math.min(x1, mapW + pad.right); x++) {
         if (insideMap(x, y, mapW, mapH)) continue
         const from = ((y - y0) * (x1 - x0) + (x - x0)) * 4
-        if (bmp[from + 3] === 0) continue
+        if (bmp.rgba[from + 3] === 0) continue
         out ??= new Uint8ClampedArray(w * h * 4)
-        out.set(bmp.subarray(from, from + 4), ((y + pad.top) * w + x + pad.left) * 4)
+        const to = ((y + pad.top) * w + x + pad.left) * 4
+        out.set(bmp.rgba.subarray(from, from + 4), to)
+        // A door part (the rope's extra length) keeps the door's squares past the map edge too.
+        if (bmp.prio && bmp.prio[from / 4]! & DOOR_PART_BIT) out[to + 3] = Math.round(255 * hiddenPixelStrength(x - x0, y - y0)) // prettier-ignore
       }
     }
   }

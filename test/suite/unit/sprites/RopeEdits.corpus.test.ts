@@ -13,7 +13,6 @@ import { SmwRom } from '../../../../src/rom/SmwRom'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
 import { spriteProps } from '../../../../theia/extension/src/browser/sprite-props'
 import { ropeModel } from '../../../../src/rom/sprites/interp/RopeLength'
-import { slotWalk } from '../../../../src/rom/sprites/interp/SlotPick'
 import { resolveLoop, resolveTables } from '../../../../src/rom/sprites/interp/SpriteDispatch'
 import { drawnParts } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
@@ -168,27 +167,18 @@ describe.skipIf(!hasRom(VANILLA))('the rope on edited vanilla bytes', () => {
   })
 })
 
-describe.skipIf(!hasRom(VANILLA))('the door on the real draw every setting', () => {
-  it('tags exactly the parts only the long run drew, in every setting and parity, 0 to 18 (smoke sweep, not coverage)', () => {
+describe.skipIf(!hasRom(VANILLA))('the door on the real draw, every setting', () => {
+  // Hand-written: door parts (the rope's 4 extra tiles) by sprite memory setting 0 to 18, the same in every pass and for an
+  // even or odd column. The top sprite slot is shared with ordinary sprites on 2-10 and 12-16 (the doc's range) only.
+  const DOOR = [0, 0, 4, 4, 4, 4, 4, 4, 4, 4, 4, 0, 4, 4, 4, 4, 4, 0, 0]
+  it.each(DOOR.map((want, s) => [s, want] as const))('setting %i: %i door parts', (s, want) => {
     const rom = RomFile.load(romPath(VANILLA))
-    let tagged = 0
-    for (let s = 0; s <= 18; s++)
-      for (const col of [0x40, 0x41]) {
-        const [x, y] = [col * 16, 0x40]
-        const runAt = (slot: number) => runWithUploads(rom, 0x64, withSeed({ slot, sprite: { x, y }, camera: { x: x - 128, y: 0 }, level: { ...SPRITE_SEED.level, spriteMemory: s } }, SPRITE_SEED)) // prettier-ignore
-        const w = slotWalk(rom, s, 0x64, x)
-        expect(w.status, `setting ${s}`).toBe('ok')
-        if (w.status !== 'ok') continue
-        const m = ropeModel(rom, { id: 0x64, setting: s, x, y, vertical: false }, runAt)
-        const [long, short] = [runAt(w.long), runAt(w.short)]
-        const keys = (r: typeof long) =>
-          new Set(drawnParts(r.passes[r.chosen!]!).map(p => `${p.dx},${p.dy}`))
-        const extra = [...keys(long)].filter(k => !keys(short).has(k)).length
-        const door = m.passes[m.chosen!]!.parts.filter(p => p.door).length
-        expect(door, `setting ${s} column ${col}`).toBe(extra)
-        if (s >= 2 && s <= 7) expect(door, `setting ${s} column ${col}: 4 extra parts`).toBe(4)
-        tagged += door
-      }
-    expect(tagged, 'some setting has an extra length to tag').toBeGreaterThan(0)
-  }, 120_000)
+    for (const col of [0x40, 0x41]) {
+      const [x, y] = [col * 16, 0x40]
+      const runAt = (slot: number) => runWithUploads(rom, 0x64, withSeed({ slot, sprite: { x, y }, camera: { x: x - 128, y: 0 }, level: { ...SPRITE_SEED.level, spriteMemory: s } }, SPRITE_SEED)) // prettier-ignore
+      const m = ropeModel(rom, { id: 0x64, setting: s, x, y, vertical: false }, runAt)
+      const per = m.passes.filter(p => drawnParts(p).length).map(p => p.parts.filter(q => q.door).length)
+      expect(new Set(per), `column ${col}`).toEqual(new Set([want]))
+    }
+  }, 120_000) // prettier-ignore
 })
