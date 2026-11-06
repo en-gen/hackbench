@@ -18,6 +18,7 @@ import {
 import { paintIndicator, splitDiagonal } from '../../../theia/extension/src/common/block-indicator'
 import { composeScreen } from '../../../src/rom/model/ColorMath'
 import { RomFile } from '../../../src/rom/RomFile'
+import { spawnInputs } from '../../../src/rom/BlockSpawnInputs'
 import {
   blockIndicators,
   mapBlockContents,
@@ -25,7 +26,6 @@ import {
   pickIndicator,
   plainWhy,
   readCoinParts,
-  spawnInputs,
   type Drawn,
   type IndicatorModel,
   type ItemArt,

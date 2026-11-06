@@ -901,6 +901,20 @@ npm run sprite:report -- --out <dir> --no-commit             # same tree, nothin
 npm run sprite:report -- --sheet --map 105 --out <dir>       # one contact-sheet PNG (or --sprite 1b)
 ```
 
+### The reveal audit (#1132)
+
+`npm run sprite:report -- --reveal --map <hex> [--out <file>]` lists, for each placed sprite of one map, what the at-rest
+run did (drew, blank, refused, special), whether the reveal search found it hidden, and what reveals it; sprites that drew
+at rest and are now hidden are listed apart, and so are those no condition reveals (`none-found`, kept in the screen
+door). It needs only the vanilla ROM. `npx tsx tools/scripts/reveal-sweep.ts --rom <file> [--rom <file>...] --out
+<report.txt> [--solid <list.txt>]` runs it over every map of one or more ROMs and counts sprites per condition and
+markers per reason; the report is sorted and has no times, so two runs are byte-identical. Like the sprite report it
+holds ids and places of a copyrighted ROM, so `reveal-sweep` refuses an `--out` or `--solid` path inside the checkout.
+`RevealAudit.test.ts` covers the report text and the `--reveal` command on synthetic rows, and `RevealSweep.test.ts` covers
+`revealRowsOf` (the rows from two runners) and the `--out` refusal on a synthetic cart. The `revealRows` wiring (level model,
+sprite list, seed) is covered by `RevealC7.corpus.test.ts` only, which needs the vanilla ROM; the `reveal-sweep` main loop
+over maps is not run by any test.
+
 ROM and captures come from `corpus.ts` (`HACKBENCH_ROMS`, `HACKBENCH_CAPTURES`);
 a missing one exits non-zero naming it. The hardware side shows the recorded
 frame the grader scores best against our chosen pass (`grade` against each

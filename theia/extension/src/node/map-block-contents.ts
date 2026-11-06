@@ -33,6 +33,7 @@ import {
 import { findExactlyOneSite, WILD } from '../../../../src/rom/BytePattern'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
 import { runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { spawnInputs } from '../../../../src/rom/BlockSpawnInputs'
 import type { EnginePart } from '../../../../src/rom/model/sprites/generic/SpriteDrawEngine'
 import { BLOCK as TILE, bakePlus, fitArt, splitDiagonal } from '../common/block-indicator'
 import type { BlockIndicatorDto, MapBlockContentsResult } from '../common/project-protocol'
@@ -42,8 +43,6 @@ import { base64, screenTiles, unreadable, type L1ModelCache, type MapInputs } fr
 const NO_FLAGS = { yellow: false, green: false, red: false, blue: false }
 /** Replies kept per working-copy bytes: each holds every item's art, so a whole ROM's maps are not. */
 const REPLIES_PER_BYTES = 8
-/** WRAM cells the item block spawn reads (rammap.asm): the content index and the block's position. */
-const IN = { content: 0x05, touchY: 0x98, touchX: 0x9a, directCoinInit: 0x1432, yoshiLoose: 0x18e2, layer: 0x1933 } as const // prettier-ignore
 
 type Item = Exclude<BlockContent, { kind: 'none' }>
 type SpriteItem = Extract<BlockContent, { kind: 'sprite' }>
@@ -235,21 +234,6 @@ export function readCoinParts(rom: RomFile): Read<{ parts: EnginePart[] }> {
   const [page, row] = [(attr & 1) << 8, 8 + ((attr >> 1) & 7)]
   const parts = [[0, 0, 0], [1, 8, 0], [0x10, 0, 8], [0x11, 8, 8]].map(([n, dx, dy]) => ({ charNum: 0x400 + page + tile + n!, palette: row, flipX: false, flipY: false, dx: dx!, dy: dy! })) // prettier-ignore
   return { ok: true, parts }
-}
-
-/** The cells the spawn reads, for a block at map pixel (x, y): generic, no per-sprite values. */
-export function spawnInputs(content: number, x: number, y: number): Record<number, number> {
-  const [px, py] = [Math.max(0, x), Math.max(0, y)]
-  return {
-    [IN.content]: content,
-    [IN.touchX]: px & 0xff,
-    [IN.touchX + 1]: (px >> 8) & 0xff,
-    [IN.touchY]: py & 0xff,
-    [IN.touchY + 1]: (py >> 8) & 0xff,
-    [IN.layer]: 0,
-    [IN.yoshiLoose]: 0,
-    [IN.directCoinInit]: 0,
-  }
 }
 
 // index -1: spawned from a block, not by the start-of-level load, so no SpriteLoadStatus entry is its own (map-sprites refuses it).

@@ -24,8 +24,7 @@ import * as os from 'os'
  * the role, on this ROM.
  */
 const READ_AFTER_A_LEVEL: Record<string, BonusRole> = {
-  'Bonus Games': 'bonus-game',
-  'Yoshi Heaven': 'yoshi-heaven',
+  'Bonus Games': 'bonus-game', // Yoshi Heaven is no longer seeded (#1229)
 }
 
 /** Groups whose maps all carry a common word; checked as a substring. */
