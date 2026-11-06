@@ -1196,7 +1196,7 @@ export const MAX_FRAMES = 16
  * `pos` (`origin`, when `m.snaps`), the draw running before the move. `drawAt` is where the sprite
  * stood when it drew. A sprite with screen-fixed parts (`fixOffsets`) is not animated here: their map
  * position comes from the loader's camera for the chosen pass only, so another pass has no honest place.
- * When no pass drew, `reason` is the last skipped pass's, so the panel never calls it "one pose" (#1113).
+ * When the chosen pass is not drawn (unloaded chars, a marker), there are no frames and `reason` is its, so the panel never calls it "one pose" (#1113).
  */
 export function framesOf(
   run: SpriteRun,
@@ -1215,7 +1215,6 @@ export function framesOf(
   const drawAt = (q: typeof ref) => (m.snaps ? q.origin : q.pos)
   const seen = new Set<string>()
   const frames: MapSpriteDto[] = []
-  let skipped: string | undefined // why the last pass drew nothing: said only when no pass drew (#1113)
   for (const pass of m.passes.filter(q => q.pass >= ref.pass && drawnParts(q).length > 0)) {
     // dx' places the art where it stands relative to the sprite, on the chosen pass's anchor.
     const [ax, ay] = [pass.origin.x - drawAt(pass).x + drawAt(ref).x - ref.origin.x, pass.origin.y - drawAt(pass).y + drawAt(ref).y - ref.origin.y] // prettier-ignore
@@ -1232,7 +1231,8 @@ export function framesOf(
     }
     const [f] = drawSprites([s], model, () => modelResult(shifted), dynamic)
     if (f!.status !== 'drawn') {
-      skipped = f!.reason ?? f!.status
+      // The chosen pass is the map's own picture: when it is not drawn, no later pose is this sprite's animation (#1113).
+      if (!frames.length) return { frames, reason: f!.reason ?? f!.status }
       continue
     }
     // A pass whose parts wrapped past 256 px or left the screen is not the same sprite's next pose: stop,
@@ -1243,7 +1243,7 @@ export function framesOf(
     frames.push(f!)
     if (frames.length >= MAX_FRAMES) break
   }
-  return frames.length || !skipped ? { frames } : { frames, reason: skipped }
+  return { frames }
 }
 
 /** The run behind a sprite's frames: at rest, like the map's picture (D139 D: INIT's look, D134 position), so frame 0 is that bitmap. */

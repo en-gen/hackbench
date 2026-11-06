@@ -487,6 +487,33 @@ describe('framesOf: a sprite that never draws is not "one pose" (#1113)', () => 
     )
   })
 
+  // Only chars 5 and 6 are loaded; a pass of any other char draws a marker.
+  const some = { vram: { sp1: Array.from({ length: 24 }, (_, i) => ([5, 6].includes(i) ? SOLID : null)) as never }, colors: COLORS } // prettier-ignore
+  const through = (chars: number[], level = some) => framesOf({ m: run(chars.map(c => [c, 0])), fixed: false }, spr, level) // prettier-ignore
+
+  it('an unloaded chosen pass gives no frames and a reason, whatever the later passes draw', async () => {
+    for (const chars of [
+      [1, 1, 5],
+      [1, 5, 6],
+    ]) {
+      const r = through(chars)
+      expect(r, String(chars)).toEqual({ frames: [], reason: 'charsNotLoaded' })
+      expect(await said(r)).toMatch(/^Animation not shown: Some of its graphics/)
+    }
+  })
+
+  it('a later pass skipped beside a drawn chosen pass keeps the frame and no reason', async () => {
+    const r = through([5, 1])
+    expect(r.frames).toHaveLength(1)
+    expect(r.reason).toBeUndefined()
+    expect(await said(r)).toBe(NOT_ANIMATED)
+  })
+
+  it('every pass unloaded gives the reason for 1, 2 and more than MAX_FRAMES passes', () => {
+    for (const n of [1, 2, MAX_FRAMES + 4])
+      expect(through(Array.from({ length: n }, (_, i) => i + 8)), String(n)).toEqual({ frames: [], reason: 'charsNotLoaded' }) // prettier-ignore
+  })
+
   it('one real pose still says "one pose"', async () => {
     const r = framesOf({ m: run([[1, 0], [1, 5]]), fixed: false }, spr, LEVEL) // prettier-ignore
     expect(r.reason).toBeUndefined()
