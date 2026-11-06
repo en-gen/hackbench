@@ -140,7 +140,9 @@ async function composedRows(page, rope) {
     },
     { plane, root, screen, box: rope.box },
   )
-  await page.evaluate(() => getSvc('ApplicationShell').closeWidget('hackbench.map-view:15'))
+  await page.evaluate(async () => {
+    await getSvc('ApplicationShell').closeWidget('hackbench.map-view:15')
+  })
   return rows
 }
 
