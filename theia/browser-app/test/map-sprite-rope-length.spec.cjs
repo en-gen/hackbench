@@ -3,8 +3,8 @@
  * loader would pick. Map $00F is sprite memory setting 1, where an odd 16 px column is long (9 tiles) and an even one
  * short (5). A tile is four 8x8 parts in the DTO. Vanilla ROM; skipped, never faked, without it.
  * - Odd columns 205 and 241 draw 9 tiles; even columns 164, 186, 210, 216 draw 5 (the Mesen capture, 4 of 4 runs).
- * - A project on a copy of the ROM whose rope stands one column further right draws the other length (the working
- *   copy's bytes are what the map reads, so a moved rope redraws).
+ * - A project on an edited copy of the BASE ROM whose rope stands one column further right draws the other length (no
+ *   sprite-move op exists on the node side; RopeEdits.corpus.test.ts moves it in the working-copy bytes instead).
  * - A project on a copy whose loader is edited keeps every rope at 5 tiles and the DTO says why.
  * The stream is located from the vanilla tables ($05EC00 pointers into bank $07, 3-byte entries after the header
  * byte): a vanilla-only assumption of this spec. Written, not run, by the implementer; the verifier runs it.

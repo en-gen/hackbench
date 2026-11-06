@@ -91,7 +91,7 @@ function slotsOf(r: Range): number[] {
 
 /**
  * The slot `id` lands in on this map, in both cases the length can depend on. `setting` is $1692, `along` the spawn
- * coordinate on the scroll axis (X in a horizontal map, Y in a vertical one: the loader's `$00`, bank_02.asm:5217-5240).
+ * coordinate on the scroll axis (X in a horizontal map, Y in a vertical one: the loader's `$00`, the stores at bank_02.asm:5236 and 5245, compared at 5278-5281).
  * `long`: every slot free, so the top of the range. `short`: every slot an ORDINARY sprite can take is busy except the
  * last one the search reaches, so a short slot always exists. With no ordinary sprite in the range (the reserved slots)
  * the two are the same slot.

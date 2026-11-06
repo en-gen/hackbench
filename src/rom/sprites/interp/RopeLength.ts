@@ -10,7 +10,7 @@ import { slotWalk } from './SlotPick'
 import { VANILLA_DISPATCH } from './LineGuided'
 import { drawnParts, type SpriteModel, type SpritePart } from './SpriteRunner'
 
-/** The coordinate the loader tests: Y in a vertical map, X in a horizontal one (bank_02.asm:5217-5240, the `$00` the pick reads). */
+/** The coordinate the loader tests: Y in a vertical map, X in a horizontal one (the stores at bank_02.asm:5236 and 5245, compared at 5278-5281, the `$00` the pick reads). */
 export const alongScroll = (x: number, y: number, vertical: boolean): number => (vertical ? y : x)
 
 /**
