@@ -186,8 +186,8 @@ describe('the grid across the off-map margin (#1004)', () => {
 
   it('lines run on through the margin on the map tile lattice, the map edge keeping screen weight', () => {
     const g = computeMapGridLines({ ...base, vertical: false, screenCount: 1, pad })
-    // Content is 48 + 256 + 32 = 336 wide: tile lines every 16 from 0 to the trailing edge (336 itself is clipped).
-    expect(g.x.map(l => l.pos)).toEqual(Array.from({ length: 21 }, (_, i) => i * 16))
+    // Content is 48 + 256 + 32 = 336 wide: tile lines every 16 from 0 to the trailing edge (336 is the closing line).
+    expect(g.x.map(l => l.pos)).toEqual(Array.from({ length: 22 }, (_, i) => i * 16))
     // The map's own left and right edges (48 and 304) are the screen-weight lines.
     expect(weights(g.x, 5)).toEqual([48, 304])
     expect(g.y.map(l => l.weight === 5 && l.pos)).toContain(32)
@@ -204,7 +204,7 @@ describe('the grid across the off-map margin (#1004)', () => {
   it('the vertical lattice runs through the top and bottom margins: every y line, by weight', () => {
     // 1 vertical screen: 32 x 16 tiles. Content is 32 + 256 + 16 = 304 tall.
     const g = computeMapGridLines({ ...base, vertical: true, screenCount: 1, pad })
-    expect(g.y.map(l => l.pos)).toEqual(Array.from({ length: 19 }, (_, i) => i * 16))
+    expect(g.y.map(l => l.pos)).toEqual(Array.from({ length: 20 }, (_, i) => i * 16))
     // The map's own top (32) and bottom (288) are screen lines; no other row is.
     expect(weights(g.y, 5)).toEqual([32, 288])
   })
@@ -212,7 +212,7 @@ describe('the grid across the off-map margin (#1004)', () => {
   it('a horizontal map lists every y line across top and bottom pads (kills a clamp of the row range to the map)', () => {
     // 1 screen: 27 rows = 432 px; top 32, bottom 16 -> 480 px, rows -2..28.
     const g = computeMapGridLines({ ...base, vertical: false, screenCount: 1, pad })
-    expect(g.y.map(l => l.pos)).toEqual(Array.from({ length: 30 }, (_, i) => i * 16))
+    expect(g.y.map(l => l.pos)).toEqual(Array.from({ length: 31 }, (_, i) => i * 16))
     expect(weights(g.y, 5)).toEqual([32, 464])
     expect(weights(g.y, 3)).toEqual([288])
   })
@@ -224,7 +224,52 @@ describe('the grid across the off-map margin (#1004)', () => {
       screenCount: 1,
       pad: { left: 0, top: 0, right: 0, bottom: 48 },
     })
-    // 27 map rows then rows 27..29 of margin; the trailing edge (30) is a thin line and is clipped.
-    expect(g.y.map(l => l.pos)).toEqual(Array.from({ length: 30 }, (_, i) => i * 16))
+    // 27 map rows then rows 27..29 of margin; the trailing edge (30) is a thin closing line, drawn.
+    expect(g.y.map(l => l.pos)).toEqual(Array.from({ length: 31 }, (_, i) => i * 16))
+  })
+})
+
+describe('the closing line of an off-map band (#1284)', () => {
+  const tall = { ...base, viewW: 9000, viewH: 9000 }
+  const far = (ls: { pos: number }[], pos: number) => ls.filter(l => Math.abs(l.pos - pos) < 1e-6)
+
+  it('a one-tile band draws a line at its far edge', () => {
+    const g = computeMapGridLines({ ...tall, vertical: false, screenCount: 1, pad: { left: 0, top: 0, right: 0, bottom: 16 } }) // prettier-ignore
+    expect(far(g.y, 448)).toMatchObject([{ weight: 1, start: 447, size: 1 }])
+  })
+
+  it('sweep: band 1 tile to past a screen, both orientations and both long ends, one far line of the right weight (a screen-boundary edge draws one, not two)', () => {
+    let cases = 0
+    for (const vertical of [false, true])
+      for (const axis of ['x', 'y'] as const)
+        for (const zoom of [1, 1.37])
+          for (const dpr of [1, 1.25])
+            for (let n = 1; n <= 70; n++) {
+              const pad = { left: 0, top: 0, right: axis === 'x' ? n * 16 : 0, bottom: axis === 'y' ? n * 16 : 0 } // prettier-ignore
+              const s = mapScreenTiles(vertical)
+              const total = (axis === 'x' ? s.cols : s.rows) + n
+              const g = computeMapGridLines({ ...tall, vertical, screenCount: 1, zoom, dpr, pad })
+              const hit = far(g[axis], total * 16 * zoom)
+              const w = mapGridWeight(vertical, axis, total)
+              const tag = `${vertical} ${axis} z${zoom} d${dpr} n${n}`
+              expect(hit.length, tag).toBe(1)
+              expect(hit[0].weight, tag).toBe(w)
+              if (w === 1) expect(hit[0].start + hit[0].size, tag).toBe(Math.round(total * 16 * zoom * dpr)) // prettier-ignore
+              cases++
+            }
+    expect(cases).toBe(2 * 2 * 2 * 2 * 70)
+  })
+
+  it('off-view stays off, and the trailing edge at maximum scroll draws', () => {
+    const pad = { left: 0, top: 0, right: 0, bottom: 16 }
+    const run = (o: object) => computeMapGridLines({ ...base, vertical: false, screenCount: 1, pad, ...o }).y // prettier-ignore
+    // (a) content runs on past the view: a thin line exactly on the view edge is a ghost.
+    expect(far(run({ viewH: 288 }), 288)).toEqual([])
+    // (b) the closing line is beyond the view.
+    expect(far(run({ viewH: 400 }), 448)).toEqual([])
+    // (c) scrolled past: thin lines before the view's top.
+    expect(run({ scrollY: 100, viewH: 200 }).filter(l => l.weight === 1 && l.pos < 100)).toEqual([]) // prettier-ignore
+    // (d) maximum scroll: the closing line sits exactly on the trailing edge and still shows.
+    expect(far(run({ scrollY: 248, viewH: 200 }), 448)).toMatchObject([{ weight: 1, start: 199 }])
   })
 })

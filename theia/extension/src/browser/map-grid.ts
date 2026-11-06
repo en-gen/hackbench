@@ -103,29 +103,31 @@ export function computeMapGridLines(spec: MapGridSpec): GridLines {
     scroll: number,
     off: number,
     hi: number,
+    last: number,
     axis: 'x' | 'y',
     across: [number, number],
   ): GridLine | undefined => {
     const pos = off + i * step
     const at = dev(pos - scroll)
     const weight = mapGridWeight(vertical, axis, i)
-    // `place` pulls a lone pixel inside the range, which would turn an
-    // off-screen thin line into a ghost on the viewport edge. (The content's
-    // trailing edge is always a screen boundary, so a thin line never sits on it.)
-    if (weight === TILE_GRID_WEIGHT && !(at >= 0 && at < hi)) return undefined
+    // `place` pulls a lone pixel inside the range, which would turn an off-screen thin line into a ghost on
+    // the viewport edge. The content's last line (index `last`, keyed by index so float noise cannot move
+    // it) is the band's closing edge, and it stays while it is on the view or exactly on its trailing edge.
+    const keep = at < hi || (i === last && at <= dev(axis === 'x' ? viewW : viewH))
+    if (weight === TILE_GRID_WEIGHT && !(at >= 0 && keep)) return undefined
     const p = place(at, weight, 0, hi)
     return p && { pos, weight, start: p[0], size: p[1], from: across[0], to: across[1] }
   }
   const ix0 = Math.max(loX, Math.floor((scrollX - offX) / step) - 1)
   const ix1 = Math.min(hiTX, Math.ceil((scrollX - offX + viewW) / step) + 1)
   for (let i = ix0; i <= ix1; i++) {
-    const l = one(i, scrollX, offX, hiX, 'x', [0, hiY])
+    const l = one(i, scrollX, offX, hiX, hiTX, 'x', [0, hiY])
     if (l) out.x.push(l)
   }
   const iy0 = Math.max(loY, Math.floor((scrollY - offY) / step) - 1)
   const iy1 = Math.min(hiTY, Math.ceil((scrollY - offY + viewH) / step) + 1)
   for (let i = iy0; i <= iy1; i++) {
-    const l = one(i, scrollY, offY, hiY, 'y', [0, hiX])
+    const l = one(i, scrollY, offY, hiY, hiTY, 'y', [0, hiX])
     if (l) out.y.push(l)
   }
   return out
