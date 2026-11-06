@@ -13,47 +13,62 @@ const walk = (setting: number, id: number, along: number) => slotWalk(rom, setti
 
 describe('slotWalk (synthetic loader)', () => {
   it('gives the special id the reserved top on an odd coordinate and the ordinary range on an even one', () => {
-    expect(walk(1, SPECIAL, 0x10)).toEqual({ status: 'ok', long: 7, short: 7 })
-    expect(walk(1, SPECIAL, 0x20)).toEqual({ status: 'ok', long: 5, short: 0 })
+    expect(walk(1, SPECIAL, 0x10)).toEqual({ status: 'ok', long: 6, short: 6 })
+    expect(walk(1, SPECIAL, 0x20)).toEqual({ status: 'ok', long: 4, short: 0 })
   })
   it('reads the parity from the coordinate bit the loader masks, nothing else', () => {
     for (const a of [0x10, 0x30, 0x110, 0x1f0])
-      expect(walk(1, SPECIAL, a), `${a}`).toMatchObject({ long: 7 })
+      expect(walk(1, SPECIAL, a), `${a}`).toMatchObject({ long: 6 })
     for (const a of [0x00, 0x20, 0x100, 0x2f])
-      expect(walk(1, SPECIAL, a), `${a}`).toMatchObject({ long: 5 })
+      expect(walk(1, SPECIAL, a), `${a}`).toMatchObject({ long: 4 })
   })
-  it('a slot the ordinary sprites share has a short case: every ordinary slot busy but the last the search reaches', () => {
-    expect(walk(2, 0x01, 0)).toEqual({ status: 'ok', long: 7, short: 1 })
+  it('a top slot the ordinary sprites share has a short case: every ordinary slot busy but the last the search reaches', () => {
+    expect(walk(2, 0x01, 0)).toEqual({ status: 'ok', long: 6, short: 2 })
   })
   it('follows the first reserved list for its id, whatever the coordinate', () => {
-    expect(walk(3, RESERVED1, 0x10)).toMatchObject({ long: 3 })
-    expect(walk(3, RESERVED1, 0x00)).toMatchObject({ long: 3 })
-    expect(walk(3, 0x01, 0)).toMatchObject({ long: 4 })
+    expect(walk(3, RESERVED1, 0x10)).toEqual({ status: 'ok', long: 2, short: 1 })
+    expect(walk(3, RESERVED1, 0x00)).toMatchObject({ long: 2 })
+    expect(walk(3, 0x01, 0)).toMatchObject({ long: 3 })
   })
   it('a high top slot is reported as it is: the length decision is the ROM draw, not this walk (setting 0 style)', () => {
-    expect(walk(0, SPECIAL, 0x10)).toMatchObject({ status: 'ok', long: 9 })
+    expect(walk(0, SPECIAL, 0x10)).toMatchObject({ status: 'ok', long: 10 })
   })
-  it('refuses a setting past the tables, a loader that is not the fingerprinted one and unreadable bytes, each with a status', () => {
+  it('refuses a setting past the tables, a loader that is not the fingerprinted one and a table it cannot read, each with a status', () => {
     expect(walk(4, SPECIAL, 0)).toMatchObject({ status: 'setting' })
     expect(walk(0xff, SPECIAL, 0)).toMatchObject({ status: 'setting' })
     expect(slotWalk(rom, 1, SPECIAL, 0, { ...spec, sha256: 'x' })).toMatchObject({
       status: 'unrecognized',
     })
-    const bad = slotCart(s => ((s[19] = s[4]), (s[20] = s[5])))
-    expect(slotWalk(bad.rom, 1, SPECIAL, 0, bad.spec)).toMatchObject({ status: 'unrecognized' })
-    const big = slotCart(s => { s[4] = 0; s[5] = 0 }) // prettier-ignore
-    expect(slotWalk(big.rom, 1, SPECIAL, 0, big.spec).status).not.toBe('ok')
+    const same = slotCart(s => ((s[238 + 19] = s[238 + 4]), (s[238 + 20] = s[238 + 5])))
+    expect(slotWalk(same.rom, 1, SPECIAL, 0, same.spec)).toMatchObject({ status: 'unrecognized' })
+    // The operands name addresses below $8000, which hold no ROM, so no table can be read.
+    const cut = slotCart(sp =>
+      [4, 7, 14, 19, 22, 29, 44].forEach(
+        (o, i) => ((sp[238 + o] = i * 4), (sp[238 + o + 1] = 0x10)),
+      ),
+    )
+    expect(slotWalk(cut.rom, 1, SPECIAL, 0, cut.spec)).toMatchObject({ status: 'unreadable', reason: 'the loader tables could not be read' }) // prettier-ignore
   })
-  it('a top slot past the twelve sprite slots is refused', () => {
-    const high = slotCart(undefined, { ...ROWS, max: [12, 5, 7, 4] })
-    expect(slotWalk(high.rom, 0, 1, 0, high.spec)).toMatchObject({ status: 'unreadable' })
+  it('refuses a search that walks into a slot past the twelve, or a range whose far end wraps round', () => {
+    for (const [max, start] of [
+      [3, 13],
+      [5, 5],
+      [12, 0xff],
+    ] as const) {
+      const bad = slotCart(undefined, {
+        ...ROWS,
+        max: [max, 4, 6, 3],
+        start: [start, 0xff, 1, 0xff],
+      })
+      expect(slotWalk(bad.rom, 0, 1, 0, bad.spec), `max ${max} start ${start}`).toMatchObject({ status: 'unreadable', reason: expect.stringMatching(/outside the sprite table/) }) // prettier-ignore
+    }
   })
 })
 
 describe.skipIf(!hasRom(VANILLA))('slotWalk (vanilla loader, corpus)', () => {
   const v = () => freshRom()
   const w = (s: number, a: number) => slotWalk(v(), s, 0x64, a)
-  it('is the fingerprinted loader', () => expect(LOADER_PICK.length).toBe(62))
+  it('is the fingerprinted loader', () => expect(LOADER_PICK.length).toBe(300))
   it('setting 1: odd coordinate slot 7 (fixed); even slot 5, or 0 when the ordinary slots are busy (both short)', () => {
     expect(w(1, 0x10)).toEqual({ status: 'ok', long: 7, short: 7 })
     expect(w(1, 0x00)).toEqual({ status: 'ok', long: 5, short: 0 })

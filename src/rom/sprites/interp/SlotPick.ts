@@ -10,13 +10,19 @@ import { bytesAt } from './Guards'
 import type { CodeFingerprint } from './InitLatches'
 
 /**
- * The pick, `LDY SpriteMemorySetting` to the `BNE` after the status test (bank_02.asm:5376-5405, $02A8E4-$02A921), 62
- * bytes in ONE SHA-256. Nothing is masked or normalized, so all 62 count toward D126's 24 unknown bytes (vanilla US cart,
- * one machine); the table operands sit inside the span, so a relocated table fails the digest and the sprite keeps slot 0.
+ * The loader from its two offset tables to the end of the pick, $02A7F6-$02A921 (bank_02.asm:5217-5405): 300 contiguous
+ * bytes in ONE SHA-256, so the `$00` the parity reads (the store at 5245), the column compare, the branch chain into the
+ * pick and the pick itself (`LDY SpriteMemorySetting` at 5376 to the status test's `BNE` at 5405) are all held. Nothing is
+ * masked or normalized. Counted against the working tree at this commit (1533 tracked text files, any 5-byte window that
+ * appears as hex): at most 12 bytes are stated elsewhere, so at least 288 are unknown, past D126's 24 (vanilla US cart,
+ * one machine). The table operands sit inside the span, so a relocated table fails the digest and the sprite keeps slot 0.
  */
-export const LOADER_PICK: CodeFingerprint = { at: 0x02a8e4, length: 62, sha256: 'e62f6d8872398313a7b5fc0af4a2250b8f455ba74e07dde38c7df85b8868bb38' } // prettier-ignore
+export const LOADER_PICK: CodeFingerprint = { at: 0x02a7f6, length: 300, sha256: '88da23f6edb937ba9a94a2fc7e800c82370dd7c8385a5a2dfe6931d98e936e8c' } // prettier-ignore
 
-/** Where each table operand and immediate sits in the span (instruction offsets of the listing at bank_02.asm:5376-5405). */
+/** Where the pick starts inside the span ($02A8E4 less $02A7F6). */
+const PICK = 238
+
+/** Where each table operand and immediate sits in the pick (instruction offsets of the listing at bank_02.asm:5376-5405). */
 const AT = { max: 4, start: 7, res1: 14, max1: 19, start1: 22, res2: 29, special: 34, mask: 40, max2: 44, stop: 47 } as const // prettier-ignore
 
 /** The slots a Machine can run (the twelve sprite slots). */
@@ -46,13 +52,14 @@ interface Tables {
 function readTables(rom: RomFile, spec: CodeFingerprint): Tables | null {
   const span = bytesAt(rom, spec.at, spec.length)
   if (!span || fingerprint(Uint8Array.from(span)) !== spec.sha256) return null
-  const word = (i: number) => 0x020000 | span[i]! | (span[i + 1]! << 8)
+  const byte = (i: number) => span[PICK + i]!
+  const word = (i: number) => 0x020000 | byte(i) | (byte(i + 1) << 8)
   const size = word(AT.max1) - word(AT.max)
   if (size <= 0 || word(AT.max2) - word(AT.max1) !== size) return null
   return {
     max: word(AT.max), start: word(AT.start), res1: word(AT.res1), max1: word(AT.max1),
     start1: word(AT.start1), res2: word(AT.res2), max2: word(AT.max2),
-    special: span[AT.special]!, mask: span[AT.mask]!, stop: span[AT.stop]!, size,
+    special: byte(AT.special), mask: byte(AT.mask), stop: byte(AT.stop), size,
   } // prettier-ignore
 }
 
@@ -112,11 +119,17 @@ export function slotWalk(
     return { status: 'unreadable', reason: 'the loader tables could not be read' }
   const mineSlots = slotsOf(mine)
   const long = mineSlots[0]!
-  if (long >= SLOTS)
+  // Every slot the search can reach must be a real sprite slot.
+  if (mineSlots.some(x => x >= SLOTS))
     return { status: 'unreadable', reason: 'the loader gives a slot outside the sprite table' }
   const reachable = new Set(slotsOf(ordinary))
   const last = mineSlots[mineSlots.length - 1]!
   // Never null: the last slot of the range is not in `busy`.
   const short = mineSlots.find(x => !(reachable.has(x) && x !== last))!
+  if (short > long)
+    return {
+      status: 'unreadable',
+      reason: 'the loader tables give a short slot above the long one',
+    }
   return { status: 'ok', long, short }
 }

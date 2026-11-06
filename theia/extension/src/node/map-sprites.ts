@@ -67,7 +67,7 @@ import {
   type PaletteWrite,
   type SpritePart,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
-import { isRopeId, ropeModel } from '../../../../src/rom/sprites/interp/RopeLength'
+import { isRopeId, ropeModel, type RopeAt } from '../../../../src/rom/sprites/interp/RopeLength'
 import {
   castleFlames,
   VANILLA_FLAME_ROUTINES,
@@ -346,6 +346,9 @@ export function drawSprites(
   })
 }
 
+const NO_IMAGE_NOTE =
+  'The rope is shown at its short length: the level loader could not be run on this ROM.'
+
 /** The engine over this cart: a missing descriptor or a repointed handler is a miss, never a guess. */
 export function engineDrawer(rom: RomFile, marioX: number): SpriteDrawer | null {
   const tables = readSpriteTileTables(rom)
@@ -516,8 +519,11 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     parts: interpParts(drawnParts(pass)),
     anchor: { x: m.anchor.x, y: m.anchor.y },
     ...stored,
-    ...(m.neverAppears ? { note: 'never appears in play' } : {}),
-    ...(m.lengthNote ? { note: m.lengthNote } : {}),
+    ...(m.neverAppears || m.lengthNote
+      ? {
+          note: [m.neverAppears && 'never appears in play', m.lengthNote].filter(Boolean).join(' '),
+        }
+      : {}),
     ...(m.shifted && m.onLine ? { onLine: m.onLine } : {}),
     ...(m.absolutePlacement
       ? {
@@ -749,6 +755,8 @@ export function interpRunner(
   platformRoutines: PlatformRoutines = VANILLA_PLATFORM_ROUTINES,
   /** The map's whole sprite list: a sprite that scans the slots for a companion is run with its neighbors (#841). */
   list: readonly LevelSprite[] = [],
+  /** Test hooks for the rope: a synthetic cart's loader fingerprint, and the door switch. */
+  ropeHooks: Pick<RopeAt, 'spec' | 'door'> = {},
 ): (sprite: LevelSprite) => SpriteRun {
   // The loader runs once per map, not per sprite.
   const base = seedFor(rom, index)
@@ -783,8 +791,10 @@ export function interpRunner(
     // The rope draws its length from the slot the loader gives it (RopeLength.ts, #1230): run in that slot, not slot 0.
     const rope = !!w && isRopeId(s.spriteId)
     let m = rope
-      ? ropeModel(rom, { id: s.spriteId, setting: w![0x1692]!, x, y, vertical: model.isVertical }, slot => run(rom, s.spriteId, seed(camera, { opening, slot }))) // prettier-ignore
+      ? ropeModel(rom, { id: s.spriteId, setting: w![0x1692]!, x, y, vertical: model.isVertical, ...ropeHooks }, slot => run(rom, s.spriteId, seed(camera, { opening, slot }))) // prettier-ignore
       : run(rom, s.spriteId, seed(camera, { opening }))
+    // No loader image: the slot cannot be known, so the rope stays short and says so (a confirmed rope only).
+    if (!w && isRopeId(s.spriteId) && m.snaps) m = { ...m, lengthNote: NO_IMAGE_NOTE }
     // A sprite placed at the game's own layout (the bonus game) was replayed in the loader's top slot; an earlier loaded sprite
     // may have taken it, which moves one block by a pixel and changes its item (measured on $000, slots 9 vs 8): drawn, marked.
     if (

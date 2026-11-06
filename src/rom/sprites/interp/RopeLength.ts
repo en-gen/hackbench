@@ -66,18 +66,27 @@ export function ropeModel<M extends SpriteModel>(
   const w = slotWalk(rom, at.setting, at.id, alongScroll(at.x, at.y, at.vertical), at.spec)
   if (w.status !== 'ok') {
     const m = runAt(0)
-    return {
-      ...m,
-      unverifiedReason:
-        m.unverifiedReason ?? `${w.reason}, so the rope is shown at its short length`,
-      lengthNote: `The rope is shown at its short length: ${w.reason}.`,
-    }
+    // Only a draw the line-guided gate confirmed as the rope is flagged; any other handler is left as it was.
+    return !m.snaps
+      ? m
+      : {
+          ...m,
+          unverifiedReason:
+            m.unverifiedReason ?? `${w.reason}, so the rope is shown at its short length`,
+          lengthNote: `The rope is shown at its short length: ${w.reason}.`,
+        }
   }
   const long = runAt(w.long)
+  // The gate (hashed draw, dispatch order) did not confirm the rope: the run is as it was before #1230, in slot 0.
+  if (!long.snaps) return runAt(0)
   if (w.short === w.long) return long
   const short = runAt(w.short)
   if (short.chosen !== long.chosen || short.anchor?.x !== long.anchor?.x || short.anchor?.y !== long.anchor?.y)
     return { ...short, unverifiedReason: short.unverifiedReason ?? DIFFERENT_SPOT, lengthNote: 'The rope is shown at its short length: it starts at a different spot in the two slots it can load into.' } // prettier-ignore
+  // The same positions: the picture is the loader's first pick (its motor tile comes from that slot), not the walk's far end.
+  const spots = (m: SpriteModel) => new Set(drawnParts(m.passes[m.chosen!]!).map(key))
+  const [a, b] = [spots(short), spots(long)]
+  if (a.size === b.size && [...a].every(k => b.has(k))) return long
   if (!(at.door ?? DOOR_WIRED)) return short
   return withExtras(short, long)
 }
