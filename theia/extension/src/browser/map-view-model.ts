@@ -20,6 +20,7 @@ import {
 import { SPRITE_KEYS, type FlameKey, type SpriteKey } from '../../../../src/rom/model/ScreenPlanes'
 import { decodeBase64Bytes, decodeRgba } from './map16-pixels'
 import { SWITCH_ORDER } from './map16-view-model'
+import { quietText } from './sprite-props'
 
 export const PALACES: readonly (keyof SwitchFlagsDto)[] = ['yellow', 'green', 'red', 'blue']
 
@@ -71,6 +72,8 @@ function bitmapOf(s: MapSpriteDto): { rgba: Uint8ClampedArray; prio: Uint8Array 
 function opaqueAt(s: MapSpriteDto, px: number, py: number): boolean {
   const { x0, y0, x1, y1 } = s.box
   if (px < x0 || px >= x1 || py < y0 || py >= y1) return false
+  // The quiet marker's ring is a thin line, so its whole 16 x 16 box answers hover, click and drag, clear interior included.
+  if (s.status === 'quiet') return true
   return bitmapOf(s).rgba[((py - y0) * (x1 - x0) + (px - x0)) * 4 + 3] !== 0
 }
 
@@ -101,8 +104,11 @@ export function spriteAt(
 export const hoverPlacementKey = (zoom: number, rect: { left: number; top: number }): string =>
   `${zoom}:${Math.round(rect.left)}:${Math.round(rect.top)}`
 
-/** What the hover shows for a sprite (#981): its plain name, with what makes it appear after a colon for a revealed one (#1132); nothing when it has neither. */
-export function spriteName(s: Pick<MapSpriteDto, 'name' | 'reveal' | 'id'>): string | undefined {
+/** What the hover shows for a sprite (#981): a quiet marker's words, else its plain name, with what makes a revealed one appear after a colon (#1132); nothing when it has neither. */
+export function spriteName(
+  s: Pick<MapSpriteDto, 'name' | 'reveal' | 'id' | 'kind' | 'status' | 'reason'>,
+): string | undefined {
+  if (s.status === 'quiet') return quietText(s)
   if (!s.reveal) return s.name || undefined
   return `${s.name || `Sprite $${s.id.toString(16).toUpperCase().padStart(2, '0')}`}: ${s.reveal}`
 }
@@ -144,7 +150,8 @@ function spriteLayer(
         out.rgba.set(bmp.rgba.subarray(from * 4, from * 4 + 4), to * 4)
         // No priority: a placeholder, at the pre-#795 slot.
         out.prio[to] = bmp.prio ? bmp.prio[from]! : 2
-        out.door[to] = (((n + 1) | id) << 1) | ((x - x0 + (y - y0)) & 1)
+        // The quiet marker is never dithered by the screen door: it is a hint on the tile, not a sprite to see through.
+        out.door[to] = s.status === 'quiet' ? 0 : (((n + 1) | id) << 1) | ((x - x0 + (y - y0)) & 1)
       }
     }
   }

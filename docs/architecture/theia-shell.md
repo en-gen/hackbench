@@ -269,6 +269,18 @@ caller that composes a crop or a scaled cell passes the native result as
 `flips`. `IndicatorDisplay` does this: it scales `doors` with each cell
 (nearest) and reuses the native flips, so a covered sprite pixel under an
 indicator cell keeps its door at any zoom. Main screen only.
+The quiet marker (#1011) is a sprite with `status: 'quiet'`: it ran fine (or the
+game's loader never runs the id as a sprite) and has no picture. It is a 16 x 16
+ring and center dot at the placed spot, every other pixel clear; `kind`
+(`shooter`, `generator`, `scroll`) says which loader path routed it, absent for
+a sprite that ran and drew nothing. `spriteDoors` gives its pixels door id 0 (never
+dithered), `spriteAt` hits its whole box, clear interior included, and the hover
+and Properties words come from `quietText` (`sprite-props.ts`). The loader's
+routing comes from `loadClasses` (`LoadClass.ts`), which runs the ROM's own
+sprite-list routine once per ROM version and caches by the bytes read, so the
+working copy's edits invalidate it; when it cannot read the ROM the routing is
+`unavailable` and an empty run keeps the framed box, marked unverified. The failure box
+(`placeholder`) stays for refusals, unloaded chars, extra bits and no descriptor.
 Hover (#879): the widget finds the sprite under the pointer with `doorIdAt`
 (the door id at the native pixel) and passes it as `lift` to `composeScreen`
 and `IndicatorDisplay`; that sprite's covered pixels draw opaque. The lift is

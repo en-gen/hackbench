@@ -109,6 +109,8 @@ no other map exits into it. The name is literal, it has no parent. Not a
 defect and not junk: in an editor this is work in progress, and on a stock
 ROM it is leftover data.
 
+**Quiet marker.** The map's mark for a placed item the game draws nothing for: a thin ring with a center dot, 16 x 16 at the placed spot, every other pixel clear so the tile shows through, drawn above the Layer 1 and Layer 2 tiles (a Layer 3 high tile on a map with the BG3 priority bit set still covers it). It means the item ran fine (or the game's loader never runs it as a sprite: a shooter, generator or scroll command) and has no picture. Not the failure box (the framed id box), which means the app could not draw something that should have a picture. See [map-data-mechanics.md](rom/map-data-mechanics.md).
+
 ## The overworld words
 
 **Submap.** One of the overworld's regions. The ROM's own word

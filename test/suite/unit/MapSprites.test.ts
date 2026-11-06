@@ -202,6 +202,16 @@ describe('drawSprites: extra bits, palette splice', () => {
     expect(drawSprites([spr(10, 3, 2, 0x9c), custom], MODEL, stub)[1]).toMatchObject({ status: 'placeholder', reason: 'extraBits' }) // prettier-ignore
   })
 
+  it('claims a quiet marker too: a companion whose own run was empty is drawn by its parent (#1049)', () => {
+    const kids = [{ index: 11, parts: [part(0x401, 0, -16)] }]
+    const stub = (s: LevelSprite): EngineResult =>
+      s.spriteId === 0x9c
+        ? ({ ...ok(part(0x401, 0, 0)), children: kids } as EngineResult)
+        : ({ ok: false, reason: 'drew no OAM tile in 64 passes', empty: true } as EngineResult)
+    const [, c] = drawSprites([spr(10, 3, 2, 0x9c), spr(11, 3, 2, 0x9b)], MODEL, stub)
+    expect(c).toMatchObject({ status: 'drawn', drawnBy: 10 })
+  })
+
   it('splices only the parts on the note row', () => {
     const chars = { sp1: [Uint8Array.from([3, 4, ...new Array(62).fill(0)])] }
     const note = { kind: 'dynamicCgram' as const, row: 9, firstCol: 4, colors: 1, entryAddr: 0 }

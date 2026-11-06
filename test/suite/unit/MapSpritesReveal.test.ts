@@ -53,6 +53,13 @@ describe('the served drawer reveals hidden sprites', () => {
     expect(r.anchor).toEqual({ x: 0x1000, y: 0x120 })
   })
 
+  it('keeps the routing warning on a revealed sprite when the loader routing could not be read (#1011)', () => {
+    // The synthetic cart has no level loader call, so the routing is unavailable and an empty run at rest is unverified.
+    expect(ok(drawer()(entry(140)))).toMatchObject({
+      unverified: expect.stringContaining('routing could not be read'),
+    })
+  })
+
   it('leaves a sprite that draws at rest alone', () => {
     expect(ok(drawer()(entry(0)))).not.toHaveProperty('reveal')
   })

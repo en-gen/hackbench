@@ -1,0 +1,3 @@
+### Changed
+
+- Quiet marker for placed items the game draws nothing for (#1011): shooters, generators, scroll commands and sprites whose run finishes empty show a thin ring with a center dot you can see the tile through, with a plain-words tooltip, instead of the framed id box. Refused or failed sprites keep the framed box. The class is read by running the game's own sprite-list routine from the ROM on the built-in 65816 core, cached per ROM version; checked on the vanilla and Magic ROMs and three hacks, and refused (framed box kept, marked unverified) where the routine cannot be followed or proves nothing; three hacks that change it read the same table.

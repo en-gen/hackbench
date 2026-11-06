@@ -323,7 +323,7 @@ describe('a sprite its parent drew, through the real drawer (#1049)', () => {
     // The scanner draws two pieces, its own and the companion's: the companion gets the one it drew.
     expect(parent!.parts!.length).toBe(2 * child!.parts!.length)
     // Another companion, on a screen the scanner's neighbors do not reach, keeps its marker.
-    expect(far).toMatchObject({ index: 2, status: 'placeholder' })
+    expect(far).toMatchObject({ index: 2, status: 'placeholder' }) // this synthetic cart has no readable loader routing, so its empty run keeps the box (#1011)
   })
 
   it('a parent that draws the companion before its own piece still gives the companion only its own tiles', () => {
