@@ -2,7 +2,7 @@
  * RopeLength.ts -- the rope ($64) at the length the game draws it (#1230, D152 / Decision 103 E).
  * The draw tests the slot it runs in (bank_01.asm:12583-12589) and the loader picks the slot (SlotPick.ts), so the picture
  * is the ROM's own draw run in the slot the loader would give. Where the slot depends on what else is loaded, the draw is
- * run in the long slot and in the short one, and the short one is shown (the screen door for the extra length comes later).
+ * run in the long slot and in the short one; the parts only the long run drew are tagged `door`.
  */
 import type { RomFile } from '../../RomFile'
 import type { CodeFingerprint } from './InitLatches'
@@ -34,6 +34,23 @@ const NOT_CHECKED =
 const DIFFERENT_SPOT =
   'the rope starts at a different spot in the two slots it can load into, so only the short length is shown'
 const key = (p: SpritePart) => `${p.dx},${p.dy}`
+
+/** The short run's pass with the parts only the long run drew added, tagged `door` (the short run's own parts stay solid). */
+function withExtras<M extends SpriteModel>(short: M, long: SpriteModel): M {
+  return {
+    ...short,
+    passes: short.passes.map((p, i) => {
+      const have = new Set(drawnParts(p).map(key))
+      const longer = drawnParts(long.passes[i] ?? p)
+      // A pass whose short parts are not all in the long one is a different rope there: it stays the short run, solid.
+      if (![...have].every(k => longer.some(q => key(q) === k))) return p
+      const extra = longer
+        .filter(q => !have.has(key(q)))
+        .map((q): SpritePart => ({ ...q, door: true }))
+      return extra.length ? { ...p, parts: [...p.parts, ...extra] } : p
+    }),
+  }
+}
 
 /**
  * The rope's model. `runAt(slot)` runs the sprite in that slot. A loader or setting the pick cannot read keeps slot 0 and
@@ -75,5 +92,5 @@ export function ropeModel<M extends SpriteModel>(
     m.passes[m.chosen ?? -1] && new Set(drawnParts(m.passes[m.chosen!]!).map(key))
   const [a, b] = [spots(short), spots(long)]
   if (a && b && a.size === b.size && [...a].every(k => b.has(k))) return long
-  return short
+  return withExtras(short, long)
 }

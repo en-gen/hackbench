@@ -44,6 +44,7 @@
  * reads bit 2 as its secret exit (bank_01.asm:8833-8836). Custom PIXI sprites on
  * GrandPooWorld_V1.2 were measured with EE = 2 (reviewer's scan, one ROM).
  */
+import { DOOR_PART_BIT } from '../../../../src/rom/model/ColorMath'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { parseLevelSprites } from '../../../../src/rom/LevelParser'
@@ -191,7 +192,7 @@ export type SpriteDrawResult =
   | { ok: false; reason: string; unverified?: string }
 
 /** A part with its OAM priority (attribute bits 5:4); the table engine's parts have none and draw at 2. */
-export type DrawPart = EnginePart & { priority?: number }
+export type DrawPart = EnginePart & { priority?: number; door?: boolean }
 
 /** Runs a drawer for one sprite; injected so the placement math is tested without a cart. */
 export type SpriteDrawer = (sprite: LevelSprite) => SpriteDrawResult
@@ -252,7 +253,7 @@ function blit(
       if (v === 0) continue
       const at1 = (at[1] + ty) * width + at[0] + tx
       out.set(row(v), at1 * 4)
-      prio[at1] = p.priority ?? 2
+      prio[at1] = (p.priority ?? 2) | (p.door ? DOOR_PART_BIT : 0)
     }
   }
 }
@@ -421,6 +422,7 @@ export function interpParts(parts: readonly SpritePart[]): DrawPart[] {
         charNum: 0x400 + (p.size === 16 ? neighbour(p.char, cx, cy) : p.char),
         palette: p.palette,
         priority: p.priority,
+        door: p.door,
         flipX: p.flipX,
         flipY: p.flipY,
         dx: p.dx + (p.size === 16 ? col * 8 : 0),

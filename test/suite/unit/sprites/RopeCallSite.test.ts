@@ -55,8 +55,8 @@ describe('the map view call site of the rope', () => {
   it('reads the map setting from the loader image: setting 1 odd 9, even 5; another setting walks its own table', () => {
     expect(run(SPECIAL, 1, 2).tiles).toBe(9)
     expect(run(SPECIAL, 2, 2).tiles).toBe(5)
-    // Setting 2 shares its top slot with ordinary sprites: both slots run; the short rope is shown.
-    expect(run(SPECIAL, 1, 2, { setting: 2 })).toMatchObject({ tiles: 5, seen: [6, 2] })
+    // Setting 2 shares its top slot with ordinary sprites: both slots run; the short rope is solid and the extra length rides as door parts.
+    expect(run(SPECIAL, 1, 2, { setting: 2 })).toMatchObject({ tiles: 9, seen: [6, 2] })
     expect(run(SPECIAL, 1, 2, { setting: 0 }).tiles).toBe(5)
   })
   it('takes the row parity on a vertical map: rows decide, columns do not', () => {
