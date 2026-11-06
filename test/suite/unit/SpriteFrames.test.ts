@@ -491,15 +491,20 @@ describe('framesOf: a sprite that never draws is not "one pose" (#1113)', () => 
   const some = { vram: { sp1: Array.from({ length: 24 }, (_, i) => ([5, 6].includes(i) ? SOLID : null)) as never }, colors: COLORS } // prettier-ignore
   const through = (chars: number[]) => framesOf({ m: run(chars.map(c => [c, 0])), fixed: false }, spr, some) // prettier-ignore
 
-  it('an unloaded chosen pass gives no frames and a reason, whatever the later passes draw', async () => {
-    for (const chars of [
-      [1, 1, 5],
-      [1, 5, 6],
-    ]) {
-      const r = through(chars)
-      expect(r, String(chars)).toEqual({ frames: [], reason: 'charsNotLoaded' })
-      expect(await said(r)).toMatch(/^Animation not shown: Some of its graphics/)
-    }
+  const NOT_SHOWN = 'Animation not shown: Some of its graphics are not loaded on this map.'
+
+  it('an unloaded chosen pass keeps the reason, so one drawable later pose is not "one pose"', async () => {
+    const r = through([1, 1, 5])
+    expect(r.frames).toHaveLength(1)
+    expect(r.reason).toBe('charsNotLoaded')
+    expect(await said(r)).toBe(NOT_SHOWN)
+  })
+
+  it('an unloaded chosen pass still shows the drawable later poses, reason kept, and they play', async () => {
+    const r = through([1, 5, 6])
+    expect(r.frames).toHaveLength(2)
+    expect(r.reason).toBe('charsNotLoaded')
+    expect(await said(r)).toBe('Animated: 2 frames, looping.')
   })
 
   it('a later pass skipped beside a drawn chosen pass keeps the frame and no reason', async () => {

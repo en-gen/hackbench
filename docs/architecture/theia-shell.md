@@ -529,7 +529,7 @@ path). `Machine.passes` are consecutive game frames. The loop starts at the pass
 is subtracted (from `pos`, or from `origin` for a $67 on a vanilla-shaped handler, whose parts are measured from the
 pass before), then poses are deduped by each part's char, flips and offset from the other parts, so parts that
 move against each other are a new pose and whole-sprite drift is not. One pose says "Not animated"; no frames at
-all (including a chosen pass that is not drawn, whatever the later passes draw) says "Animation not shown" plus a plain reason (the node and player keep reason codes, `framesReasonText`
+all, or a chosen pass that is not drawn with under two poses drawn after it (the reason is kept; two or more later poses still play), says "Animation not shown" plus a plain reason (the node and player keep reason codes, `framesReasonText`
 puts them in words). Sprites with screen-fixed parts (`fixOffsets`) are not animated, because that fix is only
 derived for the chosen pass. `FramePlayer` (`sprite-frames.ts`) requests on selection, drops replies and errors
 for an older selection, steps every 133 ms (8 game frames) and stops its timer on clear, hide and dispose. The

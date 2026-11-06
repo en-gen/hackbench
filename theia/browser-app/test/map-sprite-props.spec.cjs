@@ -256,6 +256,33 @@ test('an animated sprite loops on the panel canvas; a one-pose sprite says it is
   expect(treeHash(projectDir)).toBe(hashBefore)
 })
 
+test('a sprite whose frames come back with a not-loaded reason says "Animation not shown", never "Not animated" (#1113)', async ({
+  page,
+}) => {
+  const map = await openMap(page, SLOT)
+  const s = map.stack.find(x => x.status === 'drawn' && x.parts && map.own(x))
+  expect(s, 'a clickable drawn sprite').toBeTruthy()
+  // No vanilla sprite draws charsNotLoaded, so the widget's service PROPERTY (not a page-side wrapper over the proxy) is a stub.
+  await page.evaluate(() => {
+    const w = getSvc('WidgetManager').getWidgets('hackbench.properties')[0]
+    window.__stubCalls = 0
+    w.projects = {
+      mapSpriteFrames: async () => {
+        window.__stubCalls++
+        return { status: 'ok', frames: [], reason: 'charsNotLoaded' }
+      },
+    }
+  })
+  const at = map.own(s)
+  await map.click(at.x, at.y)
+  const line = panel(page).locator('[data-field="animation"]')
+  await expect(line).toHaveText(
+    'Animation not shown: Some of its graphics are not loaded on this map.',
+  )
+  await expect(line).not.toContainText('Not animated')
+  expect(await page.evaluate(() => window.__stubCalls), 'the stub answered').toBeGreaterThan(0)
+})
+
 test('closing the map clears the panel; the toggle command reopens a closed panel', async ({
   page,
 }) => {
