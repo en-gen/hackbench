@@ -3933,14 +3933,14 @@ test('the preview tab carries the layer, sprite and collision toggles to the nex
   const toggles = ['layer-l1', 'layer-l2', 'layer-l3', 'layer-sprites', 'collision-toggle']
   const states = () => Promise.all(toggles.map(c => control(page, 'preview', c).getAttribute('aria-pressed'))) // prettier-ignore
   const lines = () => page.evaluate(s => [...document.querySelectorAll(`${s} [data-control="collision-overlay"] polyline`)].map(p => p.getAttribute('points')).join('|'), root('preview')) // prettier-ignore
-  await clickRow(page, 0x105)
+  await clickRow(page, 0x111)
   await expect(control(page, 'preview', 'collision-toggle')).toHaveAttribute('data-collision-state', 'ready', { timeout: 30000 }) // prettier-ignore
   await pressAll(page, 'preview')
   for (const c of toggles) await control(page, 'preview', c).click()
   const flipped = await states()
   await expect.poll(lines, { timeout: 60000 }).not.toBe('')
   const aLines = await lines()
-  await clickRow(page, 0x109)
+  await clickRow(page, 0x1c1)
   expect(await states()).toEqual(flipped)
   expect(await pressedOf(page, 'preview')).toEqual(all('false'))
   // Presses on A and the overlay on: B draws some lines, and not A's.
