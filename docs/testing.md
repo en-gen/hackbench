@@ -69,20 +69,20 @@ public); the probe still blanks them.
   distinct) to the ramp and loop filter, so a copied table that is itself a pure
   ramp or short loop is not seen.
 - **Local only.** The windows come from the real vanilla ROM (found by
-  `corpus.cjs`, so `HACKBENCH_ROMS` applies). The file must be a regular file of 512
-  KiB after any copier header with a valid LoROM checksum and complement; any other
-  file at that path, or none, makes the rule not run. No hash set of ROM windows is
-  committed (D155), so CI has no ROM and keeps its other checks. A hack with a valid
-  checksum under the vanilla name is not detected. Every mode except `history`
-  prints `rom-window rule DID NOT RUN` with its reason on stderr; `history` prints
-  its own, since it never judges the rule (old files hold runs).
+  `corpus.cjs`, so `HACKBENCH_ROMS` applies): a regular file of 512 KiB after any
+  copier header with a valid LoROM checksum and complement. Any other file at that
+  path, or none, makes the rule not run. No hash set of ROM windows is committed
+  (D155), so CI has no ROM and keeps its other checks. A hack with a valid checksum
+  under the vanilla name is not detected. Every mode except `history` prints
+  `rom-window rule DID NOT RUN` and its reason on stderr; `history` prints its own,
+  since it never judges the rule (old files hold runs).
 - **What counts as added.** The per-commit walk decides: a file is added by a
   non-merge commit that has it as A, or by a merge that has it as A against every
   parent (a file merged in from develop is not). Each such blob is judged, so a run
   committed and later removed or rewritten is caught in `range` and `push`. A rename
   counts as added (`--no-renames`). `push` walks what is not on the remote, the tips
   `ls-remote` names that this clone has and the local remote-tracking refs, so a
-  remote that moved on does not make develop's commits look new. An empty remote
+  remote that moved on does not make develop's commits look new; an empty remote
   judges everything. `staged` uses the cached status.
 - **Known gaps.** A file added clean and filled in a later commit, and any edit to
   an existing file, is never judged (a stub-then-fill route). `.md` is excluded
@@ -102,15 +102,15 @@ public); the probe still blanks them.
   by path; `feature/music-import-prototype` adds 9 files with a run (windows per
   file: 1, 1, 1, 1, 1, 1, 3, 26, 3) and `feature/sprite-interpreter-spike` 6 (1 each).
 - **Ratchet** (D157), only where a ROM is present. The test counts, per synthetic
-  builder in `test/suite/support`, the windows shared with the vanilla ROM; 12 of 34
-  are non-zero. Every builder is pinned at default or fixed arguments only. A count
-  that changes fails, a builder missing from the pin fails, and every support module
-  and every exported function returning `Uint8Array` or `RomFile` must be listed
-  (that part runs without a ROM). Counts fall to 0 through #1253.
+  builder in `test/suite/support` (default or fixed arguments only), the windows
+  shared with the vanilla ROM; 12 of 34 are non-zero. A count that changes fails, a
+  builder missing from the pin fails, and every support module and every exported
+  function returning `Uint8Array` or `RomFile` must be listed (that part runs
+  without a ROM). Counts fall to 0 through #1253.
 
 `test/suite/gates/contentGateRomWindows.test.ts` proves the rule red on planted
-runs in each notation with a fake PRNG ROM (CI) and the real ROM (local), and the
-rest in throwaway repos.
+runs in each notation (fake PRNG ROM in CI, real ROM locally), and the rest in
+throwaway repos.
 
 Modes: `staged` (no hook runs it since #1183), `range BASE HEAD` (CI),
 `push REMOTE`

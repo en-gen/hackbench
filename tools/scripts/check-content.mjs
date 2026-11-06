@@ -448,16 +448,14 @@ const isScannableText = (path, buf) =>
   buf.length <= OVERSIZE_THRESHOLD && !isBinary(buf) && !isLockfile(normalizePath(path))
 
 /** Which entries the ROM-window rule reads: a blob a commit ADDS (see walkRawDiff), outside .md, when
- * `judge` is on (every mode but history). A modified file would be judged on lines it did not add, and
- * a merge of develop would list develop's old files, so an edit or a merge would fail on old content.
- * Markdown prose lists addresses, not fixture bytes (a known gap: 8 of 308 tracked .md files hold a run). */
+ * `judge` is on (every mode but history). An edit or a merge of develop would otherwise fail on old
+ * content. Markdown prose lists addresses, not fixture bytes (a known gap: 8 of 308 tracked .md files). */
 const romWindowApplies = (e, buf, judge) =>
   judge && e.added && !/\.md$/i.test(e.path) && isScannableText(e.path, buf)
 
-/** ROM-window rule (#1053): a run of byte notation in a text file that matches an 8-byte window
- * of the vanilla ROM. `lookup` is any object with `has(windowKey)` (see hitRuns in
- * lib/rom-windows.mjs). Comments are scanned too (mode 'none'): they are public. Reports the line
- * and window count, never the bytes. A masked array (null between the bytes) is not seen. */
+/** ROM-window rule (#1053): a run of byte notation in a text file that matches an 8-byte window of the
+ * vanilla ROM. `lookup` is any object with `has(windowKey)` (see hitRuns). Comments are scanned too
+ * (mode 'none'): they are public. Reports line and window count, never bytes. Masked arrays are not seen. */
 export function checkRomWindows(path, buf, lookup) {
   if (!lookup || !isScannableText(path, buf)) return []
   return textHits(buf.toString('utf8'), lookup, 1, undefined, 'none').map(h => ({
@@ -625,9 +623,8 @@ function walkRawDiff(revArgs, { reverse = false } = {}) {
     const path = fields[++i]
     if (path === undefined) break
     const e = { commit, path: Buffer.from(path, 'binary').toString('utf8'), blob: newBlob, parents }
-    // `-m` lists a merge once per parent. A is a file the commit adds only if it is A against EVERY
-    // parent: a file merged in from develop is not A against develop's parent. Each qualifying blob is
-    // judged, so a run committed and later removed or rewritten is still caught.
+    // `-m` lists a merge once per parent: a file is added only if it is A against EVERY parent (one merged
+    // in from develop is not). Each qualifying blob is judged, so a run later removed is still caught.
     e.key = JSON.stringify([commit, e.path, newBlob])
     if (status === 'A') addedIn.set(e.key, (addedIn.get(e.key) ?? 0) + 1)
     entries.push(e)
@@ -807,11 +804,9 @@ function evaluateEntries(entries, messages = [], whole = false, judge = true) {
     }
   }
   const blobShas = [...pathOf.keys()]
-  let lookup
-  const lookupOnce = () => {
-    if (lookup === undefined) lookup = romWindowLookup(process.env, m => process.stderr.write(m))
-    return lookup
-  }
+  let lookup // chosen on first use, so a run with no candidate file never opens the ROM
+  const lookupOnce = () =>
+    (lookup ??= romWindowLookup(process.env, m => process.stderr.write(m)) ?? false)
   try {
     readBudgeted(blobShas, pathOf, whole, blobs => {
       if (!whole) {
@@ -949,8 +944,7 @@ function formatHit(h) {
 
 function runStaged() {
   assertNoGrafts()
-  const entries = stagedEntries()
-  const hits = [...evaluateEntries(entries, [], false), ...emDashHits(['--cached'])]
+  const hits = [...evaluateEntries(stagedEntries()), ...emDashHits(['--cached'])]
   return dedupeReport(hits)
 }
 
@@ -959,7 +953,7 @@ function runRange(base, head) {
   requireCommit(base, 'range base')
   requireCommit(head, 'range head')
   const { entries, messages } = walkRawDiff([head, '--not', base])
-  const hits = [...evaluateEntries(entries, messages, false), ...emDashHits([base, head])]
+  const hits = [...evaluateEntries(entries, messages), ...emDashHits([base, head])]
   return dedupeReport(hits)
 }
 

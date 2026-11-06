@@ -44,9 +44,8 @@ export function windowSet(rom, width = WINDOW_BYTES) {
 
 /** Runs of `{ at, windows, end }` where consecutive windows of `bytes` are in
  *  `set`; `at` and `end` are lineOf() of the run's first and last byte.
- *  `set` is any lookup with `has(windowKey)`, the window as a latin1 string; the
- *  in-memory Set from windowSet() is one. The check-content gate picks the lookup
- *  in one place (romWindowLookup), so a different source needs no change here. */
+ *  `set` is any lookup with `has(windowKey)`, the window as a latin1 string (a
+ *  windowSet() Set is one); the gate picks it in one place, romWindowLookup. */
 function hitRuns(bytes, lineOf, set, width) {
   const out = []
   let open = null

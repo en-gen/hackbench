@@ -1,8 +1,7 @@
 /**
- * The content gate's ROM-window rule (#1053): an added text file holding a run that matches an
- * 8-byte window of the vanilla ROM is blocked. Every ROM in the synthetic half is PRNG bytes built
- * in the test, so it runs in CI with no corpus; the real-ROM half is gated on it. Planted bytes are
- * generated at test time and never printed or committed.
+ * The content gate's ROM-window rule (#1053): an added text file holding a run that matches an 8-byte
+ * window of the vanilla ROM is blocked. The synthetic half builds PRNG ROMs in the test and runs in CI;
+ * the real-ROM half needs the corpus. Planted bytes are made at test time, never printed or committed.
  */
 import { spawnSync } from 'node:child_process'
 import {
@@ -137,17 +136,14 @@ describe(
         for (const n of NAMES) expect(checkRomWindows('f.ts', text(n, w), set2), n).toEqual([])
     })
 
-    it('no lookup, a lockfile and a binary blob are not scanned', () => {
+    it('no lookup, a lockfile and a binary blob are not scanned; any has() object is a lookup', () => {
       const t = text('hex array', planted)
       expect(checkRomWindows('f.ts', t, null)).toEqual([])
       expect(checkRomWindows('package-lock.json', t, set)).toEqual([])
       expect(checkRomWindows('f.ts', Buffer.concat([t, Buffer.from([0])]), set)).toEqual([])
-    })
-
-    it('any object with has() is a lookup, not only a Set', () => {
+      // Any object with has() is a lookup, not only a Set.
       const only = new Set([Buffer.from(planted).toString('latin1')])
-      const lookup = { has: (k: string) => only.has(k) }
-      expect(checkRomWindows('f.ts', text('hex array', planted), lookup)).toHaveLength(1)
+      expect(checkRomWindows('f.ts', t, { has: (k: string) => only.has(k) })).toHaveLength(1)
     })
   },
 )
@@ -235,7 +231,6 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
       `refs/heads/feature ${r.g('rev-parse', 'feature')} x ${'0'.repeat(40)}\n`,
     )
   const out = (p: { stdout: Buffer; stderr: Buffer }) => `${p.stdout}${p.stderr}`
-
   it('staged: red naming the line; modified, .md and clean pass; a rename and comments count', () => {
     const dir = mkdtempSync(join(tmp, 'st-'))
     installGate(dir)
@@ -376,7 +371,7 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
     },
   )
 
-  it('a valid ROM with a copier header is used; the ROM is not read when no file qualifies', () => {
+  it('a valid ROM with a copier header is used; the ROM is not read when no file qualifies; a gitlink is skipped', () => {
     const r = repo()
     commitFile(r, 'planted.ts', run)
     expect(range(r.dir, romsDir('hdr', vanillaFile([win], BIG, true))).status).toBe(1)
@@ -387,10 +382,7 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
     const p = cli(m.dir, romsDir('bdir2', 'dir'), ['staged'])
     expect(p.status).toBe(0)
     expect(p.stderr.toString()).not.toContain('not a regular file')
-  })
-
-  it('a gitlink in the diff is skipped', () => {
-    const r = repo()
+    // A gitlink in the diff is skipped.
     r.g('update-index', '--add', '--cacheinfo', `160000,${r.g('rev-parse', 'HEAD')},sub`)
     expect(cli(r.dir, roms, ['staged']).status).toBe(0)
   })
@@ -414,42 +406,27 @@ const plants = (p: [number, number[]][]) => parts(put => p.forEach(([at, b]) => 
 
 // Builders that assemble synthetic code or a cart. Add a new one here AND to PIN: the guards below fail
 // until you do, with no ROM needed. #1085 and #1253 own the builders; this only counts them.
+// prettier-ignore
 const BUILDERS: Record<string, () => Uint8Array | Uint8Array[]> = {
-  stub: () => stub().buffer,
-  blankStockRom: () => blankStockRom().buffer,
-  syntheticOverworldRom: () => syntheticOverworldRom().buffer,
-  buildSyntheticRom: () => buildSyntheticRom().buffer,
-  platformCart: () => platformCart().buffer,
-  pswitchRom: () => pswitchRom().buffer,
-  rampRom,
-  fakeRom,
-  map16DecodeStub: () => map16DecodeStub(),
-  buildCart: () => buildCart().rom.buffer,
-  bgModeRom: () => bgModeRom().buffer,
-  modeTablesRom: () => modeTablesRom(sweepLayouts()).buffer,
-  cart: () => cart([]).buffer,
-  productionCart: () => productionCart(syntheticRoutine(24).bytes).buffer,
+  stub: () => stub().buffer, blankStockRom: () => blankStockRom().buffer,
+  syntheticOverworldRom: () => syntheticOverworldRom().buffer, buildSyntheticRom: () => buildSyntheticRom().buffer,
+  platformCart: () => platformCart().buffer, pswitchRom: () => pswitchRom().buffer, rampRom, fakeRom,
+  map16DecodeStub: () => map16DecodeStub(), buildCart: () => buildCart().rom.buffer,
+  bgModeRom: () => bgModeRom().buffer, modeTablesRom: () => modeTablesRom(sweepLayouts()).buffer,
+  cart: () => cart([]).buffer, productionCart: () => productionCart(syntheticRoutine(24).bytes).buffer,
   layer3Cart: () => layer3Cart(1, 2).buffer,
-  clusterPathStandIn: () =>
-    plants([...clusterPathStandIn(), ...clusterPathStandIn({ fastRom: true })]),
-  marioGraphicsFixture: () => [Uint8Array.from(routine({ at33: 1, bank: 2, top: 3, srcTop: 4, at32: 5 })), Uint8Array.from(dmaCode())], // prettier-ignore
-  syntheticCompanion: () => parts(putCompanionRoutines),
-  syntheticDrawProbes: () => parts(putDrawPosProbes),
-  syntheticLoaderStandIns: () => parts(put => putLoaderStandIns(put, {})),
-  syntheticLayer3: () => parts(putLayer3),
-  staircaseB: () => plants(c3StructurePlants(0x8000)),
-  verticalTable: () => Uint8Array.from(SYNTHETIC_VERTICAL_TABLE),
+  clusterPathStandIn: () => plants([...clusterPathStandIn(), ...clusterPathStandIn({ fastRom: true })]),
+  marioGraphicsFixture: () => [Uint8Array.from(routine({ at33: 1, bank: 2, top: 3, srcTop: 4, at32: 5 })), Uint8Array.from(dmaCode())],
+  syntheticCompanion: () => parts(putCompanionRoutines), syntheticDrawProbes: () => parts(putDrawPosProbes),
+  syntheticLoaderStandIns: () => parts(put => putLoaderStandIns(put, {})), syntheticLayer3: () => parts(putLayer3),
+  staircaseB: () => plants(c3StructurePlants(0x8000)), verticalTable: () => Uint8Array.from(SYNTHETIC_VERTICAL_TABLE),
   skipChain: () => parts(put => writeStockSkipChain({ writeAt: put } as never)),
   plantUploaderTable: () => parts(put => plantUploaderTable({ writeAt: put } as never)),
   uploadRoutine: () => [0x038000, 0x0e8000, 0x0f8000].map(a => Uint8Array.from(uploadRoutine(a))), // the addresses its tests use
   putEeries: () => parts(put => putEeries(put, {} as never)),
-  putGrinderRoutines: () => parts(put => putGrinderRoutines(put, {}, [0x60])),
-  putGm11Spans: () => parts(put => putGm11Spans(put, {})),
-  syntheticMode7: () => [unpackBytes(0, 0, 0), helperBytes(), ALT_HELPER, callSiteBytes(0x8000)].map(b => Uint8Array.from(b)), // prettier-ignore
-  map16Stub: () => map16Stub(),
-  l2Tilemap: () => l2Tilemap(),
-  gfxPayloads: () => gfxPayloads(),
-  gfxStreams: () => gfxStreams(),
+  putGrinderRoutines: () => parts(put => putGrinderRoutines(put, {}, [0x60])), putGm11Spans: () => parts(put => putGm11Spans(put, {})),
+  syntheticMode7: () => [unpackBytes(0, 0, 0), helperBytes(), ALT_HELPER, callSiteBytes(0x8000)].map(b => Uint8Array.from(b)),
+  map16Stub: () => map16Stub(), l2Tilemap: () => l2Tilemap(), gfxPayloads: () => gfxPayloads(), gfxStreams: () => gfxStreams(),
 }
 // Every support module is either a host of a builder above (value: its builders) or helper-only.
 // prettier-ignore
@@ -470,10 +447,10 @@ const HOSTS: Record<string, string[]> = {
 }
 const NOT_BUILDERS = ['asm65', 'captures', 'cartBytes', 'catalogAcceptance', 'collisionBaseline', 'corpus', 'doorBlend', 'fakeAudio', 'ghSpawnReached', 'gitBash', 'gradeTimeline', 'initFacing', 'isolatedGit', 'l1AllowList', 'l1Differential', 'le', 'leafGrouping', 'levelSpriteList', 'loadTimeout', 'mapInputs', 'nestedFolders', 'noRealGh', 'oracleImage', 'overworldView', 'romWindows', 'singleStep', 'spriteGrade', 'spritePosition', 'userText', 'vanillaWindows', 'vscodeStub'] // prettier-ignore
 
-// RATCHET (D157), run only where a vanilla ROM is present. Every builder is pinned at default or fixed
-// arguments only; a builder with options can carry windows the pin does not see. Windows each builder shares with the vanilla ROM today (one machine, 2026-11-05, vanilla
-// US, windows not runs). Counts fall to 0 through #1253; a count that changes, up or down, fails, and a
-// builder missing here fails. Builders are NOT changed in this branch.
+// RATCHET (D157), run only where a vanilla ROM is present. Windows each builder shares with the vanilla
+// ROM today (one machine, 2026-11-05, vanilla US, windows not runs), at default or fixed arguments only
+// (a builder with options can carry windows the pin does not see). Counts fall to 0 through #1253; a
+// count that changes, up or down, fails, and a builder missing here fails. Builders are NOT changed here.
 const PIN: Record<string, number> = { stub: 5, blankStockRom: 76, syntheticOverworldRom: 230, buildSyntheticRom: 0, platformCart: 0, pswitchRom: 26, rampRom: 0, fakeRom: 0, map16DecodeStub: 0, buildCart: 57, bgModeRom: 9, modeTablesRom: 20, cart: 0, productionCart: 7, layer3Cart: 0, clusterPathStandIn: 0, marioGraphicsFixture: 0, syntheticCompanion: 0, syntheticDrawProbes: 0, syntheticLoaderStandIns: 0, syntheticLayer3: 0, staircaseB: 2, verticalTable: 0, skipChain: 0, plantUploaderTable: 27, uploadRoutine: 21, putEeries: 0, putGrinderRoutines: 0, putGm11Spans: 0, syntheticMode7: 0, map16Stub: 287, l2Tilemap: 0, gfxPayloads: 0, gfxStreams: 0 } // prettier-ignore
 
 describe('4a: vanilla windows in the synthetic builders are pinned (a ratchet, not zero)', () => {
