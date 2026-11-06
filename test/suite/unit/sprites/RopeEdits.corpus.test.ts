@@ -43,7 +43,9 @@ const setting = (n: number): Edit => (b, at) => (b[at] = (b[at]! & 0xc0) | n) //
 
 describe.skipIf(!hasRom(VANILLA))('the rope on edited vanilla bytes', () => {
   it('map $00F (setting 1): odd columns 9 tiles, even columns 5, as captured', () => {
-    const got = Object.fromEntries(ropes(0x00f).map(r => [r.col, r.tiles]))
+    const all = ropes(0x00f)
+    const got = Object.fromEntries(all.map(r => [r.col, r.tiles]))
+    for (const r of all) expect([r.s.screenDoor, r.s.reveal], `column ${r.col}`).toEqual([undefined, undefined]) // prettier-ignore
     for (const c of [205, 241]) expect(got[c], `column ${c}`).toBe(9)
     for (const c of [164, 186, 210, 216]) expect(got[c], `column ${c}`).toBe(5)
   })
