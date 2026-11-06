@@ -119,21 +119,24 @@ async function composedRows(page, rope) {
   await page.evaluate(open, { mp: rope.mp })
   const screen = Math.floor(rope.box.x0 / 256)
   const plane = `${root} canvas[data-screen="${screen}"][data-plane="sprites"]`
-  await page.locator(plane).evaluate(el => el.scrollIntoView({ inline: 'start', block: 'nearest' })) // prettier-ignore
+  await page.locator(plane).evaluate(el => el.scrollIntoView({ inline: 'start', block: 'nearest' }))
   await expect(page.locator(plane)).toHaveAttribute('data-drawn', /^\d+:\d+$/, { timeout: 30000 })
-  const rows = await page.evaluate(({ plane, root, screen, box }) => {
-    const [x, y, w, h] = [box.x0 - screen * 256, box.y0, box.x1 - box.x0, box.y1 - box.y0]
-    const sp = document.querySelector(plane).getContext('2d').getImageData(x, y, w, h).data
-    const comp = composeCanvases(planesOf(root, screen), x, y, w, h)
-    const out = { solid: [0, 0], door: [0, 0] }
-    for (let i = 0; i < w * h; i++) {
-      if (sp[i * 4 + 3] !== 255) continue
-      const part = Math.floor(i / w) < 80 ? out.solid : out.door
-      part[0]++
-      if ([0, 1, 2, 3].every(k => sp[i * 4 + k] === comp[i * 4 + k])) part[1]++
-    }
-    return out
-  }, { plane, root, screen, box: rope.box }) // prettier-ignore
+  const rows = await page.evaluate(
+    ({ plane, root, screen, box }) => {
+      const [x, y, w, h] = [box.x0 - screen * 256, box.y0, box.x1 - box.x0, box.y1 - box.y0]
+      const sp = document.querySelector(plane).getContext('2d').getImageData(x, y, w, h).data
+      const comp = composeCanvases(planesOf(root, screen), x, y, w, h)
+      const out = { solid: [0, 0], door: [0, 0] }
+      for (let i = 0; i < w * h; i++) {
+        if (sp[i * 4 + 3] !== 255) continue
+        const part = Math.floor(i / w) < 80 ? out.solid : out.door
+        part[0]++
+        if ([0, 1, 2, 3].every(k => sp[i * 4 + k] === comp[i * 4 + k])) part[1]++
+      }
+      return out
+    },
+    { plane, root, screen, box: rope.box },
+  )
   await page.evaluate(() => getSvc('ApplicationShell').closeWidget('hackbench.map-view:15'))
   return rows
 }
@@ -154,5 +157,10 @@ test('a rope on a free-slot setting draws its extra length in the screen door, a
   // half the pixels (on setting 1 the same rows are untouched).
   const [d, s] = [await composedRows(page, door), await composedRows(page, solid)]
   const same = ([total, n]) => n / total
-  expect([same(d.solid) > 0.9, same(d.door) < 0.75, same(s.door) > 0.9, d.door[0] > 0]).toEqual([true, true, true, true]) // prettier-ignore
+  expect([same(d.solid) > 0.9, same(d.door) < 0.75, same(s.door) > 0.9, d.door[0] > 0]).toEqual([
+    true,
+    true,
+    true,
+    true,
+  ])
 })

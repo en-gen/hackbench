@@ -250,7 +250,14 @@ export function offMapSpritePixels(
   for (const s of order) {
     const { x0, y0, x1, y1 } = s.box
     let bmp = decoded.get(s)
-    if (!bmp) decoded.set(s, (bmp = { rgba: decodeRgba(s.rgba), prio: s.priority ? decodeBase64Bytes(s.priority) : null })) // prettier-ignore
+    if (!bmp)
+      decoded.set(
+        s,
+        (bmp = {
+          rgba: decodeRgba(s.rgba),
+          prio: s.priority ? decodeBase64Bytes(s.priority) : null,
+        }),
+      )
     for (let y = Math.max(y0, -pad.top); y < Math.min(y1, mapH + pad.bottom); y++) {
       for (let x = Math.max(x0, -pad.left); x < Math.min(x1, mapW + pad.right); x++) {
         if (insideMap(x, y, mapW, mapH)) continue
@@ -260,7 +267,8 @@ export function offMapSpritePixels(
         const to = ((y + pad.top) * w + x + pad.left) * 4
         out.set(bmp.rgba.subarray(from, from + 4), to)
         // A door part (the rope's extra length) keeps the door's squares past the map edge too.
-        if (bmp.prio && bmp.prio[from / 4]! & DOOR_PART_BIT) out[to + 3] = Math.round(255 * hiddenPixelStrength(x - x0, y - y0)) // prettier-ignore
+        if (bmp.prio && bmp.prio[from / 4]! & DOOR_PART_BIT)
+          out[to + 3] = Math.round(255 * hiddenPixelStrength(x - x0, y - y0))
       }
     }
   }
