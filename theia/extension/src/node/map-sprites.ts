@@ -61,12 +61,18 @@ import { getPaletteColor } from '../../../../src/rom/PaletteLoader'
 import { readMarioStartPos } from '../../../../src/rom/MarioStartPos'
 import {
   runOnce,
+  type RunOptions,
   RAM,
   drawnParts,
   type SpriteModel as BaseModel,
   type PaletteWrite,
   type SpritePart,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import {
+  drawnPass,
+  findReveal,
+  type RevealCondition,
+} from '../../../../src/rom/sprites/interp/RevealSearch'
 import {
   castleFlames,
   VANILLA_FLAME_ROUTINES,
@@ -162,6 +168,8 @@ export type SpriteDrawResult =
       onLine?: 'step' | 'fell'
       /** The list spot the DTO reports (hover, selection, drag) when the picture stands elsewhere: the game lays it out itself (D158 / Decision 124, InitLatches.ts). */
       listPos?: { x: number; y: number }
+      /** The condition that made this hidden sprite draw (RevealSearch.ts): drawn whole in the screen door, with a tooltip. */
+      reveal?: RevealCondition
       /** CGRAM colors the sprite's own code set by its drawn frame (interpreter only). */
       runtimePalette?: PaletteWrite[]
       /** The player-buffer slots the drawn frame's run pointed Mario's tile DMA at (interpreter only; #980). */
@@ -172,6 +180,8 @@ export type SpriteDrawResult =
       children?: { index: number; parts: DrawPart[] }[]
       /** A plain-words line about what the map shows of this sprite (not a flaw): it goes on the map's note line. */
       note?: string
+      /** The interpreter detail behind a plain note, for its tooltip. */
+      noteDetail?: string
     })
   | Extract<EngineResult, { ok: false }>
   | { ok: false; reason: string; unverified?: string }
@@ -257,7 +267,12 @@ export function drawSprites(
   /** One sprite's bitmap from a drawer result: its parts blitted at the anchor, or the marker when it cannot be drawn. */
   const render = (s: LevelSprite, res: SpriteDrawResult): MapSpriteDto => {
     if (!res.ok) return placeholder(s, 'reason' in res ? res.reason : res.failure.kind, 'unverified' in res ? res.unverified : undefined) // prettier-ignore
-    if (res.parts.length === 0) return placeholder(s, 'noParts')
+    // A marker says what the drawn sprite would have: the note reaches the map's note line either way.
+    const told = {
+      ...('note' in res && res.note ? { note: res.note } : {}),
+      ...('noteDetail' in res && res.noteDetail ? { noteDetail: res.noteDetail } : {}),
+    }
+    if (res.parts.length === 0) return { ...placeholder(s, 'noParts'), ...told }
     let unverified = 'unverified' in res ? res.unverified : undefined
     let upload: Map<number, Uint8Array> | undefined
     if ('uploads' in res && res.uploads?.length) {
@@ -274,7 +289,7 @@ export function drawSprites(
     // say how many do not, and keep the marker only when none does. `parts` and `pixels` stay index-aligned.
     const parts = res.parts.filter((_, i) => art[i])
     const pixels = art.filter(a => a)
-    if (parts.length === 0) return placeholder(s, 'charsNotLoaded')
+    if (parts.length === 0) return { ...placeholder(s, 'charsNotLoaded'), ...told }
     if (parts.length < res.parts.length) {
       const why = `${res.parts.length - parts.length} of ${res.parts.length} pieces are not drawn: their graphics are not in this map's loaded sprite graphics` // prettier-ignore
       unverified = unverified ? `${unverified}; ${why}` : why
@@ -323,7 +338,10 @@ export function drawSprites(
       priority: base64(new Uint8ClampedArray(prio.buffer)),
       status: 'drawn',
       ...(unverified ? { unverified } : {}),
-      ...('note' in res && res.note ? { note: res.note } : {}),
+      ...told,
+      ...('reveal' in res && res.reveal
+        ? { screenDoor: true, reveal: revealText(res.reveal) }
+        : {}),
     }
   }
   // Sprites a parent drew (the $9B a $9C picks up, #1049) are part of the parent's picture, not unexplained.
@@ -424,10 +442,33 @@ export function cameraFor(x: number, y: number, vertical: boolean, screens: numb
 export type RunModel = BaseModel & { uploads?: SlotUpload[][] }
 
 /** `runOnce`, plus the DynGfxTilePtr slots a sprite that uploads from the player buffer wrote (#980). */
-export function runWithUploads(rom: RomFile, id: number, seed: SpriteSeed): RunModel {
+export function runWithUploads(
+  rom: RomFile,
+  id: number,
+  seed: SpriteSeed,
+  opts: Pick<RunOptions, 'stopAtDraw' | 'trackInputs'> = {},
+): RunModel {
   const p = uploadProbe()
-  return Object.assign(runOnce(rom, id, seed, { atRest: true, probe: p.probe }), { uploads: p.byPass }) // prettier-ignore
+  return Object.assign(runOnce(rom, id, seed, { atRest: true, probe: p.probe, ...opts }), { uploads: p.byPass }) // prettier-ignore
 }
+
+/** The marker's reason code when the search found no condition that draws the sprite (`WHY_NOT_DRAWN`). */
+export const UNREVEALED = 'unrevealed'
+
+/** Mario's fixed state in every reveal probe, said in the tooltip (RevealSearch.ts MARIO_STATE). */
+const MARIO_SAID = 'small Mario, on foot'
+
+/** The tooltip line for each condition. Keyed by the condition the search found, never by a sprite id. */
+export const REVEAL_TEXT: Record<RevealCondition, string> = {
+  'mario-at-sprite': 'appears when Mario gets close to this spot',
+  'mario-left': 'appears when Mario is just left of this spot',
+  'mario-right': 'appears when Mario is just right of this spot',
+  'more-frames': 'appears after a while',
+  'p-switch': 'appears while a P-switch is active',
+  'on-off': 'appears when the ON/OFF switch is flipped',
+  'none-found': 'is not always there, and the app could not tell what hides it',
+}
+const revealText = (c: RevealCondition) => c === 'none-found' ? REVEAL_TEXT[c] : `${REVEAL_TEXT[c]} (${MARIO_SAID})` // prettier-ignore
 
 /**
  * Fewest quiet passes at the end of a run before its colors count as settled. A vanilla fade writes a rung every
@@ -514,6 +555,7 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     ok: true,
     parts: interpParts(drawnParts(pass)),
     anchor: { x: m.anchor.x, y: m.anchor.y },
+    ...(m.reveal ? { reveal: m.reveal } : {}),
     ...stored,
     ...(m.neverAppears ? { note: 'never appears in play' } : {}),
     ...(m.shifted && m.onLine ? { onLine: m.onLine } : {}),
@@ -623,6 +665,7 @@ function eeriesResult(
     identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
     // Fewer than five is the game's answer for this map's slot range, not a flaw: said in plain words, not `unverified`.
     ...(notes.length ? { note: notes.join(' ') } : {}),
+    ...(r.noteDetail ? { noteDetail: r.noteDetail } : {}),
     ...(why
       ? { unverified: `the five Eeries are drawn from the spawner the loader calls, and ${why}` }
       : {}),
@@ -673,6 +716,7 @@ function platformsResult(
     anchor: { x, y },
     identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
     ...(notes.length ? { note: notes.join(' ') } : {}),
+    ...(r.noteDetail ? { noteDetail: r.noteDetail } : {}),
     ...(why
       ? {
           unverified: `the three platforms are drawn from the spawner the loader calls, and ${why}`,
@@ -740,13 +784,15 @@ export function interpRunner(
   rom: RomFile,
   index: number,
   model: { isVertical: boolean; screenCount: number },
-  run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runWithUploads,
+  run: (rom: RomFile, id: number, seed: SpriteSeed, opts?: Pick<RunOptions, 'stopAtDraw' | 'trackInputs'>) => RunModel = runWithUploads, // prettier-ignore
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
   ringRoutines: RingRoutines = VANILLA_RING_ROUTINES,
   eeriesRoutines: EeriesRoutines = VANILLA_EERIES_ROUTINES,
   platformRoutines: PlatformRoutines = VANILLA_PLATFORM_ROUTINES,
   /** The map's whole sprite list: a sprite that scans the slots for a companion is run with its neighbors (#841). */
   list: readonly LevelSprite[] = [],
+  /** Look for what reveals a sprite that draws nothing at rest (RevealSearch.ts): the map view's runs only. */
+  reveal: boolean = run === runWithUploads,
 ): (sprite: LevelSprite) => SpriteRun {
   // The loader runs once per map, not per sprite.
   const base = seedFor(rom, index)
@@ -778,7 +824,12 @@ export function interpRunner(
     if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
     // The map's own loader placed it at map load (D156): it also spawns at the map-load camera.
     const opening = !!w && s.index >= 0 && s.index < 128 && !!w[SPRITE_LOAD_STATUS + s.index]
-    let m = run(rom, s.spriteId, seed(camera, { opening }))
+    let m = run(
+      rom,
+      s.spriteId,
+      seed(camera, { opening }),
+      reveal ? { trackInputs: true } : undefined,
+    )
     // A sprite placed at the game's own layout (the bonus game) was replayed in the loader's top slot; an earlier loaded sprite
     // may have taken it, which moves one block by a pixel and changes its item (measured on $000, slots 9 vs 8): drawn, marked.
     if (
@@ -787,6 +838,18 @@ export function interpRunner(
       earlierSpriteLoaded(list, s, i => w?.[SPRITE_LOAD_STATUS + i] ?? 0)
     )
       m = { ...m, unverifiedReason: EARLIER_SPRITE_REASON }
+    // Hidden sprites take their picture from the search, whatever the at-rest run drew (a mole drawn from where Mario starts).
+    if (reveal) {
+      const rv = findReveal(seed(camera, { opening }), m, (q, probe) =>
+        run(rom, s.spriteId, q, { stopAtDraw: probe }),
+      )
+      if (rv.status === 'hidden') return { m: rv.model, fixed: false }
+      if (rv.status === 'refused') return { m: { ...m, chosen: undefined, refusal: rv.reason }, fixed: false } // prettier-ignore
+      // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.
+      if (rv.status === 'unrevealed' && rv.drewAtRest)
+        return { m: { ...m, chosen: drawnPass(m), reveal: 'none-found' }, fixed: false } // prettier-ignore
+      if (rv.status === 'unrevealed') return { m: { ...m, chosen: undefined, emptyReason: UNREVEALED }, fixed: false } // prettier-ignore
+    }
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return { m, fixed: false } // prettier-ignore
     // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbor
@@ -1004,6 +1067,8 @@ export function spriteLayer(
     named,
   )
   const unverified = unverifiedNote(sprites)
+  const details = new Set(sprites.flatMap(s => (s.noteDetail ? [s.noteDetail] : [])))
+  const detail = [unverified?.detail, ...details].filter(Boolean).join('\n')
   return {
     status: 'ok',
     orientation: model.isVertical ? 'vertical' : 'horizontal',
@@ -1021,7 +1086,7 @@ export function spriteLayer(
       ]
         .filter(Boolean)
         .join(' ') || undefined,
-    ...(unverified ? { noteDetail: unverified.detail } : {}),
+    ...(detail ? { noteDetail: detail } : {}),
   }
 }
 

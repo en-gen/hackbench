@@ -96,7 +96,14 @@ export interface PlatformEntry {
 }
 
 export type PlatformsResult =
-  | { ok: true; parts: SpritePart[]; unverified: string[]; spawned: number; notes: string[] }
+  | {
+      ok: true
+      parts: SpritePart[]
+      unverified: string[]
+      spawned: number
+      notes: string[]
+      noteDetail?: string
+    }
   | { ok: false; reason: string; none?: true; unverified: string[] }
 
 /**
@@ -175,12 +182,13 @@ export function threePlatforms(
   if (children.length === 0)
     return { ok: false, reason: why || `the spawner made none of the ${PLATFORM_COUNT} platforms`, ...(missing === PLATFORM_COUNT ? { none: true as const } : {}), unverified } // prettier-ignore
   const undrawn = spawned - children.length
-  const notes = why ? [`${undrawn} ${undrawn === 1 ? 'platform' : 'platforms'} did not draw: ${why}`] : [] // prettier-ignore
+  const notes = why ? [`${undrawn} ${undrawn === 1 ? 'platform' : 'platforms'} did not draw.`] : [] // prettier-ignore
   return {
     ok: true,
     parts: children.flatMap(c => c.parts),
     unverified,
     spawned,
     notes,
+    ...(why ? { noteDetail: why } : {}),
   }
 }

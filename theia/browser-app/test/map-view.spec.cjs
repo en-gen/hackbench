@@ -1424,7 +1424,7 @@ test('the sprite toggle hides and restores the sprites, and changes what is on s
   expect((await shownPixels(page, strip)).checksum).toBe(shown.checksum)
 })
 
-test('an interpreter-drawn sprite shows its own pixels where the service placed it; a miss shows a marker', async ({
+test('an interpreter-drawn sprite shows its own pixels where the service placed it; a hidden mole is drawn in the screen door', async ({
   page,
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
@@ -1437,35 +1437,41 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
   )
   expect(reply.status).toBe('ok')
   expect(reply.sprites).toHaveLength(25)
-  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(24) // 21 plus the 3 stationary shells (#968) and the P-switch (D139 D)
+  // 21 plus the 3 stationary shells (#968), the P-switch (D139 D), and the $4D at (3760, 368) the reveal search
+  // finds (#1132): all 25 draw, no marker is left on $106.
+  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(25)
+  expect(reply.sprites.filter(s => s.status === 'placeholder')).toHaveLength(0)
   // Measured on vanilla: the first $05 is at tile (27, 20), a 16 x 32 body whose top is above its anchor.
   const koopa = reply.sprites.find(s => s.id === 5)
   expect(koopa).toMatchObject({ x: 432, y: 320, status: 'drawn' })
   expect(koopa.box).toEqual({ x0: 432, y0: 304, x1: 448, y1: 336 })
-  // After #968 the one $106 miss is $4D at (3760, 368), in screen 14 (3584-3840): measured on vanilla.
-  const marker = reply.sprites.find(s => s.status === 'placeholder' && s.id === 0x4d)
-  expect(marker, 'a marker on $106').toBeTruthy()
+  // The $4D at (3760, 368), in screen 14 (3584-3840), drew nothing from Mario's start before #1132 (a marker, "drew no
+  // OAM tile in 64 passes"); the search finds it and it is drawn whole in the screen door, with its condition.
+  const mole = reply.sprites.find(s => s.id === 0x4d && s.x === 3760 && s.y === 368)
+  expect(mole, 'the $4D on $106 at (3760, 368)').toBeTruthy()
+  expect(mole).toMatchObject({ status: 'drawn', screenDoor: true })
+  expect(mole.reason, 'no marker reason').toBeUndefined()
+  expect(mole.reveal).toContain('appears when Mario gets close to this spot')
   // D139 D: INIT runs for the picture, so the P-switch ($3E) is drawn at its list position (D134).
   const pswitch = reply.sprites.filter(s => s.id === 0x3e)
   expect(pswitch.map(s => s.status)).toEqual(['drawn'])
   expect(pswitch[0]).toMatchObject({ x: 4512, y: 272 })
-  expect(reply.sprites.filter(s => s.status === 'placeholder')).toHaveLength(1)
-  expect(marker).toMatchObject({ id: 0x4d, x: 3760, y: 368 })
-  const mScreen = Math.floor(marker.box.x0 / 256)
+  const mScreen = Math.floor(mole.box.x0 / 256)
   expect(mScreen).toBe(14)
   await showScreen(page, 0x106, mScreen)
   await expect(spritePlane(page, 0x106, mScreen)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
-  // The interpreter's own words: the sprite ran 64 passes and drew no OAM tile.
-  expect(marker.reason).toMatch(/^drew no OAM tile in 64 passes/)
+  // The composite the door is read from is painted after the plane it is made of.
+  await expect(
+    page.locator(
+      `[id="hackbench.map-view:262"] canvas[data-layer="screen"][data-screen="${mScreen}"]`,
+    ),
+  ).toHaveAttribute('data-drawn', /./, { timeout: 30000 })
 
   const read = await page.evaluate(
-    ({ koopa, marker, mScreen }) => {
-      const ctxOf = n =>
-        document
-          .querySelector(
-            `[id="hackbench.map-view:262"] canvas[data-screen="${n}"][data-plane="sprites"]`,
-          )
-          .getContext('2d')
+    ({ koopa, mole, mScreen }) => {
+      const canvasOf = (n, sel) =>
+        document.querySelector(`[id="hackbench.map-view:262"] canvas[data-screen="${n}"]${sel}`)
+      const ctxOf = n => canvasOf(n, '[data-plane="sprites"]').getContext('2d')
       const ctx = ctxOf(1)
       const cut = (s, n = 1, c = ctx) => {
         const w = s.box.x1 - s.box.x0
@@ -1487,17 +1493,47 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
       const abs = ctx.getImageData(432 - 256, 304, 16, 32).data
       let inBox = 0
       for (let i = 3; i < abs.length; i += 4) if (abs[i] !== 0) inBox++
-      return { koopa: { ...cut(koopa), inBox }, marker: cut(marker, mScreen, ctxOf(mScreen)) }
+      // The door on the composite the view paints: the sprite plane holds the served bitmap whole, the composite
+      // shows it at the door's strength. The door keeps the parity of the sprite's own grid ((x + y) from its box
+      // corner) that has fewer opaque pixels, the even one on a tie; those pixels show the sprite's colour, the
+      // rest show what is behind (a quarter of the sprite), except where the sprite is black over a black backdrop.
+      const sprite = Uint8Array.from(atob(mole.rgba), ch => ch.charCodeAt(0))
+      const w = mole.box.x1 - mole.box.x0
+      const comp = canvasOf(mScreen, '[data-layer="screen"]').getContext('2d')
+      const got = comp.getImageData(mole.box.x0 - 256 * mScreen, mole.box.y0, w, mole.box.y1 - mole.box.y0).data // prettier-ignore
+      const counts = [0, 0]
+      const parityOf = i => (((i / 4) % w) + Math.floor(i / 4 / w)) % 2
+      for (let i = 0; i < sprite.length; i += 4) if (sprite[i + 3] !== 0) counts[parityOf(i)]++
+      const keep = counts[0] > counts[1] ? 1 : 0
+      const door = { kept: 0, keptShown: 0, holes: 0, holeShown: 0, holeBlack: 0 }
+      for (let i = 0; i < sprite.length; i += 4) {
+        if (sprite[i + 3] === 0) continue
+        const kept = parityOf(i) === keep
+        const shown =
+          got[i + 3] === 255 && [0, 1, 2].every(k => Math.abs(got[i + k] - sprite[i + k]) <= 2)
+        const black = [0, 1, 2].every(k => sprite[i + k] <= 2)
+        if (kept) {
+          door.kept++
+          if (shown) door.keptShown++
+        } else {
+          door.holes++
+          if (shown) door.holeShown++
+          if (shown && black) door.holeBlack++
+        }
+      }
+      return { koopa: { ...cut(koopa), inBox }, mole: cut(mole, mScreen, ctxOf(mScreen)), door }
     },
-    { koopa, marker, mScreen },
+    { koopa, mole, mScreen },
   )
   expect(read.koopa.opaque, 'the interpreter drew pixels').toBeGreaterThan(0)
   expect(read.koopa.inBox, 'canvas pixels inside the absolute box (432,304)-(448,336)').toBeGreaterThan(0) // prettier-ignore
   expect(read.koopa.same, 'the canvas holds the served bitmap at its box').toBe(true)
-  expect(read.marker.same).toBe(true)
-  // The marker is 16 x 16 at the anchor, its frame the editor blue.
-  expect([marker.box.x1 - marker.box.x0, marker.box.y1 - marker.box.y0]).toEqual([16, 16])
-  expect(read.marker.corner).toEqual([90, 200, 255, 255])
+  // The sprite plane holds the mole's own bitmap whole; the door is applied when the screen is composed.
+  expect(read.mole.opaque, 'the mole has pixels').toBeGreaterThan(0)
+  expect(read.mole.same, 'the sprite plane holds the served bitmap at its box').toBe(true)
+  expect(read.door.keptShown, 'the door: every full square shows the sprite').toBe(read.door.kept)
+  expect(read.door.holes, 'the door: and it has holes').toBeGreaterThan(0)
+  expect(read.door.holeShown, 'the door: holes show the sprite only where it is black over black').toBe(read.door.holeBlack) // prettier-ignore
 })
 
 test('$4F on $105 is served at its stream position: the INIT move (+8, -1) is not shown at rest (D134)', async ({
@@ -1510,7 +1546,10 @@ test('$4F on $105 is served at its stream position: the INIT move (+8, -1) is no
     project.manifestPath,
   )
   expect(reply.status).toBe('ok')
-  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(32) // 31 plus the shell $DB at 3344,368 (#968)
+  // 31 plus the shell $DB at 3344,368 (#968), and the invisible mushroom $C7 the reveal search draws (#1132); the $8E
+  // that nothing reveals stays a marker.
+  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(33)
+  expect(reply.sprites.filter(s => s.status === 'placeholder').map(s => s.id)).toEqual([0x8e])
   // Stream positions (1808, 336), (2224, 320), (4544, 320): measured on vanilla, absolute.
   const fours = reply.sprites.filter(s => s.id === 0x4f)
   expect(fours.map(s => [s.x, s.y, s.status])).toEqual([
