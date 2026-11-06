@@ -45,6 +45,6 @@ describe('map note counts of undrawn children', () => {
   })
   it('a shortfall note beside undrawn keeps its own sentence and the same countless sentence shows once', () => {
     const lost = dto('Eerie', 1, 'r', 'Only 4 of the 5 Eeries appear. ')
-    expect(mapNotes([lost, lost, { note: 'Same.' } as MapSpriteDto, { note: 'Same.' } as MapSpriteDto])).toEqual(['Only 4 of the 5 Eeries appear.', 'Same.', '2 Eerie did not draw: r'.replace('Eerie', 'Eeries')]) // prettier-ignore
+    expect(mapNotes([lost, lost, { note: 'Same.' } as MapSpriteDto, { note: 'Same.' } as MapSpriteDto])).toEqual(['Only 4 of the 5 Eeries appear.', 'Same.', '2 Eeries did not draw: r']) // prettier-ignore
   })
 })

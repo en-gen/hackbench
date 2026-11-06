@@ -1004,7 +1004,7 @@ const named = (s: MapSpriteDto): MapSpriteDto => {
  */
 export function mapNotes(sprites: MapSpriteDto[]): string[] {
   const rest = new Set<string>()
-  const sums = new Map<string, { n: number; whys: Set<string> }>()
+  const sums = new Map<UndrawnChildren['noun'], { n: number; whys: Set<string> }>()
   for (const s of sprites) {
     if (!s.note) continue
     const own = s.undrawn ? undrawnNote(s.undrawn) : undefined
@@ -1016,7 +1016,7 @@ export function mapNotes(sprites: MapSpriteDto[]): string[] {
     sum.whys.add(s.undrawn.why)
     sums.set(s.undrawn.noun, sum)
   }
-  const total = [...sums].map(([noun, { n, whys }]) => undrawnNote({ noun: noun as UndrawnChildren['noun'], count: n, why: [...whys].join('; ') })) // prettier-ignore
+  const total = [...sums].map(([noun, { n, whys }]) => undrawnNote({ noun, count: n, why: [...whys].join('; ') })) // prettier-ignore
   return [...rest, ...total]
 }
 
