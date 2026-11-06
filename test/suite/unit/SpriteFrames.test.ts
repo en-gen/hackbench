@@ -489,7 +489,7 @@ describe('framesOf: a sprite that never draws is not "one pose" (#1113)', () => 
 
   // Only chars 5 and 6 are loaded; a pass of any other char draws a marker.
   const some = { vram: { sp1: Array.from({ length: 24 }, (_, i) => ([5, 6].includes(i) ? SOLID : null)) as never }, colors: COLORS } // prettier-ignore
-  const through = (chars: number[], level = some) => framesOf({ m: run(chars.map(c => [c, 0])), fixed: false }, spr, level) // prettier-ignore
+  const through = (chars: number[]) => framesOf({ m: run(chars.map(c => [c, 0])), fixed: false }, spr, some) // prettier-ignore
 
   it('an unloaded chosen pass gives no frames and a reason, whatever the later passes draw', async () => {
     for (const chars of [
@@ -507,6 +507,12 @@ describe('framesOf: a sprite that never draws is not "one pose" (#1113)', () => 
     expect(r.frames).toHaveLength(1)
     expect(r.reason).toBeUndefined()
     expect(await said(r)).toBe(NOT_ANIMATED)
+  })
+
+  it('a pass skipped between two drawn ones keeps both frames and no reason', () => {
+    const r = through([5, 1, 6])
+    expect(r.frames).toHaveLength(2)
+    expect(r.reason).toBeUndefined()
   })
 
   it('every pass unloaded gives the reason for 1, 2 and more than MAX_FRAMES passes', () => {
