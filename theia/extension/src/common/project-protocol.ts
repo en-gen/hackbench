@@ -354,6 +354,12 @@ export interface MapSpriteDto {
   unverified?: string
   /** A plain-words line about what the map shows of this sprite, not a flaw (for example fewer Eeries than the placement asks for); the map's note line carries it too. */
   note?: string
+  /** Technical detail behind a plain note, for its tooltip. */
+  noteDetail?: string
+  /** Every pixel of the sprite is drawn in the screen door: it draws nothing in play until something happens (#1132). */
+  screenDoor?: boolean
+  /** What makes it appear ("appears when Mario gets close to this spot", with his state), or that nothing was found to; present with `screenDoor`, for the hover. */
+  reveal?: string
 }
 
 /**
