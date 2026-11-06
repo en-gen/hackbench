@@ -4,8 +4,8 @@ A sprite whose code draws only on a condition draws nothing in the at-rest run (
 anyway, drawn where it would appear and through the screen door, with a tooltip that says what shows it. This is
 how the app finds out, from the ROM's own code and not from a list of sprite ids.
 
-Evidence scope: derived from SMWDisX and run on the synthetic cart in CI; the vanilla-ROM checks (`RevealAudit`'s corpus
-cases, the Playwright spec) are one machine, and no sample of them is kept in this repo.
+Evidence scope: derived from SMWDisX and run on the synthetic cart in CI; the vanilla-ROM checks (`RevealC7.corpus.test.ts`,
+the Playwright spec) are one machine, and no sample of them is kept in this repo.
 
 ## The flow
 
@@ -27,6 +27,7 @@ flowchart TD
   S4 --> S5[P-switch active] --> S6[ON/OFF flipped]
   S1 -->|first run that draws wins| P[picture = first drawn frame]
   S6 -->|none drew| M[marker: could not tell what reveals it]
+  S6 -->|none drew, a rerun was refused, never drew at rest| R[marker: the interpreter's refusal reason]
 ```
 
 ## What is run

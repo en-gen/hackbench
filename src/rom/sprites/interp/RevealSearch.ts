@@ -85,6 +85,10 @@ const PROBED_CELLS: ReadonlySet<number> = new Set([
 /** The first pass on which the sprite's own code drew a tile (a child it created does not count), or -1. */
 export const ownPass = (m: SpriteModel): number => m.passes.findIndex(p => p.parts.length > 0)
 
+/** The pass a picture is taken from: the run's own pick (a line-guided one included) when the sprite's own tile is on it, else the first such pass. */
+export const drawnPass = (m: SpriteModel): number | undefined =>
+  m.chosen !== undefined && (m.passes[m.chosen]?.parts.length ?? 0) > 0 ? m.chosen : ownPass(m)
+
 /** Whether a run completed and the sprite's own code drew a tile on some pass. */
 export const drew = (m: SpriteModel): boolean => !m.refusal && ownPass(m) >= 0
 
@@ -133,7 +137,7 @@ export function findReveal(
     const model = rerun(o)
     if (model.refusal) refused ??= model.refusal
     else if (drew(model))
-      return { status: 'hidden', condition, model: { ...model, chosen: ownPass(model), reveal: condition } } // prettier-ignore
+      return { status: 'hidden', condition, model: { ...model, chosen: drawnPass(model), reveal: condition } } // prettier-ignore
   }
   if (refused && !startedDrawn) return { status: 'refused', reason: refused }
   return { status: 'unrevealed', drewAtRest: startedDrawn }

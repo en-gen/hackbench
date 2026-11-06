@@ -23,6 +23,7 @@
  * 168 draws when Mario is 12-19 px either side of it       170 blank only when Mario's X high byte is below its own
  * 171 draws from frame 200 on                              172 creates a child every pass; draws its own from frame 5
  * 173 draws; on touch becomes $FF (refused)                174 draws, but its INIT erases it (status 0)
+ * 175 creates a child every pass; from frame 5 draws its own tile only with Mario exactly $40 px right of it
  */
 const RTS = 0x60
 // Writes a plain-drawer sprite into slot 1 at this sprite's spot (status 8, number 0).
@@ -190,6 +191,19 @@ export function putRevealSprites(put: (snes: number, bytes: number[]) => void): 
     [172, [...MAKE_CHILD, ...gated([[FRAME_5, BCC]], piece(0x24))]],
     [173, [...piece(0x24), ...gated([sees], becomes(0xff))]],
     [174, [...piece(0x24), RTS]],
+    [
+      175,
+      [
+        ...MAKE_CHILD,
+        ...gated(
+          [
+            [FRAME_5, BCC],
+            [[...diff, 0xc9, 0x40], BNE],
+          ],
+          piece(0x24),
+        ),
+      ],
+    ],
   ]
   const main: Record<number, number> = {}
   for (const [id, bytes] of mains) {

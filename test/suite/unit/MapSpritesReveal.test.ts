@@ -75,6 +75,17 @@ describe('the served drawer reveals hidden sprites', () => {
     expect(drawer()(entry(156))).toMatchObject({ ok: false, reason: 'unrevealed' })
   })
 
+  it('keeps the real-start picture of a sprite no condition reveals on the pass its own tile draws, not the child before it', () => {
+    // Id 175 creates a child every pass and draws its own tile from frame 5, only with Mario $40 right of it.
+    const kept = ok(drawer(runWithUploads, 0x1040)(entry(175)))
+    expect(kept.reveal).toBe('none-found')
+    // The same run without the search points at the child's pass (the first drawn one): fewer pieces than the own pass.
+    const plain = ok(drawer((r, id, seed) => runWithUploads(r, id, seed), 0x1040)(entry(175)))
+    expect(plain).not.toHaveProperty('reveal')
+    expect(kept.parts.length).toBeGreaterThan(0)
+    expect(kept.parts.length, 'the own tile and the child, as the pass it draws on shows them').toBeGreaterThan(plain.parts.length) // prettier-ignore
+  })
+
   it('searches only the map view runs: a custom run (the block spawn) keeps the old answer', () => {
     const plain = drawer((r, id, seed) => runOnce(r, id, seed, { atRest: true }))(entry(140))
     expect(plain).toMatchObject({ ok: false })

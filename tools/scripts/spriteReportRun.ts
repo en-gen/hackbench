@@ -658,7 +658,9 @@ export function revealRowsOf(
     return {
       ...row,
       rest,
-      hidden: !!b.m.reveal || b.m.emptyReason === 'unrevealed',
+      // A blank sprite whose search rerun was refused is hidden too: the search began because it drew nothing.
+      hidden:
+        !!b.m.reveal || b.m.emptyReason === 'unrevealed' || (rest === 'blank' && !!b.m.refusal),
       ...(b.m.reveal ? { condition: b.m.reveal } : {}),
       ...(!r.ok ? { marker: b.m.emptyReason === 'unrevealed' ? 'unrevealed' : r.reason } : {}),
     }

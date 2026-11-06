@@ -68,7 +68,11 @@ import {
   type PaletteWrite,
   type SpritePart,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
-import { findReveal, type RevealCondition } from '../../../../src/rom/sprites/interp/RevealSearch'
+import {
+  drawnPass,
+  findReveal,
+  type RevealCondition,
+} from '../../../../src/rom/sprites/interp/RevealSearch'
 import {
   castleFlames,
   VANILLA_FLAME_ROUTINES,
@@ -834,7 +838,7 @@ export function interpRunner(
       if (rv.status === 'refused') return { m: { ...m, chosen: undefined, refusal: rv.reason }, fixed: false } // prettier-ignore
       // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.
       if (rv.status === 'unrevealed' && rv.drewAtRest)
-        return { m: { ...m, reveal: 'none-found' }, fixed: false }
+        return { m: { ...m, chosen: drawnPass(m), reveal: 'none-found' }, fixed: false } // prettier-ignore
       if (rv.status === 'unrevealed') return { m: { ...m, chosen: undefined, emptyReason: UNREVEALED }, fixed: false } // prettier-ignore
     }
     const at = m.chosen

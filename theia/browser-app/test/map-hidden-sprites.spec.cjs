@@ -5,8 +5,8 @@
  * pixel by pixel, says what is on screen. A reply that carries `screenDoor` while the view paints the sprite solid
  * passes the first and fails the second, which is the defect this spec exists to catch.
  * - Map $105 (acceptance 1): the invisible mushroom ($C7) is drawn, not a marker, with a hover line from the
- *   condition ("Mario gets close to this spot", not an id). On the composite its pixels are the sprite's own colour on
- *   at most half of them (the door's full squares) and tinted on the rest; the placed mushroom ($74) on map $00E, which has
+ *   condition ("Mario gets close to this spot", not an id). On the composite the door's full squares (the parity with fewer
+ *   pixels, counted from the sprite's mask) show the sprite's own colour and the holes show what is behind; the placed mushroom ($74) on map $00E, which has
  *   the same four parts as a revealed $C7, is the control and is solid on at least 90% of its pixels.
  * - Maps $106 and $010 (acceptance 8): every Monty Mole ($4D) is drawn in the door, including $106 columns 235 and 247
  *   and $010 column 201, all moles of one map share one bitmap, and each shows the door pattern on the composite.
@@ -106,9 +106,14 @@ async function openMap(page, index) {
 }
 
 /**
- * What the map view's composite canvases hold under the sprite's opaque pixels: how many equal the sprite's own colour
- * (within 2 per channel, alpha 255), how many are opaque and differ, and how many opaque pixels there are. Screens run
- * left to right on a horizontal map and top to bottom on a vertical one, read from where the canvases sit.
+ * What the map view's composite canvases hold under the sprite's opaque pixels, split the way the door splits them.
+ * The door keeps one parity of the sprite's own grid ((x + y) from its box corner) at full strength and dims the other
+ * to a quarter; it keeps the parity with fewer pixels on that screen (ColorMath `doorFlips`), the even one when the two
+ * are equal. So `kept` and `holes` come from the opaque mask alone, and: `keptShown` of the kept pixels show the
+ * sprite's own colour (within 2 per channel, alpha 255), `holeShown` of the hole pixels do too, which is only
+ * legitimate where the sprite is black over a black backdrop (a quarter of black over black is black), counted as
+ * `holeBlack`. Screens run left to right on a horizontal map and top to bottom on a vertical one, read from where the
+ * canvases sit.
  */
 function onScreen(page, index, s) {
   return page.evaluate(
@@ -125,30 +130,57 @@ function onScreen(page, index, s) {
         if (!read.has(n)) read.set(n, screens[n].getContext('2d').getImageData(0, 0, cw, ch).data)
         return read.get(n)
       }
-      let total = 0
-      let same = 0
-      let differs = 0
+      // Pass 1: each opaque pixel's screen, place and parity; the parity counts per screen decide the flip.
+      const pixels = []
+      const counts = new Map()
       for (let i = 0; i < sprite.length; i += 4) {
         if (sprite[i + 3] === 0) continue
-        const [mx, my] = [s.box.x0 + ((i / 4) % w), s.box.y0 + Math.floor(i / 4 / w)]
+        const [px, py] = [(i / 4) % w, Math.floor(i / 4 / w)]
+        const [mx, my] = [s.box.x0 + px, s.box.y0 + py]
         const n = Math.floor(horizontal ? mx / cw : my / ch)
         const [lx, ly] = horizontal ? [mx - n * cw, my] : [mx, my - n * ch]
         if (n < 0 || n >= screens.length || lx < 0 || lx >= cw || ly < 0 || ly >= ch) continue
-        total++
-        const px = data(n).subarray((ly * cw + lx) * 4, (ly * cw + lx) * 4 + 4)
-        if (px[3] !== 255) continue
-        if ([0, 1, 2].every(k => Math.abs(px[k] - sprite[i + k]) <= 2)) same++
-        else differs++
+        const parity = (px + py) & 1
+        pixels.push({ i, n, lx, ly, parity })
+        const c = counts.get(n) ?? [0, 0]
+        c[parity]++
+        counts.set(n, c)
       }
-      return { total, same, differs }
+      const out = {
+        total: pixels.length,
+        kept: 0,
+        keptShown: 0,
+        holes: 0,
+        holeShown: 0,
+        holeBlack: 0,
+      }
+      for (const p of pixels) {
+        const [even, odd] = counts.get(p.n)
+        const flip = even > odd
+        const keeps = p.parity === (flip ? 1 : 0)
+        const px = data(p.n).subarray((p.ly * cw + p.lx) * 4, (p.ly * cw + p.lx) * 4 + 4)
+        const shown = px[3] === 255 && [0, 1, 2].every(k => Math.abs(px[k] - sprite[p.i + k]) <= 2)
+        const black = [0, 1, 2].every(k => sprite[p.i + k] <= 2)
+        if (keeps) {
+          out.kept++
+          if (shown) out.keptShown++
+        } else {
+          out.holes++
+          if (shown) out.holeShown++
+          if (shown && black) out.holeBlack++
+        }
+      }
+      return out
     },
     { root: `[id="hackbench.map-view:${index}"]`, s },
   )
 }
 
-/** The on-screen counts once the sprite's screen has painted it (some pixel is its own colour). */
+/** The on-screen counts once the view has built its screen canvases and painted the sprite. */
 async function painted(page, index, s) {
   const root = `[id="hackbench.map-view:${index}"]`
+  // The screen canvases appear a couple of seconds after the widget opens.
+  await page.locator(`${root} canvas[data-layer="screen"]`).first().waitFor({ timeout: 30000 })
   const screen = await page.evaluate(
     ({ root, x }) => {
       const screens = [...document.querySelectorAll(`${root} canvas[data-layer="screen"]`)]
@@ -161,9 +193,17 @@ async function painted(page, index, s) {
     .evaluate(el => el.scrollIntoView({ inline: 'center', block: 'nearest' }))
   let got
   await expect
-    .poll(async () => ((got = await onScreen(page, index, s)), got.same), { timeout: 30000 })
+    .poll(async () => ((got = await onScreen(page, index, s)), got.keptShown), { timeout: 30000 })
     .toBeGreaterThan(0)
   return got
+}
+
+/** The door's claim for one sprite: every kept pixel shows it, every hole shows what is behind, black over black aside. */
+function expectDoor(door, who) {
+  expect(door.total, `${who}: the sprite lies on the map`).toBeGreaterThan(0)
+  expect(door.keptShown, `${who}: every full square shows the sprite`).toBe(door.kept)
+  expect(door.holes, `${who}: and there are holes`).toBeGreaterThan(0)
+  expect(door.holeShown, `${who}: the holes show the sprite only where it is black over black`).toBe(door.holeBlack) // prettier-ignore
 }
 
 test('map $105 draws the invisible mushroom in the screen door, on screen as well as in the reply', async ({
@@ -186,9 +226,7 @@ test('map $105 draws the invisible mushroom in the screen door, on screen as wel
 
     // On screen: the door's full squares carry the sprite's colour, at most half the pixels; the rest are tinted.
     const door = await painted(page, 0x105, s)
-    expect(door.total, 'the sprite lies on the map').toBeGreaterThan(0)
-    expect(door.same, 'full squares: never more than half').toBeLessThanOrEqual(door.total / 2)
-    expect(door.differs, 'dim squares: the rest are tinted').toBeGreaterThanOrEqual(door.total / 2 - 1) // prettier-ignore
+    expectDoor(door, `$C7 #${s.index}`)
   }
 
   // Control, acceptance 1: the placed mushroom ($74, one on map $00E) is solid, and $C7 is the same picture.
@@ -196,7 +234,8 @@ test('map $105 draws the invisible mushroom in the screen door, on screen as wel
   expect(placed, 'a drawn $74 on $00E').toBeTruthy()
   expect(placed.screenDoor, 'a placed sprite is not in the door').toBeFalsy()
   const solid = await painted(page, 0x0e, placed)
-  expect(solid.same, 'a placed mushroom is solid on the composite').toBeGreaterThanOrEqual(solid.total * 0.9) // prettier-ignore
+  // Solid: every pixel shows the sprite (kept and hole alike), so a view that dropped the door would look like this.
+  expect(solid.keptShown + solid.holeShown, 'a placed mushroom is solid on the composite').toBeGreaterThanOrEqual(solid.total * 0.9) // prettier-ignore
   for (const s of found) expect(shape(s), '$C7 draws the mushroom $74 draws').toBe(shape(placed))
 })
 
@@ -224,8 +263,7 @@ for (const [index, columns] of [
     // And every one of them shows the door on screen: full squares on at most half its pixels.
     for (const m of moles) {
       const door = await painted(page, index, m)
-      expect(door.same, `mole #${m.index}: the door's full squares only`).toBeLessThanOrEqual(door.total / 2) // prettier-ignore
-      expect(door.differs, `mole #${m.index}: the dim squares are tinted`).toBeGreaterThan(0)
+      expectDoor(door, `mole #${m.index}`)
     }
   })
 }

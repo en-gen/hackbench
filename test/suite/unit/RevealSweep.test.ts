@@ -43,6 +43,14 @@ describe('revealRowsOf', () => {
     ])
   })
 
+  it('a sprite blank at rest whose search rerun is refused is hidden, with the refusal as its marker', () => {
+    // Id 147 is blank with Mario away; on touch it becomes $FF, which has no handler.
+    const [r] = rows([147])
+    expect(r).toMatchObject({ rest: 'blank', hidden: true })
+    expect(r!.marker).toMatch(/^refused: .*became/)
+    expect(r!.condition).toBeUndefined()
+  })
+
   it('a sprite that drew at rest and hides under a probe is hidden with a condition (the mole)', () => {
     const [m] = rows([152], 0x1000)
     expect(m).toMatchObject({ rest: 'drew', hidden: true, condition: 'mario-at-sprite' })

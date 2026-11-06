@@ -388,3 +388,26 @@ describe('every verdict is the same on a second search, across ids and places', 
     }
   })
 })
+
+describe('which pass the revealed model points at', () => {
+  // A hand-built run: `own` lists the passes that carry the sprite's own tile; the rest carry only a child.
+  const model = (own: number[], chosen: number | undefined, n = 6) =>
+    ({
+      passes: Array.from({ length: n }, (_, i) => ({
+        parts: own.includes(i) ? [{ char: 1 }] : [],
+        companions: [{ char: 2 }],
+      })),
+      chosen,
+    }) as unknown as SpriteModel
+  const hit = (m: SpriteModel) => {
+    const blank = { passes: [], chosen: undefined } as unknown as SpriteModel
+    return findReveal(seedAt(SX, 0x80), blank, () => m)
+  }
+
+  it('keeps a pick that has the sprite own tile (the line-guided pass), not the first such pass', () => {
+    expect(picked(hit(model([1, 3], 3))).chosen).toBe(3)
+  })
+  it('moves a pick that holds only a child to the first pass with the own tile', () => {
+    expect(picked(hit(model([4], 1))).chosen).toBe(4)
+  })
+})
