@@ -72,6 +72,8 @@ export interface MapNodeDto {
   noPointer?: true
   /** A map whose data could not be read back; the row warns and opening it says so. */
   unreadable?: true
+  /** A sub area the wings block links to its root: the row carries Yoshi Heaven's icon and tooltip. */
+  reachedBy?: 'yoshi-heaven'
   children: MapNodeDto[]
 }
 

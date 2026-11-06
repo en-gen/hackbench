@@ -99,6 +99,8 @@ export interface SyntheticOptions {
   spawnTimer?: number
   /** The spawn routine never returns. */
   spawnLoop?: boolean
+  /** The spawn leaves SpriteTableC2 = 2 only for a block at X pixel (this column of 4) * 16 in $9A, else 1: the wings rule's shape, columns 0-3 (#1229). */
+  wingsColumn?: number
   /** Id 103's handler body differs from the vanilla shape in one operand (behaviour the same). */
   alteredGrinder?: boolean
   /** Id 103 draws on its first MAIN only. */
@@ -333,7 +335,11 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
     0x028936,
     o.spawnLoop
       ? [0x4c, 0x36, 0x89]
-      : [0xa9, o.spawnTimer ?? 0x37, 0x9d, 0x40, 0x15, 0xb5, 0xc2, 0x1a, 0x95, 0xc2, 0x6b], // the counter step is LDA / INC A / STA, not the game's INC dp,X
+      : o.wingsColumn !== undefined
+        ? // our own shape, no shifts or masks: LDA #t / STA $1540,X / LDA $9A / CMP #(col * 16) / BNE +5 / LDA #2 / STA $C2,X / RTL / LDA $C2,X / INC A / STA $C2,X / RTL
+          // prettier-ignore
+          [0xa9, o.spawnTimer ?? 0x37, 0x9d, 0x40, 0x15, 0xa5, 0x9a, 0xc9, o.wingsColumn * 16, 0xd0, 0x05, 0xa9, 0x02, 0x95, 0xc2, 0x6b, 0xb5, 0xc2, 0x1a, 0x95, 0xc2, 0x6b]
+        : [0xa9, o.spawnTimer ?? 0x37, 0x9d, 0x40, 0x15, 0xb5, 0xc2, 0x1a, 0x95, 0xc2, 0x6b], // the counter step is LDA / INC A / STA, not the game's INC dp,X
   )
   // The level loader's shell sites (bank_02.asm:5290-5291, 5312-5361, 5456-5462), written as the instructions they are.
   // CMP #op / branch to `to`: the displacement is computed from the target label's address.

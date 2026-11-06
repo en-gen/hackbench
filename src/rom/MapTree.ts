@@ -3,10 +3,12 @@
  *
  *   Title Screen  $0C7
  *   New Game      $0C5
- *   bonus         $000, $100, $0C8, $1C8  entered after a level, not from a tile
+ *   bonus         $000, $100              entered after a level, not from a tile
+ *                 ($0C8, $1C8 too when no map's wings block reaches them)
  *   overworld
  *   |- $105  entry map for a level
  *   |   |- $0C5  sub area
+ *   |   |- $0C8  sub area, Yoshi Heaven, when this map or a sub area holds the wings block
  *   |   \- $0C6  sub area
  *   \- $106
  *       \- $1C9
@@ -37,6 +39,7 @@ import { buildLevelCatalog } from './LevelCatalog'
 import { reachableSlots } from './LevelTree'
 import { findSpecialMaps, type SpecialMap, type SpecialRole } from './SpecialMaps'
 import { findBonusEntrances, type BonusRole } from './BonusEntrances'
+import { holdsWings, wingsColumns, wingsDestination } from './YoshiWings'
 import {
   deriveOverworldEntrances,
   STOCK_OVERWORLD_FINGERPRINTS,
@@ -58,6 +61,11 @@ export interface MapNode {
    * for the wire protocol.
    */
   kind: 'map' | 'loop' | 'truncated'
+  /**
+   * Set on a sub area the wings block links to this root (#1229), on that root's row only: it keeps Yoshi Heaven's
+   * icon and tooltip, which a bonus row carries as its `role`.
+   */
+  reachedBy?: 'yoshi-heaven'
   /**
    * Other slots holding the identical Layer-1 bytes. Not copies: an edit here
    * is an edit to all of them, because a patch is written at the offset the
@@ -119,6 +127,8 @@ export interface MapTree {
   bonus: SpecialMapNode<BonusRole>[]
   /** Maps the overworld can start, each with its sub-areas beneath it. */
   overworld: MapNode[]
+  /** Slots the wings link placed under a root, so a groups.json that still names them is not stale. */
+  wingsPlaced?: number[]
   /**
    * Maps no overworld root reaches, then the New slots, in slot order. Flat:
    * see the note in build.
@@ -178,6 +188,9 @@ export function buildMapTree(
     graph: exitGraph,
     unavailable,
     unreadableMaps: graphCut,
+    submapFlag: flags,
+    screenHigh,
+    secondaryExit,
   } = rom.buildLevelExitGraph(entranceIndex.roots, fingerprints.entry)
 
   /** The display name comes from the ROM's own tables; null when it has none, never a guess. */
@@ -207,18 +220,71 @@ export function buildMapTree(
   // non-real slot); SmwRom.classify.test.ts pins that invariant, so neither
   // half is observable here.
   const stops = (i: number): boolean => isRoot(i) || !maps.has(i)
-  const overworld = roots.map(root =>
-    adopt(
-      root,
-      reachableSlots(root, exitGraph, stops).map(i => adopt(i)),
-    ),
-  )
+  const bonusRead = findBonusEntrances(rom.rom, fingerprints.bonus)
+
+  const subsOf = new Map(roots.map(r => [r, reachableSlots(r, exitGraph, stops)]))
+
+  // Yoshi Heaven joins the root whose own maps hold the wings block (#1229). The game files the
+  // destination as (OWPlayerSubmap high byte, DATA_05DBA9 low byte) exactly as a screen exit does,
+  // so the half is the root's propagated flag, never the wings map's own slot half. Yoshi Heaven's
+  // own exits are not followed (the walk never reaches it): maps only it reaches stay Unassigned.
+  const yoshiLow = bonusRead.maps.find(m => m.role === 'yoshi-heaven')?.index
+  const wingsDest = new Map<number, number>()
+  const yoshiStays = 'Yoshi Heaven stays listed as a bonus map.'
+  if (flags && yoshiLow !== undefined) {
+    try {
+      const cols = wingsColumns(rom.rom, fingerprints.wings)
+      if (!('columns' in cols)) notes.push(`Yoshi wings: ${cols.note} ${yoshiStays}`)
+      else {
+        // A holder whose exits are not known to be primary is not counted: a secondary exit sends the
+        // trip through DATA_05F800 (bank_05.asm:7111-7117), and an unreadable stream hides its exits.
+        const secondary = new Set<number>()
+        const unread = new Set<number>()
+        const refusedDests = new Set<number>()
+        for (const [root, subs] of subsOf) {
+          const holders = [root, ...subs].filter(i => holdsWings(rom, i, cols.columns, fingerprints.wings)) // prettier-ignore
+          const dest = wingsDestination(!!flags.get(root), screenHigh!, yoshiLow)
+          holders.filter(i => secondaryExit?.has(i)).forEach(i => secondary.add(i))
+          holders.filter(i => graphCut?.includes(i)).forEach(i => unread.add(i))
+          const ok = holders.filter(i => !secondaryExit?.has(i) && !graphCut?.includes(i))
+          if (ok.length && !stops(dest)) wingsDest.set(root, dest)
+          else if (holders.length) refusedDests.add(dest)
+        }
+        const placedNow = new Set(wingsDest.values())
+        const stays = [...refusedDests].some(d => !placedNow.has(d)) ? ` ${yoshiStays}` : '' // prettier-ignore
+        const ids = (set: Set<number>): string => [...set].map(i => '$' + i.toString(16).toUpperCase().padStart(3, '0')).join(', ') // prettier-ignore
+        const say = (set: Set<number>, why: string): void => {
+          if (set.size)
+            notes.push(`Yoshi wings: ${ids(set)} ${set.size === 1 ? 'holds the wings block but has' : 'hold the wings block but have'} ${why}, so ${set.size === 1 ? 'it is' : 'they are'} not linked.${stays}`) // prettier-ignore
+        }
+        say(
+          secondary,
+          'a secondary screen exit, which the game sends through a table that is not read',
+        )
+        say(unread, 'object data that could not be read to its end, so its exits are unknown')
+      }
+    } catch (err) {
+      wingsDest.clear()
+      notes.push(`Yoshi wings: could not be read (${err instanceof Error ? err.message : String(err)}). ${yoshiStays}`) // prettier-ignore
+    }
+  }
+  const wingsPlaced = new Set(wingsDest.values())
+  const overworld = roots.map(root => {
+    const subs = subsOf.get(root)!
+    const dest = wingsDest.get(root)
+    const kids = dest === undefined || subs.includes(dest) ? subs : [...subs, dest].sort((a, b) => a - b) // prettier-ignore
+    const children = kids.map(i => {
+      const node = adopt(i)
+      if (i === dest) node.reachedBy = 'yoshi-heaven'
+      return node
+    })
+    return adopt(root, children)
+  })
 
   // Read from the ROM, and only adopted when the slot named is in the hierarchy's
   // map set. A repointed routine could name a New slot or one on the most common
   // pointer; both are listed in Unassigned already, so adopting one would list it twice.
   const found = findSpecialMaps(rom.rom)
-  const bonusRead = findBonusEntrances(rom.rom, fingerprints.bonus)
   notes.push(...found.notes, ...bonusRead.notes)
   // One pass, so a slot named twice (by two roles, on a hack) is placed once.
   const adoptHits = <R extends string>(hits: SpecialMap<R>[]): SpecialMapNode<R>[] =>
@@ -313,5 +379,14 @@ export function buildMapTree(
     noPointer: noPointers.length,
   }
 
-  return { special, bonus, overworld, unassigned, mapCount, counts, notes }
+  return {
+    special,
+    bonus,
+    overworld,
+    wingsPlaced: [...wingsPlaced],
+    unassigned,
+    mapCount,
+    counts,
+    notes,
+  }
 }

@@ -99,6 +99,82 @@ reports sprite $09 with a caveat. The index uses `SpriteXPosLow`, which for a
 layer 2 block is minus `Layer23XRelPos` (`bank_02.asm:1184-1198`), so on layer 2
 the item depends on scroll position; the resolver gives the layer-1 answer.
 
+### Yoshi wings (#1229)
+
+Which maps list Yoshi Heaven as a sub area is read from this block, not assumed
+(`src/rom/YoshiWings.ts`).
+
+1. **The column.** `YoshiWings` runs the game's own item block spawn
+   (`CODE_0288DC`, the #566 exception) on the core once per column of the
+   period (4), with the block at `X = column * 16`, and reads back the sprite
+   number and `SpriteTableC2` the spawn left. Sprite `$7E` with C2 = 2 is the
+   wings. On the vanilla US ROM and its Lunar Magic resave that is column 1 of
+   4 and no other (one machine, 2026-11-05). Nothing writes "col mod 4 = 1".
+2. **The tile.** A cell of the expanded Layer 1 grid equal to `$125`, the same
+   test the block indicators apply (`inRange` / `resolveBlockContents` take the
+   grid's Map16 number as the acts-like number). Only Layer 1: a Layer 2 block's
+   column is minus `Layer23XRelPos` (`bank_02.asm:1184-1198`), so it depends on
+   the scroll and no fixed column is knowable.
+3. **The path, fingerprinted.** Yoshi touching sprite `$7E` with C2 = 2 sets
+   `PlayerAnimation` 8 (`bank_01.asm:15555-15566`, and the same test on the other
+   touch path, `15943-15962`); animation 8 is `YoshiWingsAni` (`bank_00.asm:7994`),
+   which sets `YoshiHeavenFlag` (`bank_00.asm:8295-8331`). One SHA-256 covers eight
+   spans, 529 bytes, all unknown (vanilla US, D126): the eating path and its branch
+   into the wings test (`bank_01.asm:15477-15567`), the contact loop to the end of
+   the second touch path (`15867-15962`), the animation call site (`bank_00.asm:7952`, 3 bytes; what runs after the call
+   returns is not on the path), `ProcessPlayerAnimation` and table slots 0-8 (`7982-7994`), `YoshiWingsAni` and `CODE_00D273`
+   (`8295-8331`, `9631-9635`), and the spawn's column rewrite with its two tables
+   (`bank_02.asm:1199-1224`, `1091-1096`), which holds the `AND #$30` that makes the
+   period 4. A ROM that changes any byte of them is refused with a note and Yoshi
+   Heaven stays a bonus map. Not covered: the callers of `CODE_01F344` and
+   `CODE_01F622`, `GetSpriteClipping` and `CheckForContact`, `ExecutePtr`, and the other
+   callers of `ProcessPlayerAnimation` (`bank_00.asm:1975, 2824`).
+4. **The destination.** `CODE_05DBAC` (read by `BonusEntrances`) files the low byte;
+   the high byte is the player's submap flag, the same `LDA #imm` a screen exit uses
+   (`bank_05.asm:7106-7111`). So the half is the ROOT's flag as the exit graph
+   propagates it, never the half of the slot that holds the block. `$00F` gives
+   `$0C8`; `$12C` and `$1E3` (a sub area of `$115`) give `$1C8`.
+
+On vanilla exactly three maps hold the block in a wings column: `$00F` (column 161,
+row 20), `$12C` (165, 20) and `$1E3` (13, 20), counted by the spawn-derived column
+over all 512 slots. The static read of the issue found 14 placements of `$125` over
+10 maps. Not played: the headless route (a Mesen scenario that rides Yoshi to each
+block) was not built; the three are a static read plus the core's spawn run.
+
+Limits, all static reads unless said:
+
+- **What else makes sprite `$7E` with C2 = 2.** A sweep of all banks for a `$7E` or
+  `$7D` immediate that reaches `SpriteNumber` (by the reviewer, one machine) found only
+  the spawn's `DATA_0288D6` (`bank_02.asm:1091`; the spawn compares the result with `$7E` at `1221`); the other `#$7E`
+  hits are bank-byte immediates. `SpriteInBlock` holds `$7D` only at content `$0B`. The
+  spawn's other caller, the flying block (`bank_01.asm:6271`, contents from
+  `DATA_01AE88`, `bank_01.asm:6306`), never passes `$0B`. A `$7E` placed in a level's
+  sprite list (vanilla places none, per the issue) or made by a hack's own spawner is
+  not followed.
+- **Secondary screen exits.** With `UseSecondaryExit` set the trip's destination comes
+  through `DATA_05F800` (`bank_05.asm:7111-7117`); that table is not read here, so a
+  map that holds the block and has a secondary screen exit is not linked, with a note.
+  The flag's only write is the screen exit object (`bank_0D.asm:1438`), so a holder with
+  no exit object may inherit it from the level loaded before (static read, unconfirmed;
+  vanilla holders have none).
+- **Yoshi Heaven's own exits** are not followed (the exit-graph walk never reaches it),
+  so a map only Yoshi Heaven reaches stays Unassigned. Vanilla's two destinations have
+  no exits.
+- **Layer 2 and the column.** Only Layer 1, as above.
+- **When the spawn is read.** Through the runner's existing probe, after the spawn and
+  one frame of the sprite's MAIN (the spawn leaves status 8, so no INIT runs; the runner's
+  `initFrames: 1` is only its label for that frame), not at the instant of the spawn. A
+  `$7E` whose MAIN rewrote C2 in that frame would read as its new value. Vanilla's gives the
+  wings in column 1, as the touch code expects; not tested on a synthetic ROM.
+- **Which ROMs get the link.** Of the corpus ROMs measured, only vanilla and the Lunar
+  Magic resave do (one machine, 2026-11-05; the other four, Grand Poo World 2 1.1, Grand Poo
+  World 1.2, Invictus and Seven Vanilla Levels, give no link): the bonus-entrance gate (`BONUS_CALL`) refuses all four, and
+  Yoshi Heaven's low byte comes from it. The path digest is vanilla US only as well. The issue's "hacks get it
+  too" is not met until that gate recognizes more builds.
+- **Cost.** The four spawn runs and the grids of the maps a root reaches are kept per ROM
+  bytes (a hash), about 200-250 ms on a cold tree build of the vanilla ROM (5 cold runs,
+  one machine, 2026-11-05).
+
 ### $021-$024
 
 Page-0 tiles $021-$024 reach `CODE_00F17F` directly (`bank_00.asm:12194-12212`)

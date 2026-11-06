@@ -67,7 +67,9 @@ way in, and clicking a level in the tree opens it.
 
 **Sub area.** A map that is NOT reachable from the overworld but IS
 reachable from another map. There is no depth qualifier: a map three screen
-exits deep is a sub area, not a "sub sub area".
+exits deep is a sub area, not a "sub sub area". "Reachable" means a screen exit,
+or the Yoshi wings block (#1229): Yoshi Heaven is a sub area of the map that
+holds the block. The term itself is unchanged.
 
 Defined by reachability rather than by ownership, which settles two cases
 cleanly. A map reachable from two different levels is simply a sub area; no

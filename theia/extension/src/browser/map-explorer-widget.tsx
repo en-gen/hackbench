@@ -514,6 +514,7 @@ export class MapExplorerWidget extends ExplorerTreeWidget {
     }
     if (dto.noPointer) node.noPointer = true
     if (dto.unreadable) node.unreadable = true
+    if (dto.reachedBy) node.role = dto.reachedBy
     node.children = dto.children.map(c => this.toNode(c, node, 'subarea'))
     if (node.children.length > 0) node.expanded = false
     return node
