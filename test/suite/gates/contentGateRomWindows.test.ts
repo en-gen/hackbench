@@ -242,6 +242,9 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
     spawnSync('git', ['clone', '-q', '-b', branch, r.g('remote', 'get-url', 'origin'), other])
     return gitIn(other)
   }
+  // The clone's HEAD is a commit this repo does not have (a failed clone or commit would fail this).
+  const unknownTip = (r: Repo, gc: ReturnType<typeof gitIn>) =>
+    expect(r.g('cat-file', '-t', gc('rev-parse', 'HEAD').stdout.toString().trim())).toBe('')
   const out = (p: { stdout: Buffer; stderr: Buffer }) => `${p.stdout}${p.stderr}`
   it('staged: red naming the line; modified, .md and clean pass; a rename and comments count', () => {
     const dir = mkdtempSync(join(tmp, 'st-'))
@@ -346,6 +349,7 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
       const r = withRemote()
       const gc = cloneOf(r, 'other', 'develop')
       gc('commit', '-q', '--allow-empty', '-m', 'develop moved')
+      unknownTip(r, gc)
       gc('push', '-q', 'origin', 'develop')
       const p = push(r) // ls-remote names a develop tip we lack; origin/develop names the old one
       expect(p.status, out(p)).toBe(0)
@@ -375,22 +379,24 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
         gc('push', '-q', 'origin', ':feature')
         expect(push(r).status).toBe(1)
       })
-      // Known gap, pinned: a force-push to a tip this clone lacks looks like a remote that moved on, so
-      // the old tracking ref is trusted and the run on it passes. Only a fetch (or deleting the ref) helps.
-      it('a rewrite to an unknown tip leaves the old tracking ref trusted (a slash in the name too)', () => {
-        const r = withRemote()
-        r.g('checkout', '-q', '-b', 'foo/bar')
-        commitFile(r, 'planted.ts', run)
-        r.g('push', '-q', 'origin', 'foo/bar')
-        const old = r.g('rev-parse', 'foo/bar')
-        const gc = cloneOf(r, 'rewrite', 'develop')
-        gc('commit', '-q', '--allow-empty', '-m', 'rewrite without the run')
-        gc('push', '-q', '-f', 'origin', 'HEAD:refs/heads/foo/bar')
-        const asNewRef = () => push(r, roms, refLine('copy', old))
-        expect(asNewRef().status).toBe(0)
-        r.g('update-ref', '-d', 'refs/remotes/origin/foo/bar')
-        expect(asNewRef().status).toBe(1)
-      })
+    })
+
+    // Known gap, pinned: a force-push to a tip this clone lacks looks like a remote that moved on, so
+    // the old tracking ref is trusted and the run on it passes. Only a fetch (or deleting the ref) helps.
+    it('a rewrite to an unknown tip leaves the old tracking ref trusted (a slash in the name too)', () => {
+      const r = withRemote()
+      r.g('checkout', '-q', '-b', 'foo/bar')
+      commitFile(r, 'planted.ts', run)
+      r.g('push', '-q', 'origin', 'foo/bar')
+      const old = r.g('rev-parse', 'foo/bar')
+      const gc = cloneOf(r, 'rewrite', 'develop')
+      gc('commit', '-q', '--allow-empty', '-m', 'rewrite without the run')
+      unknownTip(r, gc)
+      gc('push', '-q', '-f', 'origin', 'HEAD:refs/heads/foo/bar')
+      const asNewRef = () => push(r, roms, refLine('copy', old))
+      expect(asNewRef().status).toBe(0)
+      r.g('update-ref', '-d', 'refs/remotes/origin/foo/bar')
+      expect(asNewRef().status).toBe(1)
     })
 
     it('an empty remote, or one whose tips are all unknown here, still judges every added file', () => {
@@ -446,7 +452,7 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
     ['a wrong checksum only', () => romsDir('bchk', vanillaFile([win], BIG, false, f => [~f & 0xffff, f ^ 0x100]))], // prettier-ignore
     // Over 1 MiB with a valid checksum: the size alone refuses it.
     ['1 MiB with a valid checksum', () => romsDir('bmib', vanillaFile([win], 2 * BIG))],
-    // Over 2 GiB: readFileSync refuses it with ERR_FS_FILE_TOO_LARGE, so the size is judged from stat.
+    // Over 2 GiB: readFileSync refuses it with ERR_FS_FILE_TOO_LARGE. Pins "no stack trace", not stat-first.
     // On Windows the file is marked sparse first, or NTFS really allocates the 3 GiB.
     ['over 2 GiB', () => { const d = romsDir('bhuge', new Uint8Array(0)); const f = join(d, VANILLA); if (process.platform === 'win32') spawnSync('fsutil', ['sparse', 'setflag', f]); truncateSync(f, 3 * 1024 ** 3); return d }], // prettier-ignore
   ]
@@ -462,17 +468,18 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
   it('a ROM nobody can read gives the did-not-run line (skipped where the denial does not take)', ctx => {
     const d = romsDir('bperm', vanillaFile([win]))
     denyRead(join(d, VANILLA))
+    let readable = true
     try {
       readFileSync(join(d, VANILLA))
-      return ctx.skip() // still readable (root, or no ACL support)
     } catch {
-      // unreadable, as intended
+      readable = false // unreadable, as intended
     }
+    if (readable) return ctx.skip() // still readable (root, or no ACL support)
     const r = repo()
     commitFile(r, 'planted.ts', run)
     const p = range(r.dir, d)
     expectDidNotRun(p)
-    expect(p.stderr.toString()).toContain('cannot be read')
+    expect(p.stderr.toString()).toMatch(/DID NOT RUN: .*cannot be read/)
   })
 
   it('a valid ROM with a copier header is used; the ROM is not read when no file qualifies', () => {
