@@ -242,15 +242,8 @@ describe.skipIf(!smwdisx)('0xC9..0xFF citations match the disassembly', () => {
 })
 
 describe('$9C name (#1152)', () => {
-  it('is the Flying Hammer Bro platform, through the table and the serialized sprite', () => {
-    const meta = getSpriteMetadata(0x9c)
-    expect(meta?.displayName).toBe('Flying Hammer Bro platform')
-    expect(meta?.displayName).not.toBe('Hammer Brother Block')
-    const sprite = new Sprite(0x9c, 0, 0, new StaticSpriteAppearance([]), {
-      kind: 'sprite_9c',
-      ...meta,
-    })
-    expect(serializeSprite(sprite).behavior.displayName).toBe('Flying Hammer Bro platform')
+  it('is the Flying Hammer Bro platform', () => {
+    expect(getSpriteMetadata(0x9c)?.displayName).toBe('Flying Hammer Bro platform')
   })
 })
 

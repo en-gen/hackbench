@@ -248,6 +248,12 @@ describe('spriteLayer', () => {
     expect(r.sprites.map(s => [s.id, s.name])).toEqual([[0x33, 'Podoboo'], [0xf0, 'Scroll command 9: Unused (vanilla)'], [0x28, 'Big Boo']]) // prettier-ignore
   })
 
+  it('names $9C the Flying Hammer Bro platform on the map layer that fills hover and Properties (#1152)', () => {
+    const h = { ...MODEL, isVertical: false, screenCount: 1 }
+    const r = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x9c, END]), h, stub)
+    expect(r.sprites.map(s => [s.id, s.name])).toEqual([[0x9c, 'Flying Hammer Bro platform']])
+  })
+
   it('gives no name to a sprite drawn as a placeholder because its identity is not vanilla (#981)', () => {
     const h = { ...MODEL, isVertical: false, screenCount: 1 }
     // Extra bits set on id $28: the placeholder must not wear the vanilla name; the plain $28 beside it keeps it.
