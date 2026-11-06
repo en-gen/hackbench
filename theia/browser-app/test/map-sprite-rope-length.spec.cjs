@@ -29,8 +29,8 @@ test.beforeEach(async ({ page }) => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-rope-'))
   await page.goto(APP, { waitUntil: 'domcontentloaded' })
   await page.waitForSelector('#theia-app-shell', { timeout: 90000 })
-  await page.waitForTimeout(4000)
   await page.addScriptTag({ content: GET_SVC })
+  await page.waitForFunction(() => window.theia?.container && getSvc('Symbol(ProjectService)'))
 })
 test.afterEach(() => tmp && fs.rmSync(tmp, { recursive: true, force: true }))
 
