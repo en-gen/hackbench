@@ -3819,15 +3819,11 @@ test('data-details is pending while the reply is held, done after, and pending a
   await expect(main).toHaveAttribute('data-details', 'done')
 })
 
-/**
- * D181 (#1274): the preview tab, reached by single-clicking explorer rows as a user does, keeps the view
- * toggles and drops palace and switch presses when it shows another map. Unpressed is read off the
- * pixels too: on $105 yellow moves screen 9, on $014 the blue P-switch moves screen 0.
- */
+// D181 (#1274): single-clicked rows share the preview tab; it drops presses on another map, keeps toggles.
+// Pixels too: on $105 yellow moves screen 9, on $014 the blue P-switch moves screen 0.
 const PRESSES = [...['yellow', 'green', 'red', 'blue'].map(k => `palace-${k}`), ...['blue', 'silver', 'onOff'].map(k => `switch-${k}`)] // prettier-ignore
 const control = (page, tab, c) => page.locator(`${root(tab)} [data-control="${c}"]`)
 
-/** Loads the Maps tree for a project with no groups, so every slot is a row in Unassigned (as map-slots.spec.cjs does). */
 async function loadTree(page) {
   const dir = path.join(tmp, 'MyHack')
   const mp = (await createProject(page, dir)).manifestPath
@@ -3839,10 +3835,8 @@ async function loadTree(page) {
     await w.load(mp)
     await getSvc('ApplicationShell').activateWidget('hackbench.map-explorer')
   }, mp)
-  await page.waitForTimeout(800)
 }
 
-/** A single (preview) or double (pinned) click on a slot's row; returns the tab id part once that tab shows the slot. */
 async function clickRow(page, slot, pin = false) {
   const id = await page.evaluate(async slot => {
     const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-explorer')
@@ -3858,7 +3852,6 @@ async function clickRow(page, slot, pin = false) {
   const tab = pin ? slot : 'preview'
   opened.push(`hackbench.map-view:${tab}`)
   await page.waitForFunction(([t, s]) => getSvc('ApplicationShell').getWidgetById(`hackbench.map-view:${t}`)?.options?.index === s, [tab, slot], { timeout: 30000 }) // prettier-ignore
-  return tab
 }
 
 const pressedOf = (page, tab) => Promise.all(PRESSES.map(c => control(page, tab, c).getAttribute('aria-pressed'))) // prettier-ignore
@@ -3876,15 +3869,12 @@ for (const [a, b, screen, press] of [
     page,
   }) => {
     await loadTree(page)
-    const on = { yellow: press === 'palace-yellow', blue: press === 'switch-blue' }
-    // B alone in the tab, unpressed and then with its own press, as the references.
     await clickRow(page, b)
     await showScreen(page, 'preview', screen)
     const fresh = await readScreen(page, 'preview', screen)
     await control(page, 'preview', press).click()
-    await showScreen(page, 'preview', screen, on.yellow, on.blue)
+    await showScreen(page, 'preview', screen, press === 'palace-yellow', press === 'switch-blue')
     expect((await readScreen(page, 'preview', screen)).checksum, 'the press moves B, so the check can fail').not.toBe(fresh.checksum) // prettier-ignore
-
     await clickRow(page, a)
     await pressAll(page, 'preview')
     await clickRow(page, b)
@@ -3911,7 +3901,6 @@ test('the preview tab carries the layer, sprite and collision toggles to the nex
   expect(flipped).not.toEqual(start)
   await expect.poll(lines, { timeout: 60000 }).not.toBe('')
   const aLines = await lines()
-
   await clickRow(page, 0x109)
   expect(await states()).toEqual(flipped)
   expect(await pressedOf(page, 'preview')).toEqual(all('false'))
@@ -3930,7 +3919,6 @@ test('refreshing or single-clicking the same map keeps presses; a pinned tab kee
   expect(await pressedOf(page, 'preview')).toEqual(all('true'))
   await clickRow(page, 0x105)
   expect(await pressedOf(page, 'preview')).toEqual(all('true'))
-
   // Pinned: a pin never shows another map, so its reopen is the same row. $106 has its own press.
   await clickRow(page, 0x105, true)
   await clickRow(page, 0x106, true)
