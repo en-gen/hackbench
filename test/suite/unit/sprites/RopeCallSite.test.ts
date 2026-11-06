@@ -1,8 +1,7 @@
 /**
- * #1230: the map view's call site (`interpRunner` in map-sprites.ts) hands the rope to `ropeModel` with the right setting,
- * orientation and gate. Synthetic loader (the `ropeHooks` fingerprint) and a stand-in run that records the slot it was
- * given, so CI (no ROM) goes red on a call site that reads the wrong setting, ignores a vertical map, matches the wrong
- * ids or runs without a loader image.
+ * #1230: the call site (`interpRunner`) hands the rope to `ropeModel` with the right setting, orientation and gate.
+ * Synthetic loader (the `ropeHooks` fingerprint) and a stand-in run that records the slot, so CI (no ROM) goes red on a
+ * wrong setting, a vertical map ignored, the wrong ids, or no loader image.
  */
 import { describe, expect, it } from 'vitest'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
@@ -80,7 +79,6 @@ describe('the map view call site of the rope', () => {
     expect(r.m.lengthNote).toMatch(/level loader could not be run/)
   })
   it('a rope the gate confirmed skips the screen-fixed probe run; one that lost the gate does not', () => {
-    // The probe is the only run with a shortened pass count.
     const probes = (snaps: boolean) => run(SPECIAL, 1, 2, { snaps, probe: true }).passes.filter(p => p !== SPRITE_SEED.mainPasses).length // prettier-ignore
     expect(probes(true)).toBe(0)
     expect(probes(false)).toBeGreaterThan(0)

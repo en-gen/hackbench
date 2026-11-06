@@ -45,7 +45,6 @@ describe('slotWalk (synthetic loader)', () => {
     })
     const same = slotCart(s => ((s[19] = s[4]), (s[20] = s[5])))
     expect(slotWalk(same.rom, 1, SPECIAL, 0, same.spec)).toMatchObject({ status: 'unrecognized' })
-    // The three Max tables must lie the same distance apart: a span whose Max2 is out of step is not read.
     const skew = slotCart(s => ((s[44] = s[19] + 5), (s[45] = s[20])))
     expect(slotWalk(skew.rom, 1, SPECIAL, 0, skew.spec)).toMatchObject({ status: 'unrecognized' })
     // The operands name addresses below $8000, which hold no ROM, so no table can be read.

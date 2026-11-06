@@ -1,8 +1,7 @@
 /**
- * A synthetic loader for SlotPick (#1230): a 62-byte span of filler with the table operands and immediates at the offsets
- * the module reads, over seven small tables. The filler and the table numbers are not the
- * game's; the fingerprint is taken from this cart. The special id is the one id the call-site tests list ($64, a sprite id,
- * not a ROM byte table); every other number differs from the vanilla rows.
+ * A synthetic loader for SlotPick (#1230): a 62-byte span of filler with the table operands and immediates where the module
+ * reads them, over seven small tables. Filler and table numbers are not the game's (the fingerprint is taken from this
+ * cart); the special id is $64, the sprite id the call-site tests list, and every other number differs from vanilla.
  */
 import { fingerprint } from '../../../src/rom/Fingerprint'
 import { RomFile } from '../../../src/rom/RomFile'

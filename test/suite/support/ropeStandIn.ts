@@ -1,7 +1,6 @@
 /**
- * A stand-in for the rope's draw, for the synthetic rope tests (#1230): one 16 px part per tile going DOWN (a vertical
- * rope, like the real one), 9 tiles when the slot is the high one and the setting is not 0, else 5. Its first part's char
- * is the slot (the motor tile). It describes the rule; the ROM's own draw is exercised in the corpus tests.
+ * A stand-in for the rope's draw (#1230): one 16 px part per tile going DOWN, 9 tiles when the slot is the high one and the
+ * setting is not 0, else 5; the first part's char is the slot (the motor tile). The ROM's own draw is in the corpus tests.
  */
 import type { SpriteModel, SpritePart } from '../../../src/rom/sprites/interp/SpriteRunner'
 

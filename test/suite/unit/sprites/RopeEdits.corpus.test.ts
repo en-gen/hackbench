@@ -1,10 +1,8 @@
 /**
- * #1230 on the vanilla ROM (corpus): the capture on map $00F (Mesen 2, one machine, 4 of 4 runs: odd columns 205 and 241 in
- * slot 7, long; even columns 164, 186, 210, 216 short) and maps $0DD, $12A, $12C (UNCAPTURED: the rule's output, not a
- * capture); then edited working-copy bytes: the rope redraws when it moves a column or the map's
- * setting changes (AC 6), a vertical map takes the row parity, a refused level loader or a repointed handler is told or
- * left alone, the Properties frames match the map and the rope draws a free-slot setting at its short length.
- * Evidence scope: vanilla US ROM, emulated CPU, one machine; none of these is a capture.
+ * #1230 on the vanilla ROM (corpus): map $00F against the Mesen 2 capture (one machine, 4 of 4 runs: odd columns 205 and
+ * 241 long in slot 7; even 164, 186, 210, 216 short); maps $0DD, $12A, $12C UNCAPTURED (the rule's output); then edited
+ * working-copy bytes: a moved rope or a changed setting redraws (AC 6), a vertical map takes the row parity, a refused
+ * loader or repointed handler is told or left alone, and the Properties frames match the map. Emulated CPU, one machine.
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
@@ -41,10 +39,7 @@ const sprites = (map: number, edit?: Edit) => {
 const ropes = (map: number, edit?: Edit) =>
   sprites(map, edit).sprites.filter(s => s.id === 0x64).map(s => ({ col: s.x / 16, row: s.y / 16, tiles: (s.parts?.length ?? 0) / 4, s })) // prettier-ignore
 /** Sets the map's sprite memory setting: the low 6 bits of the stream's first byte (bank_05.asm:7259-7261). */
-const setting =
-  (n: number): Edit =>
-  (b, at) =>
-    (b[at] = (b[at]! & 0xc0) | n)
+const setting = (n: number): Edit => (b, at) => (b[at] = (b[at]! & 0xc0) | n) // prettier-ignore
 
 describe.skipIf(!hasRom(VANILLA))('the rope on edited vanilla bytes', () => {
   it('map $00F (setting 1): odd columns 9 tiles, even columns 5, as captured', () => {
@@ -56,7 +51,6 @@ describe.skipIf(!hasRom(VANILLA))('the rope on edited vanilla bytes', () => {
     for (const m of [0x0dd, 0x12a, 0x12c]) {
       const got = ropes(m)
       expect(got.length, `map ${m.toString(16)}`).toBeGreaterThan(0)
-      // Observed output of the rule (even columns, or a setting 0 map for $12A's column 13): not a capture.
       for (const r of got) expect(r.tiles, `map ${m.toString(16)} column ${r.col}`).toBe(5)
     }
   })
@@ -64,7 +58,6 @@ describe.skipIf(!hasRom(VANILLA))('the rope on edited vanilla bytes', () => {
     const got = ropes(0x00f, b => (b[0x128e4 + 3]! ^= 1))
     expect(got.map(r => r.tiles)).toEqual([5, 5, 5, 5, 5, 5])
     expect(got[0]!.s.unverified).toMatch(/loader.*not the original/)
-    // The Properties panel itself says why, in plain words, not only on a tooltip.
     for (const r of got) expect(spriteProps(r.s).notes.join(' ')).toMatch(/The rope is shown at its short length: the sprite loader on this ROM is not the original one./) // prettier-ignore
   })
   it('the slot moves no part of the first frame: the short and long runs share their tiles and their anchor (case 1)', () => {
@@ -105,10 +98,8 @@ describe.skipIf(!hasRom(VANILLA))('the rope on edited vanilla bytes', () => {
     const { path, bytes } = load(0x00f)
     const r = mapSprites(new L1ModelCache(), bytes, path, 0x00f)
     if (r.status !== 'ok') throw new Error(r.status)
-    for (const [col, tiles] of [
-      [205, 9],
-      [164, 5],
-    ] as const) {
+    // prettier-ignore
+    for (const [col, tiles] of [[205, 9], [164, 5]] as const) {
       const s = r.sprites.find(q => q.id === 0x64 && q.x / 16 === col)!
       const f = mapSpriteFrames(new L1ModelCache(), bytes, path, 0x00f, s.index)
       expect(f.status).toBe('ok')

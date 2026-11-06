@@ -1,9 +1,6 @@
 /**
- * #1230: the rope's model from the slot the loader gives it (RopeLength.ts). Synthetic loader and a stand-in `runAt`, no ROM:
- * the stand-in draws one part per tile going DOWN (a vertical rope, like the real one), 9 when the slot is the high one and
- * the setting is not 0 and 5 otherwise, and takes its first part's char from the slot (the motor tile). These prove the
- * wiring (which slot, which orientation, which run is shown, what a refusal says); the ROM's own branch runs on the
- * vanilla draw in RopeLength.corpus.test.ts and the call site is exercised in RopeCallSite.test.ts.
+ * #1230: the rope's model (RopeLength.ts) over a synthetic loader and the stand-in draw (ropeStandIn.ts), no ROM: which
+ * slot, which orientation, which run is shown, what a refusal says. The ROM's own branch runs in RopeEdits.corpus.test.ts.
  */
 import { describe, expect, it } from 'vitest'
 import { ropeModel, type RopeAt } from '../../../../src/rom/sprites/interp/RopeLength'
