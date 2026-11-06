@@ -755,8 +755,8 @@ export function interpRunner(
   platformRoutines: PlatformRoutines = VANILLA_PLATFORM_ROUTINES,
   /** The map's whole sprite list: a sprite that scans the slots for a companion is run with its neighbors (#841). */
   list: readonly LevelSprite[] = [],
-  /** Test hooks for the rope: a synthetic cart's loader fingerprint, and the door switch. */
-  ropeHooks: Pick<RopeAt, 'spec' | 'door'> = {},
+  /** Test hook for the rope: a synthetic cart's loader fingerprint. */
+  ropeHooks: Pick<RopeAt, 'spec'> = {},
 ): (sprite: LevelSprite) => SpriteRun {
   // The loader runs once per map, not per sprite.
   const base = seedFor(rom, index)

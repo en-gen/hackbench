@@ -1,7 +1,7 @@
 /**
  * #1230 on the vanilla ROM with edited working-copy bytes (corpus): the rope redraws when it moves a column or the map's
  * setting changes (AC 6), a vertical map takes the row parity, a refused level loader or a repointed handler is told or
- * left alone, the Properties frames match the map, and the door tags the extra length on the REAL draw across every setting.
+ * left alone, the Properties frames match the map and the rope draws a free-slot setting at its short length.
  * Evidence scope: vanilla US ROM, emulated CPU, one machine; none of these is a capture.
  */
 import { readFileSync } from 'node:fs'
@@ -9,17 +9,9 @@ import { describe, expect, it } from 'vitest'
 import { loromToOffset } from '../../../../src/rom/addressing'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
-import { ropeModel } from '../../../../src/rom/sprites/interp/RopeLength'
-import { slotWalk } from '../../../../src/rom/sprites/interp/SlotPick'
 import { resolveLoop, resolveTables } from '../../../../src/rom/sprites/interp/SpriteDispatch'
-import { drawnParts } from '../../../../src/rom/sprites/interp/SpriteRunner'
-import { SPRITE_SEED, withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { L1ModelCache } from '../../../../theia/extension/src/node/map-screen'
-import {
-  mapSpriteFrames,
-  mapSprites,
-  runWithUploads,
-} from '../../../../theia/extension/src/node/map-sprites'
+import { mapSpriteFrames, mapSprites } from '../../../../theia/extension/src/node/map-sprites'
 import { hasRom, romPath, VANILLA } from '../../support/corpus'
 
 type Edit = (bytes: Uint8Array, stream: number) => void
@@ -104,28 +96,4 @@ describe.skipIf(!hasRom(VANILLA))('the rope on edited vanilla bytes', () => {
     for (const s of r.sprites.filter(q => q.id === 0x64))
       expect(s.note ?? '', `column ${s.x / 16}`).not.toMatch(/rope is shown/)
   })
-})
-
-describe.skipIf(!hasRom(VANILLA))('the door on the real draw (door: true), every setting', () => {
-  it('tags exactly the parts only the long run drew, in every setting and parity, 0 to 18 (smoke sweep, not coverage)', () => {
-    const rom = RomFile.load(romPath(VANILLA))
-    let tagged = 0
-    for (let s = 0; s <= 18; s++)
-      for (const col of [0x40, 0x41]) {
-        const [x, y] = [col * 16, 0x40]
-        const runAt = (slot: number) => runWithUploads(rom, 0x64, withSeed({ slot, sprite: { x, y }, camera: { x: x - 128, y: 0 }, level: { ...SPRITE_SEED.level, spriteMemory: s } }, SPRITE_SEED)) // prettier-ignore
-        const w = slotWalk(rom, s, 0x64, x)
-        expect(w.status, `setting ${s}`).toBe('ok')
-        if (w.status !== 'ok') continue
-        const m = ropeModel(rom, { id: 0x64, setting: s, x, y, vertical: false, door: true }, runAt)
-        const [long, short] = [runAt(w.long), runAt(w.short)]
-        const keys = (r: typeof long) =>
-          new Set(drawnParts(r.passes[r.chosen!]!).map(p => `${p.dx},${p.dy}`))
-        const extra = [...keys(long)].filter(k => !keys(short).has(k)).length
-        const door = m.passes[m.chosen!]!.parts.filter(p => p.door).length
-        expect(door, `setting ${s} column ${col}`).toBe(extra)
-        tagged += door
-      }
-    expect(tagged, 'some setting has an extra length to tag').toBeGreaterThan(0)
-  }, 120_000)
 })

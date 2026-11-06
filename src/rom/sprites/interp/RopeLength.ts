@@ -2,7 +2,7 @@
  * RopeLength.ts -- the rope ($64) at the length the game draws it (#1230, D152 / Decision 103 E).
  * The draw tests the slot it runs in (bank_01.asm:12583-12589) and the loader picks the slot (SlotPick.ts), so the picture
  * is the ROM's own draw run in the slot the loader would give. Where the slot depends on what else is loaded, the draw is
- * run in the long slot and in the short one; the parts only the long run drew are tagged `door`.
+ * run in the long slot and in the short one, and the short one is shown (the screen door for the extra length comes later).
  */
 import type { RomFile } from '../../RomFile'
 import type { CodeFingerprint } from './InitLatches'
@@ -12,12 +12,6 @@ import { drawnParts, type SpriteModel, type SpritePart } from './SpriteRunner'
 
 /** The coordinate the loader tests: Y in a vertical map, X in a horizontal one (the stores at bank_02.asm:5236 and 5245, compared at 5278-5281, the `$00` the pick reads). */
 export const alongScroll = (x: number, y: number, vertical: boolean): number => (vertical ? y : x)
-
-/**
- * Whether the screen door draws the extra length. The door itself lands with #1132; until then the extra parts are left
- * out and the rope shows its short length (as before), never a solid long one the ruling does not allow.
- */
-export const DOOR_WIRED = false
 
 /** The ids whose line-guided arm calls the rope draw (`VANILLA_DISPATCH`, hash-gated in the runner), not an id list of this module. */
 export const isRopeId = (id: number): boolean =>
@@ -32,27 +26,11 @@ export interface RopeAt {
   vertical: boolean
   /** A test hook: a synthetic cart's own loader fingerprint. */
   spec?: CodeFingerprint
-  /** Test hook, default `DOOR_WIRED`. */
-  door?: boolean
 }
 
 const DIFFERENT_SPOT =
   'the rope starts at a different spot in the two slots it can load into, so only the short length is shown'
 const key = (p: SpritePart) => `${p.dx},${p.dy}`
-
-/** The short run's pass with the parts only the long run drew added, tagged `door` (the short run's own parts stay solid). */
-function withExtras<M extends SpriteModel>(short: M, long: SpriteModel): M {
-  return {
-    ...short,
-    passes: short.passes.map((p, i) => {
-      const have = new Set(drawnParts(p).map(key))
-      const extra = drawnParts(long.passes[i] ?? p)
-        .filter(q => !have.has(key(q)))
-        .map((q): SpritePart => ({ ...q, door: true }))
-      return extra.length ? { ...p, parts: [...p.parts, ...extra] } : p
-    }),
-  }
-}
 
 /**
  * The rope's model. `runAt(slot)` runs the sprite in that slot. A loader or setting the pick cannot read keeps slot 0 and
@@ -87,6 +65,5 @@ export function ropeModel<M extends SpriteModel>(
   const spots = (m: SpriteModel) => new Set(drawnParts(m.passes[m.chosen!]!).map(key))
   const [a, b] = [spots(short), spots(long)]
   if (a.size === b.size && [...a].every(k => b.has(k))) return long
-  if (!(at.door ?? DOOR_WIRED)) return short
-  return withExtras(short, long)
+  return short
 }

@@ -34,7 +34,7 @@ function run(
   const seen: number[] = []
   const setting = o.setting ?? 1
   const stand = drawer(setting, seen, undefined, o.snaps ?? true)
-  const go = interpRunner(rom, 0, { isVertical: !!o.vertical, screenCount: 2 }, (_r, _i, s) => stand(s.slot), () => (o.noImage ? SPRITE_SEED : image(setting)), undefined, undefined, undefined, [], { spec, door: false }) // prettier-ignore
+  const go = interpRunner(rom, 0, { isVertical: !!o.vertical, screenCount: 2 }, (_r, _i, s) => stand(s.slot), () => (o.noImage ? SPRITE_SEED : image(setting)), undefined, undefined, undefined, [], { spec }) // prettier-ignore
   const r = go(sprite(id, x, y)) as { m: SpriteModel }
   return { seen, m: r.m, tiles: r.m.passes[0]!.parts.length }
 }
@@ -43,7 +43,7 @@ describe('the map view call site of the rope', () => {
   it('reads the map setting from the loader image: setting 1 odd 9, even 5; another setting walks its own table', () => {
     expect(run(SPECIAL, 1, 2).tiles).toBe(9)
     expect(run(SPECIAL, 2, 2).tiles).toBe(5)
-    // Setting 2 shares its top slot with ordinary sprites: both slots run, and the door is off, so the short rope stands.
+    // Setting 2 shares its top slot with ordinary sprites: both slots run; the short rope is shown.
     expect(run(SPECIAL, 1, 2, { setting: 2 })).toMatchObject({ tiles: 5, seen: [6, 2] })
     expect(run(SPECIAL, 1, 2, { setting: 0 }).tiles).toBe(5)
   })

@@ -135,8 +135,6 @@ export interface SpritePart {
   /** Raw OAM position: X is 9 bits (size-table bit 0 is bit 8), Y is the line. */
   ox: number
   oy: number
-  /** Drawn only in a case the slot decides (the rope's extra length, #1230): the view shows it in the screen door. */
-  door?: true
 }
 
 /** One CGRAM color a run set: index 0-255 (row * 16 + column) and its BGR555 value. */
