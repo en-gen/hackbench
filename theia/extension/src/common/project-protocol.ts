@@ -72,6 +72,8 @@ export interface MapNodeDto {
   noPointer?: true
   /** A map whose data could not be read back; the row warns and opening it says so. */
   unreadable?: true
+  /** A sub area the wings block links to its root: the row carries Yoshi Heaven's icon and tooltip. */
+  reachedBy?: 'yoshi-heaven'
   children: MapNodeDto[]
 }
 
@@ -354,6 +356,10 @@ export interface MapSpriteDto {
   note?: string
   /** Technical detail behind a plain note, for its tooltip. */
   noteDetail?: string
+  /** Every pixel of the sprite is drawn in the screen door: it draws nothing in play until something happens (#1132). */
+  screenDoor?: boolean
+  /** What makes it appear ("appears when Mario gets close to this spot", with his state), or that nothing was found to; present with `screenDoor`, for the hover. */
+  reveal?: string
 }
 
 /**

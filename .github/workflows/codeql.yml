@@ -1,0 +1,54 @@
+# CodeQL as an advanced workflow, because default setup never ran on a fork's PR
+# and the required CodeQL check then blocked it (#1256). The check itself comes
+# from the upload, not from these jobs. build-mode none reads the source and
+# runs none of it, and no secret is in reach, so a fork's run costs nothing
+# beyond the approval its CI needs anyway.
+# Pins match scorecard.yml.
+name: CodeQL scan
+
+on:
+  # No path filter and no job-level if: a required check must report on every
+  # PR, docs included, and a fork must get the same scan as a branch here.
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+  schedule:
+    - cron: '41 9 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      # GitHub reduces this for a fork's run; code scanning still takes the
+      # upload there. Seen on four cli/cli fork PRs, 2026-11-05.
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, javascript-typescript, python]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      # The same category default setup used, so open alerts and the PR
+      # comparison against develop carry over.
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          category: /language:${{ matrix.language }}

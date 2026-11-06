@@ -55,6 +55,7 @@ export const BY_OPTION: { [K in keyof SyntheticOptions]-?: Variant[] } = {
   badSpawn: each('badSpawn', ['head', 'status', 'dispatch'] as const, k => ({ badSpawn: k })),
   spawnTimer: one('spawnTimer', { spawnTimer: 0x44 }),
   spawnLoop: one('spawnLoop', { spawnLoop: true }),
+  wingsColumn: each('wingsColumn', [0, 1, 2, 3] as const, c => ({ wingsColumn: c })),
   alteredGrinder: one('alteredGrinder', { alteredGrinder: true }),
   grinderDrawsOnce: one('grinderDrawsOnce', { grinderDrawsOnce: true }),
   grinderDrawsTwice: one('grinderDrawsTwice', { grinderDrawsTwice: true }),

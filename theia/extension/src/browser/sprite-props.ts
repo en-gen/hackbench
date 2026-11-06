@@ -26,6 +26,7 @@ const WHY_NOT_DRAWN: Record<string, string> = {
   noParts: 'Its code drew no tiles.',
   charsNotLoaded: 'Some of its graphics are not loaded on this map.',
   noDescriptor: 'The app has no drawing rules for this sprite yet.',
+  unrevealed: 'It draws nothing at first, and the app could not tell what reveals it.',
 }
 
 /** Why a sprite is a marker, in words. The engine's reason codes never reach the screen: an unknown one gets the generic line. */

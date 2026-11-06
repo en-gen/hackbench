@@ -67,7 +67,9 @@ way in, and clicking a level in the tree opens it.
 
 **Sub area.** A map that is NOT reachable from the overworld but IS
 reachable from another map. There is no depth qualifier: a map three screen
-exits deep is a sub area, not a "sub sub area".
+exits deep is a sub area, not a "sub sub area". "Reachable" means a screen exit,
+or the Yoshi wings block (#1229): Yoshi Heaven is a sub area of the map that
+holds the block. The term itself is unchanged.
 
 Defined by reachability rather than by ownership, which settles two cases
 cleanly. A map reachable from two different levels is simply a sub area; no
@@ -133,6 +135,11 @@ those two gates is correct on vanilla and wrong in principle.
 $61 skull, the $1E Lakitu cloud), or any other write made while `$15E9` named another slot. The grader does not count
 companions as the sprite's parts; the map view draws them with it (D52). A neighbor placed from the map's list (#841)
 is not a companion.
+
+**Screen door.** The checkerboard the map view draws a sprite or tile in when it is there but not as the game shows it: on
+alternating squares of its own grid it is solid, on the others dim (D52, `hiddenPixelStrength`). A sprite a tile covers is
+drawn through that tile in it; a sprite that draws nothing at rest and is found by the reveal search (D142) is drawn in it
+whole, every pixel, with a hover that says what shows it ([reveal-search.md](rom/reveal-search.md)). Hovering lifts it to solid (#879).
 
 ## The connection words
 

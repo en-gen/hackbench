@@ -16,7 +16,7 @@
  *
  * Planted-offset sanity for the verifier (each should turn the named cases red): drop `- pad.left` or
  * `- pad.top` in updateHover (hover, on $105 and $109), drop `+ pad.top` from the sprite anchor (the anchor
- * case on $109), write `(y + pad.top) * w + x` without `+ pad.left` in offMapSpritePixels (the $C4/$DD/$102
+ * case on $109), write `(y + pad.top) * w + x` without `+ pad.left` in offMapSpritePixels (the $C4/$DD
  * canvas-pixel cases), make the back area a solid color (the fade case), or request screens outside the
  * map in visibleScreens (any case would then show a screen error).
  */
@@ -72,7 +72,7 @@ const cell = (x, y, n) => ({ x, y, objectIndex: n, objectType: 'type 9', handler
  * Opens the map and returns its project's manifest path. `cells` replaces every mapScreen reply's
  * refusedCells (undefined leaves the real reply); `block` ({x, y}, map px) replaces mapBlockContents with
  * one l1High indicator there. Every mapSprites reply gets the boxes in `window.__hbExtra` appended as opaque
- * 16 px-wide sprites (index 900 up), so a test can add off-map or in-map sprites, before or after opening.
+ * sprites the size of the box (index 900 up), so a test can add off-map or in-map sprites, before or after opening.
  */
 async function openMap(page, index, { cells, block } = {}) {
   const project = await page.evaluate(
@@ -198,7 +198,7 @@ const expectPad = (got, want) => {
 
 /**
  * The off-map canvas's opaque pixels, in MAP pixels: counts by region (left of the map, over it, right of it,
- * above, below) and the x and y range of those left of the map.
+ * above, below), the x and y range of those left of the map, and the lowest opaque y (`maxY`, anywhere).
  */
 const canvasPixels = (page, index) =>
   page.evaluate(sel => {
@@ -219,11 +219,12 @@ const canvasPixels = (page, index) =>
         for (let dx = -1; dx <= 1; dx++) if (d[((y + dy) * w + x + dx) * 4 + 3] === 0) return false
       return true
     }
-    const out = { left: 0, right: 0, above: 0, below: 0, map: 0, minX: 1e9, maxX: -1e9, first: null, inner: null, padL, padT, cw: c.width, ch: c.height } // prettier-ignore
+    const out = { left: 0, right: 0, above: 0, below: 0, map: 0, minX: 1e9, maxX: -1e9, maxY: -1e9, first: null, inner: null, padL, padT, cw: c.width, ch: c.height } // prettier-ignore
     for (let y = 0; y < c.height; y++)
       for (let x = 0; x < c.width; x++) {
         if (data[(y * c.width + x) * 4 + 3] === 0) continue
         const [mx, my] = [x - padL, y - padT]
+        out.maxY = Math.max(out.maxY, my)
         if (mx >= 0 && mx < mapW && my >= 0 && my < mapH) out.map++
         else if (mx < 0) {
           out.left++
@@ -396,36 +397,62 @@ test('$DD: platform pixels land in the left pad: 8 px rounds up to one 16 px til
   expect(px.map).toBe(0)
 })
 
-test('$102: sprites 24 px below the map grow the bottom by 32 px (24 rounds up to 32) and there is no gutter below', async ({
+// Map $102's old 24 px below the map was a sprite sinking in a retry loop (#842, #1119), so the band rests on a
+// synthetic box 24 px below the map plus $1B's real 16 px (Wooden Spike $AD): docs/sprites/sprite-ad-wooden-spike.md,
+// docs/sprites/sprite-a4-floating-spike-ball.md.
+const BELOW_24 = { x0: 64, y0: 420, x1: 96, y1: 456 }
+const addBelow24 = page => page.evaluate(b => (window.__hbExtra = [b]), BELOW_24)
+
+test('$1B: the Wooden Spikes 16 px below the map grow the bottom by 16 and there is no gutter below', async ({
   page,
 }) => {
-  await openMap(page, 0x102)
-  await spritesLanded(page, 0x102)
-  await zoomAt(page, 0x102, 'zoom-actual')
-  const r = await rects(page, 0x102)
+  await openMap(page, 0x1b)
+  await spritesLanded(page, 0x1b)
+  await zoomAt(page, 0x1b, 'zoom-actual')
+  const r = await rects(page, 0x1b)
   const zoom = r.screen.w / 256
-  expectPad(pads(r, zoom), { left: 0, top: 0, right: G, bottom: 32 })
-  const px = await canvasPixels(page, 0x102)
+  expect(r.edge.h / zoom).toBeCloseTo(432, 0)
+  expectPad(pads(r, zoom), { left: 0, top: 0, right: G, bottom: 16 })
+  const px = await canvasPixels(page, 0x1b)
   expect(px.below).toBeGreaterThan(0)
   expect(px.above).toBe(0)
 })
 
-test('$102: Fit frames the map and its bottom band: the whole strip fits the view with no vertical scroll', async ({
+test('$1B: a box 24 px below the map grows the bottom by 32 (24 rounds up to 32, not the real 16) and there is no gutter below', async ({
   page,
 }) => {
-  await openMap(page, 0x102)
-  await spritesLanded(page, 0x102)
-  await click(page, 0x102, 'zoom-fit')
+  await addBelow24(page)
+  await openMap(page, 0x1b)
+  await spritesLanded(page, 0x1b)
+  await zoomAt(page, 0x1b, 'zoom-actual')
+  const r = await rects(page, 0x1b)
+  const zoom = r.screen.w / 256
+  expect(r.edge.h / zoom).toBeCloseTo(432, 0)
+  expectPad(pads(r, zoom), { left: 0, top: 0, right: G, bottom: 32 })
+  const px = await canvasPixels(page, 0x1b)
+  expect(px.below).toBeGreaterThan(0)
+  // The real spikes end at y 447; only the box paints rows 448 to 455, so this fails if the box's pixels do not.
+  expect(px.maxY).toBeGreaterThan(448)
+  expect(px.above).toBe(0)
+})
+
+test('$1B: Fit frames the map and its bottom band: the whole strip fits the view with no vertical scroll', async ({
+  page,
+}) => {
+  await addBelow24(page)
+  await openMap(page, 0x1b)
+  await spritesLanded(page, 0x1b)
+  await click(page, 0x1b, 'zoom-fit')
   await page.waitForTimeout(600)
   const m = await page.evaluate(sel => {
     const sc = document.querySelector(`${sel} [data-control="map-scroller"]`)
     const strip = document.querySelector(`${sel} .hb-map-view-strip`).getBoundingClientRect()
     return { clientH: sc.clientHeight, scrollH: sc.scrollHeight, stripH: strip.height }
-  }, root(0x102))
+  }, root(0x1b))
   expect(m.stripH).toBeLessThanOrEqual(m.clientH + 1)
   expect(m.scrollH).toBeLessThanOrEqual(m.clientH + 1)
   // And Fit used the bottom band: 432 map px + 32 px, not 432 alone.
-  const r = await rects(page, 0x102)
+  const r = await rects(page, 0x1b)
   const zoom = r.screen.w / 256
   expect(r.strip.h / zoom).toBeCloseTo(432 + 32, 0)
 })
@@ -531,34 +558,35 @@ for (const { index, screenW, vertical } of [
 }
 
 test('the grid runs across the far-end gutter and the growth band', async ({ page }) => {
-  await openMap(page, 0x102)
-  await spritesLanded(page, 0x102)
-  await zoomAt(page, 0x102, 'zoom-actual')
+  await addBelow24(page)
+  await openMap(page, 0x1b)
+  await spritesLanded(page, 0x1b)
+  await zoomAt(page, 0x1b, 'zoom-actual')
   // The grid is on by default (#920): a click here would turn it off. Make sure of it, as map-view.spec.cjs does.
-  const toggle = page.locator(`${root(0x102)} [data-control="grid-toggle"]`)
+  const toggle = page.locator(`${root(0x1b)} [data-control="grid-toggle"]`)
   if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   // The map view's own grid canvas (scoped to this view: another view's grid canvas also carries the class).
-  const grid = page.locator(`${root(0x102)} canvas.hb-grid-overlay`)
+  const grid = page.locator(`${root(0x1b)} canvas.hb-grid-overlay`)
   await expect(grid).toHaveCount(1, { timeout: 15000 })
   await page.waitForTimeout(500)
   let lines = JSON.parse(await grid.getAttribute('data-grid-lines'))
   // Scrolled to 0 the map starts at the canvas edge: the map's first screen line is at 0, with no gutter before it.
   expect(lines.x.find(l => l.pos === 0).weight).toBe(5)
   // Scrolled to the end, tile lines run on across the far-end gutter, well past the map's last screen line.
-  const screens = (await rects(page, 0x102)).screens
+  const screens = (await rects(page, 0x1b)).screens
   await page.evaluate(sel => {
     const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
     s.scrollLeft = s.scrollWidth
-  }, root(0x102))
+  }, root(0x1b))
   await page.waitForTimeout(500)
   lines = JSON.parse(await grid.getAttribute('data-grid-lines'))
   expect(Math.max(...lines.x.map(l => l.pos))).toBeGreaterThan(screens * 256 + G / 2)
-  // The bottom growth band (48 px below the map) has lines too, once scrolled to it.
+  // The bottom growth band (32 px below the map) has lines too, once scrolled to it.
   await page.evaluate(sel => {
     const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
     s.scrollTop = s.scrollHeight
-  }, root(0x102))
+  }, root(0x1b))
   await page.waitForTimeout(500)
   lines = JSON.parse(await grid.getAttribute('data-grid-lines'))
   expect(Math.max(...lines.y.map(l => l.pos))).toBeGreaterThan(432)
