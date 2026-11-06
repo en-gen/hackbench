@@ -35,6 +35,7 @@ import {
   withoutInitLatches,
 } from './InitLatches'
 import { smwMachine } from './Machine'
+import type { RevealCondition } from './RevealSearch'
 import { type ShellLoad, shellLoad } from '../ShellSprites'
 import {
   checkGetRand,
@@ -70,6 +71,8 @@ export const RAM = {
   marioXNow: 0xd1,
   marioYNow: 0xd3,
   spriteNumber: 0x9e,
+  bluePSwitch: 0x14ad,
+  onOffSwitch: 0x14af,
   spriteYLow: 0xd8,
   spriteXLow: 0xe4,
   /** SpriteTableC2,X: the line step's state (0 probing, 1 locked on a line, 2 none found). */
@@ -257,6 +260,8 @@ export interface SpriteModel {
    * the second run refused (the run alone stands in both).
    */
   neighbourRun?: 'adopted' | 'same' | 'refused'
+  /** Set by the reveal search (RevealSearch.ts): this condition made the sprite draw, or `none-found` for one that drew at rest, hides under a probe and none reveals. */
+  reveal?: RevealCondition
 }
 
 /**
@@ -311,6 +316,8 @@ export interface RunOptions {
    * kept, as the game and the graders do.
    */
   atRest?: boolean
+  /** End the run at the first pass that draws a tile: for a caller that only asks whether the sprite draws (RevealSearch.ts probes). */
+  stopAtDraw?: boolean
   /** The INIT-latch rows to apply; a test hook so a synthetic cart brings its own (default: INIT_LATCHES). */
   latches?: Readonly<Record<number, InitLatch>>
   /** The loader's slot-search fingerprint; a test hook for the same reason (default: the vanilla loader's). */
@@ -546,6 +553,8 @@ export class Machine {
       this.w16(RAM.slopes, lv.slopes)
     }
     for (const [k, v] of Object.entries(s.ram)) w[Number(k)] = v
+    if (s.pSwitch !== undefined) w[RAM.bluePSwitch] = s.pSwitch
+    if (s.onOff !== undefined) w[RAM.onOffSwitch] = s.onOff
     const n = s.slot
     w[RAM.curSprite] = n
     // A shell list id loads as the loader's rebased number in its status (ShellSprites.ts); the rest as itself in status 1.
@@ -614,6 +623,14 @@ export class Machine {
     this.seed = { ...this.seed, camera }
     this.w16(RAM.camX, camera.x)
     this.w16(RAM.camY, camera.y)
+  }
+
+  /** Moves Mario to (x, y) in both the Next and Now cells, as `load` seeds them. */
+  moveMario(x: number, y: number): void {
+    this.w16(RAM.marioXNext, x)
+    this.w16(RAM.marioXNow, x)
+    this.w16(RAM.marioYNext, y)
+    this.w16(RAM.marioYNow, y)
   }
 
   pos(): { x: number; y: number } {
@@ -963,7 +980,12 @@ function runCore(
     else if (atRest && gate && (anchor.x !== placed.x || anchor.y !== placed.y))
       model.initMoved = true
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
+    // The reveal search's Mario: INIT ran with the entrance's, so the facing it set is the at-rest one.
+    if (m.seed.marioMain) m.moveMario(m.seed.marioMain.x, m.seed.marioMain.y)
     probe?.(-1, w)
+    // A sprite can rewrite its own number ($9E); the game's loop then runs the new handler from the next frame. That
+    // dispatch is the ROM's own, so only the new pointer is checked here, as the first one was.
+    let following = w[RAM.spriteNumber + m.seed.slot]
     const lineStates: LineState[] = []
     for (let p = 0; p < m.seed.mainPasses; p++) {
       w[RAM.trueFrame] = (m.seed.trueFrame + frameNo + 1 + p) & 0xff
@@ -975,6 +997,13 @@ function runCore(
       m.frame()
       model.steps.push(m.steps - n)
       probe?.(p, w)
+      const now = w[RAM.spriteNumber + m.seed.slot]!
+      // Only a live sprite is dispatched: a dead one's number is never run, whatever it holds.
+      if (now !== following && w[RAM.status + m.seed.slot] !== 0) {
+        const next = resolvePointer(rom, tables.tables.mainTable, now)
+        if (!next.ok) throw new Refusal(`the sprite became $${now.toString(16).toUpperCase().padStart(2, '0')}: MAIN: ${next.reason}`) // prettier-ignore
+        following = now
+      }
       lineStates.push({
         lock: w[RAM.lineLock + m.seed.slot]!,
         timer: w[RAM.lineTimer + m.seed.slot]!,
@@ -1001,6 +1030,7 @@ function runCore(
         palette: m.paletteWrites(),
         ...(drew ? { drew } : {}),
       })
+      if (opts.stopAtDraw && model.passes[p]!.parts.length > 0) break
     }
     if (m.scanned) model.scansSlots = true
     if (m.bus.inputs) model.inputs = [...m.bus.inputs].sort((a, b) => a - b)

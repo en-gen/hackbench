@@ -46,7 +46,7 @@ function run(
   const passes: number[] = []
   const setting = o.setting ?? 1
   const stand = drawer(setting, seen, undefined, o.snaps ?? true)
-  const go = interpRunner(rom, 0, { isVertical: !!o.vertical, screenCount: 2 }, (_r, _i, s) => (passes.push(s.mainPasses), stand(s.slot)), () => (o.noImage ? SPRITE_SEED : image(setting, o.probe)), undefined, undefined, undefined, [], { spec }) // prettier-ignore
+  const go = interpRunner(rom, 0, { isVertical: !!o.vertical, screenCount: 2 }, (_r, _i, s) => (passes.push(s.mainPasses), stand(s.slot)), () => (o.noImage ? SPRITE_SEED : image(setting, o.probe)), undefined, undefined, undefined, [], false, { spec }) // prettier-ignore
   const r = go(sprite(id, x, y)) as { m: SpriteModel }
   return { seen, passes, m: r.m, tiles: r.m.passes[0]!.parts.length }
 }

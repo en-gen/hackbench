@@ -136,6 +136,11 @@ $61 skull, the $1E Lakitu cloud), or any other write made while `$15E9` named an
 companions as the sprite's parts; the map view draws them with it (D52). A neighbor placed from the map's list (#841)
 is not a companion.
 
+**Screen door.** The checkerboard the map view draws a sprite or tile in when it is there but not as the game shows it: on
+alternating squares of its own grid it is solid, on the others dim (D52, `hiddenPixelStrength`). A sprite a tile covers is
+drawn through that tile in it; a sprite that draws nothing at rest and is found by the reveal search (D142) is drawn in it
+whole, every pixel, with a hover that says what shows it ([reveal-search.md](rom/reveal-search.md)). Hovering lifts it to solid (#879).
+
 ## The connection words
 
 **Sub-screen.** One half of a screen. A horizontal map's screen (16 x 27

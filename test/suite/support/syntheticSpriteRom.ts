@@ -28,6 +28,7 @@ import { putDrawPosProbes } from './syntheticDrawProbes'
 import { EERIE_HANDLER, putEeries } from './syntheticEeries'
 import { putLoaderStandIns } from './syntheticLoaderStandIns'
 import { putGrinderRoutines } from './syntheticGrinder'
+import { putRevealSprites } from './syntheticRevealSprites'
 
 export interface SyntheticOptions {
   /** Ids 31 and 103 get id 0's INIT (adds `initShift` to X), so the line-guided id moves before its first frame. */
@@ -315,6 +316,9 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[86] = 0x8640
   if (o.id31IsGrinder) mainTable[31] = 0x9500
   for (const id of [20, 21, 22, 23, 24, 25]) mainTable[id] = 0x8640
+  const reveal = putRevealSprites(put)
+  for (const [id, w] of Object.entries(reveal.main)) mainTable[Number(id)] = w
+  for (const [id, w] of Object.entries(reveal.init)) initTable[Number(id)] = w
   const words = (t: number[]) => t.flatMap(w => [w & 0xff, w >> 8])
   put(0x018170 + SYNTHETIC_INIT_TABLE_OFFSET, words(initTable))
   put(0x018320 + 9, words(mainTable))

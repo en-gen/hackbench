@@ -21,7 +21,23 @@ import {
 import { tmpdir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { runSprite, type SpriteModel } from '../../src/rom/sprites/interp/SpriteRunner'
-import { loadLevelState, NO_CLUSTER_SPRITES } from '../../src/rom/sprites/interp/LevelLoader'
+import { getSpriteMetadata } from '../../src/rom/model/sprites/SpriteMetadata'
+import { drew } from '../../src/rom/sprites/interp/RevealSearch'
+import { RomFile } from '../../src/rom/RomFile'
+import { SmwRom } from '../../src/rom/SmwRom'
+import { parseLevelSprites, type LevelSprite } from '../../src/rom/LevelParser'
+import { L1ModelCache } from '../../theia/extension/src/node/map-screen'
+import {
+  interpRunner,
+  modelResult,
+  readStream,
+  type SpriteRun,
+} from '../../theia/extension/src/node/map-sprites'
+import {
+  levelSeed,
+  loadLevelState,
+  NO_CLUSTER_SPRITES,
+} from '../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../src/rom/sprites/interp/SpriteSeed'
 import {
   CAPTURE_DIR,
@@ -46,6 +62,8 @@ import {
   hardwareSource,
   type Sample,
   type ReportRow,
+  type RevealRow,
+  revealReport,
   type Rgba,
 } from './spriteReport'
 
@@ -66,6 +84,8 @@ export interface Io {
   exists: (p: string) => boolean
   sha: () => { sha: string; dirty: boolean }
   grade: (f: Filter) => Graded[]
+  /** The reveal audit of one map (`--reveal`); needs only the ROM. */
+  reveal: (map: number) => RevealRow[]
   env: Record<string, string | undefined>
   log: (s: string) => void
 }
@@ -75,14 +95,15 @@ export interface Args {
   commit: boolean
   force: boolean
   sheet: boolean
+  reveal: boolean
   filter: Filter
 }
 
 const USAGE =
-  'usage: sprite-report [--validation <dir>] [--force] | --out <dir> --no-commit | --sheet (--map <hex> | --sprite <hex>) --out <dir>'
+  'usage: sprite-report [--validation <dir>] [--force] | --out <dir> --no-commit | --sheet (--map <hex> | --sprite <hex>) --out <dir> | --reveal --map <hex> [--out <file>]'
 
 export function parseArgs(argv: string[]): Args | string {
-  const a: Args = { commit: true, force: false, sheet: false, filter: {} }
+  const a: Args = { commit: true, force: false, sheet: false, reveal: false, filter: {} }
   for (let i = 0; i < argv.length; i++) {
     const v = argv[i]
     const next = (): string => argv[++i] ?? ''
@@ -90,6 +111,7 @@ export function parseArgs(argv: string[]): Args | string {
     else if (v === '--out') a.out = next()
     else if (v === '--no-commit') a.commit = false
     else if (v === '--sheet') a.sheet = true
+    else if (v === '--reveal') a.reveal = true
     else if (v === '--force') a.force = true
     else if (v === '--map' || v === '--sprite') {
       const s = next()
@@ -98,6 +120,12 @@ export function parseArgs(argv: string[]): Args | string {
 ${USAGE}`
       a.filter[v === '--map' ? 'map' : 'sprite'] = parseInt(s, 16)
     } else return `unknown argument ${v}\n${USAGE}`
+  }
+  if (a.reveal) {
+    return a.filter.map === undefined || a.filter.sprite !== undefined || a.sheet
+      ? `--reveal needs --map <hex> and nothing else but --out
+${USAGE}`
+      : a
   }
   if (a.sheet && (a.filter.map === undefined) === (a.filter.sprite === undefined))
     return `--sheet needs exactly one of --map, --sprite\n${USAGE}`
@@ -303,6 +331,12 @@ export function run(argv: string[], io: Io): number {
   const ok = (msg: string): number => fail(0, msg)
   const a = parseArgs(argv)
   if (typeof a === 'string') return fail(2, a)
+  if (a.reveal) {
+    if (!io.exists(io.rom)) return fail(1, `missing: the vanilla ROM (${io.rom}). Nothing written.`)
+    const text = revealReport(io.reveal(a.filter.map!))
+    if (a.out) writeFileSync(resolve(a.out), text)
+    return ok(a.out ? `${resolve(a.out)}: written` : text)
+  }
   const missing = [
     ...(io.exists(io.rom) ? [] : [`the vanilla ROM (${io.rom})`]),
     ...(io.exists(io.captures) ? [] : [`the layers_v5 captures (${io.captures})`]),
@@ -580,6 +614,59 @@ export function gradeCaptures(f: Filter): Graded[] {
   return out
 }
 
+/**
+ * The reveal audit of one map (#1132): every placed sprite run twice through the map view's own runner, once as
+ * develop drew it (no search) and once as served (with the search), so a sprite that drew at rest and is now hidden
+ * shows. Read from the ROM file as given: this is a tool, not a server.
+ */
+export function revealRows(bytes: Uint8Array, romFile: string, map: number): RevealRow[] {
+  const built = new L1ModelCache().get(bytes, romFile, map, { yellow: false, green: false, red: false, blue: false }) // prettier-ignore
+  if (!built.ok) throw new Error(`map ${map.toString(16)}: ${built.detail ?? built.reason}`)
+  const model = built.inputs
+  const rom = new SmwRom(RomFile.fromBytes(romFile, Buffer.from(bytes)))
+  const ptr = rom.getLevelSpritePointer(map)
+  const data = ptr === null ? null : readStream(rom.rom, ptr)
+  if (!data) throw new Error(`map ${map.toString(16)}: no sprite data`)
+  const base = levelSeed(rom.rom, map)
+  const stream = parseLevelSprites(data, model.isVertical)
+  const runner = (reveal: boolean) =>
+    interpRunner(rom.rom, map, model, undefined, () => base, undefined, undefined, undefined, stream, reveal) // prettier-ignore
+  return revealRowsOf(map.toString(16), stream, runner(false), runner(true))
+}
+
+/** The rows of one map's sprite list from its two runners: `plain` without the reveal search, `served` with it. */
+export function revealRowsOf(
+  map: string,
+  stream: readonly LevelSprite[],
+  plain: (s: LevelSprite) => SpriteRun,
+  served: (s: LevelSprite) => SpriteRun,
+): RevealRow[] {
+  return stream.map((s): RevealRow => {
+    const [a, b] = [plain(s), served(s)]
+    const name = getSpriteMetadata(s.spriteId)?.displayName
+    const row = {
+      map,
+      index: s.index,
+      id: s.spriteId,
+      column: s.x,
+      row: s.y,
+      ...(name ? { name } : {}),
+    }
+    if ('direct' in a || 'direct' in b) return { ...row, rest: 'special', hidden: false }
+    const rest = a.m.refusal ? 'refused' : drew(a.m) ? 'drew' : 'blank'
+    const r = modelResult(b.m)
+    return {
+      ...row,
+      rest,
+      // A blank sprite whose search rerun was refused is hidden too: the search began because it drew nothing.
+      hidden:
+        !!b.m.reveal || b.m.emptyReason === 'unrevealed' || (rest === 'blank' && !!b.m.refusal),
+      ...(b.m.reveal ? { condition: b.m.reveal } : {}),
+      ...(!r.ok ? { marker: b.m.emptyReason === 'unrevealed' ? 'unrevealed' : r.reason } : {}),
+    }
+  })
+}
+
 export function realIo(repoRoot: string, log: (s: string) => void = console.log): Io {
   const git1 = (...a: string[]): string => git(repoRoot, ...a).trim()
   return {
@@ -590,6 +677,7 @@ export function realIo(repoRoot: string, log: (s: string) => void = console.log)
       p === CAPTURE_DIR ? hasCaptures() : p === romPath(VANILLA) ? hasRom(VANILLA) : existsSync(p),
     sha: () => ({ sha: git1('rev-parse', 'HEAD'), dirty: git1('status', '--porcelain') !== '' }),
     grade: gradeCaptures,
+    reveal: map => revealRows(readFileSync(romPath(VANILLA)), romPath(VANILLA), map),
     env: process.env,
     log,
   }
