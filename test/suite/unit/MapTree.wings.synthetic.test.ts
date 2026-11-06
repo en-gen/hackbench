@@ -8,7 +8,7 @@ import { SmwRom } from '../../../src/rom/SmwRom'
 import { applyGroups, admitGroups, staleSlots, topLevelSlots } from '../../../src/project/MapGroups'
 import { WINGS_PATH } from '../../../src/rom/YoshiWings'
 import { SYNTHETIC_FINGERPRINTS } from '../support/syntheticRom'
-import { seamsFor, wingsRom, wingsTree, yoshiUnder } from '../support/wingsTree'
+import { seamsFor, wingsRom, wingsTree, yoshiNested, yoshiUnder } from '../support/wingsTree'
 
 const EXITS = { 0x001: [0x040], 0x040: [], 0x002: [], 0x101: [0x140], 0x140: [], 0x102: [] }
 const rom = () => wingsRom(EXITS)
@@ -31,14 +31,55 @@ describe('the wings link in buildMapTree', () => {
   it('links from a sub area too, and the submap half comes from the root', () => {
     const r = rom()
     const t = wingsTree(r, seamsFor(r, { 0x140: [1] }))
-    expect(yoshiUnder(t)).toEqual({ 0x101: [0x1c8] })
+    // #1295: the row nests under the map that holds the block, not the root that reaches it.
+    expect(yoshiUnder(t)).toEqual({})
+    expect(yoshiNested(t)).toEqual({ 0x101: { 0x140: [0x1c8] } })
+    const root = t.overworld.find(n => n.index === 0x101)!
+    expect(root.children.map(c => c.index)).toEqual([0x140])
+    expect(t.wingsPlaced).toEqual([0x1c8])
     expect(bonusSlots(t)).toEqual([0x000, 0x0c8, 0x100])
+  })
+
+  it('lists it directly under an entry map that holds the block (acceptance 2)', () => {
+    const r = rom()
+    const t = wingsTree(r, seamsFor(r, { 0x101: [1] }))
+    expect(yoshiUnder(t)).toEqual({ 0x101: [0x1c8] })
+    expect(yoshiNested(t)).toEqual({})
+  })
+
+  describe('two sub areas of one root (acceptance 3)', () => {
+    const two = { 0x001: [0x040, 0x041], 0x040: [], 0x041: [] }
+    it('lists it under each holder and nowhere else', () => {
+      const r = wingsRom(two)
+      const t = wingsTree(r, seamsFor(r, { 0x040: [1], 0x041: [5] }))
+      expect(yoshiNested(t)).toEqual({ 0x001: { 0x040: [0x0c8], 0x041: [0x0c8] } })
+      expect(yoshiUnder(t)).toEqual({})
+    })
+    it('lists it directly and under a sub area when both the root and the sub area hold a block', () => {
+      const r = wingsRom(two)
+      const t = wingsTree(r, seamsFor(r, { 0x001: [1], 0x041: [1] }))
+      expect(yoshiUnder(t)).toEqual({ 0x001: [0x0c8] })
+      expect(yoshiNested(t)).toEqual({ 0x001: { 0x041: [0x0c8] } })
+    })
+    it('keeps an exit-reached destination flat, unmarked, and nests it under the holder', () => {
+      const r = wingsRom({ 0x001: [0x040, 0x0c8], 0x040: [], 0x0c8: [] })
+      const t = wingsTree(r, seamsFor(r, { 0x040: [1] }))
+      const kids = t.overworld.find(n => n.index === 0x001)!.children
+      expect(kids.map(c => [c.index, c.reachedBy])).toEqual([[0x040, undefined], [0x0c8, undefined]]) // prettier-ignore
+      expect(yoshiNested(t)).toEqual({ 0x001: { 0x040: [0x0c8] } })
+    })
+    it('never nests the destination under itself', () => {
+      const r = wingsRom({ 0x001: [0x0c8], 0x0c8: [] })
+      const t = wingsTree(r, seamsFor(r, { 0x0c8: [1] }))
+      expect(yoshiNested(t)).toEqual({})
+    })
   })
 
   it('serves two blocks in different submap halves, each its own destination', () => {
     const r = rom()
     const t = wingsTree(r, seamsFor(r, { 0x040: [9], 0x102: [13] }))
-    expect(yoshiUnder(t)).toEqual({ 0x001: [0x0c8], 0x102: [0x1c8] })
+    expect(yoshiUnder(t)).toEqual({ 0x102: [0x1c8] })
+    expect(yoshiNested(t)).toEqual({ 0x001: { 0x040: [0x0c8] } })
     expect(bonusSlots(t)).toEqual([0x000, 0x100])
   })
 
@@ -141,7 +182,7 @@ describe('the wings link in buildMapTree', () => {
   it('links a plain holder under the same root as a secondary one, without the stays tail', () => {
     const r = wingsRom({ 0x001: [0x040, 0x041], 0x040: [0x042], 0x041: [], 0x042: [] }, [0x040])
     const t = wingsTree(r, seamsFor(r, { 0x040: [1], 0x041: [1] }))
-    expect(yoshiUnder(t)).toEqual({ 0x001: [0x0c8] })
+    expect(yoshiNested(t)).toEqual({ 0x001: { 0x041: [0x0c8] } })
     expect(noteOf(t)).toBe(
       `Yoshi wings: $040 holds the wings block but has ${SECONDARY}, so it is not linked.`,
     )
@@ -217,6 +258,25 @@ describe('the wings link in buildMapTree', () => {
     const t = buildMapTree(new SmwRom(rom()), SYNTHETIC_FINGERPRINTS)
     expect(t.notes.join(' ')).toMatch(/Yoshi wings: .*not stock/)
     expect(t.wingsPlaced).toEqual([])
+  })
+})
+
+describe('groups keep the nested Yoshi Heaven row (#1295)', () => {
+  const groups = [{ name: 'G', slots: [0x101] }]
+  const r = wingsRom({ 0x101: [0x140], 0x140: [] })
+  const t = wingsTree(r, seamsFor(r, { 0x140: [1] }))
+
+  it('carries the sub area, and the row under it, into the group whole', () => {
+    const g = applyGroups(t, groups).groups[0]!.maps[0]!
+    expect(g.children.map(c => [c.index, c.children.map(k => k.index)])).toEqual([[0x140, [0x1c8]]])
+    expect(staleSlots(t, [...groups, { name: 'H', slots: [0x1c8] }])).toEqual([])
+  })
+
+  it('lists every map once per place it belongs, and the row is not a top-level entry', () => {
+    const { unassigned } = applyGroups(t, groups)
+    expect(unassigned.map(n => n.index)).not.toContain(0x101)
+    expect(unassigned.map(n => n.index)).not.toContain(0x1c8)
+    expect(topLevelSlots(t).has(0x1c8)).toBe(false)
   })
 })
 

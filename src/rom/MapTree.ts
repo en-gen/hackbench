@@ -8,7 +8,9 @@
  *   overworld
  *   |- $105  entry map for a level
  *   |   |- $0C5  sub area
- *   |   |- $0C8  sub area, Yoshi Heaven, when this map or a sub area holds the wings block
+ *   |   |- $0C8  sub area, Yoshi Heaven, when this map holds the wings block
+ *   |   |- $0C9  sub area that holds the wings block
+ *   |   |   \- $1C8  Yoshi Heaven again, nested here (#1295): the only row that nests
  *   |   \- $0C6  sub area
  *   \- $106
  *       \- $1C9
@@ -57,13 +59,15 @@ export interface MapNode {
   name: string | null
   /**
    * Always 'map' in this tree: a root's sub areas are a flat list, so nothing
-   * nests, loops or truncates. 'loop' and 'truncated' are kept in the type
-   * for the wire protocol.
+   * loops or truncates, and the one thing that nests is the wings link's Yoshi
+   * Heaven row under the sub area that holds the block (#1295), one level and
+   * no deeper. 'loop' and 'truncated' are kept in the type for the wire protocol.
    */
   kind: 'map' | 'loop' | 'truncated'
   /**
-   * Set on a sub area the wings block links to this root (#1229), on that root's row only: it keeps Yoshi Heaven's
-   * icon and tooltip, which a bonus row carries as its `role`.
+   * Set on the Yoshi Heaven row the wings link places (#1229), under the map that holds the block (#1295): a
+   * direct row of an entry map, or the child of a sub area. It keeps Yoshi Heaven's icon and tooltip, which a
+   * bonus row carries as its `role`.
    */
   reachedBy?: 'yoshi-heaven'
   /**
@@ -127,7 +131,7 @@ export interface MapTree {
   bonus: SpecialMapNode<BonusRole>[]
   /** Maps the overworld can start, each with its sub-areas beneath it. */
   overworld: MapNode[]
-  /** Slots the wings link placed under a root, so a groups.json that still names them is not stale. */
+  /** Slots the wings link placed, direct or nested under a sub area, so a groups.json that still names them is not stale. */
   wingsPlaced?: number[]
   /**
    * Maps no overworld root reaches, then the New slots, in slot order. Flat:
@@ -229,7 +233,9 @@ export function buildMapTree(
   // so the half is the root's propagated flag, never the wings map's own slot half. Yoshi Heaven's
   // own exits are not followed (the walk never reaches it): maps only it reaches stay Unassigned.
   const yoshiLow = bonusRead.maps.find(m => m.role === 'yoshi-heaven')?.index
-  const wingsDest = new Map<number, number>()
+  // Per root: where Yoshi Heaven lands and which maps under it hold the block, so the row can nest
+  // under the holder (#1295). The destination stays per root because the half is the root's flag.
+  const wingsDest = new Map<number, { dest: number; holders: number[] }>()
   const yoshiStays = 'Yoshi Heaven stays listed as a bonus map.'
   if (flags && yoshiLow !== undefined) {
     try {
@@ -247,10 +253,10 @@ export function buildMapTree(
           holders.filter(i => secondaryExit?.has(i)).forEach(i => secondary.add(i))
           holders.filter(i => graphCut?.includes(i)).forEach(i => unread.add(i))
           const ok = holders.filter(i => !secondaryExit?.has(i) && !graphCut?.includes(i))
-          if (ok.length && !stops(dest)) wingsDest.set(root, dest)
+          if (ok.length && !stops(dest)) wingsDest.set(root, { dest, holders: ok })
           else if (holders.length) refusedDests.add(dest)
         }
-        const placedNow = new Set(wingsDest.values())
+        const placedNow = new Set([...wingsDest.values()].map(w => w.dest))
         const stays = [...refusedDests].some(d => !placedNow.has(d)) ? ` ${yoshiStays}` : '' // prettier-ignore
         const ids = (set: Set<number>): string => [...set].map(i => '$' + i.toString(16).toUpperCase().padStart(3, '0')).join(', ') // prettier-ignore
         const say = (set: Set<number>, why: string): void => {
@@ -268,15 +274,23 @@ export function buildMapTree(
       notes.push(`Yoshi wings: could not be read (${err instanceof Error ? err.message : String(err)}). ${yoshiStays}`) // prettier-ignore
     }
   }
-  const wingsPlaced = new Set(wingsDest.values())
+  const wingsPlaced = new Set([...wingsDest.values()].map(w => w.dest))
   const overworld = roots.map(root => {
     const subs = subsOf.get(root)!
-    const dest = wingsDest.get(root)
-    const kids = dest === undefined || subs.includes(dest) ? subs : [...subs, dest].sort((a, b) => a - b) // prettier-ignore
+    const wings = wingsDest.get(root)
+    const dest = wings?.dest
+    // The link nests under the map that holds the block, not the root that reaches it (#1295): a holder
+    // that is the root lists it directly; a sub area holder lists it as its own child. Only this link
+    // nests; the exit-graph sub areas stay a flat list (#434). The row is built per place, so a
+    // destination the exit graph already listed flat keeps that row and gains the nested one.
+    const rootHolds = wings?.holders.includes(root) ?? false
+    const direct = dest !== undefined && rootHolds && !subs.includes(dest)
+    const kids = direct ? [...subs, dest].sort((a, b) => a - b) : subs
+    const yoshi = (i: number): MapNode => ({ ...adopt(i), reachedBy: 'yoshi-heaven' })
     const children = kids.map(i => {
-      const node = adopt(i)
-      if (i === dest) node.reachedBy = 'yoshi-heaven'
-      return node
+      if (i === dest && rootHolds) return yoshi(i)
+      const nested = i !== dest && wings?.holders.includes(i) ? [yoshi(dest!)] : []
+      return adopt(i, nested)
     })
     return adopt(root, children)
   })

@@ -16,7 +16,7 @@ import {
   type MapGroup,
 } from '../../../src/project/MapGroups'
 import { MAGIC, VANILLA, freshRom, hasRom } from '../support/corpus'
-import { yoshiUnder } from '../support/wingsTree'
+import { yoshiNested, yoshiUnder } from '../support/wingsTree'
 
 const YOSHI = [0x0c8, 0x1c8]
 
@@ -42,8 +42,10 @@ for (const name of [VANILLA, MAGIC]) {
       expect(holders).toEqual([0x00f, 0x12c, 0x1e3])
     })
 
-    it('files Yoshi Heaven under $00F ($0C8) and under $115 and $12C ($1C8), not in bonus or Unassigned', () => {
-      expect(yoshiUnder(tree)).toEqual({ 0x00f: [0x0c8], 0x115: [0x1c8], 0x12c: [0x1c8] })
+    it('files Yoshi Heaven under $00F ($0C8), $12C ($1C8) and $1E3, a sub area of $115 ($1C8), not in bonus or Unassigned', () => {
+      // #1295: $115 reaches the block through $1E3, so the row nests there and is no direct row of $115.
+      expect(yoshiUnder(tree)).toEqual({ 0x00f: [0x0c8], 0x12c: [0x1c8] })
+      expect(yoshiNested(tree)).toEqual({ 0x115: { 0x1e3: [0x1c8] } })
       expect(tree.bonus.map(b => b.index)).toEqual([0x000, 0x100])
       expect(tree.unassigned.map(n => n.index)).not.toContain(0x0c8)
       expect(tree.unassigned.map(n => n.index)).not.toContain(0x1c8)
