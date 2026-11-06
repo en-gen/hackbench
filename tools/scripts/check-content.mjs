@@ -454,10 +454,12 @@ const romWindowApplies = (e, buf, judge) =>
   judge && e.added && !/\.md$/i.test(e.path) && isScannableText(e.path, buf)
 
 /** ROM-window rule (#1053): a run of byte notation in a text file that matches an 8-byte window of the
- * vanilla ROM. `lookup` is any object with `has(windowKey)` (see hitRuns). Comments are public, so the
- * text is read both whole (mode 'none': bytes inside a comment) and with comments blanked (a `// step N`
- * on every line would otherwise end the run); a run seen both ways is reported once. Reports line and
- * window count, never bytes. Masked arrays are not seen. */
+ * vanilla ROM. `lookup` is any object with `has(windowKey)` (see hitRuns). The text is read whole (mode
+ * 'none': bytes inside a comment count) and, for JS/TS and asm only, with comments blanked (a `// step N`
+ * on every line would otherwise end the run; comment markers are not separators in the whole view).
+ * Rows from both views are returned, so one run can give two rows, and the CLI prints one line per file
+ * and rule: fixing one run can reveal the next. Reports line and window count, never bytes. Masked
+ * arrays are not seen. */
 export function checkRomWindows(path, buf, lookup) {
   if (!lookup || !isScannableText(path, buf)) return []
   const text = buf.toString('utf8')
@@ -488,17 +490,18 @@ export function romWindowLookup(env = process.env, say = () => {}) {
     say(`${NOT_RUN}the file at the vanilla ROM path ${why}\n`)
     return null
   }
-  const st = statSync(file)
-  if (!st.isFile()) return bad('is not a regular file')
-  // Judged from stat first: readFileSync refuses a file over 2 GiB with a stack trace.
-  if (st.size !== ROM_BYTES && st.size !== ROM_BYTES + 512)
-    return bad(`is ${st.size} bytes, not ${ROM_BYTES}`)
+  const wrongSize = n => n !== ROM_BYTES && n !== ROM_BYTES + 512
   let raw
   try {
+    const st = statSync(file)
+    if (!st.isFile()) return bad('is not a regular file')
+    // Judged from stat first: readFileSync refuses a file over 2 GiB with a stack trace.
+    if (wrongSize(st.size)) return bad(`is ${st.size} bytes, not ${ROM_BYTES}`)
     raw = readFileSync(file)
   } catch (e) {
     return bad(`cannot be read (${e.code ?? e.message})`)
   }
+  if (wrongSize(raw.length)) return bad(`is ${raw.length} bytes when read, not ${ROM_BYTES}`)
   const rom = raw.length % 1024 === 512 ? raw.subarray(512) : raw
   const sum = rom.reduce((n, b) => (n + b) & 0xffff, 0)
   if (rom.readUInt16LE(0x7fde) !== sum || (rom.readUInt16LE(0x7fdc) ^ sum) !== 0xffff)
@@ -987,9 +990,11 @@ function remoteShas(remote) {
   return { shas, moved }
 }
 
-/** Tracking refs of branches that moved on the remote past what this clone has: the last thing it
- * knew of them, so the commits since are the remote's. A tracking ref of a branch the remote no
- * longer advertises, or advertises at a tip we have, is not trusted: it may hold what was removed. */
+/** Tracking refs of branches the remote advertises at a tip this clone lacks. An unknown tip is not
+ * proof the branch moved forward: a force-push looks the same, so the old tracking ref is trusted and
+ * a run on it passes (not fixable without a fetch; dropping the exclusion would block a moved remote).
+ * The exclusion covers every rule in push. A tracking ref of a branch the remote no longer
+ * advertises, or advertises at a tip we have, is not trusted: it may hold what was removed. */
 function movedTrackingRefs(remote, moved) {
   if (!moved.length) return []
   const have = spawnGit(['for-each-ref', '--format=%(refname)', `refs/remotes/${remote}/`])

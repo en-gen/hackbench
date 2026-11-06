@@ -59,9 +59,11 @@ elements mixed in counts toward `byte-tokens` too.
 notation (`0x` and `$` tokens, bare hex pairs, `\x` escapes, unbroken hex strings;
 the parser of the ROM-window probe below) that contains an 8-byte window of the
 vanilla ROM. It prints `BLOCKED (rom-window): <path> line N, M windows`, never the
-bytes, and exits 1 like every other rule. Comments are scanned too (they are
-public): the text is read whole and with comments blanked, so a comment on every
-line does not split a run. The probe still blanks them only.
+bytes, and exits 1 like every other rule. Both views run on every file: the text
+whole (bytes inside a comment count, and comment markers are not separators) and,
+for JS/TS and asm only, with comments blanked (so a `// step N` on every line does
+not split a run). Rows from both views are kept and the CLI prints one line per
+file and rule, so fixing one run can reveal the next. The probe blanks comments only.
 
 - **Filters.** Windows with fewer than 3 distinct values, a constant step (a ramp)
   or a repeat of period 2 to 4 are ignored, because the vanilla ROM is full of them (measured below).
@@ -85,14 +87,19 @@ line does not split a run. The probe still blanks them only.
   committed and later removed or rewritten is caught in `range` and `push`. A rename
   counts as added (`--no-renames`). `push` walks what is not on the remote, the tips
   `ls-remote` names that this clone has, plus the tracking ref of a branch the remote
-  advertises at a tip this clone lacks (it moved on). A tracking ref of a branch the
+  advertises at a tip this clone lacks (the remote moved on, or was rewritten: an
+  unknown tip cannot tell them apart, and the exclusion covers every rule in push). A tracking ref of a branch the
   remote no longer advertises is not trusted, and an empty remote judges everything.
-  Known false blocks, loud (`--no-verify` is the way past): a push by URL, a lagging
-  second remote, an absent tracking ref. `staged` uses the cached status and does
+  Known false blocks, loud (`--no-verify` is the way past), when the remote moved on
+  past this clone: a push by URL, a lagging second remote, an absent tracking ref. `staged` uses the cached status and does
   not apply the merge rule.
 - **Known gaps.** A file added clean and filled in a later commit, and any edit to
   an existing file, is never judged (a stub-then-fill route; a run added by a merge
-  resolution to a file a parent has, or by a type change, are variants).
+  resolution to a file a parent has, or by a type change, are variants). A force-push
+  of a branch to a tip this clone lacks leaves its old tracking ref trusted, so a run
+  on that old ref passes until a fetch (pinned by a test). Not seen: a commented-out
+  table under 8 bytes a line, and a comment on every line in files other than JS/TS
+  and asm (`.lua`, `.py`, `.yml`, `.c`, `.html`, `.css`, `.vue`, `.jsonc`).
   `package-lock.json` and `yarn.lock` are exempt at any path. `.md` is excluded
   because prose lists addresses, so a run there passes: 8 of 308 tracked `.md` files
   hold one (43 windows, 2026-11-05). A masked array (`null`, `undefined` or `??`
@@ -101,8 +108,8 @@ line does not split a run. The probe still blanks them only.
   as `10, 32` is not read as hex. The only override is `git push --no-verify` with a
   stated reason; CI has no bypass.
 - **Evidence** (2026-11-05, one machine, vanilla US, 16 remote heads). On develop
-  75 of 1,297 non-`.md` text files hold a run (1,092 windows, comments scanned; 71
-  files and 1,166 windows with comments blanked). By longest run, 32 of the 75 hold
+  75 of 1,297 non-`.md` text files hold a run in the whole view (1,092 windows), 71
+  (1,166 windows) with comments blanked, 78 in either (develop 70bf5b3f). By longest run, 32 of the 75 hold
   at most 2 windows, 45 at most 4, 57 at most 8, 18 more than 8, 7 more than 16 (the
   longest is 36). Only 1 of the 1,092 windows is a single-bit mask table: ordinary
   tables of that kind are the known legitimate sort. Nothing can prove a short

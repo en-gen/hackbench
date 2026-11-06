@@ -392,7 +392,7 @@ y
         const r2 = probe(['--rom', romFile, '--repo', repo, '--git-range', spec])
         expect(r2.stdout.split('\n').filter(l => l.startsWith('HIT')).length).toBe(6)
       }
-    }, 20000) // two probe runs over 8 touched files, 2 git spawns per file: 1.3 to 5.5 s here
+    }, 20000) // two probe runs over 8 touched files, 2 git spawns per file: 1.3 to 5.5 s alone, one Windows machine, 2026-11-05
     it('a...b diffs from the merge base, not from a', () => {
       git('checkout', '-q', '-b', 'side', 'HEAD~1')
       write(

@@ -387,6 +387,34 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
         gc('push', '-q', 'origin', ':feature')
         expect(push(r).status).toBe(1)
       })
+      // Known gap, pinned: a force-push to a tip this clone lacks looks like a remote that moved on, so
+      // the old tracking ref is trusted and the run on it passes. Only a fetch (or deleting the ref) helps.
+      it('a rewrite to an unknown tip leaves the old tracking ref trusted (a slash in the name too)', () => {
+        const r = withRemote()
+        r.g('checkout', '-q', '-b', 'foo/bar')
+        commitFile(r, 'planted.ts', run)
+        r.g('push', '-q', 'origin', 'foo/bar')
+        const old = r.g('rev-parse', 'foo/bar')
+        const other = join(tmp, `rewrite-${Math.random()}`)
+        spawnSync('git', [
+          'clone',
+          '-q',
+          '-b',
+          'develop',
+          r.g('remote', 'get-url', 'origin'),
+          other,
+        ])
+        const gc = (...a: string[]) => spawnSync('git', [...ident, ...a], { cwd: other })
+        writeFileSync(join(other, 'rewritten.txt'), 'x\n')
+        gc('add', '-A')
+        gc('commit', '-q', '-m', 'rewrite without the run')
+        gc('push', '-q', '-f', 'origin', 'HEAD:refs/heads/foo/bar')
+        const asNewRef = () =>
+          cli(r.dir, roms, ['push', 'origin'], `refs/heads/copy ${old} x ${'0'.repeat(40)}\n`)
+        expect(asNewRef().status).toBe(0)
+        r.g('update-ref', '-d', 'refs/remotes/origin/foo/bar')
+        expect(asNewRef().status).toBe(1)
+      })
     })
 
     it('an empty remote, or one whose tips are all unknown here, still judges every added file', () => {
@@ -434,10 +462,11 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
     // Each LoROM check alone: the stored checksum is the real sum but the complement is off, and the reverse.
     ['a wrong complement only', () => romsDir('bcmp', vanillaFile([win], BIG, false, f => [(~f ^ 0x100) & 0xffff, f]))], // prettier-ignore
     ['a wrong checksum only', () => romsDir('bchk', vanillaFile([win], BIG, false, f => [~f & 0xffff, f ^ 0x100]))], // prettier-ignore
+    // Over 1 MiB with a valid checksum: the size alone refuses it.
+    ['1 MiB with a valid checksum', () => romsDir('bmib', vanillaFile([win], 2 * BIG))],
     // Over 2 GiB: readFileSync refuses it with ERR_FS_FILE_TOO_LARGE, so the size is judged from stat.
-    ['over 2 GiB', () => { const d = romsDir('bhuge', new Uint8Array(0)); truncateSync(join(d, VANILLA), 3 * 1024 ** 3); return d }], // prettier-ignore
-    // Unreadable (EPERM): read access denied to this user; skipped if the denial does not take.
-    ['unreadable', () => { const d = romsDir('bperm', vanillaFile([win])); const f = join(d, VANILLA); denyRead(f); try { readFileSync(f) } catch { return d } return romsDir('bnone') }], // prettier-ignore
+    // On Windows the file is marked sparse first, or NTFS really allocates the 3 GiB.
+    ['over 2 GiB', () => { const d = romsDir('bhuge', new Uint8Array(0)); const f = join(d, VANILLA); if (process.platform === 'win32') spawnSync('fsutil', ['sparse', 'setflag', f]); truncateSync(f, 3 * 1024 ** 3); return d }], // prettier-ignore
   ]
   it.each(BAD)(
     'a vanilla-path file that is not a usable ROM (%s): did not run, no crash',
@@ -451,7 +480,26 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
     },
   )
 
-  it('a valid ROM with a copier header is used; the ROM is not read when no file qualifies; a gitlink is skipped', () => {
+  it('a ROM nobody can read gives the did-not-run line (skipped where the denial does not take)', ctx => {
+    const d = romsDir('bperm', vanillaFile([win]))
+    denyRead(join(d, VANILLA))
+    try {
+      readFileSync(join(d, VANILLA))
+      return ctx.skip() // still readable (root, or no ACL support)
+    } catch {
+      // unreadable, as intended
+    }
+    const r = repo()
+    commitFile(r, 'planted.ts', run)
+    const p = range(r.dir, d)
+    expect(p.status).toBe(0)
+    expect(p.stderr.toString()).toMatch(
+      /DID NOT RUN: the file at the vanilla ROM path cannot be read/,
+    )
+    expect(p.stderr.toString()).not.toMatch(/\bat .*\.mjs|Error:/)
+  })
+
+  it('a valid ROM with a copier header is used; the ROM is not read when no file qualifies', () => {
     const r = repo()
     commitFile(r, 'planted.ts', run)
     expect(range(r.dir, romsDir('hdr', vanillaFile([win], BIG, true))).status).toBe(1)
