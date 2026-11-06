@@ -136,6 +136,19 @@ describe(
         for (const n of NAMES) expect(checkRomWindows('f.ts', text(n, w), set2), n).toEqual([])
     })
 
+    it('a comment on every line does not break a run, in either comment style', () => {
+      const run = rom.subarray(300, 396) // 96 bytes, 3 per line
+      const line = (i: number, c: string) =>
+        `  ${Array.from(run.subarray(i * 3, i * 3 + 3), x => `0x${h2(x)}`).join(', ')}, ${c}`
+      for (const style of [(i: number) => `// step ${i}`, (i: number) => `/* step ${i} */`]) {
+        const body = Array.from({ length: 32 }, (_, i) => line(i, style(i))).join('\n')
+        expect(
+          checkRomWindows('f.ts', Buffer.from(`const a = [\n${body}\n]\n`), set),
+          style(1),
+        ).toHaveLength(1)
+      }
+    })
+
     it('no lookup, a lockfile and a binary blob are not scanned; any has() object is a lookup', () => {
       const t = text('hex array', planted)
       expect(checkRomWindows('f.ts', t, null)).toEqual([])

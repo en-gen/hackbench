@@ -15,7 +15,7 @@
 import { spawnSync } from 'node:child_process'
 import { readFileSync, existsSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { locateVanillaRom, textHits, windowSet } from './lib/rom-windows.mjs'
+import { commentMode, locateVanillaRom, textHits, windowSet } from './lib/rom-windows.mjs'
 
 // ---------------------------------------------------------------------------
 // Rules (docs/testing.md has the prose version)
@@ -454,15 +454,18 @@ const romWindowApplies = (e, buf, judge) =>
   judge && e.added && !/\.md$/i.test(e.path) && isScannableText(e.path, buf)
 
 /** ROM-window rule (#1053): a run of byte notation in a text file that matches an 8-byte window of the
- * vanilla ROM. `lookup` is any object with `has(windowKey)` (see hitRuns). Comments are scanned too
- * (mode 'none'): they are public. Reports line and window count, never bytes. Masked arrays are not seen. */
+ * vanilla ROM. `lookup` is any object with `has(windowKey)` (see hitRuns). Comments are public, so the
+ * text is read both whole (mode 'none': bytes inside a comment) and with comments blanked (a `// step N`
+ * on every line would otherwise end the run); a run seen both ways is reported once. Reports line and
+ * window count, never bytes. Masked arrays are not seen. */
 export function checkRomWindows(path, buf, lookup) {
   if (!lookup || !isScannableText(path, buf)) return []
-  return textHits(buf.toString('utf8'), lookup, 1, undefined, 'none').map(h => ({
-    rule: 'rom-window',
-    path,
-    where: `line ${h.at}, ${h.windows} window${h.windows === 1 ? '' : 's'}`,
-  }))
+  const text = buf.toString('utf8')
+  const where = new Set()
+  for (const mode of new Set(['none', commentMode(path)]))
+    for (const h of textHits(text, lookup, 1, undefined, mode))
+      where.add(`line ${h.at}, ${h.windows} window${h.windows === 1 ? '' : 's'}`)
+  return [...where].map(w => ({ rule: 'rom-window', path, where: w }))
 }
 
 /** Combines checkPath + checkBlob (+ the ROM-window rule when `lookup` is given) for one entry. */
