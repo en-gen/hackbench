@@ -27,7 +27,8 @@ import { hasRom, romPath, VANILLA } from '../support/corpus'
 const REPO = join(__dirname, '../../..')
 const tmp = mkdtempSync(join(tmpdir(), 'cg-romwin-'))
 afterAll(() => {
-  if (process.platform === 'win32') spawnSync('icacls', [tmp, '/reset', '/T', '/C', '/Q']) // the unreadable-ROM case
+  if (process.platform === 'win32')
+    spawnSync('icacls', [join(tmp, 'roms-bperm'), '/reset', '/T', '/C', '/Q']) // the unreadable-ROM case
   rmSync(tmp, { recursive: true, force: true })
 })
 
@@ -138,13 +139,25 @@ describe(
 // The CLI end to end in throwaway repos. The fake vanilla ROM is found through HACKBENCH_ROMS and must
 // pass the gate's own checks: a regular file of 512 KiB with a valid LoROM checksum, built here.
 const BIG = 512 * 1024
-function vanillaFile(plants: Uint8Array[] = [], len = BIG, header = false): Uint8Array {
+// `fields(sum)` gives the [complement, checksum] words to store for the file's real sum; the default is valid.
+type Fields = (sum: number) => [number, number]
+function vanillaFile(
+  plants: Uint8Array[] = [],
+  len = BIG,
+  header = false,
+  fields: Fields = f => [~f & 0xffff, f],
+): Uint8Array {
   const b = prng(len, 0xbada55)
   plants.forEach((p, i) => b.set(p, 4096 + i * 64))
   if (len >= 0x7fe0) {
-    b.set([0, 0, 255, 255], 0x7fdc)
-    const sum = b.reduce((n, v) => (n + v) & 0xffff, 0)
-    b.set([~sum & 255, (~sum >> 8) & 255, sum & 255, sum >> 8], 0x7fdc)
+    b.fill(0, 0x7fdc, 0x7fe0)
+    const t0 = b.reduce((n, v) => (n + v) & 0xffff, 0) // the four field bytes are still zero
+    const bytes = (c: number, k: number) => [c & 255, c >> 8, k & 255, k >> 8]
+    // Brute force: the stored words add to the sum, so find the sum that matches what is stored.
+    const f = Array.from({ length: 65536 }, (_, i) => i).find(
+      i => (t0 + bytes(...fields(i)).reduce((n, v) => n + v, 0)) % 65536 === i,
+    )!
+    b.set(bytes(...fields(f)), 0x7fdc)
   }
   return header ? Uint8Array.from([...new Uint8Array(512), ...b]) : b
 }
@@ -418,6 +431,9 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
     ['wrong bytes at full size', () => romsDir('bwr', prng(BIG, 7))],
     ['a corrupted byte', () => romsDir('bco', Uint8Array.from(vanillaFile([win]), (v, i) => (i === 9000 ? v ^ 1 : v)))], // prettier-ignore
     ['a directory', () => romsDir('bdir', 'dir')],
+    // Each LoROM check alone: the stored checksum is the real sum but the complement is off, and the reverse.
+    ['a wrong complement only', () => romsDir('bcmp', vanillaFile([win], BIG, false, f => [(~f ^ 0x100) & 0xffff, f]))], // prettier-ignore
+    ['a wrong checksum only', () => romsDir('bchk', vanillaFile([win], BIG, false, f => [~f & 0xffff, f ^ 0x100]))], // prettier-ignore
     // Over 2 GiB: readFileSync refuses it with ERR_FS_FILE_TOO_LARGE, so the size is judged from stat.
     ['over 2 GiB', () => { const d = romsDir('bhuge', new Uint8Array(0)); truncateSync(join(d, VANILLA), 3 * 1024 ** 3); return d }], // prettier-ignore
     // Unreadable (EPERM): read access denied to this user; skipped if the denial does not take.
@@ -446,8 +462,31 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
     const p = cli(m.dir, romsDir('bdir2', 'dir'), ['staged'])
     expect(p.status).toBe(0)
     expect(p.stderr.toString()).not.toContain('not a regular file')
-    // A gitlink in the diff is skipped.
-    r.g('update-index', '--add', '--cacheinfo', `160000,${r.g('rev-parse', 'HEAD')},sub`)
+  })
+
+  it('a gitlink whose commit is absent is skipped, staged and in the log walk', () => {
+    const r = repo()
+    r.g('update-index', '--add', '--cacheinfo', `160000,${'ab'.repeat(20)},sub`)
+    expect(cli(r.dir, roms, ['staged']).status).toBe(0) // reading the missing object would exit 2
+    r.g('commit', '-q', '-m', 'submodule')
+    expect(range(r.dir).status).toBe(0)
+  })
+
+  it('history prints its notice and judges nothing even with a usable ROM', () => {
+    const r = repo()
+    commitFile(r, 'planted.ts', run)
+    expect(range(r.dir).status).toBe(1) // the same run is red where the rule applies
+    const p = cli(r.dir, roms, ['history'])
+    expect(p.status).toBe(0)
+    expect(p.stderr.toString()).toContain('DID NOT RUN: history mode')
+  })
+
+  it('a type change is not judged as an added file', () => {
+    const r = repo()
+    commitFile(r, 'f.ts', 'export const a = 1\n')
+    const blob = spawnSync('git', ['hash-object', '-w', '--stdin'], { cwd: r.dir, input: run }).stdout.toString().trim() // prettier-ignore
+    r.g('update-index', '--cacheinfo', `120000,${blob},f.ts`) // a file becomes a symlink: status T
+    expect(r.g('diff', '--cached', '--raw').split(' ')[4]).toMatch(/^T/)
     expect(cli(r.dir, roms, ['staged']).status).toBe(0)
   })
 })
