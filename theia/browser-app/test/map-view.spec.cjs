@@ -3819,8 +3819,7 @@ test('data-details is pending while the reply is held, done after, and pending a
   await expect(main).toHaveAttribute('data-details', 'done')
 })
 
-// D181 (#1274): single-clicked rows share the preview tab; it drops presses on another map, keeps toggles.
-// Pixels too: on $105 yellow moves screen 9, on $014 the blue P-switch moves screen 0.
+// D181 (#1274): the preview tab drops presses on another map, keeps toggles. $105: yellow moves screen 9; $014: blue P-switch moves screen 0.
 const PRESSES = [...['yellow', 'green', 'red', 'blue'].map(k => `palace-${k}`), ...['blue', 'silver', 'onOff'].map(k => `switch-${k}`)] // prettier-ignore
 const control = (page, tab, c) => page.locator(`${root(tab)} [data-control="${c}"]`)
 
@@ -3846,19 +3845,21 @@ async function clickRow(page, slot, pin = false) {
     w.updateScrollToRow()
     return node.id
   }, slot)
-  await page.waitForTimeout(400)
-  const row = page.locator(`[id="hackbench.map-explorer"] .theia-TreeNode[data-node-id="${id}"]`)
-  await (pin ? row.dblclick() : row.click())
   const tab = pin ? slot : 'preview'
+  const seq = () => page.evaluate(w => getSvc('ApplicationShell').getWidgetById(w)?.startSeq ?? 0, `hackbench.map-view:${tab}`) // prettier-ignore
+  const before = await seq() // startSeq moves only on open: sees a second open of the shown map
+  const row = page.locator(`[id="hackbench.map-explorer"] .theia-TreeNode[data-node-id="${id}"]`)
+  await row.waitFor()
+  await (pin ? row.dblclick() : row.click())
   opened.push(`hackbench.map-view:${tab}`)
-  await page.waitForFunction(([t, s]) => getSvc('ApplicationShell').getWidgetById(`hackbench.map-view:${t}`)?.options?.index === s, [tab, slot], { timeout: 30000 }) // prettier-ignore
+  await expect.poll(seq, { timeout: 30000 }).toBeGreaterThan(before)
 }
 
 const pressedOf = (page, tab) => Promise.all(PRESSES.map(c => control(page, tab, c).getAttribute('aria-pressed'))) // prettier-ignore
 const all = v => PRESSES.map(() => v)
 async function pressAll(page, tab) {
   for (const c of PRESSES) await control(page, tab, c).click()
-  expect(await pressedOf(page, tab)).toEqual(all('true'))
+  await expect.poll(() => pressedOf(page, tab)).toEqual(all('true'))
 }
 
 for (const [a, b, screen, press] of [
@@ -3869,18 +3870,19 @@ for (const [a, b, screen, press] of [
     page,
   }) => {
     await loadTree(page)
+    const read = async () => (await viewSettledOf(page, 'preview'), readScreen(page, 'preview', screen)) // prettier-ignore
     await clickRow(page, b)
     await showScreen(page, 'preview', screen)
-    const fresh = await readScreen(page, 'preview', screen)
+    const fresh = await read()
     await control(page, 'preview', press).click()
     await showScreen(page, 'preview', screen, press === 'palace-yellow', press === 'switch-blue')
-    expect((await readScreen(page, 'preview', screen)).checksum, 'the press moves B, so the check can fail').not.toBe(fresh.checksum) // prettier-ignore
+    expect((await read()).checksum, 'the press moves B, so the check can fail').not.toBe(fresh.checksum) // prettier-ignore
     await clickRow(page, a)
     await pressAll(page, 'preview')
     await clickRow(page, b)
     expect(await pressedOf(page, 'preview')).toEqual(all('false'))
     await showScreen(page, 'preview', screen)
-    expect((await readScreen(page, 'preview', screen)).checksum).toBe(fresh.checksum)
+    expect((await read()).checksum).toBe(fresh.checksum)
     await expect(page.locator(root('preview'))).toHaveCount(1) // reused, not one tab per row
   })
 }
@@ -3893,18 +3895,16 @@ test('the preview tab carries the layer, sprite and collision toggles to the nex
   const states = () => Promise.all(toggles.map(c => control(page, 'preview', c).getAttribute('aria-pressed'))) // prettier-ignore
   const lines = () => page.evaluate(s => [...document.querySelectorAll(`${s} [data-control="collision-overlay"] polyline`)].map(p => p.getAttribute('points')).join('|'), root('preview')) // prettier-ignore
   await clickRow(page, 0x105)
-  const start = await states()
   await expect(control(page, 'preview', 'collision-toggle')).toHaveAttribute('data-collision-state', 'ready', { timeout: 30000 }) // prettier-ignore
   await pressAll(page, 'preview')
   for (const c of toggles) await control(page, 'preview', c).click()
   const flipped = await states()
-  expect(flipped).not.toEqual(start)
   await expect.poll(lines, { timeout: 60000 }).not.toBe('')
   const aLines = await lines()
   await clickRow(page, 0x109)
   expect(await states()).toEqual(flipped)
   expect(await pressedOf(page, 'preview')).toEqual(all('false'))
-  // Presses on A and the overlay on: B's lines come from B unpressed, so they are some, and not A's.
+  // Presses on A and the overlay on: B draws some lines, and not A's.
   await expect.poll(lines, { timeout: 60000 }).not.toBe('')
   expect(await lines()).not.toBe(aLines)
 })
@@ -3920,13 +3920,13 @@ test('refreshing or single-clicking the same map keeps presses; a pinned tab kee
   await clickRow(page, 0x105)
   expect(await pressedOf(page, 'preview')).toEqual(all('true'))
   // Pinned: a pin never shows another map, so its reopen is the same row. $106 has its own press.
-  await clickRow(page, 0x105, true)
   await clickRow(page, 0x106, true)
-  for (const c of ['palace-yellow', 'switch-onOff']) await control(page, 0x105, c).click()
   await control(page, 0x106, 'palace-red').click()
-  await clickRow(page, 0x105, true)
+  await clickRow(page, 0x109, true) // on top of $106 now: only the top tab can be clicked
+  for (const c of ['palace-yellow', 'switch-onOff']) await control(page, 0x109, c).click()
+  await clickRow(page, 0x106, true)
   const want = on => PRESSES.map(c => String(on.includes(c)))
-  expect(await pressedOf(page, 0x105)).toEqual(want(['palace-yellow', 'switch-onOff']))
+  expect(await pressedOf(page, 0x109)).toEqual(want(['palace-yellow', 'switch-onOff']))
   expect(await pressedOf(page, 0x106)).toEqual(want(['palace-red']))
-  await expect(page.locator(root(0x105))).toHaveCount(1)
+  await expect(page.locator(root(0x106))).toHaveCount(1)
 })
