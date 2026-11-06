@@ -58,6 +58,12 @@ const NOTATIONS: Record<string, (b: Uint8Array) => string> = {
   'hex string': b => `export const fixture = "${Array.from(b, h2).join('')}"\n`,
   'spaced hex': b => `export const fixture = "${Array.from(b, h2).join(' ')}"\n`,
 }
+// The first 8-byte run at or after `from` that the gate would judge.
+const firstWindow = (rom: Uint8Array, from: number) => {
+  let at = from
+  while (!isCandidate(rom.subarray(at, at + 8))) at++
+  return rom.subarray(at, at + 8)
+}
 const text = (n: string, b: Uint8Array) => Buffer.from(NOTATIONS[n]!(b))
 const NAMES = Object.keys(NOTATIONS)
 
@@ -67,9 +73,7 @@ describe(
   () => {
     const rom = prng(4096)
     const set = windowSet(rom)
-    let at = 100
-    while (!isCandidate(rom.subarray(at, at + 8))) at++
-    const planted = rom.subarray(at, at + 8)
+    const planted = firstWindow(rom, 100)
 
     it.each(NAMES)('a planted run in %s is red, naming the line', n => {
       const hits = checkRomWindows(
@@ -181,14 +185,13 @@ const denyRead = (f: string) =>
     : spawnSync('chmod', ['000', f])
 const NOT_RUN = /rule DID NOT RUN: /
 const ident = ['-c', 'user.email=t@e.com', '-c', 'user.name=T']
+const gitIn =
+  (cwd: string) =>
+  (...a: string[]) =>
+    spawnSync('git', [...ident, ...a], { cwd })
 
 describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
-  const win = (() => {
-    const r = prng(4096, 0x1053)
-    let i = 200
-    while (!isCandidate(r.subarray(i, i + 8))) i++
-    return r.subarray(i, i + 8)
-  })()
+  const win = firstWindow(prng(4096, 0x1053), 200)
   const run = text('hex array', win)
   const roms = romsDir('good', vanillaFile([win]))
   const none = romsDir('none')
@@ -198,8 +201,9 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
   function repo(): Repo {
     const dir = mkdtempSync(join(tmp, 'net-'))
     installGate(dir)
+    const git = gitIn(dir)
     const g = (...a: string[]) =>
-      spawnSync('git', [...ident, ...a], { cwd: dir })
+      git(...a)
         .stdout.toString()
         .trim()
     g('init', '-q', '-b', 'develop')
@@ -228,18 +232,21 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
     spawnSync('git', ['init', '-q', '--bare', remote])
     return remote
   }
-  const push = (r: Repo, env = roms) =>
-    cli(
-      r.dir,
-      env,
-      ['push', 'origin'],
-      `refs/heads/feature ${r.g('rev-parse', 'feature')} x ${'0'.repeat(40)}\n`,
-    )
+  // One pre-push stdin line: a new ref pointing at sha.
+  const refLine = (ref: string, sha: string) => `refs/heads/${ref} ${sha} x ${'0'.repeat(40)}\n`
+  const push = (r: Repo, env = roms, lines = refLine('feature', r.g('rev-parse', 'feature'))) =>
+    cli(r.dir, env, ['push', 'origin'], lines)
+  // A second clone of the repo's remote, to push from as "the remote moved on".
+  const cloneOf = (r: Repo, tag: string, branch: string) => {
+    const other = join(tmp, `${tag}-${Math.random()}`)
+    spawnSync('git', ['clone', '-q', '-b', branch, r.g('remote', 'get-url', 'origin'), other])
+    return gitIn(other)
+  }
   const out = (p: { stdout: Buffer; stderr: Buffer }) => `${p.stdout}${p.stderr}`
   it('staged: red naming the line; modified, .md and clean pass; a rename and comments count', () => {
     const dir = mkdtempSync(join(tmp, 'st-'))
     installGate(dir)
-    const g = (...a: string[]) => spawnSync('git', [...ident, ...a], { cwd: dir })
+    const g = gitIn(dir)
     g('init', '-q')
     writeFileSync(join(dir, 'f.ts'), text('\\x string', win))
     g('add', 'f.ts')
@@ -300,13 +307,8 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
     r.g('remote', 'add', 'origin', bare())
     r.g('branch', 'second')
     const sha = r.g('rev-parse', 'feature')
-    const lines = ['feature', 'second'].map(b => `refs/heads/${b} ${sha} x ${'0'.repeat(40)}`)
-    const p = cli(
-      r.dir,
-      romsDir('bmulti', prng(BIG, 3)),
-      ['push', 'origin'],
-      `${lines.join('\n')}\n`,
-    )
+    const lines = ['feature', 'second'].map(b => refLine(b, sha)).join('')
+    const p = push(r, romsDir('bmulti', prng(BIG, 3)), lines)
     expect(p.stderr.toString().match(/fails its internal checksum/g)).toHaveLength(1)
   })
 
@@ -342,12 +344,8 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
 
     it('stays green when the remote moved on to commits this clone does not have', () => {
       const r = withRemote()
-      const other = join(tmp, `other-${Math.random()}`)
-      spawnSync('git', ['clone', '-q', '-b', 'develop', r.g('remote', 'get-url', 'origin'), other])
-      const gc = (...a: string[]) => spawnSync('git', [...ident, ...a], { cwd: other })
-      writeFileSync(join(other, 'newer.txt'), 'x\n')
-      gc('add', '-A')
-      gc('commit', '-q', '-m', 'develop moved')
+      const gc = cloneOf(r, 'other', 'develop')
+      gc('commit', '-q', '--allow-empty', '-m', 'develop moved')
       gc('push', '-q', 'origin', 'develop')
       const p = push(r) // ls-remote names a develop tip we lack; origin/develop names the old one
       expect(p.status, out(p)).toBe(0)
@@ -360,17 +358,7 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
         const r = withRemote()
         commitFile(r, 'planted.ts', run)
         r.g('push', '-q', 'origin', 'feature')
-        const other = join(tmp, `stale-${Math.random()}`)
-        spawnSync('git', [
-          'clone',
-          '-q',
-          '-b',
-          'feature',
-          r.g('remote', 'get-url', 'origin'),
-          other,
-        ])
-        const gc = (...a: string[]) => spawnSync('git', [...ident, ...a], { cwd: other })
-        return { r, gc }
+        return { r, gc: cloneOf(r, 'stale', 'feature') }
       }
       it('origin pointed at an empty repository while origin/develop holds a run', () => {
         const r = withRemote()
@@ -395,22 +383,10 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
         commitFile(r, 'planted.ts', run)
         r.g('push', '-q', 'origin', 'foo/bar')
         const old = r.g('rev-parse', 'foo/bar')
-        const other = join(tmp, `rewrite-${Math.random()}`)
-        spawnSync('git', [
-          'clone',
-          '-q',
-          '-b',
-          'develop',
-          r.g('remote', 'get-url', 'origin'),
-          other,
-        ])
-        const gc = (...a: string[]) => spawnSync('git', [...ident, ...a], { cwd: other })
-        writeFileSync(join(other, 'rewritten.txt'), 'x\n')
-        gc('add', '-A')
-        gc('commit', '-q', '-m', 'rewrite without the run')
+        const gc = cloneOf(r, 'rewrite', 'develop')
+        gc('commit', '-q', '--allow-empty', '-m', 'rewrite without the run')
         gc('push', '-q', '-f', 'origin', 'HEAD:refs/heads/foo/bar')
-        const asNewRef = () =>
-          cli(r.dir, roms, ['push', 'origin'], `refs/heads/copy ${old} x ${'0'.repeat(40)}\n`)
+        const asNewRef = () => push(r, roms, refLine('copy', old))
         expect(asNewRef().status).toBe(0)
         r.g('update-ref', '-d', 'refs/remotes/origin/foo/bar')
         expect(asNewRef().status).toBe(1)
@@ -425,7 +401,7 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
       expect(empty.stdout.toString()).toContain('theirs.ts')
       const stranger = join(tmp, `stranger-${Math.random()}`)
       mkdirSync(stranger)
-      const gu = (...a: string[]) => spawnSync('git', [...ident, ...a], { cwd: stranger })
+      const gu = gitIn(stranger)
       gu('init', '-q', '-b', 'stranger')
       gu('commit', '-q', '--allow-empty', '-m', 'unrelated')
       gu('push', '-q', r.g('remote', 'get-url', 'origin'), 'stranger')
@@ -452,6 +428,12 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
     expect(runs[3]!.stderr.toString()).not.toContain('no vanilla ROM')
   })
 
+  // Exit 0, the named reason on stderr, and no stack trace.
+  const expectDidNotRun = (p: ReturnType<typeof cli>) => {
+    expect(p.status).toBe(0)
+    expect(p.stderr.toString()).toMatch(/DID NOT RUN: the file at the vanilla ROM path (is not a regular file|is \d+ bytes|cannot be read|fails its internal checksum)/) // prettier-ignore
+    expect(p.stderr.toString()).not.toMatch(/\bat .*\.mjs|Error:/)
+  }
   const BAD: [string, () => string][] = [
     ['0 bytes', () => romsDir('b0', new Uint8Array(0))],
     ['7 bytes', () => romsDir('b7', new Uint8Array(7))],
@@ -473,10 +455,7 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
     (_n, make) => {
       const r = repo()
       commitFile(r, 'planted.ts', run)
-      const p = range(r.dir, make())
-      expect(p.status).toBe(0)
-      expect(p.stderr.toString()).toMatch(/DID NOT RUN: the file at the vanilla ROM path (is not a regular file|is \d+ bytes|cannot be read|fails its internal checksum)/) // prettier-ignore
-      expect(p.stderr.toString()).not.toMatch(/\bat .*\.mjs|Error:/)
+      expectDidNotRun(range(r.dir, make()))
     },
   )
 
@@ -492,11 +471,8 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
     const r = repo()
     commitFile(r, 'planted.ts', run)
     const p = range(r.dir, d)
-    expect(p.status).toBe(0)
-    expect(p.stderr.toString()).toMatch(
-      /DID NOT RUN: the file at the vanilla ROM path cannot be read/,
-    )
-    expect(p.stderr.toString()).not.toMatch(/\bat .*\.mjs|Error:/)
+    expectDidNotRun(p)
+    expect(p.stderr.toString()).toContain('cannot be read')
   })
 
   it('a valid ROM with a copier header is used; the ROM is not read when no file qualifies', () => {
@@ -543,9 +519,7 @@ describe.skipIf(!hasRom(VANILLA))('rom-window rule against the real vanilla ROM'
   it('a planted run of 8 real bytes is red in every notation; an invented run passes', () => {
     const rom = readFileSync(romPath(VANILLA))
     const real = windowSet(rom)
-    let at = 0x8000
-    while (!isCandidate(rom.subarray(at, at + 8))) at++
-    const planted = rom.subarray(at, at + 8)
+    const planted = firstWindow(rom, 0x8000)
     for (const n of NAMES)
       expect(checkRomWindows('f.ts', text(n, planted), real), n).toHaveLength(1)
     const invented = prng(8, 0x77).map(b => b | 1)
