@@ -256,6 +256,37 @@ test('an animated sprite loops on the panel canvas; a one-pose sprite says it is
   expect(treeHash(projectDir)).toBe(hashBefore)
 })
 
+test('a sprite whose frames come back with a not-loaded reason says "Animation not shown", never "Not animated" (#1113)', async ({
+  page,
+}) => {
+  const map = await openMap(page, SLOT)
+  const s = map.stack.find(x => x.status === 'drawn' && x.parts && map.own(x))
+  expect(s, 'a clickable drawn sprite').toBeTruthy()
+  await page.evaluate(async () => {
+    await getSvc('CommandRegistry').executeCommand('hackbench.properties.toggle')
+  })
+  await expect(panel(page)).toBeVisible()
+  // No vanilla sprite draws charsNotLoaded, so the widget's service PROPERTY (not a page-side wrapper over the proxy) is a stub.
+  await page.evaluate(() => {
+    const w = getSvc('WidgetManager').getWidgets('hackbench.properties')[0]
+    window.__stubCalls = 0
+    w.projects = {
+      mapSpriteFrames: async () => {
+        window.__stubCalls++
+        return { status: 'ok', frames: [], reason: 'charsNotLoaded' }
+      },
+    }
+  })
+  const at = map.own(s)
+  await map.click(at.x, at.y)
+  const line = panel(page).locator('[data-field="animation"]')
+  await expect(line).toHaveText(
+    'Animation not shown: Some of its graphics are not loaded on this map.',
+  )
+  await expect(line).not.toContainText('Not animated')
+  expect(await page.evaluate(() => window.__stubCalls), 'the stub answered').toBeGreaterThan(0)
+})
+
 test('closing the map clears the panel; the toggle command reopens a closed panel', async ({
   page,
 }) => {
@@ -405,4 +436,29 @@ test('a chainsaw that never appears stays on its stored tile, with no outline, a
   await expect(panel(page).locator('[data-field="position"]')).toHaveText(
     `Column ${Math.floor(saw.x / 16)}, row ${Math.floor(saw.y / 16)}`,
   )
+})
+
+// #1230 (AC 7): a rope on a ROM whose sprite loader is not the original keeps its short length, and the panel itself
+// says why in plain words (not only the tooltip). The edit flips one byte inside the loader's slot search ($02:A8E4,
+// bank_02.asm:5376), so its fingerprint fails. Plant: stop setting `note` in the rope's model and this goes red.
+test('a rope on a ROM with an edited sprite loader says in the panel why it is short', async ({
+  page,
+}) => {
+  const bytes = new Uint8Array(fs.readFileSync(ROM))
+  bytes[0x128e4 + 3] ^= 1
+  const edited = path.join(tmp, 'loader.sfc')
+  fs.writeFileSync(edited, bytes)
+  const project = await page.evaluate(
+    ({ romPath, directory }) =>
+      getSvc('Symbol(ProjectService)').createProject({ romPath, name: 'Edited', directory }),
+    { romPath: edited, directory: path.join(tmp, 'Edited') },
+  )
+  manifestPath = project.manifestPath
+  const map = await openMap(page, 0x00f)
+  const rope = map.stack.find(s => s.id === 0x64 && s.status === 'drawn' && map.own(s))
+  expect(rope, 'a drawn rope on map $00F').toBeTruthy()
+  expect(rope.note).toBe('The rope is shown at its short length: the sprite loader on this ROM is not the original one.') // prettier-ignore
+  const at = map.own(rope)
+  await map.click(at.x, at.y)
+  await expect(panel(page).locator('[data-field="note"]').filter({ hasText: 'The rope is shown at its short length: the sprite loader on this ROM is not the original one.' })).toHaveCount(1) // prettier-ignore
 })

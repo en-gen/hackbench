@@ -68,6 +68,7 @@ import {
   type PaletteWrite,
   type SpritePart,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { isRopeId, ropeModel, type RopeAt } from '../../../../src/rom/sprites/interp/RopeLength'
 import {
   drawnPass,
   findReveal,
@@ -79,6 +80,7 @@ import {
   type FlameRoutines,
 } from '../../../../src/rom/sprites/interp/CastleFlames'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { undrawnNote, type UndrawnChildren } from '../../../../src/rom/sprites/interp/SpawnedChildren' // prettier-ignore
 import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
 import {
   EERIES_COUNT,
@@ -180,6 +182,8 @@ export type SpriteDrawResult =
       children?: { index: number; parts: DrawPart[] }[]
       /** A plain-words line about what the map shows of this sprite (not a flaw): it goes on the map's note line. */
       note?: string
+      /** The undrawn spawned children behind `note`, as data (#1281). */
+      undrawn?: UndrawnChildren
       /** The interpreter detail behind a plain note, for its tooltip. */
       noteDetail?: string
     })
@@ -271,6 +275,7 @@ export function drawSprites(
     const told = {
       ...('note' in res && res.note ? { note: res.note } : {}),
       ...('noteDetail' in res && res.noteDetail ? { noteDetail: res.noteDetail } : {}),
+      ...('undrawn' in res && res.undrawn ? { undrawn: res.undrawn } : {}),
     }
     if (res.parts.length === 0) return { ...placeholder(s, 'noParts'), ...told }
     let unverified = 'unverified' in res ? res.unverified : undefined
@@ -362,6 +367,9 @@ export function drawSprites(
     return own.status === 'drawn' ? { ...own, x: d.x, y: d.y, drawnBy: c.parent } : d
   })
 }
+
+const NO_IMAGE_NOTE =
+  'The rope is shown at its short length: the level loader could not be run on this ROM.'
 
 /** The engine over this cart: a missing descriptor or a repointed handler is a miss, never a guess. */
 export function engineDrawer(rom: RomFile, marioX: number): SpriteDrawer | null {
@@ -557,7 +565,8 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     anchor: { x: m.anchor.x, y: m.anchor.y },
     ...(m.reveal ? { reveal: m.reveal } : {}),
     ...stored,
-    ...(m.neverAppears ? { note: 'never appears in play' } : {}),
+    // The two notes are separate sentences; either alone is unchanged.
+    ...(m.neverAppears || m.lengthNote ? { note: [m.neverAppears && 'never appears in play', m.lengthNote].filter(Boolean).join('. ') } : {}), // prettier-ignore
     ...(m.shifted && m.onLine ? { onLine: m.onLine } : {}),
     ...(m.absolutePlacement
       ? {
@@ -665,6 +674,7 @@ function eeriesResult(
     identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
     // Fewer than five is the game's answer for this map's slot range, not a flaw: said in plain words, not `unverified`.
     ...(notes.length ? { note: notes.join(' ') } : {}),
+    ...(r.undrawn ? { undrawn: r.undrawn } : {}),
     ...(r.noteDetail ? { noteDetail: r.noteDetail } : {}),
     ...(why
       ? { unverified: `the five Eeries are drawn from the spawner the loader calls, and ${why}` }
@@ -716,6 +726,7 @@ function platformsResult(
     anchor: { x, y },
     identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
     ...(notes.length ? { note: notes.join(' ') } : {}),
+    ...(r.undrawn ? { undrawn: r.undrawn } : {}),
     ...(r.noteDetail ? { noteDetail: r.noteDetail } : {}),
     ...(why
       ? {
@@ -793,6 +804,8 @@ export function interpRunner(
   list: readonly LevelSprite[] = [],
   /** Look for what reveals a sprite that draws nothing at rest (RevealSearch.ts): the map view's runs only. */
   reveal: boolean = run === runWithUploads,
+  /** Test hook for the rope: a synthetic cart's loader fingerprint. */
+  ropeHooks: Pick<RopeAt, 'spec'> = {},
 ): (sprite: LevelSprite) => SpriteRun {
   // The loader runs once per map, not per sprite.
   const base = seedFor(rom, index)
@@ -824,12 +837,14 @@ export function interpRunner(
     if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
     // The map's own loader placed it at map load (D156): it also spawns at the map-load camera.
     const opening = !!w && s.index >= 0 && s.index < 128 && !!w[SPRITE_LOAD_STATUS + s.index]
-    let m = run(
-      rom,
-      s.spriteId,
-      seed(camera, { opening }),
-      reveal ? { trackInputs: true } : undefined,
-    )
+    // The rope draws its length from the slot the loader gives it (RopeLength.ts, #1230): run in that slot, not slot 0.
+    const rope = !!w && isRopeId(s.spriteId)
+    const tracked = reveal ? { trackInputs: true } : undefined
+    let m = rope
+      ? ropeModel(rom, { id: s.spriteId, setting: w![0x1692]!, x, y, vertical: model.isVertical, ...ropeHooks }, slot => run(rom, s.spriteId, seed(camera, { opening, slot }), tracked)) // prettier-ignore
+      : run(rom, s.spriteId, seed(camera, { opening }), tracked)
+    // No loader image: the slot cannot be known, so the rope stays short and says so (a confirmed rope only).
+    if (!w && isRopeId(s.spriteId) && m.snaps) m = { ...m, lengthNote: NO_IMAGE_NOTE }
     // A sprite placed at the game's own layout (the bonus game) was replayed in the loader's top slot; an earlier loaded sprite
     // may have taken it, which moves one block by a pixel and changes its item (measured on $000, slots 9 vs 8): drawn, marked.
     if (
@@ -858,7 +873,8 @@ export function interpRunner(
     // may draw nothing there: the shift is tried the other way, and if that draws nothing too the probe
     // proves nothing and the run stands (no position is invented).
     // A sprite drawn at fixed map positions (InitLatches.ts) has no screen-fixed parts, and its camera is not the loader's.
-    if (m.absolutePlacement) return { m, fixed: false }
+    // A rope is not screen-fixed, and its probe would run in another slot than the picture.
+    if (m.absolutePlacement || (rope && m.snaps)) return { m, fixed: false }
     const dir = [x - camera.x < 128 ? -13 : 13, y - camera.y < 112 ? -11 : 11]
     for (const k of [1, -1]) {
       const shifted = { x: camera.x + dir[0]! * k, y: camera.y + dir[1]! * k }
@@ -1055,6 +1071,25 @@ const named = (s: MapSpriteDto): MapSpriteDto => {
   return name ? { ...s, name } : s
 }
 
+/**
+ * The map's sprite notes: each sprite's note collapsed through a Set (the same sentence on many sprites shows once),
+ * except undrawn spawned children, which are summed per noun so two spawners that each lose one say 2 (#1281).
+ */
+export function mapNotes(sprites: MapSpriteDto[]): string[] {
+  const rest = new Set<string>()
+  const sums = new Map<UndrawnChildren['noun'], number>()
+  for (const s of sprites) {
+    if (!s.note) continue
+    const own = s.undrawn ? undrawnNote(s.undrawn) : undefined
+    const left = own ? s.note.replace(own, '').trim() : s.note
+    if (left) rest.add(left)
+    if (!s.undrawn) continue
+    sums.set(s.undrawn.noun, (sums.get(s.undrawn.noun) ?? 0) + s.undrawn.count)
+  }
+  const total = [...sums].map(([noun, count]) => undrawnNote({ noun, count }))
+  return [...rest, ...total]
+}
+
 /** The reply for a stream: its sprites drawn, in the geometry of the map's screens. */
 export function spriteLayer(
   data: Uint8Array,
@@ -1082,7 +1117,7 @@ export function spriteLayer(
           ? undefined
           : 'The sprite stream has no end marker in the bytes read: sprites past them are not drawn.',
         unverified?.note,
-        ...new Set(sprites.flatMap(s => (s.note ? [s.note] : []))),
+        ...mapNotes(sprites),
       ]
         .filter(Boolean)
         .join(' ') || undefined,
@@ -1188,7 +1223,7 @@ export const MAX_FRAMES = 16
 /**
  * One sprite's distinct poses (#984), for the Properties preview. `m.passes` are consecutive real game
  * frames, so each pass that draws is blitted through `drawSprites` as if it were `chosen`: no second draw
- * path. The loop starts at `m.chosen` (the pose the map shows, so frame 0 IS the map's bitmap) and goes on
+ * path. The loop starts at `m.chosen` (the pose the map shows; frame 0 IS its bitmap unless that pass is not drawn) and goes on
  * to the later passes. A pose is its parts' chars, flips and offsets from one another (sorted: OAM order is
  * not a pose), after the sprite's own movement is subtracted, so only the art changes between frames.
  * Where a part is measured from differs by sprite: usually the one anchor (the placed spot at rest), with the sprite drawing
@@ -1196,6 +1231,7 @@ export const MAX_FRAMES = 16
  * `pos` (`origin`, when `m.snaps`), the draw running before the move. `drawAt` is where the sprite
  * stood when it drew. A sprite with screen-fixed parts (`fixOffsets`) is not animated here: their map
  * position comes from the loader's camera for the chosen pass only, so another pass has no honest place.
+ * When the chosen pass is not drawn (unloaded chars: the map shows a marker), the later poses that do draw are still kept and `reason` is the chosen pass's, so the panel never calls it "one pose" (#1113).
  */
 export function framesOf(
   run: SpriteRun,
@@ -1214,6 +1250,7 @@ export function framesOf(
   const drawAt = (q: typeof ref) => (m.snaps ? q.origin : q.pos)
   const seen = new Set<string>()
   const frames: MapSpriteDto[] = []
+  let why: string | undefined // set only when the chosen pass is not drawn
   for (const pass of m.passes.filter(q => q.pass >= ref.pass && drawnParts(q).length > 0)) {
     // dx' places the art where it stands relative to the sprite, on the chosen pass's anchor.
     const [ax, ay] = [pass.origin.x - drawAt(pass).x + drawAt(ref).x - ref.origin.x, pass.origin.y - drawAt(pass).y + drawAt(ref).y - ref.origin.y] // prettier-ignore
@@ -1229,7 +1266,11 @@ export function framesOf(
       passes: m.passes.map(q => (q === pass ? { ...q, parts, companions: [] } : q)),
     }
     const [f] = drawSprites([s], model, () => modelResult(shifted), dynamic)
-    if (f!.status !== 'drawn') continue
+    if (f!.status !== 'drawn') {
+      // The map shows a marker for this sprite, so say why beside the later poses that do draw (#1113); a skip after a frame exists says nothing.
+      if (!frames.length) why ??= f!.reason ?? f!.status
+      continue
+    }
     // A pass whose parts wrapped past 256 px or left the screen is not the same sprite's next pose: stop,
     // so the loop stays a contiguous run of real frames (vanilla: 54 sprites on 13 maps had one).
     const b0 = frames[0]?.box
@@ -1238,7 +1279,7 @@ export function framesOf(
     frames.push(f!)
     if (frames.length >= MAX_FRAMES) break
   }
-  return { frames }
+  return why ? { frames, reason: why } : { frames }
 }
 
 /** The run behind a sprite's frames: at rest, like the map's picture (D139 D: INIT's look, D134 position), so frame 0 is that bitmap. */

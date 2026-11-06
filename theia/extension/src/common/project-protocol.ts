@@ -6,6 +6,7 @@
  * contract both ends compile against.
  */
 import type { EditEvent } from '../../../../src/project/EditEvent'
+import type { UndrawnChildren } from '../../../../src/rom/sprites/interp/SpawnedChildren'
 import type { ScreenPlanes } from '../../../../src/rom/model/ScreenPlanes'
 import type { Map16SwitchButtonImages, Map16SwitchKind } from './map16-protocol'
 
@@ -72,7 +73,7 @@ export interface MapNodeDto {
   noPointer?: true
   /** A map whose data could not be read back; the row warns and opening it says so. */
   unreadable?: true
-  /** A sub area the wings block links to its root: the row carries Yoshi Heaven's icon and tooltip. */
+  /** Yoshi Heaven's row (#1229): a direct row or a child of the sub area that holds the wings block (#1295); it carries the icon and tooltip. */
   reachedBy?: 'yoshi-heaven'
   children: MapNodeDto[]
 }
@@ -354,6 +355,8 @@ export interface MapSpriteDto {
   unverified?: string
   /** A plain-words line about what the map shows of this sprite, not a flaw (for example fewer Eeries than the placement asks for); the map's note line carries it too. */
   note?: string
+  /** Spawned children that did not draw, as data: the map's note sums them across spawners (#1281); `note` keeps its sentence and the reason is in `noteDetail`. */
+  undrawn?: UndrawnChildren
   /** Technical detail behind a plain note, for its tooltip. */
   noteDetail?: string
   /** Every pixel of the sprite is drawn in the screen door: it draws nothing in play until something happens (#1132). */

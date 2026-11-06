@@ -13,7 +13,9 @@
 // history [REF] (HEAD and tags; never other branches, D59).
 
 import { spawnSync } from 'node:child_process'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, statSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { commentMode, locateVanillaRom, textHits, windowSet } from './lib/rom-windows.mjs'
 
 // ---------------------------------------------------------------------------
 // Rules (docs/testing.md has the prose version)
@@ -441,9 +443,70 @@ export function checkBlob(rawPath, buf) {
   return checkTextContent(rawPath, buf.toString('utf8'))
 }
 
-/** Combines checkPath + checkBlob for one (path, blob-bytes) entry. */
-export function evaluateEntry(path, buf) {
-  return [...checkPath(path), ...checkBlob(path, buf)]
+/** True when a blob is text the content rules read (not binary, oversize or a lockfile). */
+const isScannableText = (path, buf) =>
+  buf.length <= OVERSIZE_THRESHOLD && !isBinary(buf) && !isLockfile(normalizePath(path))
+
+/** Which entries the ROM-window rule reads: a blob a commit ADDS (see walkRawDiff), outside .md, when
+ * `judge` is on (every mode but history). An edit or a merge of develop would otherwise fail on old
+ * content. Markdown prose lists addresses, not fixture bytes (a known gap: 8 of 314 tracked .md files hold a run; 70bf5b3f, one machine). */
+const romWindowApplies = (e, buf, judge) =>
+  judge && e.added && !/\.md$/i.test(e.path) && isScannableText(e.path, buf)
+
+/** ROM-window rule (#1053): a run of byte notation in a text file that matches an 8-byte window of the
+ * vanilla ROM. `lookup` is any object with `has(windowKey)` (see hitRuns). The text is read whole (mode
+ * 'none': bytes inside a comment count) and, for JS/TS and asm only, with comments blanked (a `// step N`
+ * on every line would otherwise end the run; comment markers are not separators in the whole view).
+ * Rows from both views are returned, so one run can give two rows, and the CLI prints one line per file
+ * and rule: fixing one run can reveal the next. Reports line and window count, never bytes. Masked
+ * arrays are not seen. */
+export function checkRomWindows(path, buf, lookup) {
+  if (!lookup || !isScannableText(path, buf)) return []
+  const text = buf.toString('utf8')
+  const where = new Set()
+  for (const mode of new Set(['none', commentMode(path)]))
+    for (const h of textHits(text, lookup, 1, undefined, mode))
+      where.add(`line ${h.at}, ${h.windows} window${h.windows === 1 ? '' : 's'}`)
+  return [...where].map(w => ({ rule: 'rom-window', path, where: w }))
+}
+
+/** Combines checkPath + checkBlob (+ the ROM-window rule when `lookup` is given) for one entry. */
+export function evaluateEntry(path, buf, lookup = null) {
+  return [...checkPath(path), ...checkBlob(path, buf), ...checkRomWindows(path, buf, lookup)]
+}
+
+const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url))
+const NOT_RUN = 'check-content: rom-window rule DID NOT RUN: '
+const ROM_BYTES = 512 * 1024
+
+/** THE one place the lookup is chosen: the real vanilla ROM, only where one is present (D155: no
+ * committed hash set). A file at that path must be a regular file of 512 KiB (after any copier
+ * header) whose LoROM internal checksum and complement are valid; otherwise `say` gets a reason and
+ * the rule does not run. A hack with a valid checksum under the vanilla name is not detected. */
+export function romWindowLookup(env = process.env, say = () => {}) {
+  const file = locateVanillaRom(env, REPO_ROOT)
+  if (!existsSync(file)) return null
+  const bad = why => {
+    say(`${NOT_RUN}the file at the vanilla ROM path ${why}\n`)
+    return null
+  }
+  const wrongSize = n => n !== ROM_BYTES && n !== ROM_BYTES + 512
+  let raw
+  try {
+    const st = statSync(file)
+    if (!st.isFile()) return bad('is not a regular file')
+    // Judged from stat first: readFileSync refuses a file over 2 GiB with a stack trace.
+    if (wrongSize(st.size)) return bad(`is ${st.size} bytes, not ${ROM_BYTES}`)
+    raw = readFileSync(file)
+  } catch (e) {
+    return bad(`cannot be read (${e.code ?? e.message})`)
+  }
+  if (wrongSize(raw.length)) return bad(`is ${raw.length} bytes when read, not ${ROM_BYTES}`)
+  const rom = raw.length % 1024 === 512 ? raw.subarray(512) : raw
+  const sum = rom.reduce((n, b) => (n + b) & 0xffff, 0)
+  if (rom.readUInt16LE(0x7fde) !== sum || (rom.readUInt16LE(0x7fdc) ^ sum) !== 0xffff)
+    return bad('fails its internal checksum')
+  return windowSet(raw)
 }
 
 // ---------------------------------------------------------------------------
@@ -514,10 +577,12 @@ const ZERO_SHA = '0'.repeat(40)
 const REC_HASH = '\x01'
 const REC_MSG = '\x02'
 const REC_END = '\x03'
-const COMMIT_FIELD_RE = new RegExp(`^${REC_HASH}([0-9a-f]{40})${REC_MSG}([\\s\\S]*)${REC_END}\\n?$`)
+const COMMIT_FIELD_RE = new RegExp(
+  `^${REC_HASH}([0-9a-f]{40})((?: [0-9a-f]{40})*) ?${REC_MSG}([\\s\\S]*)${REC_END}\\n?$`,
+)
 
 /**
- * Walks `git log --raw -z -m --root --no-renames --no-abbrev` over the given
+ * Walks `git log --raw -z --diff-merges=separate --root --no-renames --no-abbrev` over the given
  * revision args and returns { entries: [{commit, path, blob, status}],
  * messages: [{commit, text}] } - the commit's own %B comes back in the same
  * log call, so checking commit messages costs no extra spawn.
@@ -527,12 +592,12 @@ function walkRawDiff(revArgs, { reverse = false } = {}) {
     'log',
     '--raw',
     '-z',
-    '-m',
+    '--diff-merges=separate', // not the user's log.diffMerges
     '--root',
     '--no-renames',
     '--no-abbrev',
     ...GIT_DIFF_FLAGS,
-    `--format=${REC_HASH}%H${REC_MSG}%B${REC_END}`,
+    `--format=${REC_HASH}%H %P${REC_MSG}%B${REC_END}`,
   ]
   if (reverse) args.push('--reverse')
   args.push(...revArgs)
@@ -543,6 +608,8 @@ function walkRawDiff(revArgs, { reverse = false } = {}) {
   const messages = []
   const seenCommits = new Set()
   let commit = null
+  let parents = 0
+  const addedIn = new Map()
   const modeLineRe = /^\n?:(\d{6}) (\d{6}) ([0-9a-f]{40}) ([0-9a-f]{40}) ([A-Za-z])\d*$/
 
   for (let i = 0; i < fields.length; i++) {
@@ -551,9 +618,10 @@ function walkRawDiff(revArgs, { reverse = false } = {}) {
       const m = COMMIT_FIELD_RE.exec(f)
       if (m) {
         commit = m[1]
+        parents = m[2].trim() ? m[2].trim().split(' ').length : 0
         if (!seenCommits.has(commit)) {
           seenCommits.add(commit)
-          messages.push({ commit, text: Buffer.from(m[2], 'binary').toString('utf8') })
+          messages.push({ commit, text: Buffer.from(m[3], 'binary').toString('utf8') })
         }
       } else {
         // Fallback: shouldn't happen, but never lose the hash silently.
@@ -568,13 +636,14 @@ function walkRawDiff(revArgs, { reverse = false } = {}) {
     if (status === 'D') continue // nothing to inspect
     const path = fields[++i]
     if (path === undefined) break
-    entries.push({
-      commit,
-      path: Buffer.from(path, 'binary').toString('utf8'),
-      blob: newBlob,
-      status,
-    })
+    const e = { commit, path: Buffer.from(path, 'binary').toString('utf8'), blob: newBlob, parents }
+    // `-m` lists a merge once per parent: a file is added only if it is A against EVERY parent (one merged
+    // in from develop is not). Each qualifying blob is judged, so a run later removed is still caught.
+    e.key = JSON.stringify([commit, e.path, newBlob])
+    if (status === 'A') addedIn.set(e.key, (addedIn.get(e.key) ?? 0) + 1)
+    entries.push(e)
   }
+  for (const e of entries) e.added = (addedIn.get(e.key) ?? 0) >= Math.max(1, e.parents)
   return { entries, messages }
 }
 
@@ -596,7 +665,7 @@ function stagedEntries() {
   for (let i = 0; i < fields.length; i++) {
     const m = modeLineRe.exec(fields[i])
     if (!m) continue
-    const [, , newMode, , newBlob] = m
+    const [, , newMode, , newBlob, status] = m
     if (newMode === '160000') continue
     const path = fields[++i]
     if (path === undefined) break
@@ -604,6 +673,7 @@ function stagedEntries() {
       commit: null,
       path: Buffer.from(path, 'binary').toString('utf8'),
       blob: newBlob,
+      added: status === 'A',
     })
   }
   return entries
@@ -727,12 +797,17 @@ function readBlobs(unique, total) {
   return out
 }
 
+let lookup // chosen on first use, once per process: a run with no candidate file never opens the ROM
+const lookupOnce = () =>
+  (lookup ??= romWindowLookup(process.env, m => process.stderr.write(m)) ?? false)
+
 /** Evaluates a de-duplicated (path, blob) entry set plus commit messages. */
-function evaluateEntries(entries, messages = [], whole = false) {
+function evaluateEntries(entries, messages = [], whole = false, judge = true) {
   const seen = new Map() // `${path}\0${blob}` -> first entry (for "first added")
   for (const e of entries) {
     const key = `${e.path}\0${e.blob}`
-    if (!seen.has(key)) seen.set(key, e)
+    if (!seen.has(key)) seen.set(key, { ...e })
+    else if (e.added) seen.get(key).added = true // one blob, added by any of its commits
   }
   const list = [...seen.values()]
   const hits = []
@@ -740,7 +815,9 @@ function evaluateEntries(entries, messages = [], whole = false) {
   const evalWith = blobs => {
     for (const e of list) {
       if (!blobs.has(e.blob)) continue
-      for (const hit of evaluateEntry(e.path, blobs.get(e.blob)))
+      const buf = blobs.get(e.blob)
+      const lk = romWindowApplies(e, buf, judge) ? lookupOnce() : null
+      for (const hit of evaluateEntry(e.path, buf, lk))
         hits.push({ ...hit, commit: e.commit, blob: e.blob })
     }
   }
@@ -877,7 +954,7 @@ function emDashHits(diffArgs) {
 
 function formatHit(h) {
   const suffix = h.commit ? ` (first added in ${h.commit})` : ''
-  return `BLOCKED (${h.rule}): ${h.path}${suffix}`
+  return `BLOCKED (${h.rule}): ${h.path}${h.where ? ` ${h.where}` : ''}${suffix}`
 }
 
 function runStaged() {
@@ -895,18 +972,34 @@ function runRange(base, head) {
   return dedupeReport(hits)
 }
 
-/** Live `git ls-remote`, not the local (possibly stale) refs/remotes/*.
+/** Live `git ls-remote`, not the local (possibly stale) refs/remotes/*: `shas` are the tips it
+ * advertises, `moved` the branch names whose tip this clone does not have (the remote moved on).
  * Exits 2 if it fails - never treats an unreachable remote as "nothing to
  * exclude", which would scan (and pass) less than it should. */
 function remoteShas(remote) {
   const res = spawnGit(['ls-remote', remote])
   if (res.status !== 0) throw new GateError(`git ls-remote ${remote} failed: ${res.stderr}`)
   const shas = new Set()
+  const moved = []
   for (const line of res.stdout.toString('utf8').split('\n')) {
-    const sha = line.split('\t')[0]
-    if (/^[0-9a-f]{40}$/.test(sha)) shas.add(sha)
+    const [sha, ref = ''] = line.split('\t')
+    if (!/^[0-9a-f]{40}$/.test(sha)) continue
+    shas.add(sha)
+    if (ref.startsWith('refs/heads/') && !objectExists(sha)) moved.push(ref.slice(11))
   }
-  return shas
+  return { shas, moved }
+}
+
+/** Tracking refs of branches the remote advertises at a tip this clone lacks. An unknown tip is not
+ * proof the branch moved forward: a force-push looks the same, so the old tracking ref is trusted and
+ * a run on it passes (not fixable without a fetch; dropping the exclusion would block a moved remote).
+ * The exclusion covers every rule in push. A tracking ref of a branch the remote no longer
+ * advertises, or advertises at a tip we have, is not trusted: it may hold what was removed. */
+function movedTrackingRefs(remote, moved) {
+  if (!moved.length) return []
+  const have = spawnGit(['for-each-ref', '--format=%(refname)', `refs/remotes/${remote}/`])
+  const names = new Set(have.stdout.toString().split('\n'))
+  return moved.map(n => `refs/remotes/${remote}/${n}`).filter(r => names.has(r))
 }
 
 function runPush(remote, stdinText) {
@@ -924,12 +1017,14 @@ function runPush(remote, stdinText) {
   // shas the remote reports that we actually have locally - otherwise
   // `--not <unknown-sha>` is silently ignored by git, but we'd rather know
   // we're excluding real, verified history.
-  const known = [...remoteShas(remote)].filter(sha => objectExists(sha))
+  const { shas, moved } = remoteShas(remote)
+  const known = [...shas].filter(sha => objectExists(sha))
+  const behind = movedTrackingRefs(remote, moved)
 
   const hits = []
   for (const localSha of localShas) {
     requireCommit(localSha, 'pushed ref')
-    const { entries, messages } = walkRawDiff([localSha, '--not', ...known])
+    const { entries, messages } = walkRawDiff([localSha, '--not', ...known, ...behind])
     try {
       hits.push(...evaluateEntries(entries, messages, known.length === 0))
     } catch (err) {
@@ -959,7 +1054,7 @@ function runHistory(ref = 'HEAD') {
   if (resolved.status !== 0) throw new GateError(`history: cannot resolve ref '${ref}'`)
   const revs = [resolved.stdout.toString().trim(), '--tags']
   const { entries, messages } = walkRawDiff(revs, { reverse: true })
-  const hits = [...evaluateEntries(entries, messages, true)]
+  const hits = [...evaluateEntries(entries, messages, true, false)]
   try {
     hits.push(...tagBodyHits(true))
   } catch (err) {
@@ -1028,6 +1123,11 @@ function dedupeReport(hits) {
 
 function main(argv) {
   const [mode, ...rest] = argv
+  // Where the rule cannot run it says so, so the output never reads as clean for it.
+  if (mode === 'history')
+    process.stderr.write(`${NOT_RUN}history mode never judges it (old files hold runs)\n`)
+  else if (!existsSync(locateVanillaRom(process.env, REPO_ROOT)))
+    process.stderr.write(`${NOT_RUN}no vanilla ROM found; added files were NOT checked\n`)
   let hits
   if (mode === 'staged') {
     hits = runStaged()

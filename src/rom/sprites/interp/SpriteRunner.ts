@@ -233,6 +233,8 @@ export interface SpriteModel {
   shifted?: boolean
   /** At rest, for a line-guided sprite the gate refused: its INIT moves it, but the picture stays on its tile (see `lineGateReason`). */
   initMoved?: boolean
+  /** The rope's length was not worked out from the loader (#1230): a plain-words line for the Properties panel and the map's note. */
+  lengthNote?: string
   /** At rest, an admitted line-guided sprite that starts behind the scroll in every spawn the loader allows (D156): it stays on its stored tile. */
   neverAppears?: boolean
   /** Set for an INIT-moved line-guided sprite when the map's sprite loader is not the stock one: whether it appears was not checked. */

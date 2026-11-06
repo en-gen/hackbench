@@ -124,7 +124,8 @@ const FORMS: Record<string, (w: ArrayLike<number>) => string> = {
 describe('sweep', () => {
   // A window with exactly d distinct values, planted in a fresh fake ROM.
   const planted = (d: number) => {
-    const w = Array.from({ length: 8 }, (_, i) => 0x30 + (i % d) * 0x11)
+    // Not a ramp or a short loop (those are filtered as patterns), so only the distinct count varies.
+    const w = [0, 3, 1, 6, 2, 7, 5, 4].map(x => 0x30 + (x % d) * 0x11)
     const rom = prng(1024, 99 + d)
     rom.set(w, 300)
     return { w, set: windowSet(rom) }
@@ -391,7 +392,7 @@ y
         const r2 = probe(['--rom', romFile, '--repo', repo, '--git-range', spec])
         expect(r2.stdout.split('\n').filter(l => l.startsWith('HIT')).length).toBe(6)
       }
-    })
+    }, 20000) // two probe runs over 8 touched files, 2 git spawns per file: 1.3 to 5.5 s alone, one Windows machine, 2026-11-05
     it('a...b diffs from the merge base, not from a', () => {
       git('checkout', '-q', '-b', 'side', 'HEAD~1')
       write(

@@ -14,4 +14,14 @@ function maxDepth(nodes, depth = 0) {
   return deepest
 }
 
-module.exports = { maxDepth }
+/** Slot paths ([root, child, ...]) of every node exactly `depth` levels below a root, with its child count. */
+function rowsAtDepth(nodes, depth, path = []) {
+  return nodes.flatMap(n => {
+    const here = [...path, n.index]
+    return depth === 0
+      ? [{ path: here, kids: (n.children || []).length }]
+      : rowsAtDepth(n.children || [], depth - 1, here)
+  })
+}
+
+module.exports = { maxDepth, rowsAtDepth }
