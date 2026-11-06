@@ -960,18 +960,32 @@ function runRange(base, head) {
   return dedupeReport(hits)
 }
 
-/** Live `git ls-remote`, not the local (possibly stale) refs/remotes/*.
+/** Live `git ls-remote`, not the local (possibly stale) refs/remotes/*: `shas` are the tips it
+ * advertises, `moved` the branch names whose tip this clone does not have (the remote moved on).
  * Exits 2 if it fails - never treats an unreachable remote as "nothing to
  * exclude", which would scan (and pass) less than it should. */
 function remoteShas(remote) {
   const res = spawnGit(['ls-remote', remote])
   if (res.status !== 0) throw new GateError(`git ls-remote ${remote} failed: ${res.stderr}`)
   const shas = new Set()
+  const moved = []
   for (const line of res.stdout.toString('utf8').split('\n')) {
-    const sha = line.split('\t')[0]
-    if (/^[0-9a-f]{40}$/.test(sha)) shas.add(sha)
+    const [sha, ref = ''] = line.split('\t')
+    if (!/^[0-9a-f]{40}$/.test(sha)) continue
+    shas.add(sha)
+    if (ref.startsWith('refs/heads/') && !objectExists(sha)) moved.push(ref.slice(11))
   }
-  return shas
+  return { shas, moved }
+}
+
+/** Tracking refs of branches that moved on the remote past what this clone has: the last thing it
+ * knew of them, so the commits since are the remote's. A tracking ref of a branch the remote no
+ * longer advertises, or advertises at a tip we have, is not trusted: it may hold what was removed. */
+function movedTrackingRefs(remote, moved) {
+  if (!moved.length) return []
+  const have = spawnGit(['for-each-ref', '--format=%(refname)', `refs/remotes/${remote}/`])
+  const names = new Set(have.stdout.toString().split('\n'))
+  return moved.map(n => `refs/remotes/${remote}/${n}`).filter(r => names.has(r))
 }
 
 function runPush(remote, stdinText) {
@@ -989,12 +1003,14 @@ function runPush(remote, stdinText) {
   // shas the remote reports that we actually have locally - otherwise
   // `--not <unknown-sha>` is silently ignored by git, but we'd rather know
   // we're excluding real, verified history.
-  const known = [...remoteShas(remote)].filter(sha => objectExists(sha))
+  const { shas, moved } = remoteShas(remote)
+  const known = [...shas].filter(sha => objectExists(sha))
+  const behind = movedTrackingRefs(remote, moved)
 
   const hits = []
   for (const localSha of localShas) {
     requireCommit(localSha, 'pushed ref')
-    const { entries, messages } = walkRawDiff([localSha, '--not', ...known, `--remotes=${remote}`])
+    const { entries, messages } = walkRawDiff([localSha, '--not', ...known, ...behind])
     try {
       hits.push(...evaluateEntries(entries, messages, known.length === 0))
     } catch (err) {

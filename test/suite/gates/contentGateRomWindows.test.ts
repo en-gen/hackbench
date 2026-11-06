@@ -329,6 +329,42 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
       expect(p.status, out(p)).toBe(0)
     })
 
+    // A tracking ref the remote no longer backs must not hide a run. Each case leaves origin/<name> at a
+    // commit holding a run while the remote advertises something else (or nothing) for that name.
+    describe('a stale remote-tracking ref hides nothing', () => {
+      const stale = () => {
+        const r = withRemote()
+        commitFile(r, 'planted.ts', run)
+        r.g('push', '-q', 'origin', 'feature')
+        const other = join(tmp, `stale-${Math.random()}`)
+        spawnSync('git', [
+          'clone',
+          '-q',
+          '-b',
+          'feature',
+          r.g('remote', 'get-url', 'origin'),
+          other,
+        ])
+        const gc = (...a: string[]) => spawnSync('git', [...ident, ...a], { cwd: other })
+        return { r, gc }
+      }
+      it('origin pointed at an empty repository while origin/develop holds a run', () => {
+        const r = withRemote()
+        r.g('remote', 'set-url', 'origin', bare())
+        expect(push(r).status).toBe(1) // theirs.ts is in no ref the remote has
+      })
+      it('the remote force-pushed the run away and this clone has not fetched', () => {
+        const { r, gc } = stale()
+        gc('push', '-q', '-f', 'origin', 'feature~1:refs/heads/feature')
+        expect(push(r).status).toBe(1)
+      })
+      it('the branch was deleted on the remote, not pruned, and is pushed again', () => {
+        const { r, gc } = stale()
+        gc('push', '-q', 'origin', ':feature')
+        expect(push(r).status).toBe(1)
+      })
+    })
+
     it('an empty remote, or one whose tips are all unknown here, still judges every added file', () => {
       const r = repo()
       r.g('remote', 'add', 'origin', bare())
