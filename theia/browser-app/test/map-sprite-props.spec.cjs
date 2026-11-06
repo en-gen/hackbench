@@ -262,6 +262,10 @@ test('a sprite whose frames come back with a not-loaded reason says "Animation n
   const map = await openMap(page, SLOT)
   const s = map.stack.find(x => x.status === 'drawn' && x.parts && map.own(x))
   expect(s, 'a clickable drawn sprite').toBeTruthy()
+  await page.evaluate(async () => {
+    await getSvc('CommandRegistry').executeCommand('hackbench.properties.toggle')
+  })
+  await expect(panel(page)).toBeVisible()
   // No vanilla sprite draws charsNotLoaded, so the widget's service PROPERTY (not a page-side wrapper over the proxy) is a stub.
   await page.evaluate(() => {
     const w = getSvc('WidgetManager').getWidgets('hackbench.properties')[0]

@@ -1223,7 +1223,7 @@ export const MAX_FRAMES = 16
 /**
  * One sprite's distinct poses (#984), for the Properties preview. `m.passes` are consecutive real game
  * frames, so each pass that draws is blitted through `drawSprites` as if it were `chosen`: no second draw
- * path. The loop starts at `m.chosen` (the pose the map shows, so frame 0 IS the map's bitmap) and goes on
+ * path. The loop starts at `m.chosen` (the pose the map shows; frame 0 IS its bitmap unless that pass is not drawn) and goes on
  * to the later passes. A pose is its parts' chars, flips and offsets from one another (sorted: OAM order is
  * not a pose), after the sprite's own movement is subtracted, so only the art changes between frames.
  * Where a part is measured from differs by sprite: usually the one anchor (the placed spot at rest), with the sprite drawing
