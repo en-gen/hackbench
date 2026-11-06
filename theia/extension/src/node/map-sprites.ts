@@ -519,13 +519,8 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     parts: interpParts(drawnParts(pass)),
     anchor: { x: m.anchor.x, y: m.anchor.y },
     ...stored,
-    ...(m.neverAppears || m.lengthNote
-      ? {
-          note: [m.neverAppears && 'never appears in play', m.lengthNote]
-            .filter(Boolean)
-            .join('. '),
-        }
-      : {}),
+    // The two notes are separate sentences; either alone is unchanged.
+    ...(m.neverAppears || m.lengthNote ? { note: [m.neverAppears && 'never appears in play', m.lengthNote].filter(Boolean).join('. ') } : {}), // prettier-ignore
     ...(m.shifted && m.onLine ? { onLine: m.onLine } : {}),
     ...(m.absolutePlacement
       ? {
