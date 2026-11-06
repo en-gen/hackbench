@@ -18,7 +18,7 @@
 import { spanFingerprint } from '../../SubmapFlagGate'
 import type { RomFile } from '../../RomFile'
 import { bytesAt } from './Guards'
-import { runSpawnedChildren } from './SpawnedChildren'
+import { runSpawnedChildren, undrawnNote, type UndrawnChildren } from './SpawnedChildren'
 import { runOnce, type RunOptions, type SpriteModel, type SpritePart } from './SpriteRunner'
 import type { SpriteSeed } from './SpriteSeed'
 
@@ -96,7 +96,15 @@ export interface PlatformEntry {
 }
 
 export type PlatformsResult =
-  | { ok: true; parts: SpritePart[]; unverified: string[]; spawned: number; notes: string[] }
+  | {
+      ok: true
+      parts: SpritePart[]
+      unverified: string[]
+      spawned: number
+      notes: string[]
+      undrawn?: UndrawnChildren
+      noteDetail?: string
+    }
   | { ok: false; reason: string; none?: true; unverified: string[] }
 
 /**
@@ -174,13 +182,15 @@ export function threePlatforms(
   const { children, missing, spawned, why } = runSpawnedChildren(rom, seed, e, spec, passes, run)
   if (children.length === 0)
     return { ok: false, reason: why || `the spawner made none of the ${PLATFORM_COUNT} platforms`, ...(missing === PLATFORM_COUNT ? { none: true as const } : {}), unverified } // prettier-ignore
-  const undrawn = spawned - children.length
-  const notes = why ? [`${undrawn} ${undrawn === 1 ? 'platform' : 'platforms'} did not draw: ${why}`] : [] // prettier-ignore
+  const undrawn = why ? { noun: 'platform' as const, count: spawned - children.length } : undefined // prettier-ignore
+  const notes = undrawn ? [undrawnNote(undrawn)] : []
   return {
     ok: true,
     parts: children.flatMap(c => c.parts),
     unverified,
     spawned,
     notes,
+    ...(undrawn ? { undrawn } : {}),
+    ...(why ? { noteDetail: why } : {}),
   }
 }

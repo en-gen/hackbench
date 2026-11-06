@@ -268,3 +268,119 @@ export function isInside(path: string, root: string): boolean {
   const rel = relative(real(root), real(path))
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
+
+/** The condition column for a sprite that drew at rest, is hidden under a probe, and no condition reveals (RevealSearch `none-found`). */
+export const NONE_FOUND = 'none-found'
+
+/** One placed sprite in the reveal audit (#1132): what the at-rest run did, and what the reveal search made of it. */
+export interface RevealRow {
+  map: string
+  index: number
+  id: number
+  /** The sprite's place on the map, in 16 px tiles. */
+  column: number
+  row: number
+  /** The app's plain name for the sprite, when its table has one. */
+  name?: string
+  /** The at-rest run: drew a tile, drew none, was refused, or is drawn by a special routine. */
+  rest: 'drew' | 'blank' | 'refused' | 'special'
+  /** The search found it hidden (it draws nothing under some probe), whether or not it drew at rest. */
+  hidden: boolean
+  /** What revealed it (a RevealCondition), or `none-found`; absent when it is not hidden or nothing drew. */
+  condition?: string
+  /** The marker's reason code when the served answer is a marker. */
+  marker?: string
+}
+
+const isReveal = (r: RevealRow) => !!r.condition && r.condition !== NONE_FOUND
+
+/**
+ * The audit as text: one line per sprite in list order, the counts, the sprites that drew at rest and are now hidden
+ * (acceptance 10), and, apart, those among them no condition reveals (they keep their real-start picture in the door).
+ * Pure and sorted, so two runs over the same ROM are byte-identical.
+ */
+export function revealReport(rows: readonly RevealRow[]): string {
+  const sorted = [...rows].sort((a, b) => a.map.localeCompare(b.map) || a.index - b.index)
+  const id = (r: RevealRow) =>
+    `map ${r.map} #${r.index} $${hex2(r.id)} (column ${r.column}, row ${r.row})`
+  const line = (r: RevealRow) =>
+    `${id(r)}: rest ${r.rest}, ${r.hidden ? 'hidden' : 'not hidden'}${r.condition ? (r.condition === NONE_FOUND ? ', no condition reveals it' : `, revealed by ${r.condition}`) : ''}${r.marker ? `, marker ${r.marker}` : ''}`
+  const count = (f: (r: RevealRow) => boolean) => sorted.filter(f).length
+  const flipped = sorted.filter(r => r.rest === 'drew' && r.hidden)
+  const none = sorted.filter(r => r.condition === NONE_FOUND)
+  return [
+    `Reveal audit: ${sorted.length} placed sprites`,
+    `drew at rest ${count(r => r.rest === 'drew')}, blank ${count(r => r.rest === 'blank')}, refused ${count(r => r.rest === 'refused')}, special ${count(r => r.rest === 'special')}`,
+    `hidden ${count(r => r.hidden)}, revealed ${count(isReveal)}, marker for lack of a reveal ${count(r => r.marker === 'unrevealed')}`,
+    `drew at rest, hidden, no condition reveals (kept in the door): ${none.length}`,
+    '',
+    'Drew at rest, now hidden:',
+    ...(flipped.length ? flipped.map(line) : ['none']),
+    '',
+    'Drew at rest, hidden, no condition reveals:',
+    ...(none.length ? none.map(line) : ['none']),
+    '',
+    'All sprites:',
+    ...sorted.map(line),
+    '',
+  ].join('\n')
+}
+
+/**
+ * The owner's list (#1132 acceptance 10): every sprite that drew solid at rest and is now in the screen door, one
+ * line each, with what reveals it in words. `say` turns a condition code into words.
+ */
+export function solidToDoorText(rows: readonly RevealRow[], say: (code: string) => string): string {
+  const mine = [...rows]
+    .filter(r => r.rest === 'drew' && r.hidden && r.condition)
+    .sort((a, b) => a.map.localeCompare(b.map) || a.index - b.index)
+  return [
+    `Sprites that drew solid at rest and now draw in the screen door: ${mine.length}`,
+    '',
+    ...mine.map(
+      r =>
+        `map $${r.map}, column ${r.column}, row ${r.row}, sprite $${hex2(r.id)} ${r.name ?? '(no name)'}: ${r.condition === NONE_FOUND ? 'none found' : say(r.condition!)}`,
+    ),
+    '',
+  ].join('\n')
+}
+
+/** A marker reason with its ids and numbers blanked, so the same refusal counts once. */
+export const reasonClass = (m: string) =>
+  m
+    .replace(/\$[0-9a-f]+/gi, '$..')
+    .replace(/\d+/g, 'N')
+    .slice(0, 110)
+
+const tally = (keys: Iterable<string>) => {
+  const n = new Map<string, number>()
+  for (const k of keys) n.set(k, (n.get(k) ?? 0) + 1)
+  return [...n].sort().map(([k, c]) => `${k}: ${c}`)
+}
+
+/**
+ * One ROM's block of the sweep report (`reveal-sweep`): the audit, the sprites each condition revealed (a sprite no
+ * condition reveals is counted apart, not as a condition), the markers per reason and the maps that did not run.
+ */
+export function sweepSection(
+  label: string,
+  rows: readonly RevealRow[],
+  skipped: readonly string[],
+): string {
+  const none = rows.filter(r => r.condition === NONE_FOUND).length
+  return [
+    `=== ${label} ===`,
+    revealReport(rows),
+    'Revealed per condition:',
+    ...tally(rows.filter(isReveal).map(r => r.condition!)),
+    '',
+    `Hidden, no condition reveals it (kept in the door): ${none}`,
+    '',
+    'Markers per reason:',
+    ...tally(rows.filter(r => r.marker).map(r => reasonClass(r.marker!))),
+    '',
+    `Maps not run: ${skipped.length}`,
+    ...skipped,
+    '',
+  ].join('\n')
+}
