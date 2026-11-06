@@ -3818,3 +3818,109 @@ test('data-details is pending while the reply is held, done after, and pending a
   await release()
   await expect(main).toHaveAttribute('data-details', 'done')
 })
+
+/**
+ * D181 (#1274): a tab reused for another map keeps the view toggles and drops the palace and switch
+ * presses. `reuse` is the explorer's single-click path (`w.open` on the one widget, whose id then
+ * follows the new index). Unpressed is read off the pixels, not only the buttons: on $105 yellow moves
+ * screen 9, on $014 the blue P-switch moves screen 0, so each map's fresh and pressed pictures differ.
+ */
+const PRESSES = [...['yellow', 'green', 'red', 'blue'].map(k => `palace-${k}`), ...['blue', 'silver', 'onOff'].map(k => `switch-${k}`)] // prettier-ignore
+const optsOf = (mp, index) => ({
+  manifestPath: mp,
+  index,
+  label: index.toString(16),
+  iconClass: '',
+})
+
+async function reuse(page, mp, from, to) {
+  await page.evaluate(
+    ([id, o]) => getSvc('ApplicationShell').getWidgetById(id).open(o),
+    [`hackbench.map-view:${from}`, optsOf(mp, to)],
+  )
+  opened.push(`hackbench.map-view:${to}`)
+  await startSettled(page, to)
+}
+
+async function closeMap(page, index) {
+  await page.evaluate(
+    id => getSvc('ApplicationShell').closeWidget(id),
+    `hackbench.map-view:${index}`,
+  )
+}
+
+for (const [a, b, screen, press] of [
+  [0x014, 0x105, 9, 'palace-yellow'],
+  [0x105, 0x014, 0, 'switch-blue'],
+]) {
+  test(`a reused tab opens $${b.toString(16)} unpressed after presses on $${a.toString(16)}, and draws it so`, async ({
+    page,
+  }) => {
+    const mp = (await createProject(page, path.join(tmp, 'MyHack'))).manifestPath
+    // B fresh, then B with its own press, as references; each closed so the id is free for the reused tab.
+    const on = { yellow: press === 'palace-yellow', blue: press === 'switch-blue' }
+    await openMap(page, mp, b)
+    await showScreen(page, b, screen)
+    const fresh = await readScreen(page, b, screen)
+    await page.locator(`${root(b)} [data-control="${press}"]`).click()
+    await showScreen(page, b, screen, on.yellow, on.blue)
+    const pressed = await readScreen(page, b, screen)
+    expect(pressed.checksum, 'the press changes B, so the check can fail').not.toBe(fresh.checksum)
+    await closeMap(page, b)
+
+    await openMap(page, mp, a)
+    for (const c of PRESSES) await page.locator(`${root(a)} [data-control="${c}"]`).click()
+    await reuse(page, mp, a, b)
+    for (const c of PRESSES)
+      await expect(page.locator(`${root(b)} [data-control="${c}"]`)).toHaveAttribute('aria-pressed', 'false') // prettier-ignore
+    await showScreen(page, b, screen)
+    expect((await readScreen(page, b, screen)).checksum).toBe(fresh.checksum)
+  })
+}
+
+test('a reused tab carries the layer and sprite toggles and the collision toggle to the next map', async ({
+  page,
+}) => {
+  const mp = (await createProject(page, path.join(tmp, 'MyHack'))).manifestPath
+  await openMap(page, mp, 0x105)
+  const toggles = ['layer-l1', 'layer-l2', 'layer-l3', 'layer-sprites']
+  const state = async idx => Promise.all(toggles.map(c => page.locator(`${root(idx)} [data-control="${c}"]`).getAttribute('aria-pressed'))) // prettier-ignore
+  const start = await state(0x105)
+  for (const c of toggles) await page.locator(`${root(0x105)} [data-control="${c}"]`).click()
+  const flipped = await state(0x105)
+  expect(flipped).not.toEqual(start)
+  const col = idx => page.locator(`${root(idx)} [data-control="collision-toggle"]`)
+  await expect(col(0x105)).toHaveAttribute('data-collision-state', 'ready', { timeout: 30000 })
+  await col(0x105).click()
+  const lines = idx => page.evaluate(s => [...document.querySelectorAll(`${s} [data-control="collision-overlay"] polyline`)].map(p => p.getAttribute('points')).join('|'), root(idx)) // prettier-ignore
+  await expect.poll(() => lines(0x105), { timeout: 60000 }).not.toBe('')
+  const aLines = await lines(0x105)
+
+  await reuse(page, mp, 0x105, 0x106)
+  expect(await state(0x106)).toEqual(flipped)
+  await expect(col(0x106)).toHaveAttribute('aria-pressed', 'true')
+  // B's own lines, fetched for B in its unpressed state: not A's left on screen.
+  await expect.poll(() => lines(0x106), { timeout: 60000 }).not.toBe('')
+  expect(await lines(0x106)).not.toBe(aLines)
+})
+
+test('refreshing, or opening the same map again, keeps the presses; pinned tabs keep their own', async ({
+  page,
+}) => {
+  const mp = (await createProject(page, path.join(tmp, 'MyHack'))).manifestPath
+  const yellow = idx => page.locator(`${root(idx)} [data-control="palace-yellow"]`)
+  await openMap(page, mp, 0x105)
+  await openMap(page, mp, 0x106)
+  await yellow(0x105).click()
+  await expect(yellow(0x105)).toHaveAttribute('aria-pressed', 'true')
+  await expect(yellow(0x106)).toHaveAttribute('aria-pressed', 'false')
+  await page.evaluate(() =>
+    getSvc('ApplicationShell').getWidgetById('hackbench.map-view:261').refresh(),
+  )
+  await expect(yellow(0x105)).toHaveAttribute('aria-pressed', 'true')
+  // A pin is keyed on its index, so a pinned tab never shows another map: re-applying its row is the reopen case.
+  await reuse(page, mp, 0x105, 0x105)
+  await expect(yellow(0x105)).toHaveAttribute('aria-pressed', 'true')
+  await showScreen(page, 0x105, 9, true)
+  await expect(yellow(0x106)).toHaveAttribute('aria-pressed', 'false')
+})

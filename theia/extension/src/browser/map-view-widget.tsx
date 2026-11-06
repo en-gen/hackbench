@@ -78,7 +78,7 @@ import {
   type Pad,
 } from './off-map-extent'
 import { farGutter } from '../../../../src/rom/model/MapGutter'
-import { collisionKey, collisionPlan } from './map-view-state'
+import { collisionKey, collisionPlan, isDifferentMap } from './map-view-state'
 import { MapViewStateStore } from './map-view-state-store'
 import { layer2Label } from './map-layer-labels'
 import { isUnverifiedMode } from '../../../../src/rom/model/UnverifiedModes'
@@ -393,6 +393,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Starts a map in this widget; a reused tab drops the earlier map's replies via the open counter. */
   async open(options: MapViewOptions): Promise<void> {
+    // Before anything reads `view.state`, and before the New early return: a reused tab on another
+    // map starts unpressed (D181), while the view toggles carry over.
+    if (isDifferentMap(this.options, options)) this.view.reset()
     this.options = options
     this.id = `${MAP_VIEW_ID}:${options.index}`
     this.title.label = options.label

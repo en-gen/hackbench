@@ -31,6 +31,14 @@ export class MapViewStateStore {
     this.emitter.fire(change)
   }
 
+  /**
+   * Back to nothing pressed, without firing. Silent because `open` already drops the collision state
+   * and `refresh` rebuilds every consumer; a fire mid-open would start fetches against a half-open widget.
+   */
+  reset(): void {
+    this.current = initialSwitchState()
+  }
+
   dispose(): void {
     this.emitter.dispose()
   }

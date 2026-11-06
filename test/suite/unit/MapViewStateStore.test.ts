@@ -7,7 +7,10 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { MapViewChange } from '../../../theia/extension/src/browser/map-view-state'
+import {
+  initialSwitchState,
+  type MapViewChange,
+} from '../../../theia/extension/src/browser/map-view-state'
 
 const theiaInstalled = fs.existsSync(
   path.resolve(__dirname, '../../../theia/node_modules/@theia/core/package.json'),
@@ -54,5 +57,15 @@ describe.skipIf(!theiaInstalled)('MapViewStateStore', () => {
     s.dispose()
     s.dispatch({ type: 'toggleSwitch', key: 'onOff' })
     expect(a.got).toHaveLength(1)
+  })
+
+  it('reset puts every palace and switch back, silently', () => {
+    const s = new Store()
+    s.dispatch({ type: 'togglePalace', palace: 'yellow' })
+    s.dispatch({ type: 'toggleSwitch', key: 'blue' })
+    const { got } = seen(s)
+    s.reset()
+    expect(s.state).toEqual(initialSwitchState())
+    expect(got).toEqual([])
   })
 })
