@@ -91,7 +91,7 @@ describe('the map view call site of the rope', () => {
     const both = modelResult({ ...m, neverAppears: true } as RunModel)
     const only = modelResult({ ...m, lengthNote: undefined, neverAppears: true } as RunModel)
     const length = modelResult(m)
-    expect(both).toMatchObject({ note: expect.stringMatching(/^never appears in play The rope is shown at its short length/) }) // prettier-ignore
+    expect(both).toMatchObject({ note: expect.stringMatching(/^never appears in play\. The rope is shown at its short length/) }) // prettier-ignore
     expect(only).toMatchObject({ note: 'never appears in play' })
     expect(length).toMatchObject({
       note: expect.stringMatching(/^The rope is shown at its short length/),

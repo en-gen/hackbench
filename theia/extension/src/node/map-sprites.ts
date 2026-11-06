@@ -521,7 +521,9 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     ...stored,
     ...(m.neverAppears || m.lengthNote
       ? {
-          note: [m.neverAppears && 'never appears in play', m.lengthNote].filter(Boolean).join(' '),
+          note: [m.neverAppears && 'never appears in play', m.lengthNote]
+            .filter(Boolean)
+            .join('. '),
         }
       : {}),
     ...(m.shifted && m.onLine ? { onLine: m.onLine } : {}),

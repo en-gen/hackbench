@@ -3,7 +3,7 @@
  * even 5 (the Mesen capture, 4 of 4 runs); a tile is four 8x8 parts in the DTO. Vanilla ROM; skipped without it.
  * A rope moved one column in an edited copy of the BASE ROM (no sprite-move op exists on the node side; the unit tests move
  * it in the working-copy bytes) draws the other length; an edited loader keeps 5 tiles and the DTO says why. The stream
- * is found from the vanilla tables ($05EC00 into bank $07): vanilla-only. Not run by the implementer; the verifier runs it.
+ * is found from the vanilla tables ($05EC00 into bank $07): vanilla-only.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
