@@ -34,6 +34,7 @@ import {
   type SpritePart,
   drawnParts,
 } from './SpriteRunner'
+import { undrawnNote, type UndrawnChildren } from './SpawnedChildren'
 import type { SpriteSeed } from './SpriteSeed'
 
 /** The Wave Eerie the spawner makes. */
@@ -114,6 +115,8 @@ export type EeriesResult =
       spawned: number
       /** Eeries that were spawned and did not draw, with the reason. */
       notes: string[]
+      /** The same shortfall as data, for the map's summed note (#1281). */
+      undrawn?: UndrawnChildren
       noteDetail?: string
     }
   | {
@@ -219,8 +222,8 @@ export function fiveEeries(
     }
   // A shortfall of spawns is the game's own (the map's slot range, FindFreeSlotRt bank_02.asm:5523-5539); one that
   // spawned and did not draw is told.
-  const undrawn = EERIES - missing - placed.length
-  const notes = why ? [`${undrawn} ${undrawn === 1 ? 'Eerie' : 'Eeries'} did not draw.`] : [] // prettier-ignore
+  const undrawn = why ? { noun: 'Eerie' as const, count: EERIES - missing - placed.length } : undefined // prettier-ignore
+  const notes = undrawn ? [undrawnNote(undrawn)] : []
   return {
     ok: true,
     eeries: placed,
@@ -228,6 +231,7 @@ export function fiveEeries(
     unverified,
     spawned: EERIES - missing,
     notes,
+    ...(undrawn ? { undrawn } : {}),
     ...(why ? { noteDetail: why } : {}),
   }
 }
