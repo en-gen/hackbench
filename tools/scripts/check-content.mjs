@@ -449,7 +449,7 @@ const isScannableText = (path, buf) =>
 
 /** Which entries the ROM-window rule reads: a blob a commit ADDS (see walkRawDiff), outside .md, when
  * `judge` is on (every mode but history). An edit or a merge of develop would otherwise fail on old
- * content. Markdown prose lists addresses, not fixture bytes (a known gap: 8 of 308 tracked .md files hold a run; 2026-11-05, one machine). */
+ * content. Markdown prose lists addresses, not fixture bytes (a known gap: 8 of 314 tracked .md files hold a run; 70bf5b3f, one machine). */
 const romWindowApplies = (e, buf, judge) =>
   judge && e.added && !/\.md$/i.test(e.path) && isScannableText(e.path, buf)
 
