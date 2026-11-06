@@ -39,7 +39,7 @@ describe('door parts of one sprite', () => {
   })
   it('composed over a tile: solid cells stay full strength, door cells alternate, and the tile keeps its color math', () => {
     const doors = wordsOf([false, false, true])
-    const sprite = new Uint8ClampedArray(composeSprite(G, doors))
+    const sprite = compositeSpriteScreen([dto([false, false, true])], 0, G)!
     const tile = new Uint8ClampedArray(8 * 32 * 4).fill(255)
     const out = composeScreen({ width: 8, height: 32, planes: { sprites2: sprite, l1Low: tile }, lists: { main: ['l1Low', 'sprites2'], sub: [] }, math: null, doors, flips: doorFlips({ width: 8, height: 32, planes: {}, lists: { main: [], sub: [] }, math: null, doors }) }) // prettier-ignore
     const solid = px(out, 8, 0, 0)
@@ -50,8 +50,3 @@ describe('door parts of one sprite', () => {
     expect(door.has(solid.join())).toBe(true)
   })
 })
-
-/** The sprite plane of the one sprite on screen 0, read back through the same layer the door words come from. */
-function composeSprite(g: typeof G, _doors: Uint32Array): Uint8ClampedArray {
-  return compositeSpriteScreen([dto([false, false, true])], 0, g)!
-}
