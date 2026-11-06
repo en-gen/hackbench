@@ -12,11 +12,11 @@
 import { MAP_PLANE_KEYS, type MapPlaneKey, type MapSpriteDto } from '../common/project-protocol'
 import {
   composeScreen,
+  DOOR_PART_BIT,
   type ScreenInput,
   type SourceKey,
 } from '../../../../src/rom/model/ColorMath'
 import { decodeBase64Bytes, decodeRgba } from './map16-pixels'
-import { DOOR_PART_BIT } from '../../../../src/rom/model/ColorMath'
 import { hiddenPixelStrength } from '../../../../src/rom/render/HiddenTiles'
 import { MAX_BEYOND_SCREENS, farGutter } from '../../../../src/rom/model/MapGutter'
 

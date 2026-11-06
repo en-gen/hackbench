@@ -5,12 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
-import {
-  composeScreen,
-  doorFlips,
-  DOOR_PART_ID,
-  WHOLE_DOOR,
-} from '../../../src/rom/model/ColorMath'
+import { composeScreen, doorFlips, WHOLE_DOOR } from '../../../src/rom/model/ColorMath'
 import { SPRITE_KEYS } from '../../../src/rom/model/ScreenPlanes'
 import type { SpritePart } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { offMapSpritePixels } from '../../../theia/extension/src/browser/off-map-extent'
@@ -75,7 +70,7 @@ describe('door parts of one sprite', () => {
       idAt(w, 0, 2) & WHOLE_DOOR,
       idAt(w, 1, 2) & WHOLE_DOOR,
     ]).toEqual([0, 0, 0])
-    expect([idAt(w, 2, 2), idAt(w, 0, 2)]).toEqual([3 | DOOR_PART_ID | WHOLE_DOOR, 3])
+    expect([idAt(w, 2, 2), idAt(w, 0, 2)]).toEqual([0x108003, 3]) // 3 | the door-part id (1 << 15) | WHOLE_DOOR (1 << 20): pinned, not rebuilt from the constants
   })
   it('composed over a tile: solid cells stay full strength and door cells alternate', () => {
     const doors = spriteDoors({ ...G, sprites: [dto(ROPE)] }, 0)!

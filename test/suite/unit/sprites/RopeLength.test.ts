@@ -43,6 +43,7 @@ describe('ropeModel', () => {
     expect(parts).toHaveLength(9)
     expect(parts.filter(p => p.door).map(p => p.dy)).toEqual([80, 96, 112, 128])
     expect(parts.slice(0, 5).some(p => p.door)).toBe(false)
+    expect(m.passes[1]!.parts.filter(p => p.door)).toHaveLength(4) // every pass, not only the first
     expect(parts[0]!.char).toBe(2) // the short run's own motor tile
   })
   it('keeps slot 0 and says why for a loader or a setting it cannot read', () => {

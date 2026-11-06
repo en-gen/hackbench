@@ -121,6 +121,9 @@ async function composedRows(page, rope) {
   const plane = `${root} canvas[data-screen="${screen}"][data-plane="sprites"]`
   await page.locator(plane).evaluate(el => el.scrollIntoView({ inline: 'start', block: 'nearest' }))
   await expect(page.locator(plane)).toHaveAttribute('data-drawn', /^\d+:\d+$/, { timeout: 30000 })
+  // The composite also needs the tile layer painted, or it reads as unpainted.
+  const tiles = page.locator(`${root} canvas[data-screen="${screen}"][data-plane="l1Low"]`)
+  await expect(tiles).toHaveAttribute('data-drawn', /^\d+:/, { timeout: 30000 })
   const rows = await page.evaluate(
     ({ plane, root, screen, box }) => {
       const [x, y, w, h] = [box.x0 - screen * 256, box.y0, box.x1 - box.x0, box.y1 - box.y0]
@@ -157,10 +160,10 @@ test('a rope on a free-slot setting draws its extra length in the screen door, a
   // half the pixels (on setting 1 the same rows are untouched).
   const [d, s] = [await composedRows(page, door), await composedRows(page, solid)]
   const same = ([total, n]) => n / total
-  expect([same(d.solid) > 0.9, same(d.door) < 0.75, same(s.door) > 0.9, d.door[0] > 0]).toEqual([
-    true,
-    true,
-    true,
-    true,
-  ])
+  expect([
+    same(d.solid) > 0.9,
+    same(d.door) > 0.25 && same(d.door) < 0.75,
+    same(s.door) > 0.9,
+    d.door[0] > 0,
+  ]).toEqual([true, true, true, true])
 })

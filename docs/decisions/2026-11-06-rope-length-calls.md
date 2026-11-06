@@ -1,12 +1,12 @@
 Proposed 2026-11-06 (tango, #1230)
 
-# The rope's length: three calls taken in #1230 and #1294
+# The rope's length: four calls taken in #1230 and #1294
 
 ## Question
 
-D152 (Decision 103 E) ruled that the rope's length comes from the loader's own rule, with the screen door only where it depends on free slots. Building it took three calls no ruling covers.
+D152 (Decision 103 E) ruled that the rope's length comes from the loader's own rule, with the screen door only where it depends on free sprite slots. Building it took four calls no ruling covers.
 
-1. Which sprites get the rope's slot-based length?
+1. Which sprites get the rope's sprite-slot-based length?
 2. How does setting 1 draw an odd-column rope?
 3. Does the screen door for the extra length get a hover line of its own?
 4. Does the Properties preview draw the rope's door tiles in the door?
@@ -38,4 +38,4 @@ Known gap, not fixed here: a rope that is both `screenDoor` (#1132) and door-tag
 
 ## Applies to
 
-`src/rom/sprites/interp/RopeLength.ts`, `src/rom/sprites/interp/SlotPick.ts`, `theia/extension/src/node/map-sprites.ts`, `docs/sprites/sprite-62-line-platform.md`.
+`src/rom/sprites/interp/RopeLength.ts`, `src/rom/sprites/interp/SlotPick.ts`, `theia/extension/src/node/map-sprites.ts`, `theia/extension/src/browser/off-map-extent.ts`, `theia/extension/src/browser/properties-widget.tsx`, `docs/sprites/sprite-62-line-platform.md`.
