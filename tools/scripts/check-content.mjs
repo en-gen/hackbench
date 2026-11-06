@@ -579,7 +579,7 @@ const COMMIT_FIELD_RE = new RegExp(
 )
 
 /**
- * Walks `git log --raw -z -m --root --no-renames --no-abbrev` over the given
+ * Walks `git log --raw -z --diff-merges=separate --root --no-renames --no-abbrev` over the given
  * revision args and returns { entries: [{commit, path, blob, status}],
  * messages: [{commit, text}] } - the commit's own %B comes back in the same
  * log call, so checking commit messages costs no extra spawn.
@@ -589,7 +589,7 @@ function walkRawDiff(revArgs, { reverse = false } = {}) {
     'log',
     '--raw',
     '-z',
-    '-m',
+    '--diff-merges=separate', // not the user's log.diffMerges
     '--root',
     '--no-renames',
     '--no-abbrev',

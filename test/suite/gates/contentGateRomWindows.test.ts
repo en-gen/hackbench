@@ -265,6 +265,22 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
     expect(red.stdout.toString()).not.toContain('theirs.ts')
   })
 
+  it.each(['first-parent', 'combined', 'dense-combined', 'off'])(
+    'range: a file only a merge adds is judged with log.diffMerges=%s',
+    mode => {
+      const r = repo()
+      r.g('config', 'log.diffMerges', mode)
+      r.g('checkout', '-q', '-b', 'side', 'develop~1')
+      commitFile(r, 'side.ts', 'export const s = 1\n')
+      r.g('checkout', '-q', 'feature')
+      r.g('merge', '-q', '--no-commit', '--no-ff', 'side')
+      writeFileSync(join(r.dir, 'resolved.ts'), run) // added by the merge itself
+      r.g('add', '-A')
+      r.g('commit', '-q', '-m', 'merge side')
+      expect(range(r.dir).stdout.toString()).toContain('rom-window): resolved.ts')
+    },
+  )
+
   it('range: a run committed then removed or rewritten is blocked; a later edit is not judged', () => {
     const r = repo()
     commitFile(r, 'gone.ts', run)
