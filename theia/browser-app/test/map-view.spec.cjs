@@ -3960,12 +3960,12 @@ test('refreshing or single-clicking the same map keeps presses; a pinned tab kee
   expect(await pressedOf(page, 'preview')).toEqual(all('true'))
   // Pinned: a pin never shows another map, so its reopen is the same row. $106 has its own press.
   await clickRow(page, 0x106, true)
-  await control(page, 0x106, 'palace-red').click()
+  for (const c of ['palace-red', 'switch-onOff']) await control(page, 0x106, c).click()
   await clickRow(page, 0x109, true) // on top of $106 now: only the top tab can be clicked
-  for (const c of ['palace-yellow', 'switch-onOff']) await control(page, 0x109, c).click()
+  await control(page, 0x109, 'palace-yellow').click()
   await clickRow(page, 0x106, true)
   const want = on => PRESSES.map(c => String(on.includes(c)))
-  expect(await pressedOf(page, 0x109)).toEqual(want(['palace-yellow', 'switch-onOff']))
-  expect(await pressedOf(page, 0x106)).toEqual(want(['palace-red']))
+  expect(await pressedOf(page, 0x109)).toEqual(want(['palace-yellow']))
+  expect(await pressedOf(page, 0x106)).toEqual(want(['palace-red', 'switch-onOff']))
   await expect(page.locator(root(0x106))).toHaveCount(1)
 })
