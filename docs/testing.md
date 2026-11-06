@@ -60,10 +60,11 @@ notation (`0x` and `$` tokens, bare hex pairs, `\x` escapes, unbroken hex string
 the parser of the ROM-window probe below) that contains an 8-byte window of the
 vanilla ROM. It prints `BLOCKED (rom-window): <path> line N, M windows`, never the
 bytes, and exits 1 like every other rule. Comments are scanned too (they are
-public); the probe still blanks them.
+public): the text is read whole and with comments blanked, so a comment on every
+line does not split a run. The probe still blanks them only.
 
 - **Filters.** Windows with fewer than 3 distinct values, a constant step (a ramp)
-  or a repeat of period 2 to 4 are ignored, because they are common in any ROM.
+  or a repeat of period 2 to 4 are ignored, because the vanilla ROM is full of them (measured below).
   Cost, vanilla US, one machine, 2026-11-05: of 524,281 window positions, 43,597
   (2,982 distinct windows) fall to the distinct-values filter and 5,770 more (1,036
   distinct) to the ramp and loop filter, so a copied table that is itself a pure
@@ -73,19 +74,26 @@ public); the probe still blanks them.
   copier header with a valid LoROM checksum and complement. Any other file at that
   path, or none, makes the rule not run. No hash set of ROM windows is committed
   (D155), so CI has no ROM and keeps its other checks. A hack with a valid checksum
-  under the vanilla name is not detected. Every mode except `history` prints
-  `rom-window rule DID NOT RUN` and its reason on stderr; `history` prints its own,
-  since it never judges the rule (old files hold runs).
+  under the vanilla name is not detected. With no ROM, every mode except `history`
+  prints `rom-window rule DID NOT RUN` on stderr; a file that is not usable prints
+  its reason when a file qualifies to be judged (a bad ROM with only edits in the
+  range prints nothing, as there is nothing to judge); `history` prints its own
+  notice, since it never judges the rule (old files hold runs).
 - **What counts as added.** The per-commit walk decides: a file is added by a
   non-merge commit that has it as A, or by a merge that has it as A against every
   parent (a file merged in from develop is not). Each such blob is judged, so a run
   committed and later removed or rewritten is caught in `range` and `push`. A rename
   counts as added (`--no-renames`). `push` walks what is not on the remote, the tips
-  `ls-remote` names that this clone has and the local remote-tracking refs, so a
-  remote that moved on does not make develop's commits look new; an empty remote
-  judges everything. `staged` uses the cached status.
+  `ls-remote` names that this clone has, plus the tracking ref of a branch the remote
+  advertises at a tip this clone lacks (it moved on). A tracking ref of a branch the
+  remote no longer advertises is not trusted, and an empty remote judges everything.
+  Known false blocks, loud (`--no-verify` is the way past): a push by URL, a lagging
+  second remote, an absent tracking ref. `staged` uses the cached status and does
+  not apply the merge rule.
 - **Known gaps.** A file added clean and filled in a later commit, and any edit to
-  an existing file, is never judged (a stub-then-fill route). `.md` is excluded
+  an existing file, is never judged (a stub-then-fill route; a run added by a merge
+  resolution to a file a parent has, or by a type change, are variants).
+  `package-lock.json` and `yarn.lock` are exempt at any path. `.md` is excluded
   because prose lists addresses, so a run there passes: 8 of 308 tracked `.md` files
   hold one (43 windows, 2026-11-05). A masked array (`null`, `undefined` or `??`
   between the bytes) is not seen, because the `null` ends the run; that is #1280. A
@@ -112,8 +120,8 @@ throwaway repos.
 Modes: `staged` (no hook runs it since #1183), `range BASE HEAD` (CI),
 `push REMOTE`
 (`.githooks/pre-push`, reading stdin ref-updates and querying the remote
-live via `git ls-remote` rather than trusting local, possibly stale,
-remote-tracking refs), and `history [REF]` (the repo-migration oracle, run
+live via `git ls-remote`, trusting a local tracking ref only for a branch the
+remote advertises at a tip this clone lacks), and `history [REF]` (the repo-migration oracle, run
 in CI only once public: every blob reachable from `REF`, default `HEAD`,
 plus tags, never other branches, so an unmerged branch cannot fail an
 unrelated ref (unless tagged) (D59 A); a ref
