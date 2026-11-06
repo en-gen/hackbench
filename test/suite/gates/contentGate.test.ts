@@ -1250,7 +1250,10 @@ describe(
       run('git', ['add', 'late.dat2'])
       run('git', ['commit', '-q', '-m', 'late'])
       const clean = gate(1000, 2000, 'history')
-      expect(clean.err).not.toMatch(/budget|refus/i) // only the rom-window did-not-run notice
+      // Exactly the one history notice: a per-file or total limit refusal would add its own line.
+      expect(clean.err).toBe(
+        'check-content: rom-window rule DID NOT RUN: history mode never judges it (old files hold runs)\n',
+      )
       expect(clean.status).toBe(1) // the planted hit, not a budget refusal
       expect(clean.out).toMatch(/late\.dat2/)
     })
