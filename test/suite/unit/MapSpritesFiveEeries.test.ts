@@ -108,6 +108,35 @@ describe('sprite $DE on the map', () => {
     expect(r.unverified).toEqual([])
   })
 
+  it('uses the plural note when multiple spawned Eeries do not draw', () => {
+    const rom = buildSyntheticRom({ eeries: {} })
+    const seed = eeriesSeed(100)
+    const realRun = runOnce
+    let n = 0
+    const r = fiveEeries(
+      rom,
+      seed,
+      { x: 832, y: 368, index: entry.index, streamOffset: entry.streamOffset },
+      SYNTHETIC_EERIES_ROUTINES as never,
+      1,
+      (cart, id, childSeed, opts) => {
+        const m = realRun(cart, id, childSeed, opts)
+        const call = n++
+        if (call !== 1 && call !== 2) return m
+        return {
+          ...m,
+          anchor: undefined,
+          chosen: undefined,
+          emptyReason: 'drew no OAM tile in 1 passes',
+        } as SpriteModel
+      },
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.notes).toEqual(['2 Eeries did not draw.'])
+    expect(r.noteDetail).toMatch(/drew no OAM tile in 1 passes/)
+  })
+
   it('draws in a vertical map from the loader-provided inputs: the spawner gets the entry Y as its X, and says it is unchecked', () => {
     // The loader hands the spawner the scroll-axis boundary as $00/$01 (bank_02.asm:5232-5238), which in a vertical
     // map is the entry's Y: 26 tiles = 416 px. The spawner still reads its own data byte (Y $170 = 368) for Y.
