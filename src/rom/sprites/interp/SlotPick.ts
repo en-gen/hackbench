@@ -10,17 +10,20 @@ import { bytesAt } from './Guards'
 import type { CodeFingerprint } from './InitLatches'
 
 /**
- * The loader from its two offset tables to the end of the pick, $02A7F6-$02A921 (bank_02.asm:5217-5405): 300 contiguous
- * bytes in ONE SHA-256, so the `$00` the parity reads (the store at 5245), the column compare, the branch chain into the
- * pick and the pick itself (`LDY SpriteMemorySetting` at 5376 to the status test's `BNE` at 5405) are all held. Nothing is
- * masked or normalized. Counted against the working tree at this commit (1533 tracked text files, any 5-byte window that
- * appears as hex): at most 12 bytes are stated elsewhere, so at least 288 are unknown, past D126's 24 (vanilla US cart,
- * one machine). The table operands sit inside the span, so a relocated table fails the digest and the sprite keeps slot 0.
+ * The pick, `LDY SpriteMemorySetting` to the `BNE` after the status test (bank_02.asm:5376-5405, $02A8E4-$02A921), 62
+ * bytes in ONE SHA-256. Nothing is masked or normalized. Counted against the working tree (1536 tracked text files, any
+ * 5-byte window that appears as hex): 0 bytes are stated elsewhere, so all 62 are unknown (a stricter count in review
+ * gave 53); either is past D126's 24 (vanilla US cart, one machine). The table operands sit inside the span, so a
+ * relocated table fails the digest and the sprite keeps slot 0.
+ *
+ * The front of the loader (the offset tables, the `$00` stores at 5236 and 5245, the column compare and the branch chain,
+ * bank_02.asm:5217-5369) is deliberately OUTSIDE the digest: only a routine we rely on the identity of is hashed
+ * (FINGERPRINT NORMALIZATION ruling b), and hacks patch that front for their own sprite loading. Measured: a digest over the
+ * whole of it refuses 5 of the 7 corpus ROMs (all five hacks differ there; only the vanilla and magic carts pass) and the pick alone
+ * refuses none (7 ROMs, one machine, this corpus). The parity reads the same `$00` in those hacks only if they keep its
+ * meaning; that is assumed, not checked.
  */
-export const LOADER_PICK: CodeFingerprint = { at: 0x02a7f6, length: 300, sha256: '88da23f6edb937ba9a94a2fc7e800c82370dd7c8385a5a2dfe6931d98e936e8c' } // prettier-ignore
-
-/** Where the pick starts inside the span ($02A8E4 less $02A7F6). */
-const PICK = 238
+export const LOADER_PICK: CodeFingerprint = { at: 0x02a8e4, length: 62, sha256: 'e62f6d8872398313a7b5fc0af4a2250b8f455ba74e07dde38c7df85b8868bb38' } // prettier-ignore
 
 /** Where each table operand and immediate sits in the pick (instruction offsets of the listing at bank_02.asm:5376-5405). */
 const AT = { max: 4, start: 7, res1: 14, max1: 19, start1: 22, res2: 29, special: 34, mask: 40, max2: 44, stop: 47 } as const // prettier-ignore
@@ -52,7 +55,7 @@ interface Tables {
 function readTables(rom: RomFile, spec: CodeFingerprint): Tables | null {
   const span = bytesAt(rom, spec.at, spec.length)
   if (!span || fingerprint(Uint8Array.from(span)) !== spec.sha256) return null
-  const byte = (i: number) => span[PICK + i]!
+  const byte = (i: number) => span[i]!
   const word = (i: number) => 0x020000 | byte(i) | (byte(i + 1) << 8)
   const size = word(AT.max1) - word(AT.max)
   if (size <= 0 || word(AT.max2) - word(AT.max1) !== size) return null

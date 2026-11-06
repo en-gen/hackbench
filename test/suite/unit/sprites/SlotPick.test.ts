@@ -39,13 +39,11 @@ describe('slotWalk (synthetic loader)', () => {
     expect(slotWalk(rom, 1, SPECIAL, 0, { ...spec, sha256: 'x' })).toMatchObject({
       status: 'unrecognized',
     })
-    const same = slotCart(s => ((s[238 + 19] = s[238 + 4]), (s[238 + 20] = s[238 + 5])))
+    const same = slotCart(s => ((s[19] = s[4]), (s[20] = s[5])))
     expect(slotWalk(same.rom, 1, SPECIAL, 0, same.spec)).toMatchObject({ status: 'unrecognized' })
     // The operands name addresses below $8000, which hold no ROM, so no table can be read.
     const cut = slotCart(sp =>
-      [4, 7, 14, 19, 22, 29, 44].forEach(
-        (o, i) => ((sp[238 + o] = i * 4), (sp[238 + o + 1] = 0x10)),
-      ),
+      [4, 7, 14, 19, 22, 29, 44].forEach((o, i) => ((sp[o] = i * 4), (sp[o + 1] = 0x10))),
     )
     expect(slotWalk(cut.rom, 1, SPECIAL, 0, cut.spec)).toMatchObject({ status: 'unreadable', reason: 'the loader tables could not be read' }) // prettier-ignore
   })
@@ -68,7 +66,7 @@ describe('slotWalk (synthetic loader)', () => {
 describe.skipIf(!hasRom(VANILLA))('slotWalk (vanilla loader, corpus)', () => {
   const v = () => freshRom()
   const w = (s: number, a: number) => slotWalk(v(), s, 0x64, a)
-  it('is the fingerprinted loader', () => expect(LOADER_PICK.length).toBe(300))
+  it('is the fingerprinted loader', () => expect(LOADER_PICK.length).toBe(62))
   it('setting 1: odd coordinate slot 7 (fixed); even slot 5, or 0 when the ordinary slots are busy (both short)', () => {
     expect(w(1, 0x10)).toEqual({ status: 'ok', long: 7, short: 7 })
     expect(w(1, 0x00)).toEqual({ status: 'ok', long: 5, short: 0 })

@@ -1,6 +1,6 @@
 /**
- * A synthetic loader for SlotPick (#1230): a 300-byte span of filler with the table operands and immediates at the offsets
- * the module reads (the pick starts 238 bytes in), over seven small tables. The filler and the table numbers are not the
+ * A synthetic loader for SlotPick (#1230): a 62-byte span of filler with the table operands and immediates at the offsets
+ * the module reads, over seven small tables. The filler and the table numbers are not the
  * game's; the fingerprint is taken from this cart. The special id is the one id the call-site tests list ($64, a sprite id,
  * not a ROM byte table); every other number differs from the vanilla rows.
  */
@@ -10,8 +10,7 @@ import type { CodeFingerprint } from '../../../src/rom/sprites/interp/InitLatche
 
 export const SPECIAL = 0x64
 export const RESERVED1 = 0x2d
-const AT = 0x02a7f6
-const PICK = 238
+const AT = 0x02a8e4
 const T = {
   max: 0xb000,
   max1: 0xb004,
@@ -38,8 +37,8 @@ export function slotCart(
   rows = ROWS,
   size = 0x80000,
 ): { rom: RomFile; spec: CodeFingerprint } {
-  const span = Array.from({ length: 300 }, (_, i) => (i * 37 + 11) & 0xff)
-  const put = (i: number, a: number) => ((span[PICK + i] = a & 0xff), (span[PICK + i + 1] = a >> 8))
+  const span = Array.from({ length: 62 }, (_, i) => (i * 37 + 11) & 0xff)
+  const put = (i: number, a: number) => ((span[i] = a & 0xff), (span[i + 1] = a >> 8))
   put(4, T.max)
   put(7, T.start)
   put(14, T.res1)
@@ -47,9 +46,9 @@ export function slotCart(
   put(22, T.start1)
   put(29, T.res2)
   put(44, T.max2) // prettier-ignore
-  span[PICK + 34] = SPECIAL
-  span[PICK + 40] = 0x10
-  span[PICK + 47] = 0xff
+  span[34] = SPECIAL
+  span[40] = 0x10
+  span[47] = 0xff
   mutate(span)
   const buf = Buffer.alloc(size)
   buf.set(span, 0x10000 + (AT & 0x7fff))
@@ -64,6 +63,6 @@ export function slotCart(
   tab(T.res2, rows.res2)
   return {
     rom: RomFile.fromBytes('synthetic.sfc', buf),
-    spec: { at: AT, length: 300, sha256: fingerprint(Uint8Array.from(span))! },
+    spec: { at: AT, length: 62, sha256: fingerprint(Uint8Array.from(span))! },
   }
 }
