@@ -393,8 +393,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Starts a map in this widget; a reused tab drops the earlier map's replies via the open counter. */
   async open(options: MapViewOptions): Promise<void> {
-    // Before anything reads `view.state`, and before the New early return: a reused tab on another
-    // map starts unpressed (D181), while the view toggles carry over.
+    // First, before `view.state` is read or the New early return: another map starts unpressed (D181).
     if (isDifferentMap(this.options, options)) this.view.reset()
     this.options = options
     this.id = `${MAP_VIEW_ID}:${options.index}`
