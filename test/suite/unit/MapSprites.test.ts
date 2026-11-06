@@ -99,6 +99,17 @@ describe('drawSprites', () => {
     expect(sized(s!)).toEqual([16, 16])
   })
 
+  it('keeps the note and its detail on the marker, whether no piece has art or no piece came back (#1254)', () => {
+    const told = { note: 'One Eerie did not draw.', noteDetail: 'the refusal' }
+    const unloaded = drawSprites([spr(0, 0, 0)], MODEL, () => ({
+      ...ok(part(0x5fe, 0, 0)),
+      ...told,
+    }))
+    const empty = drawSprites([spr(0, 0, 0)], MODEL, () => ({ ...ok(), ...told }))
+    expect(unloaded[0]).toMatchObject({ status: 'placeholder', reason: 'charsNotLoaded', ...told })
+    expect(empty[0]).toMatchObject({ status: 'placeholder', reason: 'noParts', ...told })
+  })
+
   it('a sprite whose chars are all loaded carries no unverified note', () => {
     const [s] = drawSprites([spr(0, 0, 0)], MODEL, () => ok(part(0x400, 0, 0), part(0x401, 8, 0)))
     expect(s).toMatchObject({ status: 'drawn' })

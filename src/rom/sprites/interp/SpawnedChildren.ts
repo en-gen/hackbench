@@ -51,13 +51,12 @@ export interface SpawnedChildren {
 export interface UndrawnChildren {
   noun: 'Eerie' | 'platform'
   count: number
-  why: string
 }
 
-/** The one sentence for undrawn children, singular for 1 ("1 Eerie did not draw: ..."). */
+/** The one sentence for undrawn children, singular for 1 ("1 Eerie did not draw."); the reason goes in `noteDetail`. */
 export function undrawnNote(u: UndrawnChildren): string {
   const noun = u.count === 1 ? u.noun : u.noun === 'Eerie' ? 'Eeries' : 'platforms'
-  return `${u.count} ${noun} did not draw: ${u.why}`
+  return `${u.count} ${noun} did not draw.`
 }
 
 /**

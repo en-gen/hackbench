@@ -8,7 +8,8 @@ import { describe, expect, it } from 'vitest'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
 import type { RomFile } from '../../../src/rom/RomFile'
 import { bytesAt } from '../../../src/rom/sprites/interp/Guards'
-import { runOnce } from '../../../src/rom/sprites/interp/SpriteRunner'
+import { runOnce, type SpriteModel } from '../../../src/rom/sprites/interp/SpriteRunner'
+import { fiveEeries } from '../../../src/rom/sprites/interp/FiveEeries'
 import { interpDrawer } from '../../../theia/extension/src/node/map-sprites'
 import { buildSyntheticRom } from '../support/syntheticSpriteRom'
 import {
@@ -75,6 +76,65 @@ describe('sprite $DE on the map', () => {
     expect(right.length).toBe(4)
     expect(Math.min(...left) & 0xff).toBe(SYNTHETIC_SPEEDS.marioLeft)
     expect(Math.min(...right) & 0xff).toBe(SYNTHETIC_SPEEDS.marioRight)
+  })
+
+  it('keeps a spawned Eerie refusal in note detail, not the visible note', () => {
+    const rom = buildSyntheticRom({ eeries: {} })
+    const seed = eeriesSeed(100)
+    const realRun = runOnce
+    let n = 0
+    const r = fiveEeries(
+      rom,
+      seed,
+      { x: 832, y: 368, index: entry.index, streamOffset: entry.streamOffset },
+      SYNTHETIC_EERIES_ROUTINES as never,
+      1,
+      (cart, id, childSeed, opts) => {
+        const m = realRun(cart, id, childSeed, opts)
+        if (n++ !== 1) return m
+        return {
+          ...m,
+          anchor: undefined,
+          chosen: undefined,
+          emptyReason: 'drew no OAM tile in 1 passes',
+        } as SpriteModel
+      },
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.notes.join(' ')).toBe('1 Eerie did not draw.')
+    expect(r.notes.join(' ')).not.toMatch(/opcode|unsupported|refused|interpreter/i)
+    expect(r.noteDetail).toMatch(/drew no OAM tile in 1 passes/)
+    expect(r.unverified).toEqual([])
+  })
+
+  it('uses the plural note when multiple spawned Eeries do not draw', () => {
+    const rom = buildSyntheticRom({ eeries: {} })
+    const seed = eeriesSeed(100)
+    const realRun = runOnce
+    let n = 0
+    const r = fiveEeries(
+      rom,
+      seed,
+      { x: 832, y: 368, index: entry.index, streamOffset: entry.streamOffset },
+      SYNTHETIC_EERIES_ROUTINES as never,
+      1,
+      (cart, id, childSeed, opts) => {
+        const m = realRun(cart, id, childSeed, opts)
+        const call = n++
+        if (call !== 1 && call !== 2) return m
+        return {
+          ...m,
+          anchor: undefined,
+          chosen: undefined,
+          emptyReason: 'drew no OAM tile in 1 passes',
+        } as SpriteModel
+      },
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.notes).toEqual(['2 Eeries did not draw.'])
+    expect(r.noteDetail).toMatch(/drew no OAM tile in 1 passes/)
   })
 
   it('draws in a vertical map from the loader-provided inputs: the spawner gets the entry Y as its X, and says it is unchecked', () => {
