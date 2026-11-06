@@ -92,13 +92,13 @@ public); the probe still blanks them.
   digits-only two-character token next to a comma reads as decimal, so a list such
   as `10, 32` is not read as hex. The only override is `git push --no-verify` with a
   stated reason; CI has no bypass.
-- **Evidence** (2026-11-05, one machine, vanilla US, 17 remote heads). On develop
+- **Evidence** (2026-11-05, one machine, vanilla US, 16 remote heads). On develop
   75 of 1,297 non-`.md` text files hold a run (1,092 windows, comments scanned; 71
   files and 1,166 windows with comments blanked). By longest run, 32 of the 75 hold
   at most 2 windows, 45 at most 4, 57 at most 8, 18 more than 8, 7 more than 16 (the
   longest is 36). Only 1 of the 1,092 windows is a single-bit mask table: ordinary
   tables of that kind are the known legitimate sort. Nothing can prove a short
-  match legitimate; the rest go to #1253. Beyond develop, 14 other heads add no file
+  match legitimate; the rest go to #1253. Beyond develop, 13 other heads add no file
   by path; `feature/music-import-prototype` adds 9 files with a run (windows per
   file: 1, 1, 1, 1, 1, 1, 3, 26, 3) and `feature/sprite-interpreter-spike` 6 (1 each).
 - **Ratchet** (D157), only where a ROM is present. The test counts, per synthetic
