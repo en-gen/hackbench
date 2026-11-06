@@ -794,6 +794,10 @@ function readBlobs(unique, total) {
   return out
 }
 
+let lookup // chosen on first use, once per process: a run with no candidate file never opens the ROM
+const lookupOnce = () =>
+  (lookup ??= romWindowLookup(process.env, m => process.stderr.write(m)) ?? false)
+
 /** Evaluates a de-duplicated (path, blob) entry set plus commit messages. */
 function evaluateEntries(entries, messages = [], whole = false, judge = true) {
   const seen = new Map() // `${path}\0${blob}` -> first entry (for "first added")
@@ -815,9 +819,6 @@ function evaluateEntries(entries, messages = [], whole = false, judge = true) {
     }
   }
   const blobShas = [...pathOf.keys()]
-  let lookup // chosen on first use, so a run with no candidate file never opens the ROM
-  const lookupOnce = () =>
-    (lookup ??= romWindowLookup(process.env, m => process.stderr.write(m)) ?? false)
   try {
     readBudgeted(blobShas, pathOf, whole, blobs => {
       if (!whole) {

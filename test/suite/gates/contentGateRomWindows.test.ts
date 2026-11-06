@@ -281,6 +281,22 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
     },
   )
 
+  it('a push of several refs loads the ROM once and says why it did not run once', () => {
+    const r = repo()
+    commitFile(r, 'planted.ts', run)
+    r.g('remote', 'add', 'origin', bare())
+    r.g('branch', 'second')
+    const sha = r.g('rev-parse', 'feature')
+    const lines = ['feature', 'second'].map(b => `refs/heads/${b} ${sha} x ${'0'.repeat(40)}`)
+    const p = cli(
+      r.dir,
+      romsDir('bmulti', prng(BIG, 3)),
+      ['push', 'origin'],
+      `${lines.join('\n')}\n`,
+    )
+    expect(p.stderr.toString().match(/fails its internal checksum/g)).toHaveLength(1)
+  })
+
   it('range: a run committed then removed or rewritten is blocked; a later edit is not judged', () => {
     const r = repo()
     commitFile(r, 'gone.ts', run)
