@@ -198,7 +198,7 @@ const expectPad = (got, want) => {
 
 /**
  * The off-map canvas's opaque pixels, in MAP pixels: counts by region (left of the map, over it, right of it,
- * above, below) and the x and y range of those left of the map.
+ * above, below), the x and y range of those left of the map, and the lowest opaque y (`maxY`, anywhere).
  */
 const canvasPixels = (page, index) =>
   page.evaluate(sel => {
@@ -219,11 +219,12 @@ const canvasPixels = (page, index) =>
         for (let dx = -1; dx <= 1; dx++) if (d[((y + dy) * w + x + dx) * 4 + 3] === 0) return false
       return true
     }
-    const out = { left: 0, right: 0, above: 0, below: 0, map: 0, minX: 1e9, maxX: -1e9, first: null, inner: null, padL, padT, cw: c.width, ch: c.height } // prettier-ignore
+    const out = { left: 0, right: 0, above: 0, below: 0, map: 0, minX: 1e9, maxX: -1e9, maxY: -1e9, first: null, inner: null, padL, padT, cw: c.width, ch: c.height } // prettier-ignore
     for (let y = 0; y < c.height; y++)
       for (let x = 0; x < c.width; x++) {
         if (data[(y * c.width + x) * 4 + 3] === 0) continue
         const [mx, my] = [x - padL, y - padT]
+        out.maxY = Math.max(out.maxY, my)
         if (mx >= 0 && mx < mapW && my >= 0 && my < mapH) out.map++
         else if (mx < 0) {
           out.left++
@@ -396,14 +397,9 @@ test('$DD: platform pixels land in the left pad: 8 px rounds up to one 16 px til
   expect(px.map).toBe(0)
 })
 
-// Map $102 used to hold 24 px of sprites below the map. That was the INIT retry loop letting its floating platforms
-// and spike balls sink (SpriteRunner.ts:912-921; status 1 at SMWDisX bank_01.asm:6842-6844) because the loader had
-// skipped the Layer 3 handler and the tide read as no liquid (#842, docs/sprites/sprite-a4-floating-spike-ball.md;
-// InitFloatingPlat/InitFloatSpkBall, bank_01.asm:6815-6834). #842 and #1119 (draw at the placed spot) ended it for
-// good. So the band rests on a synthetic box 24 px below the map. $1B adds a real 16 px: its Wooden Spike ($AD,
-// y 368) draws five 16 px tiles from its own table (bank_03.asm:2657-2704; INIT bank_01.asm:730-734 moves nothing).
-// Emulated CPU, vanilla, one machine, one run per camera, slots 0, 16, 22, 24: cameras 200 to 300 give 5 tiles
-// (bottom 448); camera 192 would give 4 (bottom 432, no overflow). The map's camera is 208.
+// Map $102's old 24 px below the map was a sprite sinking in a retry loop (#842, #1119), so the band rests on a
+// synthetic box 24 px below the map plus $1B's real 16 px (Wooden Spike $AD): docs/sprites/sprite-ad-wooden-spike.md,
+// docs/sprites/sprite-a4-floating-spike-ball.md.
 const BELOW_24 = { x0: 64, y0: 420, x1: 96, y1: 456 }
 const addBelow24 = page => page.evaluate(b => (window.__hbExtra = [b]), BELOW_24)
 
@@ -435,6 +431,8 @@ test('$1B: a box 24 px below the map grows the bottom by 32 (24 rounds up to 32,
   expectPad(pads(r, zoom), { left: 0, top: 0, right: G, bottom: 32 })
   const px = await canvasPixels(page, 0x1b)
   expect(px.below).toBeGreaterThan(0)
+  // The real spikes end at y 447; only the box paints rows 448 to 455, so this fails if the box's pixels do not.
+  expect(px.maxY).toBeGreaterThan(448)
   expect(px.above).toBe(0)
 })
 
