@@ -62,7 +62,7 @@ export interface MapNode {
    */
   kind: 'map' | 'loop' | 'truncated'
   /**
-   * Set on a sub area the wings block links to its root (#1229): the row keeps Yoshi Heaven's
+   * Set on a sub area the wings block links to this root (#1229), on that root's row only: it keeps Yoshi Heaven's
    * icon and tooltip, which a bonus row carries as its `role`.
    */
   reachedBy?: 'yoshi-heaven'
@@ -275,7 +275,7 @@ export function buildMapTree(
     const kids = dest === undefined || subs.includes(dest) ? subs : [...subs, dest].sort((a, b) => a - b) // prettier-ignore
     const children = kids.map(i => {
       const node = adopt(i)
-      if (wingsPlaced.has(i)) node.reachedBy = 'yoshi-heaven'
+      if (i === dest) node.reachedBy = 'yoshi-heaven'
       return node
     })
     return adopt(root, children)

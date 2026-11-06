@@ -186,14 +186,25 @@ describe('the wings link in buildMapTree', () => {
     expect(t.unassigned.map(n => n.index)).toContain(0x050)
   })
 
-  it('marks every row of a slot the wings reach, also one a screen exit reaches (same root, or another)', () => {
+  it('marks a row only under the root whose own wings link placed it', () => {
+    // $001 reaches $0C8 by a plain exit; $002 holds the block, so only $002's wings link places it.
+    const r = wingsRom({ 0x001: [0x0c8], 0x002: [] })
+    const across = wingsTree(r, seamsFor(r, { 0x002: [1] }))
+    expect(yoshiUnder(across)).toEqual({ 0x002: [0x0c8] })
+    expect(across.overworld.find(n => n.index === 0x001)!.children.map(c => c.index)).toEqual([
+      0x0c8,
+    ])
+    // staleSlots is meant to span roots: the slot is placed by some root's link.
+    expect(across.wingsPlaced).toEqual([0x0c8])
+  })
+
+  it('keeps the mark when the same root reaches the slot by an exit and by the wings', () => {
+    // The wings are one of the ways into $0C8 from this root, so the row says so; the exit does not undo it.
     const r = wingsRom({ 0x001: [0x0c8], 0x002: [] })
     const same = wingsTree(r, seamsFor(r, { 0x001: [1] }))
     expect(yoshiUnder(same)).toEqual({ 0x001: [0x0c8] })
+    expect(same.overworld.find(n => n.index === 0x001)!.children.map(c => c.index)).toEqual([0x0c8])
     expect(same.wingsPlaced).toEqual([0x0c8])
-    const across = wingsTree(r, seamsFor(r, { 0x002: [1] }))
-    expect(yoshiUnder(across)).toEqual({ 0x001: [0x0c8], 0x002: [0x0c8] })
-    expect(across.wingsPlaced).toEqual([0x0c8])
   })
 
   it('does not link when the exit graph is unavailable', () => {
