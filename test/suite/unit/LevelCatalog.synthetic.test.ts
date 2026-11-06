@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
-import { SmwRom, ADDR, LEVEL_COUNT, findPlaceholderPointer } from '../../../src/rom/SmwRom'
+import { SmwRom, ADDR, LEVEL_COUNT, findCommonPointer } from '../../../src/rom/SmwRom'
 import { loromToOffset } from '../../../src/rom/addressing'
 import { buildLevelCatalog } from '../../../src/rom/LevelCatalog'
 import {
@@ -55,19 +55,84 @@ describe('buildLevelCatalog (synthetic)', () => {
 
   it('marks readable real slots parseable and unreadable ones not', () => {
     const READABLE = 0x048000
-    const UNREADABLE = 0x3f8000 // maps past the end of this small synthetic buffer
+    // Resolves to the buffer's last two bytes: a valid pointer with no room for a header.
+    const UNREADABLE = 0x07fffe
     const rom = buildFakeRom(
       i => (i === 0 ? READABLE : i === 1 ? UNREADABLE : FILLER),
       new Set([READABLE]),
     )
     const catalog = buildLevelCatalog(rom)
-    expect(catalog.entries[0]).toMatchObject({ isReal: true, parseable: true })
-    expect(catalog.entries[1]).toMatchObject({ isReal: true, parseable: false })
+    expect(catalog.entries[0]).toMatchObject({ isReal: true, pointed: true, parseable: true })
+    expect(catalog.entries[1]).toMatchObject({ isReal: true, pointed: true, parseable: false })
     expect(catalog.parseableCount).toBe(1)
     // realCount - parseableCount is the machine-readable gap; a note exists
     // to surface it in a UI, but tests assert on the counts, not its wording.
     expect(catalog.realCount - catalog.parseableCount).toBe(1)
     expect(catalog.notes.length).toBeGreaterThan(0)
+  })
+
+  // D155: zero or a pointer outside the ROM file is New (not pointed); a pointer that
+  // resolves stays a map even when its data cannot be read. Swept over both sides of the end.
+  it.each([
+    [0, false],
+    [0x3f8000, false], // bank 7F: past the end of this 256 KB buffer
+    [0x7e8000, false], // WRAM
+    [0x001234, false], // registers / low RAM
+    [0x07fffe, true], // last two bytes of the buffer
+    [0x048000, true],
+  ])('a slot at pointer $%s is pointed: %s', (ptr, pointed) => {
+    const catalog = buildLevelCatalog(buildFakeRom(i => (i === 5 ? ptr : FILLER)))
+    expect(catalog.entries[5]).toMatchObject({ pointed, isReal: pointed })
+    if (!pointed) expect(catalog.entries[5]!.parseable).toBe(false)
+  })
+
+  it('marks every slot on the most common pointer pointed and shared, but not real', () => {
+    const catalog = buildLevelCatalog(buildFakeRom(i => (i < 100 ? FILLER : 0x038000 + i)))
+    const shared = catalog.entries.slice(0, 100)
+    expect(shared.every(e => e.pointed && e.sharedPointer && !e.isReal)).toBe(true)
+    expect(catalog.sharedPointerCount).toBe(100)
+    expect(catalog.entries.slice(100).every(e => e.pointed && !e.sharedPointer && e.isReal)).toBe(
+      true,
+    )
+  })
+
+  // F3: a stream is readable when it reaches its end marker, not merely when five bytes fit.
+  it('marks a pointed slot terminated only when its stream reaches the end marker', () => {
+    // The readable one sits lowest: a walk from a higher pointer never reaches its end marker.
+    const READABLE = 0x018000
+    const NO_END = 0x068000 // zero bytes: 3-byte objects to the end of the file
+    const catalog = buildLevelCatalog(
+      buildFakeRom(i => (i === 0 ? READABLE : i === 1 ? NO_END : 0x078000), new Set([READABLE])),
+    )
+    expect(catalog.entries[0]).toMatchObject({ parseable: true, terminated: true })
+    expect(catalog.entries[1]).toMatchObject({ pointed: true, parseable: true, terminated: false })
+    expect(catalog.entries[2]!.terminated).toBe(false) // the shared room has no end marker either
+    expect(catalog.entries[5]!.terminated).toBe(false)
+  })
+
+  it('gives every slot on one pointer the same answer, walking that stream once', () => {
+    const SHARED_READABLE = 0x048000
+    const rom = buildFakeRom(() => SHARED_READABLE, new Set([SHARED_READABLE]))
+    const walks = vi.spyOn(rom, 'isLevelStreamTerminated')
+    const catalog = buildLevelCatalog(rom)
+    expect(catalog.entries.every(e => e.terminated)).toBe(true)
+    expect(walks).toHaveBeenCalledTimes(1)
+    const bad = buildLevelCatalog(buildFakeRom(() => 0x058000))
+    expect(bad.entries.some(e => e.terminated)).toBe(false)
+  })
+
+  // F2: a pointer that makes slots New must not be picked as the common pointer.
+  it('ignores pointers outside the file when choosing the common one', () => {
+    const REAL = 0x068000
+    const READABLE = new Set([REAL])
+    const catalog = buildLevelCatalog(
+      buildFakeRom(i => (i < 20 ? 0x7e8000 : i < 35 ? REAL : 0), READABLE),
+    )
+    expect(catalog.fillerPointer).toBe(REAL)
+    expect(catalog.sharedPointerCount).toBe(15)
+    expect(catalog.realCount + catalog.sharedPointerCount).toBe(15)
+    expect(catalog.entries.filter(e => e.sharedPointer && !e.pointed)).toEqual([])
+    expect(catalog.entries.slice(0, 20).every(e => !e.pointed && !e.isReal)).toBe(true)
   })
 
   it('omits the partial-parse note when every real slot reads back', () => {
@@ -99,7 +164,7 @@ describe('buildLevelCatalog (synthetic)', () => {
       const rom = buildFakeRom(i => (i < 212 ? FILLER : REUSED_REAL))
       const catalog = buildLevelCatalog(rom)
       expect(catalog.fillerPointer).toBe(REUSED_REAL)
-      expect(catalog.notes.join(' ')).toMatch(/runner-up appears 212 times/)
+      expect(catalog.notes.join(' ')).toMatch(/another by 212\./)
     })
 
     // The share floor is 10% of 512 = 51.2 slots: 51 is under it, 52 is over. The runner-up
@@ -107,11 +172,11 @@ describe('buildLevelCatalog (synthetic)', () => {
     it.each([
       [51, true],
       [52, false],
-    ])('%i placeholder slots of 512: low-confidence note is %s', (n, fires) => {
+    ])('%i slots on the most common pointer of 512: low-confidence note is %s', (n, fires) => {
       const rom = buildFakeRom(i => (i < n ? FILLER : i < n + 9 ? RUNNER_UP : 0x038000 + i))
       const catalog = buildLevelCatalog(rom)
       expect(catalog.fillerPointer).toBe(FILLER)
-      expect(/confidence low/.test(catalog.notes.join(' '))).toBe(fires)
+      expect(/Not sure which maps share level data/.test(catalog.notes.join(' '))).toBe(fires)
     })
 
     it('stays silent on the confidence check with a wide margin and a share above a tenth', () => {
@@ -119,16 +184,16 @@ describe('buildLevelCatalog (synthetic)', () => {
       const rom = buildFakeRom(i => (i < 100 ? FILLER : i < 109 ? RUNNER_UP : 0x038000 + i))
       const catalog = buildLevelCatalog(rom)
       expect(catalog.fillerPointer).toBe(FILLER)
-      expect(catalog.notes.join(' ')).not.toMatch(/confidence low/)
+      expect(catalog.notes.join(' ')).not.toMatch(/Not sure which maps share level data/)
     })
 
-    it('names no placeholder when every pointer is distinct, and treats every slot as real', () => {
+    it('names no common pointer when every pointer is distinct, and every slot is real', () => {
       // Was: the no-threshold mode picked pointers[0] and a note flagged it. The >=10
-      // rule (findPlaceholderPointer) now declines, so nothing is invented as filler.
+      // rule (findCommonPointer) now declines, so nothing is invented as filler.
       const rom = buildFakeRom(i => 0x038000 + i)
       const catalog = buildLevelCatalog(rom)
       expect(catalog.fillerPointer).toBe(0)
-      expect(catalog.placeholderCount).toBe(0)
+      expect(catalog.sharedPointerCount).toBe(0)
       expect(catalog.realCount).toBe(LEVEL_COUNT)
     })
 
@@ -142,10 +207,10 @@ describe('buildLevelCatalog (synthetic)', () => {
     })
   })
 
-  describe('the catalog and the exit graph agree on the placeholder (#901)', () => {
+  describe('the catalog and the exit graph agree on the most common pointer (#901, #949)', () => {
     // SmwRom's private detector feeds the exit graph; reached through a cast because
     // the point is that both consumers use one rule.
-    const graphPlaceholder = (rom: SmwRom): number | null =>
+    const graphCommon = (rom: SmwRom): number | null =>
       (rom as unknown as { _findFillerL1Pointer(): number | null })._findFillerL1Pointer()
 
     it.each([12, 10, 9])('%i slots sharing one pointer, the rest unique', n => {
@@ -153,16 +218,16 @@ describe('buildLevelCatalog (synthetic)', () => {
       const rom = buildFakeRom(i => (i < n ? SHARED : 0x038000 + i))
       const catalog = buildLevelCatalog(rom)
       const expected = n >= 10 ? SHARED : null
-      expect(graphPlaceholder(rom)).toBe(expected)
+      expect(graphCommon(rom)).toBe(expected)
       expect(catalog.fillerPointer).toBe(expected ?? 0)
-      expect(catalog.entries.filter(e => e.placeholder).length).toBe(expected ? n : 0)
-      // Below the threshold nothing is a placeholder, so every pointered slot is real.
+      expect(catalog.entries.filter(e => e.sharedPointer).length).toBe(expected ? n : 0)
+      // Below the threshold no pointer is common, so every pointed slot is real.
       expect(catalog.realCount).toBe(expected ? LEVEL_COUNT - n : LEVEL_COUNT)
     })
 
-    it('a most common pointer repeating only 9 times is no placeholder', () => {
+    it('a most common pointer repeating only 9 times names no common pointer', () => {
       const rom = buildFakeRom(i => (i < 9 ? 0x078000 : i < 17 ? 0x079000 : 0x038000 + i))
-      expect(graphPlaceholder(rom)).toBeNull()
+      expect(graphCommon(rom)).toBeNull()
       expect(buildLevelCatalog(rom).realCount).toBe(LEVEL_COUNT)
     })
   })
@@ -196,13 +261,13 @@ describe('buildLevelCatalog (synthetic)', () => {
   })
 })
 
-describe('findPlaceholderPointer tie-break', () => {
+describe('findCommonPointer tie-break', () => {
   it('on equal counts the pointer first in slot order wins', () => {
     const A = 0x018000
     const B = 0x028000
     const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) =>
       i < 12 ? A : i < 24 ? B : 0x038000 + i,
     )
-    expect(findPlaceholderPointer(pointers)).toEqual({ pointer: A, count: 12, runnerUpCount: 12 })
+    expect(findCommonPointer(pointers)).toEqual({ pointer: A, count: 12, runnerUpCount: 12 })
   })
 })

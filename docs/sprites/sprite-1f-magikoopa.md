@@ -200,3 +200,103 @@ That list of nine is not folklore: it is every sprite ID other than `$1F` whose
 `Sprite166EVals` entry (`bank_07.asm:792`, read at `bank_07.asm:977`, ROM
 `$07:F3FE`) selects OBJ palette 7, i.e. `(val & $0F) >> 1 == 7`. Enumerated over
 all 256 IDs on the vanilla ROM.
+
+## 5. Map view colors (#1097)
+
+Symptom: on map `$11C` the map view drew the Magikoopa in the level's pink row
+15 where the game shows blue.
+
+Cause, measured on the vanilla ROM (one machine): the map view runs the ROM's
+own sprite code at rest for 64 passes (`SpriteSeed.ts` `mainPasses`) and draws
+the FIRST pass that draws a tile, with the CGRAM writes made up to that pass.
+For `$1F` on `$11C` that pass is pass 1. It draws the casting pose on leaving
+state 0 (`JSR CODE_01BE82`, `bank_01.asm:8474`; the wand tile `$99` is written
+only on that path, `bank_01.asm:8570-8571`), and no rung has been uploaded yet:
+state 1 uploads from its first pass on (`CODE_01C004`, `bank_01.asm:8715-8732`,
+upload `CODE_01C028`, `bank_01.asm:8733-8755`). That pass had written nothing,
+so row 15 fell back to the level's colors. By pass 63 all eight rungs are
+written and the last stays in CGRAM (vanilla `$11C` settles at pass 30).
+
+| | CGRAM row 15 columns 0-7 |
+|---|---|
+| map view before | the level's row (no sprite write) |
+| game (capture `layers_v5/11c`, `windows/screen_00`) | `MagiKoopaPals` entry `CMP imm - 2` = entry 7 |
+| map view after | the same entry |
+
+Columns 8-15 are never written, so they keep the level's colors (composited,
+not replaced). In the capture the sprite is OAM entries 116 and 117 on
+palette 7.
+
+Fix (`theia/extension/src/node/map-sprites.ts`, `runtimeColors`), for every
+sprite and with no id test: draw the colors CGRAM holds at the end of the run
+(the run's net writes, last write per color wins, drawn pass or not). The
+picture is marked `unverified` ("... so they may differ in the game") when
+those colors may not be the settled ones:
+
+1. the colors are not shown to have finished. From pass 1 on (changes before
+   the first draw count), the passes where the net colors change are listed. They count as settled only if
+   the quiet span since the last change is at least 16 passes AND longer than the
+   longest gap between earlier changes (so an update every 22 passes, last at
+   pass 44, is marked: quiet 19, gap 22; vanilla `$11C` has gaps of about 4 and
+   a quiet span of about 33). Exactly one change gives no gap to compare and is
+   marked too ("changed only once"); vanilla has 0 such sprites and 0 such frames
+   (only `$1F` on `$11C` changes colors at all, 8 changes);
+2. the sprite's first drawn pass is inside the last 16 (a late start has had no
+   time to write). The test uses the run's first drawn pass, not the pass a
+   frame of the animation is drawn from;
+3. the sprite has an undrawn pass after its first drawn pass and its colors
+   changed on an undrawn pass, or the end colors differ from those at the last
+   drawn pass before ANY departure, or from those at its first drawn pass (a fade-out
+   and a new cycle, or A, B, gone, restored A).
+
+A run of 16 passes or fewer is not checked: that guards the loops and keeps
+hand-built models from being marked; no production run is that short. The run is not
+lengthened. Whether the fade finishes depends on the placement: state 0 waits
+on `GetRand` and a ground test.
+
+Evidence (vanilla ROM, one machine):
+
+- Placed spot on `$11C`: 262 of 387 opaque pixels were not a captured row-15
+  color before, 0 after, not marked.
+- Every vanilla sprite on the 488 maps that build (3387 sprites; 24 maps did
+  not build) and every frame `framesOf` gives them (8879): bitmaps identical to
+  develop for all but `$1F` on `$11C` (1 sprite, 2 frames), and 0 sprites and 0
+  frames newly `unverified`. The net CGRAM colors of `$C5` (`BooBossPals`) are
+  the same on all 64 passes; only the length of its write list differs.
+- Grid of the `$1F` placement over `$11C` (screens 0-9, every 3rd tile, 540
+  spots, stream bytes patched): 294 draw, of which 192 are correct and not
+  marked, 77 are on a rung before 7 (3 with no write at all, the original bug)
+  and all 77 are marked, 25 are correct and marked anyway (their colors settled
+  inside the last 16 passes); none is wrong without a mark. Same grid on
+  `$1FE`: 217 draw; 134 correct and not marked, 40 wrong and marked, 43 correct
+  and marked; none wrong without a mark.
+- Timing patches at the `$11C` placed spot (picture wrong against rung 7 in all
+  of them):
+  - marked: `$01:C00A` = 10 or 16; `$01:C023` = 4; the fade-out cases
+    (`$01:C00A`/`$01:C023` = 3/1, 3/2, 3/4, 3/6, 2/12, 1/20, where the sprite
+    fades out, leaves and starts a new cycle);
+  - Earlier rule (fixed 16-pass tail): silent at `$01:C00A` 21, 22, 31-45 and
+    62-70 (rung 2, 1, 0), because no rung landed in the last 16 passes. With the
+    event rule above, `$01:C00A` 9 to 70 at the `$11C` placed spot (62 patches),
+    `$01:C023` = 4 and the six fade-out pairs: all 69 are drawn and marked, 0
+    silent, re-run on the final code for `$01:C00A` 9-70. One machine,
+    vanilla ROM. The reviewer's wider sweep at fb82f2d6 (`$01:C00A` 1-70 plus 80,
+    100, 128, 200, 255; 14 `$01:C023` values; 4 `$01:BFE9` values; 4200 ROMs)
+    found 0 silent wrong and 3973 wrong all marked (110 right unmarked, 117 right marked, 4200 total); that run was at fb82f2d6, one
+    machine, vanilla ROM.
+- `$1FE` at its placed spot draws no tile in the run (a placeholder): it has no
+  pixels to compare, and there is no capture for it (`captures/layers_v5/1fe.zip`
+  does not exist), so nothing is claimed about its colors.
+
+The all-vanilla comparison is not a committed test: it needs a develop run to
+compare against and takes minutes. The committed tests are
+`MapSpritesMagikoopaPalette.test.ts` (synthetic) and the `$11C` capture
+comparison `MapSpritesMagikoopaPalette.corpus.test.ts`. The Playwright spec is
+`theia/browser-app/test/map-magikoopa-palette.spec.cjs`. The pose shown is the
+casting pose; that is a pose-policy matter separate from the colors.
+
+Known limit: the run cannot see changes after pass 63, so a fade that pauses
+longer than its earlier gaps looks finished and is not marked. This cannot be
+decided from the run, and a vanilla Magikoopa has the same shape. Unmarked
+examples: changes at passes 2, 4, 6, 8 with the next at 70; at 2, 30, 33; and no
+change at all with the first upload after pass 63.

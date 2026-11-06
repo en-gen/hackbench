@@ -15,11 +15,16 @@ import { loadLevelState } from '../../../src/rom/sprites/interp/LevelLoader'
 import { runOnce } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed, type SpriteSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import { readMarioStartPos } from '../../../src/rom/MarioStartPos'
-import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
+import type {
+  MapSpriteDto,
+  MapSpritesResult,
+} from '../../../theia/extension/src/common/project-protocol'
 import type { SpriteModel, SpritePart } from '../../../src/rom/sprites/interp/SpriteRunner'
 import {
   cameraFor,
   drawSprites,
+  EARLIER_SPRITE_REASON,
+  withFlames,
   engineDrawer,
   interpDrawer,
   interpParts,
@@ -27,7 +32,9 @@ import {
   spriteLayer,
   modelResult,
   partKey,
+  unverifiedNote,
   type SpriteDrawer,
+  type RunModel,
 } from '../../../theia/extension/src/node/map-sprites'
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
@@ -403,6 +410,9 @@ describe('drawSprites with runtime palette writes', () => {
   })
 })
 
+/** Only `unverified` matters to the note, so the sprite is minimal; a call without `why` is the unflagged control (#1166). */
+const mk = (n: number, why?: string) => ({ id: n, x: 0, y: 0, status: 'drawn', ...(why ? { unverified: why } : {}) }) as MapSpriteDto // prettier-ignore
+
 describe('a refused level loader marks every sprite unverified', () => {
   // A cart of zeros has no level loader: loadLevelState refuses it.
   const blank = RomFile.fromBytes('blank.sfc', Buffer.alloc(0x80000))
@@ -435,7 +445,91 @@ describe('a refused level loader marks every sprite unverified', () => {
     const r = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x10, 0xff]), { vram: chars, colors: COLORS, isVertical: true, screenCount: 3 }, draw) // prettier-ignore
     expect(seeds[0]!.loaded).toBeUndefined()
     expect(seeds[0]).toMatchObject({ level: { screenMode: 1, screens: 3 } })
-    expect(r.note).toMatch(/^Unverified: 1 sprites level loader refused/)
+    expect(r.note).toBe('Unverified: 1 sprite may not be drawn exactly as in the game.')
+    expect(r.note).not.toMatch(/loader|refused/)
+    expect(r.noteDetail).toMatch(/^level loader refused \(.+\); drawn from a placement-only seed$/)
+  })
+
+  it('names the count in words, and lists every distinct cause one per line (#1166)', () => {
+    const one = unverifiedNote([mk(1, 'cause a; with semicolon'), mk(2)])
+    expect(one).toEqual({ note: 'Unverified: 1 sprite may not be drawn exactly as in the game.', detail: 'cause a; with semicolon' }) // prettier-ignore
+    const two = unverifiedNote([mk(1, 'cause a'), mk(2, 'cause b'), mk(3)])
+    expect(two).toEqual({ note: 'Unverified: 2 sprites may not be drawn exactly as in the game.', detail: 'cause a\ncause b' }) // prettier-ignore
+    const three = unverifiedNote([mk(1, 'cause a'), mk(2, 'cause b'), mk(3, 'cause a')])
+    expect(three!.note).toBe('Unverified: 3 sprites may not be drawn exactly as in the game.')
+    expect(three!.detail).toBe('cause a\ncause b')
+    expect(unverifiedNote([mk(1)])).toBeUndefined()
+  })
+
+  // The causes as the code produces them: modelResult joins the loader refusal and a runner reason with `; `.
+  // The memory-setting text is a literal copy of SpriteRunner.ts's message (it is built inline there, no shared constant).
+  const MEMORY = 'this map uses sprite memory setting 3; the bonus game blocks were only checked for setting 1, so some may be missing' // prettier-ignore
+  /** Takes the cause from `modelResult` so the test cannot drift from the strings the code really produces. */
+  const causeOf = (o: Partial<RunModel>) => {
+    const r = modelResult(model({ refusal: 'stub', ...o }) as RunModel)
+    return !r.ok ? r.unverified : undefined
+  }
+  /** One flagged sprite per case keeps the note's count fixed at "1 sprite", so only the cause varies. */
+  const noteOf = (cause: string | undefined) => unverifiedNote([mk(1, cause)])
+  const PLAIN = 'Unverified: 1 sprite may not be drawn exactly as in the game.'
+  const generic = { seedSource: 'generic', seedReason: 'planted' } as const
+
+  it.each([
+    [
+      'a refused loader alone',
+      generic,
+      /^level loader refused \(planted\); drawn from a placement-only seed$/,
+    ],
+    [
+      'the memory setting alone',
+      { unverifiedReason: MEMORY },
+      /^this map uses sprite memory setting 3; /,
+    ],
+    [
+      'the earlier-sprite reason alone',
+      { unverifiedReason: EARLIER_SPRITE_REASON },
+      /^an earlier sprite in the list/,
+    ],
+    [
+      'a refused loader and the memory setting (one sprite, joined by "; ")',
+      { ...generic, unverifiedReason: MEMORY },
+      /^level loader refused \(planted\); drawn from a placement-only seed; this map uses/,
+    ],
+    [
+      'a refused loader and the earlier-sprite reason',
+      { ...generic, unverifiedReason: EARLIER_SPRITE_REASON },
+      /; an earlier sprite in the list/,
+    ],
+  ] as const)('%s stays out of the note and fills the detail (#1166)', (_name, o, shape) => {
+    const cause = causeOf(o as Partial<RunModel>)
+    expect(cause).toMatch(shape)
+    const r = noteOf(cause)
+    expect(r!.note).toBe(PLAIN)
+    expect(r!.note).not.toMatch(/memory|earlier|loader|refused/)
+    expect(r!.detail).toBe(cause)
+  })
+})
+
+describe('withFlames keeps both details (#1166)', () => {
+  /** Only the note fields vary between the merge cases; the rest of the layer is fixed filler. */
+  const layer = (note?: string, noteDetail?: string) => ({ status: 'ok', orientation: 'horizontal', screenCount: 1, width: 1, height: 1, sprites: [mk(1)], note, noteDetail }) as Extract<MapSpritesResult, { status: 'ok' }> // prettier-ignore
+  /** Mirrors the shape `castleFlameSprites` returns, so the merge is exercised on its real input. */
+  const flames = (note?: string, noteDetail?: string) => ({ sprites: [mk(2)], note, noteDetail })
+
+  it('joins the layer detail and the flames detail, one per line, layer first', () => {
+    const r = withFlames(layer('layer note.', 'layer cause'), flames('flame note.', 'flame cause'))
+    expect(r.noteDetail).toBe('layer cause\nflame cause')
+    expect(r.note).toBe('layer note. flame note.')
+    expect(r.sprites.map(s => s.id)).toEqual([1, 2])
+  })
+  it('keeps the layer detail when only the layer has one, and the flames detail likewise', () => {
+    expect(withFlames(layer('n', 'layer cause'), flames()).noteDetail).toBe('layer cause')
+    expect(withFlames(layer(), flames('f', 'flame cause')).noteDetail).toBe('flame cause')
+  })
+  it('puts neither detail on the visible note, and sets none when neither has one', () => {
+    const r = withFlames(layer('n', 'layer cause'), flames('f', 'flame cause'))
+    expect(r.note).not.toMatch(/cause/)
+    expect(withFlames(layer('n'), flames('f')).noteDetail).toBeUndefined()
   })
 })
 

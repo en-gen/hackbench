@@ -32,3 +32,9 @@
 .hb-props-note {
   margin-top: 4px;
 }
+.hb-props-note summary {
+  cursor: pointer;
+}
+.hb-props-note-detail {
+  margin: 2px 0 0 16px;
+}

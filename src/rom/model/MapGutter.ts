@@ -18,3 +18,10 @@ export const MAX_SCREENS = 32
  */
 export const farGutter = (screenCount: number): number =>
   screenCount >= MAX_SCREENS ? 0 : GUTTER_PX
+
+/**
+ * The most screens the view asks for past a map's last one (#1197). Off-map content can reach the 32-screen
+ * ceiling from the data (a sprite box ending at x = 8208 on a one-screen map), and the gutter adds one more
+ * screen beyond that: 33.
+ */
+export const MAX_BEYOND_SCREENS = MAX_SCREENS + 1

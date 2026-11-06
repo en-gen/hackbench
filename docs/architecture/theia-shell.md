@@ -234,11 +234,19 @@ sprite of a map as one RGBA bitmap in map pixels (`MapSpriteDto`: index, id,
 anchor, `box`, base64 `rgba`, `status` of `drawn` or `placeholder`, and the
 reason a marker is a marker: the interpreter's refusal (`refused: ...`), an
 empty run (`drew no OAM tile`), or `extraBits` / `charsNotLoaded`), plus the
-screen size and orientation. A drawn sprite may carry `unverified`: the level
-loader refused this ROM, so the sprite ran from a placement-only seed, not the
-level's state. The reply's `note` joins two caveats: the stream has no end
-marker in the bytes read (sprites past them are not drawn), and, once per map,
-that sprites were drawn unverified; the tab shows it.
+screen size and orientation. A sprite may carry `unverified`, the
+engine's own words for why HackBench cannot vouch that the picture matches the
+game; several causes can be joined by `; `, and new ones are added over time. For
+example: some of its pieces have no graphics in the map's loaded sprite set (they
+are left out and the count said; `charsNotLoaded` is the marker only when none
+has), the level loader refused this ROM (placement-only seed), the map's memory
+setting differs from the one checked, or an earlier sprite may hold its slot. The reply's `note`
+joins two caveats: the stream has no end marker in the bytes read (sprites past
+them are not drawn), and, once per map, a plain count ("Unverified: 2 sprites
+may not be drawn exactly as in the game."). The causes go in `noteDetail`, one
+per line, for the note's tooltip (the castle flames' detail joins it); the Sprites
+toggle's tooltip and the Properties line carry the same text, never the visible
+words (#1166).
 `node/map-sprites.ts` is the pure module behind it; `project-server.ts`
 reads the working copy through `WorkingRomRegistry`, as `mapScreen` does.
 It is a separate call from `mapScreen` because a sprite is not cut at screen
@@ -427,6 +435,30 @@ With the pad the widget:
   padded strip rather than the pad bands (simpler) and is mounted only when `offMapSpritePixels` returns
   pixels, so a map whose sprites all lie inside it has no such element. Like the refused overlay it is not
   drawn while the tab shows a screen error;
+- continues Layers 2 and 3 through the far end (#1197; `decisions/2026-11-05-gutter-layers-through-band.md`,
+  [PROP]): one canvas (`data-layer="gutter-layers"`, z 110: over the back area, under the off-map sprites at
+  120, the refused overlay at 150, the edge line and the collision overlay), from the map's far edge to the
+  canvas's far end, so through any off-map content band and the gutter. Mounted only where `farGutter` is
+  above 0, so a 32-screen map has none. Its pixels come from the new `mapBeyond` RPC (screens
+  `screenCount ..`, bounded by `MAX_BEYOND_SCREENS`; L2 and L3 planes only, through the same model cache as
+  `mapScreen`, whose range check is unchanged) and are fetched once the map's last screen is in view, under
+  `fetchScreen`'s cache key and generation rules. They are composed with `composeScreen` from the shown planes
+  only (`layerShown`, so toggles 2 and 3 apply; no Layer 1, sprites or flames), pixels no layer covered
+  cleared (`clearUncovered`, so the back area is not faded twice) and faded by `fadeFarEnd`: opaque across a
+  content band, then linear to clear over the last `farGutter` px, derived from the same number as `fadeMask`.
+  Layer 2: an image is one fixed 512 px plane (`L2Inputs.plane`), so it has content at any position; an object
+  stream has only the tiles it wrote past the last screen (`L2Inputs.beyond`, from `loadL2Objects`' extra
+  room), usually none, never a repeat of the last screen. Layer 3 repeats by x as on a screen (one copy when
+  it follows the camera); a vertical map has none (L3Model). The map's own grid is untouched: a `mapScreen`
+  JSON differential over 488 vanilla maps (adversarial review; one machine, one run) found 0 that differ, before and after;
+  hack ROMs are refused by the build and were not compared, so there is no hack evidence. One difference in
+  `loadL2Objects` itself: with extra room the spill of an object past the last screen moves to `beyond`, where
+  a plain call grows the row (`writeTile` pads to column $200); `map-block-contents.ts:189` iterates
+  `l2.grid` rows, so a spilled L2 block would no longer appear there (0 vanilla maps do this). The reference
+  extension has no edge continuation: `src/providers/MapEditorProvider.ts:374-387` tiles an image by modulo
+  over `screens * 16` columns, stops at the map and passes object grids through. A read that fails shows the
+  map note `data-note="gutter-layers"` (technical text in the tooltip) and is not asked again until the next
+  refresh. The gutter always composes: per screen past the end it draws the current key's reply, else that screen's last good planes (`gutterLast`, cleared by `open`, not by `refresh`), so after an edit the old planes stay up until the new replies land and a layer toggle in between hides only its own layer; a failed current key draws clear;
 - confines the checkerboard (`.hb-checkerboard`, "nothing here") to the strip without the far-end gutter: it
   reaches the near canvas edge and stops at the gutter, so where the back color fades out the panel shows
   behind it, not the checkerboard [PROP];

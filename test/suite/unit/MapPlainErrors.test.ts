@@ -158,13 +158,13 @@ describe('the start position (#967)', () => {
 })
 
 describe('mapStart reply (#967)', () => {
-  it('a refusal keeps the loader detail, falling back to its reason', () => {
+  it('a refusal keeps the plain reason and the loader detail, the reason alone when there is none', () => {
     const r = startResult({
       ok: false,
       reason: 'plain',
       detail: 'planted code changed at $05:8000',
     })
-    expect(r).toMatchObject({ status: 'unavailable', detail: 'planted code changed at $05:8000' })
+    expect(r).toMatchObject({ status: 'unavailable', detail: 'plain\nplanted code changed at $05:8000' }) // prettier-ignore
     expect(startResult({ ok: false, reason: 'plain only' })).toMatchObject({ detail: 'plain only' })
   })
   it('a found start passes through', () => {

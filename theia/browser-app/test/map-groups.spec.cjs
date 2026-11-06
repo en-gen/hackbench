@@ -141,9 +141,8 @@ async function snapshot(page) {
       // sorted by slot, there being no separate Overworld folder any more.
       unassignedSlots: unassignedChildren.map(n => n.index),
       orphans: unassignedChildren
-        // Real orphans: a placeholder slot (#901) is an orphan row too, but this suite's
-        // fixtures are about maps, so they are left to map-placeholder.spec.cjs.
-        .filter(n => n.category === 'orphan' && n.sharedCount === undefined)
+        // Every orphan row: slots on the shared pointer are ordinary orphans (#949, D156).
+        .filter(n => n.category === 'orphan')
         .map(n => ({ id: n.id, index: n.index })),
       entriesWithChildren: unassignedChildren
         .filter(n => n.children.length > 0)
@@ -996,4 +995,37 @@ test('renaming a group to a name that clashes only in case is refused, with a me
 
   const afterCancel = await snapshot(page)
   expect(afterCancel.userGroups.map(g => g.name)).toEqual(expect.arrayContaining(['Alpha', 'Beta']))
+})
+
+/** Slots on the ROM's most common Layer 1 pointer, read from the file (the table is at SNES $05E000, no copier header assumed). */
+function sharedPointerSlots() {
+  const bytes = fs.readFileSync(ROM)
+  const base = (bytes.length % 1024 === 512 ? 512 : 0) + 0x2e000
+  const bySlot = Array.from({ length: 512 }, (_, i) => bytes.readUIntLE(base + i * 3, 3))
+  const counts = new Map()
+  for (const p of bySlot) counts.set(p, (counts.get(p) ?? 0) + 1)
+  const common = [...counts].sort((a, b) => b[1] - a[1])[0][0]
+  return new Set(bySlot.flatMap((p, i) => (p === common ? [i] : [])))
+}
+
+// Vanilla orphans are mostly slots on the shared pointer (D156), so the other tests mostly use those.
+// This one keeps an orphan that is NOT on it covered, through the real menu.
+test('a real orphan off the shared pointer is grouped through the menu and sits in the group', async ({
+  page,
+}) => {
+  const manifestPath = await openProject(page, path.join(tmp, 'RealOrphan'))
+  const shared = sharedPointerSlots()
+  const tree = await snapshot(page)
+  const orphan = tree.orphans.find(n => !shared.has(n.index))
+  expect(orphan, 'fixture: vanilla has an orphan off the shared pointer').toBeDefined()
+  await ensureExpanded(page, 'Unassigned')
+
+  const row = await rowFor(page, orphan.id)
+  await row.click()
+  await row.click({ button: 'right' })
+  await addToNewGroup(page, 'Real')
+
+  await expect.poll(() => groupSlots(page, 'Real')).toEqual([orphan.index])
+  expect((await snapshot(page)).unassignedSlots).not.toContain(orphan.index)
+  expect(groupsOnDisk(manifestPath)).toEqual([{ name: 'Real', slots: [orphan.index] }])
 })

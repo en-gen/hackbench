@@ -50,6 +50,7 @@ import { renderMap16Tile } from '../../../../src/rom/TileRenderer'
 import { ghostOf, overlayHidden } from '../../../../src/rom/render/HiddenTiles'
 import { MAP_PLANE_KEYS, type MapStartResult } from '../common/project-protocol'
 import type { LevelStart } from '../../../../src/rom/LevelStart'
+import { MAX_BEYOND_SCREENS } from '../../../../src/rom/model/MapGutter'
 import { FALLBACK_SCREENS } from '../../../../src/rom/model/ScreenPlanes'
 import type {
   MapPlaneKey,
@@ -195,12 +196,17 @@ export function drawL1Planes(
   return { l1Low, l1High }
 }
 
-/** L2 (background) of one screen, from the same chars and palette as L1. */
-export function drawL2Planes(
+/**
+ * L2 over a grid read through `idAt`, shared by a map screen and a screen past the end (#1197) so both
+ * lay tiles, wrap and priorities out the same way.
+ */
+function drawL2(
   model: L1Inputs,
   l2: L2Inputs,
   screen: number,
-  vram = model.vram,
+  vram: L1Inputs['vram'],
+  rows: number,
+  idAt: (x: number, y: number) => number | null | undefined,
 ): L2Planes {
   const palette = { colors: model.colors }
   const drawn = new Map<number, Uint8ClampedArray>()
@@ -211,10 +217,10 @@ export function drawL2Planes(
   const [l2Low, l2High] = drawPlanes(
     model.isVertical,
     screen,
-    l2.grid.length,
+    rows,
     { dy: l2.dy, period },
     (x, y) => {
-      const id = l2.grid[y]?.[x]
+      const id = idAt(x, y)
       const def = id == null ? undefined : l2.tiles[id]
       if (!def) return undefined
       let rgba = drawn.get(def.id)
@@ -223,6 +229,42 @@ export function drawL2Planes(
     },
   )
   return { l2Low, l2High }
+}
+
+/** L2 (background) of one screen, from the same chars and palette as L1. */
+export function drawL2Planes(
+  model: L1Inputs,
+  l2: L2Inputs,
+  screen: number,
+  vram = model.vram,
+): L2Planes {
+  return drawL2(model, l2, screen, vram, l2.grid.length, (x, y) => l2.grid[y]?.[x])
+}
+
+/**
+ * L2 of a screen PAST the map's last one (#1197), for the gutter. An image is one fixed plane wrapping
+ * every 512 px, so it has content at any position (`l2.plane`). An object stream has only the tiles it
+ * wrote past the edge (`l2.beyond`); where it wrote none the planes are null. Nothing is repeated from the
+ * map's own screens. Separate from `drawL2Planes`, so the map's screens cannot change.
+ */
+export function drawL2Beyond(
+  model: L1Inputs,
+  l2: L2Inputs,
+  screen: number,
+  vram = model.vram,
+): L2Planes {
+  if (l2.kind === 'image' && l2.plane) {
+    const plane = l2.plane
+    return drawL2(model, l2, screen, vram, plane.length, (x, y) => plane[y]?.[x % plane[0]!.length])
+  }
+  const beyond = l2.beyond
+  if (!beyond) return { l2Low: null, l2High: null }
+  // The stream's grid past the last screen starts at this column (or row, vertical).
+  const edge = model.screenCount * (model.isVertical ? SCREEN_H_VERT : SCREEN_W)
+  // Vertical: `dy` can push the map's last rows down past the edge, so rows above it are read from the grid.
+  return model.isVertical
+    ? drawL2(model, l2, screen, vram, edge + beyond.length, (x, y) => (y < edge ? l2.grid[y] : beyond[y - edge])?.[x]) // prettier-ignore
+    : drawL2(model, l2, screen, vram, beyond.length, (x, y) => beyond[y]?.[x - edge])
 }
 
 export type L3Planes = Record<'l3Low' | 'l3High', Plane>
@@ -323,14 +365,22 @@ export function screenResult(
       reason: `Screen ${screen} is outside this map's ${model.screenCount} screens`,
     }
   }
-  const { w, h } = screenTiles(model.isVertical)
   const vram = vramFor(model, switches)
   const l2 = model.l2?.ok ? model.l2.l2 : null
-  const drawn: Partial<Record<MapPlaneKey, Plane>> = {
+  return replyOf(model, screen, {
     ...drawL1Planes(model, screen, switches, vram),
     ...(l2 && drawL2Planes(model, l2, screen, vram)),
     ...(model.l3?.l3 && drawL3Planes(model.l3.l3, screen)),
-  }
+  })
+}
+
+/** The wire reply for a screen whose planes are drawn: the planes plus everything the view stacks and notes them by. */
+function replyOf(
+  model: MapInputs,
+  screen: number,
+  drawn: Partial<Record<MapPlaneKey, Plane>>,
+): Extract<ScreenReply, { status: 'ok' }> {
+  const { w, h } = screenTiles(model.isVertical)
   return {
     status: 'ok',
     screen,
@@ -372,6 +422,38 @@ export function screenResult(
       model.orderNote ? `Layer order unverified, drawn as BG mode 1: ${model.orderNote}` : '',
     ].filter(Boolean),
     backdrop: [model.backArea[0], model.backArea[1], model.backArea[2]],
+  }
+}
+
+/**
+ * The L2 and L3 planes of a screen past the map's last one, for the gutter (#1197). Same reply shape as a
+ * screen with every L1 plane null and no notes: the view composes it with the map's own stacking and
+ * color math. Its own bounds check; `screenResult`'s stays as it is. Vertical maps have no Layer 3
+ * (L3Model), so only L2 can be present there.
+ */
+export function beyondResult(
+  model: MapInputs,
+  screen: number,
+  switches: SwitchStateDto = SWITCHES_OFF,
+): ScreenReply {
+  const last = model.screenCount + MAX_BEYOND_SCREENS
+  if (!Number.isInteger(screen) || screen < model.screenCount || screen >= last) {
+    return {
+      status: 'unavailable',
+      reason: `Screen ${screen} is not one of the ${MAX_BEYOND_SCREENS} past this map's ${model.screenCount} screens`,
+    }
+  }
+  const l2 = model.l2?.ok ? model.l2.l2 : null
+  const drawn: Partial<Record<MapPlaneKey, Plane>> = {
+    ...(l2 && drawL2Beyond(model, l2, screen, vramFor(model, switches))),
+    ...(model.l3?.l3 && drawL3Planes(model.l3.l3, screen)),
+  }
+  // Notes and refused cells belong to the map's own screens and are already on them.
+  return {
+    ...replyOf(model, screen, drawn),
+    note: undefined,
+    refusedCells: undefined,
+    layerNotes: [],
   }
 }
 
@@ -531,11 +613,11 @@ const PALACE_UNDRAWN = 'this block could not be drawn on this ROM.'
 export const unreadable = (detail: string, reason = MAP_UNREADABLE) =>
   ({ status: 'unavailable', reason, detail }) as const
 
-/** A level-start read as the RPC reply: on failure the loader's `detail` (the diagnostic, e.g. on a changed-code ROM) is kept, `reason` only when there is none (#967). */
+/** A level-start read as the RPC reply: on failure the plain `reason` and the loader's `detail` (the diagnostic, e.g. on a changed-code ROM) are both kept, the reason alone when there is no detail (#967, #1166). */
 export const startResult = (s: LevelStart): MapStartResult =>
   s.ok
     ? { status: 'ok', screen: s.screen, x: s.x, y: s.y, vertical: s.vertical }
-    : startUnavailable(s.detail ?? s.reason)
+    : startUnavailable(s.detail ? `${s.reason}\n${s.detail}` : s.reason)
 
 /** A start position the entrance loader could not work out (#967): plain words, the loader's text apart. */
 export const startUnavailable = (detail: string) =>
@@ -545,8 +627,23 @@ export const startUnavailable = (detail: string) =>
     detail,
   }) as const
 
-/** Builds one screen; a refusal keeps the cache's plain-words reason and carries the gate text as detail (#967). */
-export function mapScreen(
+/** The cached model's screen, or its refusal: the cache's plain-words reason with the gate text as detail (#967). */
+function onModel(
+  cache: L1ModelCache,
+  bytes: Uint8Array,
+  romPath: string,
+  index: number,
+  flags: SwitchFlagsDto,
+  build: (model: MapInputs) => ScreenReply,
+): ScreenReply {
+  const built = cache.get(bytes, romPath, index, flags)
+  if (built.ok) return build(built.inputs)
+  // The cache already swapped the exception or gate text for plain words (#967); a screen note is a sentence, so only the casing is the caller's.
+  return { status: 'unavailable', reason: built.reason.replace(/^./, c => c.toUpperCase()), detail: built.detail } // prettier-ignore
+}
+
+/** Builds one screen of the map. */
+export const mapScreen = (
   cache: L1ModelCache,
   bytes: Uint8Array,
   romPath: string,
@@ -554,12 +651,20 @@ export function mapScreen(
   screen: number,
   flags: SwitchFlagsDto,
   switches: SwitchStateDto = SWITCHES_OFF,
-): ScreenReply {
-  const built = cache.get(bytes, romPath, index, flags)
-  if (built.ok) return screenResult(built.inputs, screen, switches)
-  // The cache already swapped the exception or gate text for plain words (#967); a screen note is a sentence, so only the casing is the caller's.
-  return { status: 'unavailable', reason: built.reason.replace(/^./, c => c.toUpperCase()), detail: built.detail } // prettier-ignore
-}
+): ScreenReply =>
+  onModel(cache, bytes, romPath, index, flags, m => screenResult(m, screen, switches))
+
+/** Builds one screen past the last, for the gutter (#1197), from the same cached model as `mapScreen`. */
+export const mapBeyond = (
+  cache: L1ModelCache,
+  bytes: Uint8Array,
+  romPath: string,
+  index: number,
+  screen: number,
+  flags: SwitchFlagsDto,
+  switches: SwitchStateDto = SWITCHES_OFF,
+): ScreenReply =>
+  onModel(cache, bytes, romPath, index, flags, m => beyondResult(m, screen, switches))
 
 /**
  * The toolbar's art for this map: each palace's block (per ROM) and each
