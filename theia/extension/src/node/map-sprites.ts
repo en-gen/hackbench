@@ -73,6 +73,7 @@ import {
   type FlameRoutines,
 } from '../../../../src/rom/sprites/interp/CastleFlames'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
+import { undrawnNote, type UndrawnChildren } from '../../../../src/rom/sprites/interp/SpawnedChildren'
 import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
 import {
   EERIES_COUNT,
@@ -172,6 +173,8 @@ export type SpriteDrawResult =
       children?: { index: number; parts: DrawPart[] }[]
       /** A plain-words line about what the map shows of this sprite (not a flaw): it goes on the map's note line. */
       note?: string
+      /** The undrawn spawned children behind `note`, as data (#1281). */
+      undrawn?: UndrawnChildren
     })
   | Extract<EngineResult, { ok: false }>
   | { ok: false; reason: string; unverified?: string }
@@ -324,6 +327,7 @@ export function drawSprites(
       status: 'drawn',
       ...(unverified ? { unverified } : {}),
       ...('note' in res && res.note ? { note: res.note } : {}),
+      ...('undrawn' in res && res.undrawn ? { undrawn: res.undrawn } : {}),
     }
   }
   // Sprites a parent drew (the $9B a $9C picks up, #1049) are part of the parent's picture, not unexplained.
@@ -623,6 +627,7 @@ function eeriesResult(
     identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
     // Fewer than five is the game's answer for this map's slot range, not a flaw: said in plain words, not `unverified`.
     ...(notes.length ? { note: notes.join(' ') } : {}),
+    ...(r.undrawn ? { undrawn: r.undrawn } : {}),
     ...(why
       ? { unverified: `the five Eeries are drawn from the spawner the loader calls, and ${why}` }
       : {}),
@@ -673,6 +678,7 @@ function platformsResult(
     anchor: { x, y },
     identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
     ...(notes.length ? { note: notes.join(' ') } : {}),
+    ...(r.undrawn ? { undrawn: r.undrawn } : {}),
     ...(why
       ? {
           unverified: `the three platforms are drawn from the spawner the loader calls, and ${why}`,
@@ -992,6 +998,28 @@ const named = (s: MapSpriteDto): MapSpriteDto => {
   return name ? { ...s, name } : s
 }
 
+/**
+ * The map's sprite notes: each sprite's note collapsed through a Set (the same sentence on many sprites shows once),
+ * except undrawn spawned children, which are summed per noun so two spawners that each lose one say 2 (#1281).
+ */
+export function mapNotes(sprites: MapSpriteDto[]): string[] {
+  const rest = new Set<string>()
+  const sums = new Map<string, { n: number; whys: Set<string> }>()
+  for (const s of sprites) {
+    if (!s.note) continue
+    const own = s.undrawn ? undrawnNote(s.undrawn) : undefined
+    const left = own ? s.note.replace(own, '').trim() : s.note
+    if (left) rest.add(left)
+    if (!s.undrawn) continue
+    const sum = sums.get(s.undrawn.noun) ?? { n: 0, whys: new Set<string>() }
+    sum.n += s.undrawn.count
+    sum.whys.add(s.undrawn.why)
+    sums.set(s.undrawn.noun, sum)
+  }
+  const total = [...sums].map(([noun, { n, whys }]) => undrawnNote({ noun: noun as UndrawnChildren['noun'], count: n, why: [...whys].join('; ') })) // prettier-ignore
+  return [...rest, ...total]
+}
+
 /** The reply for a stream: its sprites drawn, in the geometry of the map's screens. */
 export function spriteLayer(
   data: Uint8Array,
@@ -1017,7 +1045,7 @@ export function spriteLayer(
           ? undefined
           : 'The sprite stream has no end marker in the bytes read: sprites past them are not drawn.',
         unverified?.note,
-        ...new Set(sprites.flatMap(s => (s.note ? [s.note] : []))),
+        ...mapNotes(sprites),
       ]
         .filter(Boolean)
         .join(' ') || undefined,

@@ -6,6 +6,7 @@
  * contract both ends compile against.
  */
 import type { EditEvent } from '../../../../src/project/EditEvent'
+import type { UndrawnChildren } from '../../../../src/rom/sprites/interp/SpawnedChildren'
 import type { ScreenPlanes } from '../../../../src/rom/model/ScreenPlanes'
 import type { Map16SwitchButtonImages, Map16SwitchKind } from './map16-protocol'
 
@@ -354,6 +355,8 @@ export interface MapSpriteDto {
   unverified?: string
   /** A plain-words line about what the map shows of this sprite, not a flaw (for example fewer Eeries than the placement asks for); the map's note line carries it too. */
   note?: string
+  /** Spawned children that did not draw, as data: the map's note sums them across spawners (#1281); `note` keeps the full text. */
+  undrawn?: UndrawnChildren
 }
 
 /**
