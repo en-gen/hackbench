@@ -83,7 +83,8 @@ describe('the three platforms', () => {
     expect(r.spawned).toBe(3)
     expect(r.parts.map(p => p.char)).toEqual([0x11 | 0x80, 0x33 | 0x80])
     expect(r.notes).toHaveLength(1)
-    expect(r.notes[0]).toMatch(/^1 platform did not draw: /)
+    expect(r.notes).toEqual(['1 platform did not draw.'])
+    expect(r.noteDetail).toBeTruthy()
   })
 
   it('draws every platform an edited spawner makes, not only three', () => {
@@ -302,7 +303,8 @@ describe('the gaps a real runner does not reach', () => {
 
   it('says "drew no tile" and uses the plural when two spawns drew nothing and gave no reason', () => {
     const r = threePlatforms(platformCart(), seed, entry, SYN, 1, mute)
-    expect(r.ok && r.notes).toEqual(['2 platforms did not draw: drew no tile'])
+    expect(r.ok && r.notes).toEqual(['2 platforms did not draw.'])
+    expect(r.ok && r.noteDetail).toBe('drew no tile')
     expect(r.ok && r.parts).toHaveLength(1)
   })
 
