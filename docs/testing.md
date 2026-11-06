@@ -102,7 +102,7 @@ public); the probe still blanks them.
   by path; `feature/music-import-prototype` adds 9 files with a run (windows per
   file: 1, 1, 1, 1, 1, 1, 3, 26, 3) and `feature/sprite-interpreter-spike` 6 (1 each).
 - **Ratchet** (D157), only where a ROM is present. The test counts, per synthetic
-  builder in `test/suite/support`, the windows shared with the vanilla ROM; 15 of 34
+  builder in `test/suite/support`, the windows shared with the vanilla ROM; 12 of 34
   are non-zero. Every builder is pinned at default or fixed arguments only. A count
   that changes fails, a builder missing from the pin fails, and every support module
   and every exported function returning `Uint8Array` or `RomFile` must be listed
