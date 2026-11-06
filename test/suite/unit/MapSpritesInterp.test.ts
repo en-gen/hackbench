@@ -450,6 +450,15 @@ describe('a refused level loader marks every sprite unverified', () => {
     expect(r.noteDetail).toMatch(/^level loader refused \(.+\); drawn from a placement-only seed$/)
   })
 
+  it('keeps the note detail of a sprite beside the unverified causes on the tooltip, each once (#1254)', () => {
+    const interp = interpDrawer(blank, 0x105, { isVertical: true, screenCount: 3 }, (_r, _i, seed) => ran(true, seed)) // prettier-ignore
+    const draw: typeof interp = (...args) => ({ ...interp(...args), note: 'A plain note.', noteDetail: 'child cause' }) as ReturnType<typeof interp> // prettier-ignore
+    const r = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x10, 0x20, 0x01, 0x10, 0xff]), { vram: chars, colors: COLORS, isVertical: true, screenCount: 3 }, draw) // prettier-ignore
+    expect(r.sprites.filter(s => s.noteDetail)).toHaveLength(2)
+    expect(r.noteDetail!.split('\n')).toEqual([expect.stringMatching(/^level loader refused/), 'child cause']) // prettier-ignore
+    expect(r.note).not.toMatch(/child cause/)
+  })
+
   it('names the count in words, and lists every distinct cause one per line (#1166)', () => {
     const one = unverifiedNote([mk(1, 'cause a; with semicolon'), mk(2)])
     expect(one).toEqual({ note: 'Unverified: 1 sprite may not be drawn exactly as in the game.', detail: 'cause a; with semicolon' }) // prettier-ignore

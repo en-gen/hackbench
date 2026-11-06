@@ -96,7 +96,14 @@ export interface PlatformEntry {
 }
 
 export type PlatformsResult =
-  | { ok: true; parts: SpritePart[]; unverified: string[]; spawned: number; notes: string[]; noteDetail?: string }
+  | {
+      ok: true
+      parts: SpritePart[]
+      unverified: string[]
+      spawned: number
+      notes: string[]
+      noteDetail?: string
+    }
   | { ok: false; reason: string; none?: true; unverified: string[] }
 
 /**

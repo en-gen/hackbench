@@ -102,7 +102,7 @@ describe('sprite $DE on the map', () => {
     )
     expect(r.ok).toBe(true)
     if (!r.ok) return
-    expect(r.notes.join(' ')).toBe('1 Eeries did not draw.')
+    expect(r.notes.join(' ')).toBe('1 Eerie did not draw.')
     expect(r.notes.join(' ')).not.toMatch(/opcode|unsupported|refused|interpreter/i)
     expect(r.noteDetail).toMatch(/drew no OAM tile in 1 passes/)
     expect(r.unverified).toEqual([])
