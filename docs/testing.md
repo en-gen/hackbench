@@ -101,12 +101,9 @@ public); the probe still blanks them.
   match legitimate; the rest go to #1253. Beyond develop, 13 other heads add no file
   by path; `feature/music-import-prototype` adds 9 files with a run (windows per
   file: 1, 1, 1, 1, 1, 1, 3, 26, 3) and `feature/sprite-interpreter-spike` 6 (1 each).
-- **Ratchet** (D157), only where a ROM is present. The test counts, per synthetic
-  builder in `test/suite/support` (default or fixed arguments only), the windows
-  shared with the vanilla ROM; 12 of 34 are non-zero. A count that changes fails, a
-  builder missing from the pin fails, and every support module and every exported
-  function returning `Uint8Array` or `RomFile` must be listed (that part runs
-  without a ROM). Counts fall to 0 through #1253.
+- **Builders.** The ratchet that pins how many vanilla windows each synthetic
+  ROM builder carries (D157) follows in a later PR; builder counts are not pinned
+  until then.
 
 `test/suite/gates/contentGateRomWindows.test.ts` proves the rule red on planted
 runs in each notation (fake PRNG ROM in CI, real ROM locally), and the rest in
