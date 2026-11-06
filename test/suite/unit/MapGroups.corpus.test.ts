@@ -12,7 +12,13 @@ import { SmwRom } from '../../../src/rom/SmwRom'
 import { buildMapTree, type MapTree } from '../../../src/rom/MapTree'
 import type { BonusRole } from '../../../src/rom/BonusEntrances'
 import { createProject, romIdentity } from '../../../src/project/Project'
-import { VANILLA_SEED, VANILLA_SHA256, seedIfVanilla } from '../../../src/project/MapGroups'
+import {
+  VANILLA_SEED,
+  VANILLA_SHA256,
+  applyGroups,
+  seedIfVanilla,
+  staleSlots,
+} from '../../../src/project/MapGroups'
 import { freshRom, hasRom, VANILLA, MAGIC } from '../support/corpus'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -152,3 +158,37 @@ describe.skipIf(!hasRom(MAGIC))('the Lunar Magic resave seeds exactly like vanil
     }
   })
 })
+
+// #1295: $115 holds the wings block through its sub area $1E3, so Yoshi Heaven nests there. A group
+// that claims $115 must carry the whole subtree, and no map may be listed twice in one place.
+for (const name of [VANILLA, MAGIC]) {
+  describe.skipIf(!hasRom(name))(
+    `a group holding $115 keeps Yoshi Heaven under $1E3 (${name})`,
+    () => {
+      let tree: MapTree
+      beforeAll(() => {
+        tree = buildMapTree(new SmwRom(freshRom(name)))
+      })
+      const groups = [{ name: 'Yoshi', slots: [0x115, 0x12c] }]
+
+      it('carries $1E3 and the nested $1C8 into the group, with no stale note', () => {
+        const held = applyGroups(tree, groups).groups[0]!.maps.find(m => m.index === 0x115)!
+        const e3 = held.children.find(c => c.index === 0x1e3)!
+        expect(e3.children.map(c => [c.index, c.reachedBy])).toEqual([[0x1c8, 'yoshi-heaven']])
+        expect(held.children.map(c => c.index)).not.toContain(0x1c8)
+        expect(staleSlots(tree, groups)).toEqual([])
+      })
+
+      it('lists every top-level map exactly once across groups and Unassigned', () => {
+        const r = applyGroups(tree, groups)
+        const listed = [...r.groups.flatMap(g => g.maps), ...r.unassigned].map(m => m.index)
+        expect(listed.length).toBe(new Set(listed).size)
+        expect(listed.sort((a, b) => a - b)).toEqual(
+          [...tree.overworld, ...tree.bonus, ...tree.unassigned]
+            .map(m => m.index)
+            .sort((a, b) => a - b),
+        )
+      })
+    },
+  )
+}

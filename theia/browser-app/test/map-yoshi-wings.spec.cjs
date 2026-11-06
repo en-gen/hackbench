@@ -1,6 +1,7 @@
 /**
- * Yoshi Heaven in the Maps tree (#1229): it lists as a sub area of the map that holds the Yoshi wings
- * block, in that map's submap half, and follows the block when the working copy moves it.
+ * Yoshi Heaven in the Maps tree (#1229, #1295): it lists as a sub area of the map that holds the Yoshi
+ * wings block, in that map's submap half, and follows the block when the working copy moves it. A block
+ * in a sub area ($1E3, a sub area of $115) lists it under that sub area, not as a direct row of the root.
  *
  * Needs the vanilla ROM (skips without it; CI has none, the synthetic cases are in
  * MapTree.wings.synthetic.test.ts). The edits are real working-copy layers: ops/ files the server
@@ -110,8 +111,10 @@ async function snapshot(page) {
     const kids = n =>
       n ? n.children.map(c => ({ index: c.index, role: c.role ?? null, category: c.category })) : []
     const top = i => group.children.find(n => n.index === i)
+    const sub = (r, i) => top(r)?.children.find(c => c.index === i)
     return {
       under: Object.fromEntries([0x00f, 0x115, 0x12c].map(i => [i, kids(top(i))])),
+      nested: { 0x1e3: kids(sub(0x115, 0x1e3)) },
       unassigned: group.children.map(n => ({ index: n.index, category: n.category })),
     }
   })
@@ -126,8 +129,10 @@ test('Yoshi Heaven lists under the three maps that hold the wings, not in Unassi
   await load(page)
   const snap = await snapshot(page)
   expect(yoshiUnder(snap, 0x00f)).toEqual([0x0c8])
-  expect(yoshiUnder(snap, 0x115)).toEqual([0x1c8])
   expect(yoshiUnder(snap, 0x12c)).toEqual([0x1c8])
+  // #1295: $1E3 holds the block, so the row nests under it and is no direct row of $115.
+  expect(yoshiUnder(snap, 0x115)).toEqual([])
+  expect(snap.nested[0x1e3].map(c => [c.index, c.role])).toEqual([[0x1c8, 'yoshi-heaven']])
   expect(snap.unassigned.filter(n => [0x0c8, 0x1c8].includes(n.index))).toEqual([])
   expect(snap.under[0x00f].map(c => c.category)).toContain('subarea')
 })
@@ -154,6 +159,95 @@ test('the Yoshi Heaven sub area row keeps its icon and its tooltip', async ({ pa
   )
 })
 
+/** The Yoshi Heaven row under $115 > $1E3, with both parents expanded, brought into view. */
+async function nestedRow(page) {
+  const ids = await page.evaluate(async () => {
+    const w = await getWidget('hackbench.map-explorer')
+    const group = w.model.root.children.find(r => r.id === 'group:unassigned')
+    const root = group.children.find(n => n.index === 0x115)
+    await w.model.expandNode(root)
+    const holder = root.children.find(c => c.index === 0x1e3)
+    // The holder now has a child, so it can expand; a leaf sub area has no chevron.
+    const expandable = typeof holder.expanded === 'boolean'
+    await w.model.expandNode(holder)
+    const node = holder.children.find(c => c.index === 0x1c8)
+    w.focusService.setFocus(undefined)
+    w.focusService.setFocus(node)
+    w.updateScrollToRow()
+    return { holder: holder.id, node: node.id, expandable }
+  })
+  await page.waitForTimeout(500)
+  const at = id =>
+    page.locator(`[id="hackbench.map-explorer"] .theia-TreeNode[data-node-id="${id}"]`)
+  return { ...ids, holderRow: at(ids.holder), row: at(ids.node) }
+}
+
+test('$1E3 expands to its Yoshi Heaven row, which keeps its icon and tooltip and opens $1C8', async ({
+  page,
+}) => {
+  await load(page)
+  const { expandable, holderRow, row } = await nestedRow(page)
+  expect(expandable).toBe(true)
+  await expect(holderRow.locator('.theia-ExpansionToggle')).toHaveCount(1)
+  await expect(row).toBeVisible()
+  expect(await row.getAttribute('title')).toBe(YOSHI_HEAVEN.title)
+  expect(await row.locator('.hb-map-icon').evaluate(e => [...e.classList])).toContain(
+    YOSHI_HEAVEN.icon,
+  )
+  await row.dblclick()
+  await expect(page.locator('[id="hackbench.map-view:456"]')).toBeVisible({ timeout: 30000 })
+})
+
+test("a click on $1E3's own row opens $1E3 in the preview tab and leaves its child listed; a double-click pins it", async ({
+  page,
+}) => {
+  await load(page)
+  const { holderRow, row } = await nestedRow(page)
+  const views = () =>
+    page.evaluate(() =>
+      getSvc('ApplicationShell')
+        .widgets.map(w => w.id)
+        .filter(id => id.startsWith('hackbench.map-view:')),
+    )
+  await holderRow.click()
+  await expect.poll(views).toEqual(['hackbench.map-view:preview'])
+  await expect(row).toBeVisible()
+  // A double-click folds an expandable row like $115 (Theia's default), so only the pin is asserted.
+  await holderRow.dblclick()
+  await expect.poll(views).toEqual(['hackbench.map-view:483'])
+})
+
+test('a search that matches $1C8 reveals the nested row, opening $115 and $1E3', async ({
+  page,
+}) => {
+  await load(page)
+  await page.evaluate(async () => (await getWidget('hackbench.map-explorer')).node.focus())
+  await page.keyboard.press('Control+f')
+  const inputFocused = () =>
+    page.evaluate(async () => {
+      const el = (await getWidget('hackbench.map-explorer')).searchBox?.node.querySelector('input')
+      return Boolean(el) && document.activeElement === el
+    })
+  await expect.poll(inputFocused).toBe(true)
+  await page.keyboard.type('$1c8')
+  // Ancestors expand inner-first and rows rebuild on a debounce, so poll the whole result.
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const w = await getWidget('hackbench.map-explorer')
+        const group = w.model.root.children.find(r => r.id === 'group:unassigned')
+        const root = group.children.find(n => n.index === 0x115)
+        const holder = root?.children.find(c => c.index === 0x1e3)
+        const drawn = [...w.rows.values()].map(r => r.node.id)
+        return {
+          open: [root?.expanded, holder?.expanded],
+          nestedDrawn: Boolean(holder?.children[0] && drawn.includes(holder.children[0].id)),
+        }
+      }),
+    )
+    .toEqual({ open: [true, true], nestedDrawn: true })
+})
+
 test('moving the block in the working copy moves or removes the sub area', async ({ page }) => {
   const { dir, manifestPath } = await load(page)
   // $00F's block from column 161 to 162: the spawn there is not the wings, so $0C8 is no sub area of $00F.
@@ -161,7 +255,7 @@ test('moving the block in the working copy moves or removes the sub area', async
   await reload(page, manifestPath)
   let snap = await snapshot(page)
   expect(yoshiUnder(snap, 0x00f)).toEqual([])
-  expect(yoshiUnder(snap, 0x115)).toEqual([0x1c8]) // the other half is untouched
+  expect(snap.nested[0x1e3].map(c => c.index)).toEqual([0x1c8]) // the other half is untouched
   // Reached by no map now, it is a bonus row again, in Unassigned.
   expect(snap.unassigned.find(n => n.index === 0x0c8)).toEqual({ index: 0x0c8, category: 'bonus' })
 
@@ -172,11 +266,11 @@ test('moving the block in the working copy moves or removes the sub area', async
   expect(yoshiUnder(snap, 0x00f)).toEqual([0x0c8])
   expect(snap.unassigned.find(n => n.index === 0x0c8)).toBeUndefined()
 
-  // $12C's block off the wings column: $1C8 leaves $12C and stays under $115 (via $1E3).
+  // $12C's block off the wings column: $1C8 leaves $12C and stays under $1E3, a sub area of $115.
   writeLayers(dir, [moveOp(0x12c, 0, 1)])
   await reload(page, manifestPath)
   snap = await snapshot(page)
   expect(yoshiUnder(snap, 0x12c)).toEqual([])
-  expect(yoshiUnder(snap, 0x115)).toEqual([0x1c8])
+  expect(snap.nested[0x1e3].map(c => c.index)).toEqual([0x1c8])
   expect(yoshiUnder(snap, 0x00f)).toEqual([0x0c8])
 })

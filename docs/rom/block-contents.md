@@ -134,6 +134,16 @@ Which maps list Yoshi Heaven as a sub area is read from this block, not assumed
    (`bank_05.asm:7106-7111`). So the half is the ROOT's flag as the exit graph
    propagates it, never the half of the slot that holds the block. `$00F` gives
    `$0C8`; `$12C` and `$1E3` (a sub area of `$115`) give `$1C8`.
+5. **Where it lists (#1295).** Under the map that holds the block, not under the root
+   whose half it takes: a holder that is an entry map lists it as a direct row (`$0C8`
+   under `$00F`, `$1C8` under `$12C`); a holder that is a sub area lists it as that sub
+   area's child (`$1C8` under `$1E3`, itself a sub area of `$115`, and not a direct row
+   of `$115`). The owner's first ask on #1229 was "the map that has the yoshi wings
+   powerup", and `$115` only leads to the block through its exit to `$1E3` (static read of `$115`'s exits
+   and Layer 1 tiles, one vanilla read, not played). Two holders under one
+   root each list it. This is the only row that nests, one level deep; every other sub
+   area stays in the flat list (#434), and `$1C8` is still a sub area in the glossary's
+   sense, not a "sub sub area".
 
 On vanilla exactly three maps hold the block in a wings column: `$00F` (column 161,
 row 20), `$12C` (165, 20) and `$1E3` (13, 20), counted by the spawn-derived column

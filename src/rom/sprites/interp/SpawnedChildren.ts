@@ -47,6 +47,18 @@ export interface SpawnedChildren {
   why: string
 }
 
+/** Children a spawner made that did not draw, kept as data so the map's note can sum them across spawners (#1281). */
+export interface UndrawnChildren {
+  noun: 'Eerie' | 'platform'
+  count: number
+}
+
+/** The one sentence for undrawn children, singular for 1 ("1 Eerie did not draw."); the reason goes in `noteDetail`. */
+export function undrawnNote(u: UndrawnChildren): string {
+  const noun = u.count === 1 ? u.noun : u.noun === 'Eerie' ? 'Eeries' : 'platforms'
+  return `${u.count} ${noun} did not draw.`
+}
+
 /**
  * Each child is its own run of the spawner (a fresh machine) with the nth spawned sprite drawn alone, so the children
  * do not add to each other's OAM. `passes` is how many MAIN passes each child runs; the first drawing one is shown.
