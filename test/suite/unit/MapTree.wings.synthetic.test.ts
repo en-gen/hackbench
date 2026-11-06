@@ -87,6 +87,17 @@ describe('the wings link in buildMapTree', () => {
       const t = wingsTree(r, seamsFor(r, { 0x040: [1], 0x041: [1] }))
       expect(yoshiNested(t)).toEqual({ 0x001: { 0x040: [0x0c8] } })
       expect(yoshiUnder(t)).toEqual({})
+      // $040 links the same destination, so the note carries no "stays listed" tail.
+      expect(noteOf(t)).toBe(
+        'Yoshi wings: $041 holds the wings block but has object data that could not be read to its end, so its exits are unknown, so it is not linked.',
+      )
+    })
+    it('marks the flat destination and nests the row when a sub area holds a block too', () => {
+      const r = wingsRom({ 0x001: [0x0c8, 0x040], 0x0c8: [], 0x040: [] })
+      const t = wingsTree(r, seamsFor(r, { 0x0c8: [1], 0x040: [1] }))
+      const kids = t.overworld.find(n => n.index === 0x001)!.children
+      expect(kids.map(c => [c.index, c.reachedBy])).toEqual([[0x040, undefined], [0x0c8, 'yoshi-heaven']]) // prettier-ignore
+      expect(yoshiNested(t)).toEqual({ 0x001: { 0x040: [0x0c8] } })
     })
     it.each(Array.from({ length: 12 }, (_, x) => x))(
       'a sub area block at column %i nests only at mod 4 = 1',

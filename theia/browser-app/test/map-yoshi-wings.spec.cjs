@@ -223,33 +223,29 @@ test('a search that matches $1C8 reveals the nested row, opening $115 and $1E3',
   await load(page)
   await page.evaluate(async () => (await getWidget('hackbench.map-explorer')).node.focus())
   await page.keyboard.press('Control+f')
-  const searchBoxShown = () =>
-    page.evaluate(async () => (await getWidget('hackbench.map-explorer')).searchBox?.isVisible)
-  await expect.poll(searchBoxShown).toBe(true)
+  const inputFocused = () =>
+    page.evaluate(async () => {
+      const el = (await getWidget('hackbench.map-explorer')).searchBox?.node.querySelector('input')
+      return Boolean(el) && document.activeElement === el
+    })
+  await expect.poll(inputFocused).toBe(true)
   await page.keyboard.type('$1c8')
+  // Ancestors expand inner-first and rows rebuild on a debounce, so poll the whole result.
   await expect
     .poll(() =>
       page.evaluate(async () => {
         const w = await getWidget('hackbench.map-explorer')
         const group = w.model.root.children.find(r => r.id === 'group:unassigned')
         const root = group.children.find(n => n.index === 0x115)
-        return Boolean(root?.children.find(c => c.index === 0x1e3)?.expanded)
+        const holder = root?.children.find(c => c.index === 0x1e3)
+        const drawn = [...w.rows.values()].map(r => r.node.id)
+        return {
+          open: [root?.expanded, holder?.expanded],
+          nestedDrawn: Boolean(holder?.children[0] && drawn.includes(holder.children[0].id)),
+        }
       }),
     )
-    .toBe(true)
-  const found = await page.evaluate(async () => {
-    const w = await getWidget('hackbench.map-explorer')
-    const group = w.model.root.children.find(r => r.id === 'group:unassigned')
-    const root = group.children.find(n => n.index === 0x115)
-    const holder = root.children.find(c => c.index === 0x1e3)
-    const drawn = [...w.rows.values()].map(r => r.node.id)
-    return {
-      open: [root.expanded, holder.expanded],
-      nestedDrawn: drawn.includes(holder.children[0].id),
-    }
-  })
-  expect(found.open).toEqual([true, true])
-  expect(found.nestedDrawn).toBe(true)
+    .toEqual({ open: [true, true], nestedDrawn: true })
 })
 
 test('moving the block in the working copy moves or removes the sub area', async ({ page }) => {

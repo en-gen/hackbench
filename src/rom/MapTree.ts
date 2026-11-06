@@ -15,11 +15,11 @@
  *   |   \- $0C6  sub area
  *   \- $106
  *       \- $1C9
+ *   unassigned
+ *   \- $0D3  real map no overworld root reaches
  *
  * One slot can sit in both places: a root's half fixes ONE Yoshi Heaven slot, and
  * the wings link lists it under each map of that root that holds a block.
- *   unassigned
- *   \- $0D3  real map no overworld root reaches
  *
  * Terms are the glossary's (docs/glossary.md): a MAP is a slot holding real
  * data and is the editable unit, a SUB AREA is a map reachable only from
@@ -295,7 +295,7 @@ export function buildMapTree(
     const yoshi = (i: number): MapNode => ({ ...adopt(i), reachedBy: 'yoshi-heaven' })
     const children = kids.map(i => {
       if (i === dest && (rootHolds || wings!.holders.includes(i))) return yoshi(i)
-      const nested = i !== dest && wings?.holders.includes(i) ? [yoshi(dest!)] : []
+      const nested = wings?.holders.includes(i) ? [yoshi(dest!)] : []
       return adopt(i, nested)
     })
     return adopt(root, children)
