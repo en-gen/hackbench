@@ -217,7 +217,7 @@ export function topLevelSlots(tree: MapTree): Set<number> {
 
 /**
  * Slots a group list names that `applyGroups` could not resolve against a tree. A slot the
- * wings link placed under a root (#1229) is a map, not stale: an older groups.json that
+ * wings link placed, under a root or nested under a sub area (#1229, #1295), is a map, not stale: an older groups.json that
  * still names Yoshi Heaven keeps its entry, silently, and its folder shows empty.
  */
 export function staleSlots(tree: MapTree, groups: MapGroup[]): number[] {

@@ -6,14 +6,18 @@
  *   bonus         $000, $100              entered after a level, not from a tile
  *                 ($0C8, $1C8 too when no map's wings block reaches them)
  *   overworld
+ *   |- $00F  entry map that holds the wings block
+ *   |   \- $0C8  sub area, Yoshi Heaven (a direct row)
  *   |- $105  entry map for a level
  *   |   |- $0C5  sub area
- *   |   |- $0C8  sub area, Yoshi Heaven, when this map holds the wings block
- *   |   |- $0C9  sub area that holds the wings block
- *   |   |   \- $1C8  Yoshi Heaven again, nested here (#1295): the only row that nests
+ *   |   |- $0E3  sub area that holds the wings block
+ *   |   |   \- $1C8  Yoshi Heaven, nested here (#1295): the only row that nests
  *   |   \- $0C6  sub area
  *   \- $106
  *       \- $1C9
+ *
+ * One slot can sit in both places: a root's half fixes ONE Yoshi Heaven slot, and
+ * the wings link lists it under each map of that root that holds a block.
  *   unassigned
  *   \- $0D3  real map no overworld root reaches
  *
@@ -157,7 +161,8 @@ const UNREADABLE_LISTED = 10
  * an overworld root or under unassigned. A root's sub areas are every
  * non-root slot reachable from it through the exit graph, listed once, flat
  * and in slot order (LevelTree.reachableSlots). A sub area reached from two
- * roots is listed under both.
+ * roots is listed under both. The one exception is the wings link (#1295): Yoshi
+ * Heaven is also listed beneath the sub area that holds the wings block.
  *
  * @param fingerprints Replaces the stock overworld fingerprints; for a synthetic ROM.
  */
@@ -280,7 +285,8 @@ export function buildMapTree(
     const wings = wingsDest.get(root)
     const dest = wings?.dest
     // The link nests under the map that holds the block, not the root that reaches it (#1295): a holder
-    // that is the root lists it directly; a sub area holder lists it as its own child. Only this link
+    // that is the root lists it directly; a sub area holder lists it as its own child. A destination
+    // that holds a block itself keeps its mark, as before the nesting. Only this link
     // nests; the exit-graph sub areas stay a flat list (#434). The row is built per place, so a
     // destination the exit graph already listed flat keeps that row and gains the nested one.
     const rootHolds = wings?.holders.includes(root) ?? false
@@ -288,7 +294,7 @@ export function buildMapTree(
     const kids = direct ? [...subs, dest].sort((a, b) => a - b) : subs
     const yoshi = (i: number): MapNode => ({ ...adopt(i), reachedBy: 'yoshi-heaven' })
     const children = kids.map(i => {
-      if (i === dest && rootHolds) return yoshi(i)
+      if (i === dest && (rootHolds || wings!.holders.includes(i))) return yoshi(i)
       const nested = i !== dest && wings?.holders.includes(i) ? [yoshi(dest!)] : []
       return adopt(i, nested)
     })

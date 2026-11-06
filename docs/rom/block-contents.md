@@ -139,7 +139,8 @@ Which maps list Yoshi Heaven as a sub area is read from this block, not assumed
    under `$00F`, `$1C8` under `$12C`); a holder that is a sub area lists it as that sub
    area's child (`$1C8` under `$1E3`, itself a sub area of `$115`, and not a direct row
    of `$115`). The owner's first ask on #1229 was "the map that has the yoshi wings
-   powerup", and `$115` only leads to the block through a pipe. Two holders under one
+   powerup", and `$115` only leads to the block through its exit to `$1E3` (static read of `$115`'s exits
+   and Layer 1 tiles, one vanilla read, not played). Two holders under one
    root each list it. This is the only row that nests, one level deep; every other sub
    area stays in the flat list (#434), and `$1C8` is still a sub area in the glossary's
    sense, not a "sub sub area".

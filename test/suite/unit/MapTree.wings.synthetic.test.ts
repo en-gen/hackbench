@@ -1,6 +1,6 @@
 /**
- * The wings link in the Maps tree (#1229): Yoshi Heaven lists under the root whose maps hold the
- * wings block, in that root's submap half. ROM-free; YoshiWings.synthetic.test.ts runs the spawn.
+ * The wings link in the Maps tree (#1229, #1295): Yoshi Heaven lists under the map that holds the
+ * wings block (an entry map directly, a sub area as its child), in that root's submap half. ROM-free; YoshiWings.synthetic.test.ts runs the spawn.
  */
 import { describe, it, expect } from 'vitest'
 import { buildMapTree } from '../../../src/rom/MapTree'
@@ -68,6 +68,34 @@ describe('the wings link in buildMapTree', () => {
       expect(kids.map(c => [c.index, c.reachedBy])).toEqual([[0x040, undefined], [0x0c8, undefined]]) // prettier-ignore
       expect(yoshiNested(t)).toEqual({ 0x001: { 0x040: [0x0c8] } })
     })
+    it('keeps the mark on a flat destination that holds a block itself, nesting nothing', () => {
+      const r = wingsRom({ 0x001: [0x0c8], 0x0c8: [] })
+      const t = wingsTree(r, seamsFor(r, { 0x0c8: [1] }))
+      const kids = t.overworld.find(n => n.index === 0x001)!.children
+      expect(kids.map(c => [c.index, c.reachedBy])).toEqual([[0x0c8, 'yoshi-heaven']])
+      expect(t.wingsPlaced).toEqual([0x0c8])
+    })
+    it('sorts the direct row among the sub areas when the destination is below one', () => {
+      const r = wingsRom({ 0x001: [0x0d0], 0x0d0: [] })
+      const t = wingsTree(r, seamsFor(r, { 0x001: [1] }))
+      expect(t.overworld.find(n => n.index === 0x001)!.children.map(c => c.index)).toEqual([0x0c8, 0x0d0]) // prettier-ignore
+    })
+    it('refuses an unread sub area holder and nests only under the sibling that reads', () => {
+      const r = wingsRom(two)
+      const end = new SmwRom(r).getLevelL1Pointer(0x041)! + 5 + 3
+      r.writeAt(end, new Array(0x2100).fill(0x01)) // no $FF in reach, as the root case above
+      const t = wingsTree(r, seamsFor(r, { 0x040: [1], 0x041: [1] }))
+      expect(yoshiNested(t)).toEqual({ 0x001: { 0x040: [0x0c8] } })
+      expect(yoshiUnder(t)).toEqual({})
+    })
+    it.each(Array.from({ length: 12 }, (_, x) => x))(
+      'a sub area block at column %i nests only at mod 4 = 1',
+      x => {
+        const r = wingsRom(two)
+        const t = wingsTree(r, seamsFor(r, { 0x041: [x] }))
+        expect(Object.keys(yoshiNested(t)).length).toBe(x % 4 === 1 ? 1 : 0)
+      },
+    )
     it('never nests the destination under itself', () => {
       const r = wingsRom({ 0x001: [0x0c8], 0x0c8: [] })
       const t = wingsTree(r, seamsFor(r, { 0x0c8: [1] }))

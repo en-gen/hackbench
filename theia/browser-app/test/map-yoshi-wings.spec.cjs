@@ -188,7 +188,7 @@ test('$1E3 expands to its Yoshi Heaven row, which keeps its icon and tooltip and
   await load(page)
   const { expandable, holderRow, row } = await nestedRow(page)
   expect(expandable).toBe(true)
-  await expect(holderRow.locator('.theia-TreeNode-ExpansionToggle, .theia-ExpansionToggle')).toHaveCount(1) // prettier-ignore
+  await expect(holderRow.locator('.theia-ExpansionToggle')).toHaveCount(1)
   await expect(row).toBeVisible()
   expect(await row.getAttribute('title')).toBe(YOSHI_HEAVEN.title)
   expect(await row.locator('.hb-map-icon').evaluate(e => [...e.classList])).toContain(
@@ -198,13 +198,23 @@ test('$1E3 expands to its Yoshi Heaven row, which keeps its icon and tooltip and
   await expect(page.locator('[id="hackbench.map-view:456"]')).toBeVisible({ timeout: 30000 })
 })
 
-test("clicking $1E3's own row still opens $1E3, and does not fold the row", async ({ page }) => {
+test("a click on $1E3's own row opens $1E3 in the preview tab and leaves its child listed; a double-click pins it", async ({
+  page,
+}) => {
   await load(page)
   const { holderRow, row } = await nestedRow(page)
-  await holderRow.dblclick()
-  await expect(page.locator('[id="hackbench.map-view:483"]')).toBeVisible({ timeout: 30000 })
-  // Opening the holder leaves its child listed: the click did not toggle it.
+  const views = () =>
+    page.evaluate(() =>
+      getSvc('ApplicationShell')
+        .widgets.map(w => w.id)
+        .filter(id => id.startsWith('hackbench.map-view:')),
+    )
+  await holderRow.click()
+  await expect.poll(views).toEqual(['hackbench.map-view:preview'])
   await expect(row).toBeVisible()
+  // A double-click folds an expandable row like $115 (Theia's default), so only the pin is asserted.
+  await holderRow.dblclick()
+  await expect.poll(views).toEqual(['hackbench.map-view:483'])
 })
 
 test('a search that matches $1C8 reveals the nested row, opening $115 and $1E3', async ({
@@ -213,8 +223,20 @@ test('a search that matches $1C8 reveals the nested row, opening $115 and $1E3',
   await load(page)
   await page.evaluate(async () => (await getWidget('hackbench.map-explorer')).node.focus())
   await page.keyboard.press('Control+f')
+  const searchBoxShown = () =>
+    page.evaluate(async () => (await getWidget('hackbench.map-explorer')).searchBox?.isVisible)
+  await expect.poll(searchBoxShown).toBe(true)
   await page.keyboard.type('$1c8')
-  await page.waitForTimeout(800)
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const w = await getWidget('hackbench.map-explorer')
+        const group = w.model.root.children.find(r => r.id === 'group:unassigned')
+        const root = group.children.find(n => n.index === 0x115)
+        return Boolean(root?.children.find(c => c.index === 0x1e3)?.expanded)
+      }),
+    )
+    .toBe(true)
   const found = await page.evaluate(async () => {
     const w = await getWidget('hackbench.map-explorer')
     const group = w.model.root.children.find(r => r.id === 'group:unassigned')
