@@ -355,7 +355,7 @@ export interface MapSpriteDto {
   unverified?: string
   /** A plain-words line about what the map shows of this sprite, not a flaw (for example fewer Eeries than the placement asks for); the map's note line carries it too. */
   note?: string
-  /** Spawned children that did not draw, as data: the map's note sums them across spawners (#1281); `note` keeps the full text. */
+  /** Spawned children that did not draw, as data: the map's note sums them across spawners (#1281); `note` keeps its sentence and the reason is in `noteDetail`. */
   undrawn?: UndrawnChildren
   /** Technical detail behind a plain note, for its tooltip. */
   noteDetail?: string

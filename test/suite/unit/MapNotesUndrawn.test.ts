@@ -29,6 +29,7 @@ const dto = (noun: 'Eerie' | 'platform', count: number, extra = ''): MapSpriteDt
 describe('map note counts of undrawn children', () => {
   it('two $DE spawners that each lose one Eerie say 2', () => {
     expect(eeries().note).toMatch(/^2 Eeries did not draw\.$/)
+    expect(eeries().noteDetail).toMatch(/^drew no OAM tile/)
   })
   it('room for 3 and two Eeries not drawn per spawner: the count is spawned minus drawn, 4 over two', () => {
     expect(eeries(3, 0x54).note).toMatch(/ 4 Eeries did not draw\./)
