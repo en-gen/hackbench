@@ -23,6 +23,7 @@ const VARIANTS: SyntheticOptions[] = [
   { alteredGrinder: true },
   { grinderDrawsOnce: true },
   { grinderDrawsOnPass1: true },
+  { grinderInitDelta: [8, 0] }, // its INIT is written at $01:9700, inside the platform arm region
 ]
 
 /** File offsets in REGIONS of every window of `WINDOW` bytes, 3+ distinct values, found in `vanilla`. */

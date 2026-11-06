@@ -1,10 +1,14 @@
 /**
- * ROM-byte clean-up (CastleFlames): the synthetic sprite cart carries no vanilla SMW bytes. Every cart
- * `buildSyntheticRom` can produce (the default, plus each option on its own) is scanned for an 8-byte
+ * ROM-byte clean-up (CastleFlames): the synthetic sprite cart carries no vanilla SMW bytes. The default cart and
+ * each `SyntheticOptions` field (VARIANTS: one variant set per field, mostly the option alone; mainStepsBack carries
+ * initFarCull and the grinderInitDelta values also run with grinderAliases; the values real tests use for
+ * grinderInitDelta; spawnTimer and initShift swept over 0..255; not combinations of options) are scanned for an 8-byte
  * window (3+ distinct values) that occurs anywhere in the vanilla ROM; each hit is reported as an SNES
- * address. Needs the vanilla ROM, so it is gated on it; CI without a cart runs only the planted block's
- * synthetic half (the checker's behaviour on a hand-made window).
+ * address. The scan needs the vanilla ROM and is gated on it. The no-ROM half, which CI runs, is the checker's
+ * planted cases, the empty allow list ratchet and the variant coverage check; a vanilla window itself is only
+ * caught where the ROM is present.
  */
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { hasRom, romPath, VANILLA } from '../../support/corpus'
 import { buildSyntheticRom, type SyntheticOptions } from '../../support/syntheticSpriteRom'
@@ -17,33 +21,125 @@ import {
   WINDOW,
 } from '../../support/vanillaWindows'
 
-const LOADERS = ['lead', 'jump', 'callsite', 'pointers', 'entrance', 'data', 'scroll', 'update', 'scrollTail', 'updateTail', 'updateOperand', 'scrollRtl', 'updateRts', 'scrollPop'] as const // prettier-ignore
+const LOADERS = ['lead', 'jump', 'callsite', 'pointers', 'entrance', 'data', 'scroll', 'update', 'scrollTail', 'updateTail', 'updateOperand', 'scrollRtl', 'updateRts', 'scrollPop', 'layer3', 'gm12', 'gm12Bpl', 'gm12Jsr', 'reset'] as const // prettier-ignore
 
-/** Every option on its own, and the default. A defect option changes a few bytes of the default's regions. */
-export const VARIANTS: [string, SyntheticOptions][] = [
-  ['default', {}],
-  ['initShift', { initShift: 0x31 }],
-  ['noTileWrite', { noTileWrite: true }],
-  ['badLoop', { badLoop: true }],
-  ['dupLoop', { dupLoop: true }],
-  ['badExecutePtr', { badExecutePtr: true }],
-  ['badDispatch', { badDispatch: true }],
-  ['badInitTables', { badInitTables: true }],
-  ['badGetRand', { badGetRand: true }],
-  ['fastRomGetRand', { fastRomGetRand: true }],
-  ...LOADERS.map((k): [string, SyntheticOptions] => [`badLoader ${k}`, { badLoader: k }]),
-  ...(['jml', 'loop', 'rts'] as const).map((k): [string, SyntheticOptions] => [`updateHook ${k}`, { updateHook: k }]), // prettier-ignore
-  ['loaderCop', { loaderCop: true }],
-  ...(['head', 'status', 'dispatch'] as const).map((k): [string, SyntheticOptions] => [`badSpawn ${k}`, { badSpawn: k }]), // prettier-ignore
-  ['spawnTimer', { spawnTimer: 0x44 }],
-  ['spawnLoop', { spawnLoop: true }],
-  ['alteredGrinder', { alteredGrinder: true }],
-  ['grinderDrawsOnce', { grinderDrawsOnce: true }],
-  ['grinderDrawsTwice', { grinderDrawsTwice: true }],
-  ['grinderDrawsOnPass1', { grinderDrawsOnPass1: true }],
-  ['grinderDrawsFromPass1', { grinderDrawsFromPass1: true }],
-  ['id31IsGrinder', { id31IsGrinder: true }],
-]
+type Variant = [string, SyntheticOptions]
+const one = (name: string, o: SyntheticOptions): Variant[] => [[name, o]]
+const each = <T>(name: string, vals: readonly T[], f: (v: T) => SyntheticOptions): Variant[] =>
+  vals.map((v): Variant => [`${name} ${JSON.stringify(v)}`, f(v)])
+/** The grinderInitDelta values real tests use, so the gate scans the bytes those tests build (with and without aliases). */
+const DELTAS: (readonly [number, number])[] = [[8, 0], [12, 0], [0, 0], [0x180, 0], [-0x140, 0], [0, -0x140], [0, -0x80], [1, 1], [4, 0], [0x10, 0], [0x123, -0x45]] // prettier-ignore
+
+/**
+ * One variant set per SyntheticOptions field. The guard is the runtime check below, which reads the interface from
+ * syntheticSpriteRom.ts as text and fails on a field with no entry here (tsconfig.test.json does not typecheck this
+ * file, so the mapped type alone guards nothing in CI). `uncovered` fails when an entry is empty or a variant leaves
+ * its field unset. A variant is the option on its own, except mainStepsBack (with initFarCull) and the
+ * grinderInitDelta values that also set grinderAliases.
+ */
+export const BY_OPTION: { [K in keyof SyntheticOptions]-?: Variant[] } = {
+  initShift: one('initShift', { initShift: 0x31 }),
+  initFarCull: one('initFarCull', { initFarCull: true }),
+  mainStepsBack: one('mainStepsBack', { initFarCull: true, mainStepsBack: true }),
+  noTileWrite: one('noTileWrite', { noTileWrite: true }),
+  badLoop: one('badLoop', { badLoop: true }),
+  dupLoop: one('dupLoop', { dupLoop: true }),
+  badExecutePtr: one('badExecutePtr', { badExecutePtr: true }),
+  badDispatch: one('badDispatch', { badDispatch: true }),
+  badInitTables: one('badInitTables', { badInitTables: true }),
+  badGetRand: one('badGetRand', { badGetRand: true }),
+  fastRomGetRand: one('fastRomGetRand', { fastRomGetRand: true }),
+  badLoader: each('badLoader', LOADERS, k => ({ badLoader: k })),
+  updateHook: each('updateHook', ['jml', 'loop', 'rts'] as const, k => ({ updateHook: k })),
+  loaderCop: one('loaderCop', { loaderCop: true }),
+  badSpawn: each('badSpawn', ['head', 'status', 'dispatch'] as const, k => ({ badSpawn: k })),
+  spawnTimer: one('spawnTimer', { spawnTimer: 0x44 }),
+  spawnLoop: one('spawnLoop', { spawnLoop: true }),
+  alteredGrinder: one('alteredGrinder', { alteredGrinder: true }),
+  grinderDrawsOnce: one('grinderDrawsOnce', { grinderDrawsOnce: true }),
+  grinderDrawsTwice: one('grinderDrawsTwice', { grinderDrawsTwice: true }),
+  grinderDrawsOnPass1: one('grinderDrawsOnPass1', { grinderDrawsOnPass1: true }),
+  grinderDrawsFromPass1: one('grinderDrawsFromPass1', { grinderDrawsFromPass1: true }),
+  id31IsGrinder: one('id31IsGrinder', { id31IsGrinder: true }),
+  grinderInitShifts: one('grinderInitShifts', { grinderInitShifts: true }),
+  grinderInitDelta: [
+    ...each('grinderInitDelta', DELTAS, d => ({ grinderInitDelta: d })),
+    ...each('grinderInitDelta+aliases', DELTAS, d => ({
+      grinderInitDelta: d,
+      grinderAliases: true,
+    })),
+  ],
+  grinderAliases: one('grinderAliases', { grinderAliases: true }),
+  grinderPrelude: one('grinderPrelude', { grinderPrelude: true }),
+  grinderCell: each('grinderCell', ['At3', 'Not3'] as const, c => ({ grinderCell: c })),
+  grinderLocksOnPass: one('grinderLocksOnPass', { grinderLocksOnPass: 2 }),
+  grinderWideX: one('grinderWideX', { grinderWideX: true }),
+  irqCommand: one('irqCommand', { irqCommand: 0x80 }),
+  eeries: [
+    ...one('eeries', { eeries: {} }),
+    ...one('eeries stream', { eeries: { stream: [0x51, 0xb3, 0xe0, 0xff] } }),
+    ...one('eeries spacing', { eeries: { spacing: [-0x30, -0x18, 0x18, 0x30] } }),
+    ...one('eeries room', { eeries: { room: 6 } }),
+    ...one('eeries room 0', { eeries: { room: 0 } }),
+    ...one('eeries travel', { eeries: { travel: true } }),
+  ],
+}
+
+/** The cart `buildSyntheticRom()` makes, and every option's variants. */
+export const VARIANTS: Variant[] = [['default', {}], ...Object.values(BY_OPTION).flat()]
+
+/** The fields of `by` with no variant, or with variants that never set the field: empty when coverage holds. */
+export function uncovered(by: Record<string, Variant[]>): string[] {
+  return Object.entries(by)
+    .filter(
+      ([k, vs]) =>
+        vs.length === 0 || vs.some(([, o]) => (o as Record<string, unknown>)[k] === undefined),
+    )
+    .map(([k]) => k)
+}
+
+/** The field names of the `SyntheticOptions` interface in `src` (2-space-indented `name?:` lines), read as text. */
+export function optionFields(src: string): string[] {
+  const body = /export interface SyntheticOptions \{\r?\n([\s\S]*?)\r?\n\}/.exec(src)?.[1] ?? ''
+  return [...body.matchAll(/^ {2}(\w+)\??:/gm)].map(m => m[1]!)
+}
+/** What is wrong between the interface fields in `src` and the keys of `by`: a parser that found few fields, a field with no entry, an entry for no field. */
+export function fieldProblems(src: string, by: Record<string, unknown>): string[] {
+  const fields = optionFields(src)
+  const keys = Object.keys(by)
+  return [
+    ...(fields.length < 30 ? [`the parser found only ${fields.length} fields`] : []),
+    ...fields.filter(f => !keys.includes(f)).map(f => `no variant entry for ${f}`),
+    ...keys.filter(k => !fields.includes(k)).map(k => `entry ${k} is no field`),
+  ]
+}
+
+describe('the variant list covers every option', () => {
+  const SRC = readFileSync(new URL('../../support/syntheticSpriteRom.ts', import.meta.url), 'utf8')
+  it('every interface field has variants that set it, and every entry is a field', () => {
+    expect(fieldProblems(SRC, BY_OPTION)).toEqual([])
+    expect(uncovered(BY_OPTION)).toEqual([])
+  })
+  it('planted: a missing key, an extra key, or a parser that finds nothing is red', () => {
+    const names = Array.from({ length: 32 }, (_, i) => `f${i}`)
+    const src = ['export interface SyntheticOptions {', ...names.map(n => `  ${n}?: boolean`), '}'].join('\n') // prettier-ignore
+    const full = Object.fromEntries(names.map(n => [n, []]))
+    expect(fieldProblems(src, full)).toEqual([])
+    const less = Object.fromEntries(Object.entries(full).filter(([k]) => k !== 'f7'))
+    expect(fieldProblems(src, less)).toEqual(['no variant entry for f7'])
+    expect(fieldProblems(src, { ...full, zz: [] })).toEqual(['entry zz is no field'])
+    expect(fieldProblems('', {})).toEqual(['the parser found only 0 fields'])
+  })
+  it('planted: a mixed list, or an undefined value, does not count as setting the field', () => {
+    const good: Variant = ['g', { badLoop: true }]
+    expect(uncovered({ badLoop: [good, ['h', { dupLoop: true }]] })).toEqual(['badLoop'])
+    expect(uncovered({ grinderCell: [['u', { grinderCell: undefined }]] })).toEqual(['grinderCell'])
+    expect(uncovered({ badLoop: [good] })).toEqual([])
+  })
+  it('planted: a field with its variants removed, or variants that do not set it, is red', () => {
+    expect(uncovered({ a: [], b: [['b', { badLoop: true }]], c: [['c', { badLoop: true }]] })).toEqual(['a', 'b', 'c']) // prettier-ignore
+  })
+})
 
 describe('the window checker', () => {
   const vanilla = new Uint8Array(64).map((_, i) => (i * 7 + 3) & 0xff)
@@ -69,72 +165,27 @@ describe('the window checker', () => {
 })
 
 /**
- * Windows this gate still allows, each a small region of the cart where a runner or reader shape in src/ fixes the
- * game's own bytes, or this fixture keeps the game's semantics (its operand choice is the cost of the test, not
- * of the reader). `hits` is the exact number of windows whose first byte is in the region (SNES addresses, bank << 16 | addr), at most over the variants:
- * a count that rises or drops fails until it is updated here, and a region that no longer hits must be deleted.
- * A region spans at most MAX_SPAN bytes. Removing one needs the reader to recognize the code by fingerprint
- * instead (the way CastleFlames.ts and SubmapFlagGate.ts do).
+ * Regions of the cart this gate would allow to hold a vanilla window. It is empty and must stay empty: a reader in
+ * src/ that fixes the game's own bytes is made to run or fingerprint the code instead (the way CastleFlames.ts and
+ * SubmapFlagGate.ts do), and a fixture operand is changed so the window is gone. The ratchet below needs no ROM, so
+ * CI goes red the moment an entry is added.
  */
 interface Region {
-  from: number
-  to: number
-  hits: number
   why: string
 }
-const MAX_SPAN = 0x40
-const ALLOWED: Region[] = [
-  { from: 0x02a8ac, to: 0x02a8ac, hits: 1, why: 'ShellSprites.ts PATH: the generator floor compare and its fixed branch; the compare operands have the vanilla values, chosen so the shell logic keeps its vanilla meaning' }, // prettier-ignore
-  { from: 0x02a97c, to: 0x02a97c, hits: 1, why: 'ShellSprites.ts PATH: the status compare and the number step; operand values chosen as the vanilla ones' }, // prettier-ignore
-] // prettier-ignore
+export const ALLOWED: readonly Region[] = []
 
-/** What is wrong with `regions` given the hits (SNES addresses as numbers, the form `ALLOWED` uses) each variant produced; empty when it holds. */
-export function allowListProblems(
-  regions: readonly Region[],
-  hitsByVariant: readonly number[][],
-): string[] {
-  const out: string[] = []
-  for (const r of regions) {
-    if (r.to - r.from + 1 > MAX_SPAN) out.push(`${r.why}: spans more than ${MAX_SPAN} bytes`)
-    const most = Math.max(
-      0,
-      ...hitsByVariant.map(h => h.filter(o => o >= r.from && o <= r.to).length),
-    )
-    if (most !== r.hits) out.push(`${r.why}: ${most} hits, listed as ${r.hits}`)
-  }
-  return out
+/** What is wrong with `regions`: any entry at all, since the list is held at empty. */
+export function allowListProblems(regions: readonly Region[]): string[] {
+  return regions.map(r => `${r.why}: the allow list must stay empty (#1073)`)
 }
 
-/** The SNES address of a "$BB:AAAA" string as a number (bank << 16 | addr), the form `ALLOWED` uses. NOT a file offset. */
-const snesNumber = (h: string): number => {
-  const [bank, addr] = h
-    .slice(1)
-    .split(':')
-    .map(x => parseInt(x, 16)) as [number, number]
-  return (bank << 16) | addr
-}
-const allowed = (h: string) => ALLOWED.find(r => snesNumber(h) >= r.from && snesNumber(h) <= r.to)
-
-describe('the allow list checker', () => {
-  const region = { from: 0x1000, to: 0x1010, hits: 2, why: 'r' }
-  it('passes when the count matches', () => {
-    expect(allowListProblems([region], [[0x1000, 0x1005], [0x1000]])).toEqual([])
+describe('the allow list ratchet', () => {
+  it('the list is empty', () => {
+    expect(allowListProblems(ALLOWED)).toEqual([])
   })
-  it('planted: a region with no hits is red', () => {
-    expect(allowListProblems([{ ...region, hits: 2 }], [[0x2000]])).toEqual([
-      'r: 0 hits, listed as 2',
-    ])
-  })
-  it('planted: a count that rises or drops is red', () => {
-    expect(allowListProblems([region], [[0x1000, 0x1001, 0x1002]])).toEqual([
-      'r: 3 hits, listed as 2',
-    ])
-    expect(allowListProblems([region], [[0x1000]])).toEqual(['r: 1 hits, listed as 2'])
-  })
-  it('planted: a region widened past MAX_SPAN is red', () => {
-    expect(allowListProblems([{ ...region, to: 0x0fffff }], [[0x1000, 0x1005]])).toEqual([
-      'r: spans more than 64 bytes',
-    ])
+  it('planted: one entry makes it red', () => {
+    expect(allowListProblems([{ why: 'r' }])).toEqual(['r: the allow list must stay empty (#1073)'])
   })
 })
 
@@ -147,27 +198,28 @@ describe.skipIf(!hasRom(VANILLA))(
     const hitsOf = (opts: SyntheticOptions) =>
       vanillaHits(new Uint8Array(buildSyntheticRom(opts).buffer), vanilla())
 
-    it('planted: 8 vanilla bytes written into a blank cart are flagged at that offset, and not allowed', () => {
+    it('planted: 8 vanilla bytes written into a blank cart are flagged at that offset', () => {
       const v = loadVanillaBytes(romPath(VANILLA))
       const cart = new Uint8Array(8 * 0x8000)
       const real = v.subarray(0x14000, 0x14000 + WINDOW)
       expect(new Set(real).size).toBeGreaterThanOrEqual(3)
       cart.set(real, 0x14000)
       expect(vanillaHits(cart, vanilla())).toContain(snesOf(0x14000))
-      expect(allowed(snesOf(0x14000))).toBeUndefined()
     })
 
-    it.each(VARIANTS)('%s: every vanilla window of it is in an allowed region', (_, opts) => {
-      expect(summarize(hitsOf(opts).filter(h => !allowed(h)))).toEqual([])
-    })
+    // Immediates a test can set to any byte: every value must stay clear, not only the one in VARIANTS.
+    it.each(['spawnTimer', 'initShift'] as const)(
+      '%s: no value 0..255 has a vanilla window',
+      key => {
+        const bad: number[] = []
+        for (let v = 0; v < 256; v++) if (hitsOf({ [key]: v }).length > 0) bad.push(v)
+        expect(bad).toEqual([])
+      },
+      120_000,
+    )
 
-    it('the allow list is bounded and every region hits exactly as often as listed (ratchet)', () => {
-      expect(
-        allowListProblems(
-          ALLOWED,
-          VARIANTS.map(([, o]) => hitsOf(o).map(snesNumber)),
-        ),
-      ).toEqual([])
-    }, 60_000)
+    it.each(VARIANTS)('%s: has no vanilla window', (_, opts) => {
+      expect(summarize(hitsOf(opts))).toEqual([])
+    })
   },
 )

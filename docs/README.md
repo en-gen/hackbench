@@ -116,6 +116,7 @@ are long because they show the trace, which is the point.
 - [sprites/sprite-validation-batches.md](sprites/sprite-validation-batches.md)
 - [sprites/sprite-1f-magikoopa.md](sprites/sprite-1f-magikoopa.md)
 - [sprites/sprite-4d-monty-mole.md](sprites/sprite-4d-monty-mole.md)
+- [sprites/sprite-ad-wooden-spike.md](sprites/sprite-ad-wooden-spike.md)
 - [sprites/smw-sprite-2c-yoshi-egg.md](sprites/smw-sprite-2c-yoshi-egg.md)
 
 ## Spikes and investigations
