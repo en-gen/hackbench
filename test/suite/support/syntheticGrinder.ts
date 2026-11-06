@@ -95,7 +95,8 @@ export function putGrinderRoutines(
   // The prelude routine (NOPs, RTS), and an INIT of our own that moves the sprite by a signed 16-bit [dx, dy].
   put(0x019680, [0xea, 0xea, 0xea, 0x60])
   if (o.grinderInitDelta) {
-    const axis = (lo: number, hi: number, d: number) => [0xb5, lo, 0x18, 0x69, d & 0xff, 0x95, lo, 0xbd, hi & 0xff, hi >> 8, 0x69, (d >> 8) & 0xff, 0x9d, hi & 0xff, hi >> 8] // prettier-ignore
+    // Our own add: the delta loaded first, the position added to it, so the two bytes are never the game's add-to-position order.
+    const axis = (lo: number, hi: number, d: number) => [0xa9, d & 0xff, 0x18, 0x75, lo, 0x95, lo, 0xa9, (d >> 8) & 0xff, 0x7d, hi & 0xff, hi >> 8, 0x9d, hi & 0xff, hi >> 8] // prettier-ignore
     const [dx, dy] = o.grinderInitDelta
     put(0x019700, [...axis(0xe4, 0x14e0, dx), ...axis(0xd8, 0x14d4, dy), 0x60])
   }
