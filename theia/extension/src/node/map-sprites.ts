@@ -61,12 +61,18 @@ import { getPaletteColor } from '../../../../src/rom/PaletteLoader'
 import { readMarioStartPos } from '../../../../src/rom/MarioStartPos'
 import {
   runOnce,
+  type RunOptions,
   RAM,
   drawnParts,
   type SpriteModel as BaseModel,
   type PaletteWrite,
   type SpritePart,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import {
+  drawnPass,
+  findReveal,
+  type RevealCondition,
+} from '../../../../src/rom/sprites/interp/RevealSearch'
 import {
   castleFlames,
   VANILLA_FLAME_ROUTINES,
@@ -163,6 +169,8 @@ export type SpriteDrawResult =
       onLine?: 'step' | 'fell'
       /** The list spot the DTO reports (hover, selection, drag) when the picture stands elsewhere: the game lays it out itself (D158 / Decision 124, InitLatches.ts). */
       listPos?: { x: number; y: number }
+      /** The condition that made this hidden sprite draw (RevealSearch.ts): drawn whole in the screen door, with a tooltip. */
+      reveal?: RevealCondition
       /** CGRAM colors the sprite's own code set by its drawn frame (interpreter only). */
       runtimePalette?: PaletteWrite[]
       /** The player-buffer slots the drawn frame's run pointed Mario's tile DMA at (interpreter only; #980). */
@@ -328,6 +336,9 @@ export function drawSprites(
       ...(unverified ? { unverified } : {}),
       ...('note' in res && res.note ? { note: res.note } : {}),
       ...('undrawn' in res && res.undrawn ? { undrawn: res.undrawn } : {}),
+      ...('reveal' in res && res.reveal
+        ? { screenDoor: true, reveal: revealText(res.reveal) }
+        : {}),
     }
   }
   // Sprites a parent drew (the $9B a $9C picks up, #1049) are part of the parent's picture, not unexplained.
@@ -428,10 +439,33 @@ export function cameraFor(x: number, y: number, vertical: boolean, screens: numb
 export type RunModel = BaseModel & { uploads?: SlotUpload[][] }
 
 /** `runOnce`, plus the DynGfxTilePtr slots a sprite that uploads from the player buffer wrote (#980). */
-export function runWithUploads(rom: RomFile, id: number, seed: SpriteSeed): RunModel {
+export function runWithUploads(
+  rom: RomFile,
+  id: number,
+  seed: SpriteSeed,
+  opts: Pick<RunOptions, 'stopAtDraw' | 'trackInputs'> = {},
+): RunModel {
   const p = uploadProbe()
-  return Object.assign(runOnce(rom, id, seed, { atRest: true, probe: p.probe }), { uploads: p.byPass }) // prettier-ignore
+  return Object.assign(runOnce(rom, id, seed, { atRest: true, probe: p.probe, ...opts }), { uploads: p.byPass }) // prettier-ignore
 }
+
+/** The marker's reason code when the search found no condition that draws the sprite (`WHY_NOT_DRAWN`). */
+export const UNREVEALED = 'unrevealed'
+
+/** Mario's fixed state in every reveal probe, said in the tooltip (RevealSearch.ts MARIO_STATE). */
+const MARIO_SAID = 'small Mario, on foot'
+
+/** The tooltip line for each condition. Keyed by the condition the search found, never by a sprite id. */
+export const REVEAL_TEXT: Record<RevealCondition, string> = {
+  'mario-at-sprite': 'appears when Mario gets close to this spot',
+  'mario-left': 'appears when Mario is just left of this spot',
+  'mario-right': 'appears when Mario is just right of this spot',
+  'more-frames': 'appears after a while',
+  'p-switch': 'appears while a P-switch is active',
+  'on-off': 'appears when the ON/OFF switch is flipped',
+  'none-found': 'is not always there, and the app could not tell what hides it',
+}
+const revealText = (c: RevealCondition) => c === 'none-found' ? REVEAL_TEXT[c] : `${REVEAL_TEXT[c]} (${MARIO_SAID})` // prettier-ignore
 
 /**
  * Fewest quiet passes at the end of a run before its colors count as settled. A vanilla fade writes a rung every
@@ -518,6 +552,7 @@ export function modelResult(m: RunModel): SpriteDrawResult {
     ok: true,
     parts: interpParts(drawnParts(pass)),
     anchor: { x: m.anchor.x, y: m.anchor.y },
+    ...(m.reveal ? { reveal: m.reveal } : {}),
     ...stored,
     ...(m.neverAppears ? { note: 'never appears in play' } : {}),
     ...(m.shifted && m.onLine ? { onLine: m.onLine } : {}),
@@ -746,13 +781,15 @@ export function interpRunner(
   rom: RomFile,
   index: number,
   model: { isVertical: boolean; screenCount: number },
-  run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runWithUploads,
+  run: (rom: RomFile, id: number, seed: SpriteSeed, opts?: Pick<RunOptions, 'stopAtDraw' | 'trackInputs'>) => RunModel = runWithUploads, // prettier-ignore
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
   ringRoutines: RingRoutines = VANILLA_RING_ROUTINES,
   eeriesRoutines: EeriesRoutines = VANILLA_EERIES_ROUTINES,
   platformRoutines: PlatformRoutines = VANILLA_PLATFORM_ROUTINES,
   /** The map's whole sprite list: a sprite that scans the slots for a companion is run with its neighbors (#841). */
   list: readonly LevelSprite[] = [],
+  /** Look for what reveals a sprite that draws nothing at rest (RevealSearch.ts): the map view's runs only. */
+  reveal: boolean = run === runWithUploads,
 ): (sprite: LevelSprite) => SpriteRun {
   // The loader runs once per map, not per sprite.
   const base = seedFor(rom, index)
@@ -784,7 +821,12 @@ export function interpRunner(
     if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
     // The map's own loader placed it at map load (D156): it also spawns at the map-load camera.
     const opening = !!w && s.index >= 0 && s.index < 128 && !!w[SPRITE_LOAD_STATUS + s.index]
-    let m = run(rom, s.spriteId, seed(camera, { opening }))
+    let m = run(
+      rom,
+      s.spriteId,
+      seed(camera, { opening }),
+      reveal ? { trackInputs: true } : undefined,
+    )
     // A sprite placed at the game's own layout (the bonus game) was replayed in the loader's top slot; an earlier loaded sprite
     // may have taken it, which moves one block by a pixel and changes its item (measured on $000, slots 9 vs 8): drawn, marked.
     if (
@@ -793,6 +835,18 @@ export function interpRunner(
       earlierSpriteLoaded(list, s, i => w?.[SPRITE_LOAD_STATUS + i] ?? 0)
     )
       m = { ...m, unverifiedReason: EARLIER_SPRITE_REASON }
+    // Hidden sprites take their picture from the search, whatever the at-rest run drew (a mole drawn from where Mario starts).
+    if (reveal) {
+      const rv = findReveal(seed(camera, { opening }), m, (q, probe) =>
+        run(rom, s.spriteId, q, { stopAtDraw: probe }),
+      )
+      if (rv.status === 'hidden') return { m: rv.model, fixed: false }
+      if (rv.status === 'refused') return { m: { ...m, chosen: undefined, refusal: rv.reason }, fixed: false } // prettier-ignore
+      // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.
+      if (rv.status === 'unrevealed' && rv.drewAtRest)
+        return { m: { ...m, chosen: drawnPass(m), reveal: 'none-found' }, fixed: false } // prettier-ignore
+      if (rv.status === 'unrevealed') return { m: { ...m, chosen: undefined, emptyReason: UNREVEALED }, fixed: false } // prettier-ignore
+    }
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return { m, fixed: false } // prettier-ignore
     // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbor

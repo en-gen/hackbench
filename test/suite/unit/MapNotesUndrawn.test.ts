@@ -16,10 +16,10 @@ const model = { isVertical: false, screenCount: 16, vram: Object.fromEntries(['f
 /** Two entries at the same spot, so the same child is lost at each. */
 const twice = (id: number, data: number) =>
   Uint8Array.from([0, data, 0x43, id, data, 0x43, id, 0xff])
-const eeries = () => {
-  const rom = buildSyntheticRom({ eeries: {} })
+const eeries = (room?: number, also = 0x68) => {
+  const rom = buildSyntheticRom({ eeries: { room } })
   // The cart's Eerie handler returns before drawing for the one at X low byte $68 (the far one): one Eerie spawned, not drawn.
-  rom.writeAt(EERIE_HANDLER, [0xb5, 0xe4, 0xc9, 0x68, 0xd0, 0x01, 0x60, ...bytesAt(rom, EERIE_HANDLER, 60)]) // prettier-ignore
+  rom.writeAt(EERIE_HANDLER, [0xb5, 0xe4, 0xc9, 0x68, 0xd0, 0x01, 0x60, 0xb5, 0xe4, 0xc9, also, 0xd0, 0x01, 0x60, ...bytesAt(rom, EERIE_HANDLER, 60)]) // prettier-ignore
   return spriteLayer(twice(0xde, 0x71), model, interpDrawer(rom, 0x21, model, runOnce, () => eeriesSeed(100), undefined, SYNTHETIC_EERIES_ROUTINES as never)) // prettier-ignore
 }
 const platforms = (room?: number) =>
@@ -29,6 +29,9 @@ const dto = (noun: 'Eerie' | 'platform', count: number, why: string, extra = '')
 describe('map note counts of undrawn children', () => {
   it('two $DE spawners that each lose one Eerie say 2', () => {
     expect(eeries().note).toMatch(/^2 Eeries did not draw: drew no OAM tile/)
+  })
+  it('room for 3 and two Eeries not drawn per spawner: the count is spawned minus drawn, 4 over two', () => {
+    expect(eeries(3, 0x54).note).toMatch(/ 4 Eeries did not draw: /)
   })
   it('two $E0 spawners that each lose one platform say 2', () => {
     expect(platforms().note).toMatch(/^2 platforms did not draw: drew no OAM tile/)

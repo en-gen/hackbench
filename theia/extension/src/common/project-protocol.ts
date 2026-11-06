@@ -357,6 +357,10 @@ export interface MapSpriteDto {
   note?: string
   /** Spawned children that did not draw, as data: the map's note sums them across spawners (#1281); `note` keeps the full text. */
   undrawn?: UndrawnChildren
+  /** Every pixel of the sprite is drawn in the screen door: it draws nothing in play until something happens (#1132). */
+  screenDoor?: boolean
+  /** What makes it appear ("appears when Mario gets close to this spot", with his state), or that nothing was found to; present with `screenDoor`, for the hover. */
+  reveal?: string
 }
 
 /**
