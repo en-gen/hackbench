@@ -488,10 +488,18 @@ export function romWindowLookup(env = process.env, say = () => {}) {
     say(`${NOT_RUN}the file at the vanilla ROM path ${why}\n`)
     return null
   }
-  if (!statSync(file).isFile()) return bad('is not a regular file')
-  const raw = readFileSync(file)
+  const st = statSync(file)
+  if (!st.isFile()) return bad('is not a regular file')
+  // Judged from stat first: readFileSync refuses a file over 2 GiB with a stack trace.
+  if (st.size !== ROM_BYTES && st.size !== ROM_BYTES + 512)
+    return bad(`is ${st.size} bytes, not ${ROM_BYTES}`)
+  let raw
+  try {
+    raw = readFileSync(file)
+  } catch (e) {
+    return bad(`cannot be read (${e.code ?? e.message})`)
+  }
   const rom = raw.length % 1024 === 512 ? raw.subarray(512) : raw
-  if (rom.length !== ROM_BYTES) return bad(`is ${rom.length} bytes, not ${ROM_BYTES}`)
   const sum = rom.reduce((n, b) => (n + b) & 0xffff, 0)
   if (rom.readUInt16LE(0x7fde) !== sum || (rom.readUInt16LE(0x7fdc) ^ sum) !== 0xffff)
     return bad('fails its internal checksum')

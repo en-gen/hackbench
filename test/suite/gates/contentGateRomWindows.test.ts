@@ -4,7 +4,15 @@
  * the real-ROM half needs the corpus. Planted bytes are made at test time, never printed or committed.
  */
 import { spawnSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  truncateSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -18,7 +26,10 @@ import { hasRom, romPath, VANILLA } from '../support/corpus'
 
 const REPO = join(__dirname, '../../..')
 const tmp = mkdtempSync(join(tmpdir(), 'cg-romwin-'))
-afterAll(() => rmSync(tmp, { recursive: true, force: true }))
+afterAll(() => {
+  if (process.platform === 'win32') spawnSync('icacls', [tmp, '/reset', '/T', '/C', '/Q']) // the unreadable-ROM case
+  rmSync(tmp, { recursive: true, force: true })
+})
 
 /** The gate script plus what it imports, laid out as in the repo, so a throwaway repo can run it. */
 function installGate(dir: string): void {
@@ -150,6 +161,11 @@ const cli = (dir: string, roms: string, args: string[], input?: string) =>
     input,
     env: { ...process.env, HACKBENCH_ROMS: roms },
   })
+// Deny this user read access (icacls on Windows, chmod elsewhere); a root user may still read it.
+const denyRead = (f: string) =>
+  process.platform === 'win32'
+    ? spawnSync('icacls', [f, '/deny', `${process.env.USERNAME}:(R)`])
+    : spawnSync('chmod', ['000', f])
 const NOT_RUN = /rule DID NOT RUN: /
 const ident = ['-c', 'user.email=t@e.com', '-c', 'user.name=T']
 
@@ -370,6 +386,10 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
     ['wrong bytes at full size', () => romsDir('bwr', prng(BIG, 7))],
     ['a corrupted byte', () => romsDir('bco', Uint8Array.from(vanillaFile([win]), (v, i) => (i === 9000 ? v ^ 1 : v)))], // prettier-ignore
     ['a directory', () => romsDir('bdir', 'dir')],
+    // Over 2 GiB: readFileSync refuses it with ERR_FS_FILE_TOO_LARGE, so the size is judged from stat.
+    ['over 2 GiB', () => { const d = romsDir('bhuge', new Uint8Array(0)); truncateSync(join(d, VANILLA), 3 * 1024 ** 3); return d }], // prettier-ignore
+    // Unreadable (EPERM): read access denied to this user; skipped if the denial does not take.
+    ['unreadable', () => { const d = romsDir('bperm', vanillaFile([win])); const f = join(d, VANILLA); denyRead(f); try { readFileSync(f) } catch { return d } return romsDir('bnone') }], // prettier-ignore
   ]
   it.each(BAD)(
     'a vanilla-path file that is not a usable ROM (%s): did not run, no crash',
@@ -378,7 +398,7 @@ describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
       commitFile(r, 'planted.ts', run)
       const p = range(r.dir, make())
       expect(p.status).toBe(0)
-      expect(p.stderr.toString()).toMatch(/DID NOT RUN: the file at the vanilla ROM path (is not a regular file|is \d+ bytes|fails its internal checksum)/) // prettier-ignore
+      expect(p.stderr.toString()).toMatch(/DID NOT RUN: the file at the vanilla ROM path (is not a regular file|is \d+ bytes|cannot be read|fails its internal checksum)/) // prettier-ignore
       expect(p.stderr.toString()).not.toMatch(/\bat .*\.mjs|Error:/)
     },
   )
