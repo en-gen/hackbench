@@ -61,10 +61,14 @@ flowchart TD
   Mario's position, his fixed state, `$14AD` or `$14AF` is visible with no probe reruns: every probe would repeat it.
   A blank sprite always goes to the search.
 - The more-frames, P-switch and ON/OFF reruns start from the real Mario. For a sprite that drew from the real start
-  they would draw the same frame and call it a reveal, so they run only for a sprite that never drew.
+  they would draw the same frame and call it a reveal, so they run only for a sprite that never drew: a hidden sprite
+  that drew at rest gets the first three conditions only (proposed, D192:
+  [the decision](../decisions/2026-11-06-reveal-search-sprites-that-drew-at-rest.md)).
 - A sprite that drew from the real start, is blank under some probe, and no Mario position reveals keeps its real-start
   picture, drawn in the screen door, with the hover "is not always there, and the app could not tell what hides it".
-  No condition is claimed (`none-found`). A sprite that never drew under any run is the marker, reason `unrevealed`.
+  No condition is claimed (`none-found`). This differs from the issue's step 6, which says marker; it is proposed, not
+  ruled (D192, [the decision](../decisions/2026-11-06-reveal-search-sprites-that-drew-at-rest.md)), and is 0 on vanilla.
+  A sprite that never drew under any run is the marker, reason `unrevealed`.
 - The door: the sprite's door id carries `WHOLE_DOOR` (ColorMath), so `composeScreen` draws every pixel at the door's
   strength through the existing door map, `doorFlips` counts its swap over all its pixels, and the hover lift (#879)
   makes it solid wherever it is.
