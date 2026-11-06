@@ -221,7 +221,7 @@ export function fiveEeries(
     }
   // A shortfall of spawns is the game's own (the map's slot range, FindFreeSlotRt bank_02.asm:5523-5539); one that
   // spawned and did not draw is told.
-  const undrawn = why ? { noun: 'Eerie' as const, count: EERIES - missing - placed.length, why } : undefined
+  const undrawn = why ? { noun: 'Eerie' as const, count: EERIES - missing - placed.length, why } : undefined // prettier-ignore
   const notes = undrawn ? [undrawnNote(undrawn)] : []
   return {
     ok: true,
