@@ -3940,7 +3940,7 @@ test('the preview tab carries the layer, sprite and collision toggles to the nex
   const flipped = await states()
   await expect.poll(lines, { timeout: 60000 }).not.toBe('')
   const aLines = await lines()
-  await clickRow(page, 0x1c1)
+  await clickRow(page, 0x011)
   expect(await states()).toEqual(flipped)
   expect(await pressedOf(page, 'preview')).toEqual(all('false'))
   // Presses on A and the overlay on: B draws some lines, and not A's.
