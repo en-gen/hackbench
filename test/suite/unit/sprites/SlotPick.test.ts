@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { LOADER_PICK, slotWalk } from '../../../../src/rom/sprites/interp/SlotPick'
 import { freshRom, hasRom, VANILLA } from '../../support/corpus'
-import { RESERVED1, ROWS, slotCart, SPECIAL } from '../../support/slotPickCart'
+import { OTHER_RESERVED2, RESERVED1, ROWS, slotCart, SPECIAL } from '../../support/slotPickCart'
 
 const { rom, spec } = slotCart()
 const walk = (setting: number, id: number, along: number) => slotWalk(rom, setting, id, along, spec)
@@ -30,6 +30,10 @@ describe('slotWalk (synthetic loader)', () => {
     expect(walk(3, RESERVED1, 0x00)).toMatchObject({ long: 2 })
     expect(walk(3, 0x01, 0)).toMatchObject({ long: 3 })
   })
+  it('a reserved-2 id that is not the special one takes its reserved range on either coordinate', () => {
+    for (const a of [0x00, 0x10])
+      expect(walk(2, OTHER_RESERVED2, a)).toEqual({ status: 'ok', long: 5, short: 1 })
+  })
   it('a high top slot is reported as it is: the length decision is the ROM draw, not this walk (setting 0 style)', () => {
     expect(walk(0, SPECIAL, 0x10)).toMatchObject({ status: 'ok', long: 10 })
   })
@@ -41,6 +45,9 @@ describe('slotWalk (synthetic loader)', () => {
     })
     const same = slotCart(s => ((s[19] = s[4]), (s[20] = s[5])))
     expect(slotWalk(same.rom, 1, SPECIAL, 0, same.spec)).toMatchObject({ status: 'unrecognized' })
+    // The three Max tables must lie the same distance apart: a span whose Max2 is out of step is not read.
+    const skew = slotCart(s => ((s[44] = s[19] + 5), (s[45] = s[20])))
+    expect(slotWalk(skew.rom, 1, SPECIAL, 0, skew.spec)).toMatchObject({ status: 'unrecognized' })
     // The operands name addresses below $8000, which hold no ROM, so no table can be read.
     const cut = slotCart(sp =>
       [4, 7, 14, 19, 22, 29, 44].forEach((o, i) => ((sp[o] = i * 4), (sp[o + 1] = 0x10))),

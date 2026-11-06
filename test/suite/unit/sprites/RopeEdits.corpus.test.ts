@@ -81,6 +81,20 @@ describe.skipIf(!hasRom(VANILLA))('the rope on edited vanilla bytes', () => {
       expect(s.note).toMatch(/level loader could not be run/)
     }
   })
+  it('a rope draw edited so the gate refuses it draws 5 tiles in slot 0 and the panel says why', () => {
+    const { path, bytes } = load(0x00f)
+    bytes[0xdc74] = 5 // the operand of the draw's CPX #6 (bank_01.asm:12584, $01:DC74)
+    const r = mapSprites(new L1ModelCache(), bytes, path, 0x00f)
+    if (r.status !== 'ok') throw new Error(r.status)
+    const got = r.sprites.filter(s => s.id === 0x64)
+    expect(got).toHaveLength(6)
+    for (const s of got) {
+      expect((s.parts?.length ?? 0) / 4, `column ${s.x / 16}`).toBe(5)
+      expect(s.note).toMatch(
+        /^Not checked against the loader's sprite slot: slot 0: it calls \$01DC54/,
+      )
+    }
+  })
   it('a $64 whose main and INIT pointers are those of sprite $0F is not a rope: no length note', () => {
     const { path, bytes } = load(0x00f)
     const rom = RomFile.fromBytes(path, Buffer.from(bytes))

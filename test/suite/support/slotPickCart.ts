@@ -10,6 +10,8 @@ import type { CodeFingerprint } from '../../../src/rom/sprites/interp/InitLatche
 
 export const SPECIAL = 0x64
 export const RESERVED1 = 0x2d
+/** A second reserved id that is not the special one: it takes its reserved range whatever the coordinate. */
+export const OTHER_RESERVED2 = 0x2e
 const AT = 0x02a8e4
 const T = {
   max: 0xb000,
@@ -21,15 +23,15 @@ const T = {
   res2: 0xb01c,
 } as const
 
-/** Four settings: 0 a high top slot, 1 a reserved top (SPECIAL on an odd coordinate), 2 an ordinary top shared with others, 3 a reserved-1 id. */
+/** Four settings: 0 a high top slot, 1 a reserved top (SPECIAL on an odd coordinate), 2 an ordinary top shared with others and a plain reserved-2 id, 3 a reserved-1 id. */
 export const ROWS = {
   max: [10, 4, 6, 3],
   start: [0xff, 0xff, 1, 0xff],
   res1: [0xff, 0xff, 0xff, RESERVED1],
   max1: [0, 6, 6, 2],
   start1: [0, 0xff, 1, 0],
-  res2: [0xff, SPECIAL, 0xff, 0xff],
-  max2: [0, 6, 6, 0],
+  res2: [0xff, SPECIAL, OTHER_RESERVED2, 0xff],
+  max2: [0, 6, 5, 0],
 }
 
 export function slotCart(

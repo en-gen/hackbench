@@ -12,14 +12,20 @@ import {
   type SpriteSeed,
 } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import type { SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunner'
-import { interpRunner } from '../../../../theia/extension/src/node/map-sprites'
+import {
+  interpRunner,
+  modelResult,
+  type RunModel,
+} from '../../../../theia/extension/src/node/map-sprites'
 import { drawer } from '../../support/ropeStandIn'
 import { slotCart, SPECIAL } from '../../support/slotPickCart'
 
 const { rom, spec } = slotCart()
-const image = (setting: number): SpriteSeed => {
+const image = (setting: number, loadedAtStart = false): SpriteSeed => {
   const loaded = new Uint8Array(0x20000)
   loaded[0x1692] = setting
+  // The map's own loader placed list entry 0: the call site then tries the screen-fixed probe run.
+  loaded[0x1938] = loadedAtStart ? 1 : 0
   return withSeed({ loaded }, SPRITE_SEED)
 }
 const sprite = (id: number, x: number, y: number): LevelSprite => ({ screen: 0, x, y, spriteId: id, extraBit: false, raw: [0, 0, 0], index: 0, streamOffset: 0 }) // prettier-ignore
@@ -29,14 +35,21 @@ function run(
   id: number,
   x: number,
   y: number,
-  o: { setting?: number; vertical?: boolean; snaps?: boolean; noImage?: boolean } = {},
+  o: {
+    setting?: number
+    vertical?: boolean
+    snaps?: boolean
+    noImage?: boolean
+    probe?: boolean
+  } = {},
 ) {
   const seen: number[] = []
+  const passes: number[] = []
   const setting = o.setting ?? 1
   const stand = drawer(setting, seen, undefined, o.snaps ?? true)
-  const go = interpRunner(rom, 0, { isVertical: !!o.vertical, screenCount: 2 }, (_r, _i, s) => stand(s.slot), () => (o.noImage ? SPRITE_SEED : image(setting)), undefined, undefined, undefined, [], { spec }) // prettier-ignore
+  const go = interpRunner(rom, 0, { isVertical: !!o.vertical, screenCount: 2 }, (_r, _i, s) => (passes.push(s.mainPasses), stand(s.slot)), () => (o.noImage ? SPRITE_SEED : image(setting, o.probe)), undefined, undefined, undefined, [], { spec }) // prettier-ignore
   const r = go(sprite(id, x, y)) as { m: SpriteModel }
-  return { seen, m: r.m, tiles: r.m.passes[0]!.parts.length }
+  return { seen, passes, m: r.m, tiles: r.m.passes[0]!.parts.length }
 }
 
 describe('the map view call site of the rope', () => {
@@ -65,5 +78,25 @@ describe('the map view call site of the rope', () => {
     const r = run(SPECIAL, 1, 2, { noImage: true })
     expect(r).toMatchObject({ seen: [0], tiles: 5 })
     expect(r.m.lengthNote).toMatch(/level loader could not be run/)
+  })
+  it('a rope the gate confirmed skips the screen-fixed probe run; one that lost the gate does not', () => {
+    // The probe is the only run with a shortened pass count.
+    const probes = (snaps: boolean) => run(SPECIAL, 1, 2, { snaps, probe: true }).passes.filter(p => p !== SPRITE_SEED.mainPasses).length // prettier-ignore
+    expect(probes(true)).toBe(0)
+    expect(probes(false)).toBeGreaterThan(0)
+  })
+  it('the no-image note goes only on a rope the gate confirmed', () => {
+    expect(run(SPECIAL, 1, 2, { noImage: true, snaps: false }).m.lengthNote).toBeUndefined()
+  })
+  it('the panel note joins "never appears in play" with the length note, and either alone is unchanged', () => {
+    const m = run(SPECIAL, 1, 2, { noImage: true }).m as RunModel
+    const both = modelResult({ ...m, neverAppears: true } as RunModel)
+    const only = modelResult({ ...m, lengthNote: undefined, neverAppears: true } as RunModel)
+    const length = modelResult(m)
+    expect(both).toMatchObject({ note: expect.stringMatching(/^never appears in play The rope is shown at its short length/) }) // prettier-ignore
+    expect(only).toMatchObject({ note: 'never appears in play' })
+    expect(length).toMatchObject({
+      note: expect.stringMatching(/^The rope is shown at its short length/),
+    })
   })
 })

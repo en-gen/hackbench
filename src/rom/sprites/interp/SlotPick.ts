@@ -11,17 +11,11 @@ import type { CodeFingerprint } from './InitLatches'
 
 /**
  * The pick, `LDY SpriteMemorySetting` to the `BNE` after the status test (bank_02.asm:5376-5405, $02A8E4-$02A921), 62
- * bytes in ONE SHA-256. Nothing is masked or normalized. Counted against the working tree (1536 tracked text files, any
- * 5-byte window that appears as hex): 0 bytes are stated elsewhere, so all 62 are unknown (a stricter count in review
- * gave 53); either is past D126's 24 (vanilla US cart, one machine). The table operands sit inside the span, so a
- * relocated table fails the digest and the sprite keeps slot 0.
- *
- * The front of the loader (the offset tables, the `$00` stores at 5236 and 5245, the column compare and the branch chain,
- * bank_02.asm:5217-5369) is deliberately OUTSIDE the digest: only a routine we rely on the identity of is hashed
- * (FINGERPRINT NORMALIZATION ruling b), and hacks patch that front for their own sprite loading. Measured: a digest over the
- * whole of it refuses 5 of the 7 corpus ROMs (all five hacks differ there; only the vanilla and magic carts pass) and the pick alone
- * refuses none (7 ROMs, one machine, this corpus). The parity reads the same `$00` in those hacks only if they keep its
- * meaning; that is assumed, not checked.
+ * bytes in ONE SHA-256, nothing masked or normalized (vanilla US cart, one machine). Constants stated elsewhere (rule 7,
+ * single values): $1692, $14C8, #$64, #$10, #$FF = 7 bytes, so 55 are unknown (the review's stricter counts: 50, or 27 with
+ * every opcode known); past D126's 24. The digest stops at the pick; the front of the loader is ruled out of it, and why
+ * and with what result is in docs/sprites/sprite-62-line-platform.md. The table operands sit inside the span, so a
+ * relocated table fails it and the sprite keeps slot 0.
  */
 export const LOADER_PICK: CodeFingerprint = { at: 0x02a8e4, length: 62, sha256: 'e62f6d8872398313a7b5fc0af4a2250b8f455ba74e07dde38c7df85b8868bb38' } // prettier-ignore
 
@@ -129,10 +123,5 @@ export function slotWalk(
   const last = mineSlots[mineSlots.length - 1]!
   // Never null: the last slot of the range is not in `busy`.
   const short = mineSlots.find(x => !(reachable.has(x) && x !== last))!
-  if (short > long)
-    return {
-      status: 'unreadable',
-      reason: 'the loader tables give a short slot above the long one',
-    }
   return { status: 'ok', long, short }
 }

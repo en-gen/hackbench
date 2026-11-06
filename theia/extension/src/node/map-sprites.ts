@@ -812,7 +812,7 @@ export function interpRunner(
     // proves nothing and the run stands (no position is invented).
     // A sprite drawn at fixed map positions (InitLatches.ts) has no screen-fixed parts, and its camera is not the loader's.
     // A rope is not screen-fixed, and its probe would run in another slot than the picture.
-    if (m.absolutePlacement || rope) return { m, fixed: false }
+    if (m.absolutePlacement || (rope && m.snaps)) return { m, fixed: false }
     const dir = [x - camera.x < 128 ? -13 : 13, y - camera.y < 112 ? -11 : 11]
     for (const k of [1, -1]) {
       const shifted = { x: camera.x + dir[0]! * k, y: camera.y + dir[1]! * k }

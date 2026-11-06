@@ -55,15 +55,22 @@ export function ropeModel<M extends SpriteModel>(
         }
   }
   const long = runAt(w.long)
-  // The gate (hashed draw, dispatch order) did not confirm the rope: the run is as it was before #1230, in slot 0.
-  if (!long.snaps) return runAt(0)
+  // The gate (hashed draw, dispatch order) did not confirm the rope: the run is as it was before #1230, in slot 0; the gate's
+  // own reason is the panel note, so a rope that lost the gate does not just draw short in silence.
+  if (!long.snaps) {
+    const m = runAt(0)
+    return m.lineGateReason
+      ? { ...m, lengthNote: `Not checked against the loader's sprite slot: ${m.lineGateReason}.` }
+      : m
+  }
   if (w.short === w.long) return long
   const short = runAt(w.short)
   if (short.chosen !== long.chosen || short.anchor?.x !== long.anchor?.x || short.anchor?.y !== long.anchor?.y)
     return { ...short, unverifiedReason: short.unverifiedReason ?? DIFFERENT_SPOT, lengthNote: 'The rope is shown at its short length: it starts at a different spot in the two slots it can load into.' } // prettier-ignore
   // The same positions: the picture is the loader's first pick (its motor tile comes from that slot), not the walk's far end.
-  const spots = (m: SpriteModel) => new Set(drawnParts(m.passes[m.chosen!]!).map(key))
+  const spots = (m: SpriteModel) =>
+    m.passes[m.chosen ?? -1] && new Set(drawnParts(m.passes[m.chosen!]!).map(key))
   const [a, b] = [spots(short), spots(long)]
-  if (a.size === b.size && [...a].every(k => b.has(k))) return long
+  if (a && b && a.size === b.size && [...a].every(k => b.has(k))) return long
   return short
 }

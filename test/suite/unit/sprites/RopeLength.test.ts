@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { ropeModel, type RopeAt } from '../../../../src/rom/sprites/interp/RopeLength'
 import type { SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { ROWS, slotCart, SPECIAL } from '../../support/slotPickCart'
-import { drawer } from '../../support/ropeStandIn'
+import { drawer, standIn } from '../../support/ropeStandIn'
 
 const { rom, spec } = slotCart()
 const at = (o: Partial<RopeAt>): RopeAt => ({ id: SPECIAL, setting: 1, x: 0x10, y: 0x20, vertical: false, spec, ...o }) // prettier-ignore
@@ -73,5 +73,26 @@ describe('ropeModel', () => {
       expect(m.lengthNote).toBeUndefined()
       expect(m.unverifiedReason).toBeUndefined()
     }
+  })
+  it('a gate-refused draw says why in the note, from the gate own reason', () => {
+    const run = (slot: number) => ({ ...drawer(1)(slot), snaps: false, lineGateReason: 'slot 0: it calls $01DC54, which is not a stock routine here' }) as SpriteModel // prettier-ignore
+    expect(ropeModel(rom, at({}), run).lengthNote).toBe("Not checked against the loader's sprite slot: slot 0: it calls $01DC54, which is not a stock routine here.") // prettier-ignore
+  })
+  it('a run with no chosen pass cannot throw, and shows the short run', () => {
+    const run = (slot: number) =>
+      ({ ...drawer(2)(slot), chosen: undefined }) as unknown as SpriteModel
+    expect(() => ropeModel(rom, at({ setting: 2, id: 0x01 }), run)).not.toThrow()
+  })
+  it('the slots must agree on the chosen pass and on both anchor coordinates, else the short rope is shown with a note', () => {
+    const other = (patch: Partial<SpriteModel>) => (slot: number) => ({ ...drawer(2)(slot), ...(slot === 6 ? patch : {}) }) as SpriteModel // prettier-ignore
+    for (const patch of [{ chosen: 1 }, { anchor: { x: 100, y: 51 } }, { anchor: { x: 101, y: 50 } }])
+      expect(ropeModel(rom, at({ setting: 2, id: 0x01 }), other(patch)).lengthNote, JSON.stringify(patch)).toMatch(/different spot/) // prettier-ignore
+  })
+  it('the same number of parts at other positions is not the same rope: the short run is shown, not the long one', () => {
+    const run = (slot: number) =>
+      standIn(slot === 6 ? [0, 16, 32, 48, 64] : [0, 16, 32, 48, 80], slot)
+    expect(ropeModel(rom, at({ setting: 2, id: 0x01 }), run).passes[0]!.parts[0]!.char).toBe(2)
+    const same = (slot: number) => standIn([0, 16, 32, 48, 64], slot)
+    expect(ropeModel(rom, at({ setting: 2, id: 0x01 }), same).passes[0]!.parts[0]!.char).toBe(6)
   })
 })
