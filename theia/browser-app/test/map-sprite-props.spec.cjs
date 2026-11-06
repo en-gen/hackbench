@@ -406,3 +406,28 @@ test('a chainsaw that never appears stays on its stored tile, with no outline, a
     `Column ${Math.floor(saw.x / 16)}, row ${Math.floor(saw.y / 16)}`,
   )
 })
+
+// #1230 (AC 7): a rope on a ROM whose sprite loader is not the original keeps its short length, and the panel itself
+// says why in plain words (not only the tooltip). The edit flips one byte inside the loader's slot search ($02:A8E4,
+// bank_02.asm:5376), so its fingerprint fails. Plant: stop setting `note` in the rope's model and this goes red.
+test('a rope on a ROM with an edited sprite loader says in the panel why it is short', async ({
+  page,
+}) => {
+  const bytes = new Uint8Array(fs.readFileSync(ROM))
+  bytes[0x128e4 + 3] ^= 1
+  const edited = path.join(tmp, 'loader.sfc')
+  fs.writeFileSync(edited, bytes)
+  const project = await page.evaluate(
+    ({ romPath, directory }) =>
+      getSvc('Symbol(ProjectService)').createProject({ romPath, name: 'Edited', directory }),
+    { romPath: edited, directory: path.join(tmp, 'Edited') },
+  )
+  manifestPath = project.manifestPath
+  const map = await openMap(page, 0x00f)
+  const rope = map.stack.find(s => s.id === 0x64 && s.status === 'drawn' && map.own(s))
+  expect(rope, 'a drawn rope on map $00F').toBeTruthy()
+  expect(rope.note).toBe('The rope is shown at its short length: the sprite loader on this ROM is not the original one.') // prettier-ignore
+  const at = map.own(rope)
+  await map.click(at.x, at.y)
+  await expect(panel(page).locator('[data-field="note"]').filter({ hasText: 'The rope is shown at its short length: the sprite loader on this ROM is not the original one.' })).toHaveCount(1) // prettier-ignore
+})

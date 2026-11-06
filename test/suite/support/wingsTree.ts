@@ -66,3 +66,14 @@ export function yoshiUnder(tree: MapTree): Record<number, number[]> {
   }
   return out
 }
+
+/** Root -> sub area holder -> the Yoshi Heaven rows nested under that sub area (#1295). */
+export function yoshiNested(tree: MapTree): Record<number, Record<number, number[]>> {
+  const out: Record<number, Record<number, number[]>> = {}
+  for (const n of tree.overworld)
+    for (const sub of n.children) {
+      const kids = sub.children.filter(c => c.reachedBy === 'yoshi-heaven').map(c => c.index)
+      if (kids.length > 0) (out[n.index] ??= {})[sub.index] = kids
+    }
+  return out
+}

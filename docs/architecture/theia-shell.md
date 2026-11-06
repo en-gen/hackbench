@@ -243,7 +243,8 @@ has), the level loader refused this ROM (placement-only seed), the map's memory
 setting differs from the one checked, or an earlier sprite may hold its slot. The reply's `note`
 joins two caveats: the stream has no end marker in the bytes read (sprites past
 them are not drawn), and, once per map, a plain count ("Unverified: 2 sprites
-may not be drawn exactly as in the game."). The causes go in `noteDetail`, one
+may not be drawn exactly as in the game."). Sprite notes join as a set, except spawned children
+that did not draw (`undrawn` on the sprite), which are summed per kind (#1281). The causes go in `noteDetail`, one
 per line, for the note's tooltip (the castle flames' detail joins it); the Sprites
 toggle's tooltip and the Properties line carry the same text, never the visible
 words (#1166).
