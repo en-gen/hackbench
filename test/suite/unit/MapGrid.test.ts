@@ -266,10 +266,17 @@ describe('the closing line of an off-map band (#1284)', () => {
     // (a) content runs on past the view: a thin line exactly on the view edge is a ghost.
     expect(far(run({ viewH: 288 }), 288)).toEqual([])
     // (b) the closing line is beyond the view.
-    expect(far(run({ viewH: 400 }), 448)).toEqual([])
+    for (const viewH of [417, 440, 447]) expect(far(run({ viewH }), 448), `${viewH}`).toEqual([])
     // (c) scrolled past: thin lines before the view's top.
     expect(run({ scrollY: 100, viewH: 200 }).filter(l => l.weight === 1 && l.pos < 100)).toEqual([]) // prettier-ignore
     // (d) maximum scroll: the closing line sits exactly on the trailing edge and still shows.
     expect(far(run({ scrollY: 248, viewH: 200 }), 448)).toMatchObject([{ weight: 1, start: 199 }])
+    // The axis picks its own view size: x against viewW, y against a view taller than wide.
+    const x = { vertical: false, screenCount: 8, scrollX: 1064, viewW: 1000, viewH: 300, pad: { left: 0, top: 0, right: 16, bottom: 0 } } // prettier-ignore
+    expect(far(computeMapGridLines({ ...base, ...x }).x, 2064)).toMatchObject([{ start: 999 }])
+    expect(far(run({ viewW: 200, viewH: 448 }), 448)).toMatchObject([{ start: 447 }])
+    // Max scroll at fractional zoom and dpr: 448 * 1.37 CSS px of content, a 200 px view.
+    const f = run({ zoom: 1.37, dpr: 1.25, scrollY: 448 * 1.37 - 200, viewH: 200 })
+    expect(far(f, 448 * 1.37)).toMatchObject([{ weight: 1, start: 249 }])
   })
 })

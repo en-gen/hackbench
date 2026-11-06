@@ -111,7 +111,7 @@ export function computeMapGridLines(spec: MapGridSpec): GridLines {
     const at = dev(pos - scroll)
     const weight = mapGridWeight(vertical, axis, i)
     // `place` pulls a lone pixel inside the range: an off-screen thin line would ghost on the viewport edge.
-    // The last line (by index, so float noise cannot move it) closes the band; keep it on the trailing edge at max scroll.
+    // The last line (by index, so float noise cannot move it) closes the band, so max scroll keeps it.
     const keep = at < hi || (i === last && at <= dev(axis === 'x' ? viewW : viewH))
     if (weight === TILE_GRID_WEIGHT && !(at >= 0 && keep)) return undefined
     const p = place(at, weight, 0, hi)
