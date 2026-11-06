@@ -30,6 +30,7 @@ import type {
   MapSpriteDto,
   SpriteFramesResult,
 } from '../../../theia/extension/src/common/project-protocol'
+import { animationText, NOT_ANIMATED } from '../../../theia/extension/src/browser/sprite-props'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 import { COLORS } from '../support/mapInputs'
 import { slow } from '../support/loadTimeout'
@@ -462,6 +463,72 @@ describe('FramePlayer', () => {
     resolve(ok(2))
     await flush()
     expect(c.fn).toBeUndefined()
+  })
+})
+
+describe('framesOf: a sprite that never draws is not "one pose" (#1113)', () => {
+  const unloaded = { vram: { sp1: [] as Uint8Array[] }, colors: COLORS } // no chars loaded: every pass draws a marker
+  /** The line the panel shows for `r`, through the player. */
+  const said = async (r: ReturnType<typeof framesOf>) => {
+    const p = new FramePlayer(async () => ({ status: 'ok', ...r }), {
+      every: () => 1,
+      stop: () => {},
+    })
+    p.select({ manifestPath: 'm', index: 1, spriteIndex: 0 })
+    await new Promise(res => setTimeout(res, 0))
+    return animationText(p.state)
+  }
+
+  it('every pass drawing unloaded chars returns no frames and names why', async () => {
+    const r = framesOf({ m: run([[1, 0], [2, 0]]), fixed: false }, spr, unloaded) // prettier-ignore
+    expect(r).toEqual({ frames: [], reason: 'charsNotLoaded' })
+    expect(await said(r)).toBe(
+      'Animation not shown: Some of its graphics are not loaded on this map.',
+    )
+  })
+
+  // Only chars 5 and 6 are loaded; a pass of any other char draws a marker.
+  const some = { vram: { sp1: Array.from({ length: 24 }, (_, i) => ([5, 6].includes(i) ? SOLID : null)) as never }, colors: COLORS } // prettier-ignore
+  const through = (chars: number[]) => framesOf({ m: run(chars.map(c => [c, 0])), fixed: false }, spr, some) // prettier-ignore
+
+  const NOT_SHOWN = 'Animation not shown: Some of its graphics are not loaded on this map.'
+
+  it('an unloaded chosen pass keeps the reason, so one drawable later pose is not "one pose"', async () => {
+    const r = through([1, 1, 5])
+    expect(r.frames).toHaveLength(1)
+    expect(r.reason).toBe('charsNotLoaded')
+    expect(await said(r)).toBe(NOT_SHOWN)
+  })
+
+  it('an unloaded chosen pass still shows the drawable later poses, reason kept, and they play', async () => {
+    const r = through([1, 5, 6])
+    expect(r.frames).toHaveLength(2)
+    expect(r.reason).toBe('charsNotLoaded')
+    expect(await said(r)).toBe('Animated: 2 frames, looping.')
+  })
+
+  it('a later pass skipped beside a drawn chosen pass keeps the frame and no reason', async () => {
+    const r = through([5, 1])
+    expect(r.frames).toHaveLength(1)
+    expect(r.reason).toBeUndefined()
+    expect(await said(r)).toBe(NOT_ANIMATED)
+  })
+
+  it('a pass skipped between two drawn ones keeps both frames and no reason', () => {
+    const r = through([5, 1, 6])
+    expect(r.frames).toHaveLength(2)
+    expect(r.reason).toBeUndefined()
+  })
+
+  it('every pass unloaded gives the reason for 1, 2 and more than MAX_FRAMES passes', () => {
+    for (const n of [1, 2, MAX_FRAMES + 4])
+      expect(through(Array.from({ length: n }, (_, i) => i + 8)), String(n)).toEqual({ frames: [], reason: 'charsNotLoaded' }) // prettier-ignore
+  })
+
+  it('one real pose still says "one pose"', async () => {
+    const r = framesOf({ m: run([[1, 0], [1, 5]]), fixed: false }, spr, LEVEL) // prettier-ignore
+    expect(r.reason).toBeUndefined()
+    expect(await said(r)).toBe(NOT_ANIMATED)
   })
 })
 

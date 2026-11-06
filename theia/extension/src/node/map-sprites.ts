@@ -1225,7 +1225,7 @@ export const MAX_FRAMES = 16
 /**
  * One sprite's distinct poses (#984), for the Properties preview. `m.passes` are consecutive real game
  * frames, so each pass that draws is blitted through `drawSprites` as if it were `chosen`: no second draw
- * path. The loop starts at `m.chosen` (the pose the map shows, so frame 0 IS the map's bitmap) and goes on
+ * path. The loop starts at `m.chosen` (the pose the map shows; frame 0 IS its bitmap unless that pass is not drawn) and goes on
  * to the later passes. A pose is its parts' chars, flips and offsets from one another (sorted: OAM order is
  * not a pose), after the sprite's own movement is subtracted, so only the art changes between frames.
  * Where a part is measured from differs by sprite: usually the one anchor (the placed spot at rest), with the sprite drawing
@@ -1233,6 +1233,7 @@ export const MAX_FRAMES = 16
  * `pos` (`origin`, when `m.snaps`), the draw running before the move. `drawAt` is where the sprite
  * stood when it drew. A sprite with screen-fixed parts (`fixOffsets`) is not animated here: their map
  * position comes from the loader's camera for the chosen pass only, so another pass has no honest place.
+ * When the chosen pass is not drawn (unloaded chars: the map shows a marker), the later poses that do draw are still kept and `reason` is the chosen pass's, so the panel never calls it "one pose" (#1113).
  */
 export function framesOf(
   run: SpriteRun,
@@ -1251,6 +1252,7 @@ export function framesOf(
   const drawAt = (q: typeof ref) => (m.snaps ? q.origin : q.pos)
   const seen = new Set<string>()
   const frames: MapSpriteDto[] = []
+  let why: string | undefined // set only when the chosen pass is not drawn
   for (const pass of m.passes.filter(q => q.pass >= ref.pass && drawnParts(q).length > 0)) {
     // dx' places the art where it stands relative to the sprite, on the chosen pass's anchor.
     const [ax, ay] = [pass.origin.x - drawAt(pass).x + drawAt(ref).x - ref.origin.x, pass.origin.y - drawAt(pass).y + drawAt(ref).y - ref.origin.y] // prettier-ignore
@@ -1266,7 +1268,11 @@ export function framesOf(
       passes: m.passes.map(q => (q === pass ? { ...q, parts, companions: [] } : q)),
     }
     const [f] = drawSprites([s], model, () => modelResult(shifted), dynamic)
-    if (f!.status !== 'drawn') continue
+    if (f!.status !== 'drawn') {
+      // The map shows a marker for this sprite, so say why beside the later poses that do draw (#1113); a skip after a frame exists says nothing.
+      if (!frames.length) why ??= f!.reason ?? f!.status
+      continue
+    }
     // A pass whose parts wrapped past 256 px or left the screen is not the same sprite's next pose: stop,
     // so the loop stays a contiguous run of real frames (vanilla: 54 sprites on 13 maps had one).
     const b0 = frames[0]?.box
@@ -1275,7 +1281,7 @@ export function framesOf(
     frames.push(f!)
     if (frames.length >= MAX_FRAMES) break
   }
-  return { frames }
+  return why ? { frames, reason: why } : { frames }
 }
 
 /** The run behind a sprite's frames: at rest, like the map's picture (D139 D: INIT's look, D134 position), so frame 0 is that bitmap. */
