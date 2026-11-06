@@ -5,7 +5,7 @@
  * loader or repointed handler is told or left alone, and the Properties frames match the map. Emulated CPU, one machine.
  */
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { loromToOffset } from '../../../../src/rom/addressing'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
@@ -21,6 +21,8 @@ import {
   runWithUploads,
 } from '../../../../theia/extension/src/node/map-sprites'
 import { hasRom, romPath, VANILLA } from '../../support/corpus'
+
+vi.setConfig({ testTimeout: 120_000 }) // each test maps a whole level: seconds alone, tens under a full run
 
 type Edit = (bytes: Uint8Array, stream: number) => void
 const load = (map: number, edit?: Edit) => {
