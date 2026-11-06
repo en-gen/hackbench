@@ -267,7 +267,12 @@ export function drawSprites(
   /** One sprite's bitmap from a drawer result: its parts blitted at the anchor, or the marker when it cannot be drawn. */
   const render = (s: LevelSprite, res: SpriteDrawResult): MapSpriteDto => {
     if (!res.ok) return placeholder(s, 'reason' in res ? res.reason : res.failure.kind, 'unverified' in res ? res.unverified : undefined) // prettier-ignore
-    if (res.parts.length === 0) return placeholder(s, 'noParts')
+    // A marker says what the drawn sprite would have: the note reaches the map's note line either way.
+    const told = {
+      ...('note' in res && res.note ? { note: res.note } : {}),
+      ...('noteDetail' in res && res.noteDetail ? { noteDetail: res.noteDetail } : {}),
+    }
+    if (res.parts.length === 0) return { ...placeholder(s, 'noParts'), ...told }
     let unverified = 'unverified' in res ? res.unverified : undefined
     let upload: Map<number, Uint8Array> | undefined
     if ('uploads' in res && res.uploads?.length) {
@@ -284,7 +289,7 @@ export function drawSprites(
     // say how many do not, and keep the marker only when none does. `parts` and `pixels` stay index-aligned.
     const parts = res.parts.filter((_, i) => art[i])
     const pixels = art.filter(a => a)
-    if (parts.length === 0) return placeholder(s, 'charsNotLoaded')
+    if (parts.length === 0) return { ...placeholder(s, 'charsNotLoaded'), ...told }
     if (parts.length < res.parts.length) {
       const why = `${res.parts.length - parts.length} of ${res.parts.length} pieces are not drawn: their graphics are not in this map's loaded sprite graphics` // prettier-ignore
       unverified = unverified ? `${unverified}; ${why}` : why
@@ -333,8 +338,7 @@ export function drawSprites(
       priority: base64(new Uint8ClampedArray(prio.buffer)),
       status: 'drawn',
       ...(unverified ? { unverified } : {}),
-      ...('note' in res && res.note ? { note: res.note } : {}),
-      ...('noteDetail' in res && res.noteDetail ? { noteDetail: res.noteDetail } : {}),
+      ...told,
       ...('reveal' in res && res.reveal
         ? { screenDoor: true, reveal: revealText(res.reveal) }
         : {}),
