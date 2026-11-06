@@ -114,6 +114,7 @@ export type EeriesResult =
       spawned: number
       /** Eeries that were spawned and did not draw, with the reason. */
       notes: string[]
+      noteDetail?: string
     }
   | {
       ok: false
@@ -218,7 +219,8 @@ export function fiveEeries(
     }
   // A shortfall of spawns is the game's own (the map's slot range, FindFreeSlotRt bank_02.asm:5523-5539); one that
   // spawned and did not draw is told.
-  const notes = why ? [`${EERIES - missing - placed.length} Eeries did not draw: ${why}`] : []
+  const undrawn = EERIES - missing - placed.length
+  const notes = why ? [`${undrawn} ${undrawn === 1 ? 'Eerie' : 'Eeries'} did not draw.`] : [] // prettier-ignore
   return {
     ok: true,
     eeries: placed,
@@ -226,5 +228,6 @@ export function fiveEeries(
     unverified,
     spawned: EERIES - missing,
     notes,
+    ...(why ? { noteDetail: why } : {}),
   }
 }

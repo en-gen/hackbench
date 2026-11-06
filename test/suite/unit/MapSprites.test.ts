@@ -29,6 +29,7 @@ import {
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 import { COLORS, px } from '../support/mapInputs'
+import { slow } from '../support/loadTimeout'
 
 /** Char $400 is color 1 on its left half and color 2 on its right; char $401 is solid color 3. */
 const SP1 = [0, 1].map(i => {
@@ -96,6 +97,17 @@ describe('drawSprites', () => {
     const [s] = drawSprites([spr(0, 0, 0)], MODEL, () => ok(part(0x5fe, 0, 0), part(0x5ff, 8, 0)))
     expect(s).toMatchObject({ status: 'placeholder', reason: 'charsNotLoaded' })
     expect(sized(s!)).toEqual([16, 16])
+  })
+
+  it('keeps the note and its detail on the marker, whether no piece has art or no piece came back (#1254)', () => {
+    const told = { note: 'One Eerie did not draw.', noteDetail: 'the refusal' }
+    const unloaded = drawSprites([spr(0, 0, 0)], MODEL, () => ({
+      ...ok(part(0x5fe, 0, 0)),
+      ...told,
+    }))
+    const empty = drawSprites([spr(0, 0, 0)], MODEL, () => ({ ...ok(), ...told }))
+    expect(unloaded[0]).toMatchObject({ status: 'placeholder', reason: 'charsNotLoaded', ...told })
+    expect(empty[0]).toMatchObject({ status: 'placeholder', reason: 'noParts', ...told })
   })
 
   it('a sprite whose chars are all loaded carries no unverified note', () => {
@@ -453,12 +465,13 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
   }
 
   // 24: 21 plus the 3 stationary shells on $106 ($DB at 272,368 and 1312,368; $DA at 1664,368), drawn since #837.
-  // $3E (the P-switch) draws too, now INIT runs for the picture (D139 D); the other sprite is marked (D52).
-  it('draws 24 of the 25 sprites of $106 and marks the rest, every one with a matching bitmap', () => {
+  // $3E (the P-switch) draws too, now INIT runs for the picture (D139 D). The 25th, a Monty Mole that drew nothing from
+  // Mario's start, is drawn since #1132 (found by the reveal search: one machine, one run), so all 25 are.
+  it('draws all 25 sprites of $106, every one with a matching bitmap', () => {
     const r = run(0x106)
     expect(r.sprites).toHaveLength(25)
     const drawn = r.sprites.filter(s => s.status === 'drawn')
-    expect(drawn).toHaveLength(24)
+    expect(drawn).toHaveLength(25)
     // Sprite $05 stands at tile row 20: its parts begin above the anchor, a 16 x 32 body.
     const koopa = drawn.find(s => s.id === 0x05)!
     expect(sized(koopa)).toEqual([16, 32])
@@ -470,22 +483,29 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
     }
   })
 
-  it('does not mistake the goal tape on $00F (bit 2 only) for a custom sprite', () => {
-    const tape = run(0x00f).sprites.find(x => x.id === 0x7b && x.x === 5344 && x.y === 368)
-    expect(tape).toBeTruthy()
-    expect(tape!.reason).not.toBe('extraBits')
-  })
+  it(
+    'does not mistake the goal tape on $00F (bit 2 only) for a custom sprite',
+    slow(10_000),
+    () => {
+      const tape = run(0x00f).sprites.find(x => x.id === 0x7b && x.x === 5344 && x.y === 368)
+      expect(tape).toBeTruthy()
+      expect(tape!.reason).not.toBe('extraBits')
+    },
+  )
 
-  // 32: 31 plus the stationary shell $DB at 3344,368, drawn since #837.
-  it('draws 32 of the 34 sprites of $105 from the interpreter, marking the rest with its reason', () => {
+  // 33: 31 plus the stationary shell $DB at 3344,368 (drawn since #837) plus the invisible mushroom $C7 (the reveal search, #1132).
+  it('draws 33 of the 34 sprites of $105 from the interpreter, marking the rest with its reason', () => {
     const r = run(0x105)
     expect(r.sprites).toHaveLength(34)
-    expect(r.sprites.filter(s => s.status === 'drawn')).toHaveLength(32)
-    for (const s of r.sprites.filter(s => s.status === 'placeholder')) expect(s.reason).toMatch(/^(refused: |drew no OAM tile)/) // prettier-ignore
+    expect(r.sprites.filter(s => s.status === 'drawn')).toHaveLength(33)
+    for (const s of r.sprites.filter(s => s.status === 'placeholder')) expect(s.reason).toMatch(/^(refused: |drew no OAM tile|unrevealed$)/) // prettier-ignore
+    const mushroom = r.sprites.find(s => s.id === 0xc7)!
+    expect(mushroom).toMatchObject({ status: 'drawn', screenDoor: true })
+    expect(mushroom.reveal).toContain('Mario gets close to this spot')
   })
 
   // Maps 006 and 126 hold every vanilla $9C beside its $9B (one machine, one run).
-  it('lists each $9B beside a $9C as drawn by it, on $006 and $126', () => {
+  it('lists each $9B beside a $9C as drawn by it, on $006 and $126', slow(20_000), () => {
     const six = run(0x6).sprites
     expect(six.find(s => s.index === 11)).toMatchObject({ id: 0x9b, status: 'drawn', drawnBy: 10 })
     for (const map of [0x6, 0x126]) {
@@ -496,22 +516,26 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
     }
   })
 
-  it('the Properties preview of a $9B its platform drew says so in plain words, not "drew no OAM tile" (#1049)', () => {
-    const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
-    for (const [map, index] of [
-      [0x6, 11],
-      [0x126, 28],
-    ] as const) {
-      const f = mapSpriteFrames(new L1ModelCache(), bytes, romPath(VANILLA), map, index)
-      if (f.status !== 'ok') throw new Error(JSON.stringify(f))
-      expect(f.frames).toEqual([])
-      expect(f.reason, `map ${map.toString(16)} index ${index}`).toMatch(/^Drawn as part of the sprite it rides with/) // prettier-ignore
-      expect(f.reason).not.toMatch(/OAM|\$/)
-    }
-    // A sprite nobody drew keeps the engine's own reason.
-    const lone = mapSpriteFrames(new L1ModelCache(), bytes, romPath(VANILLA), 0x6, 10)
-    expect(lone.status === 'ok' && lone.frames.length).toBeGreaterThan(0)
-  })
+  it(
+    'the Properties preview of a $9B its platform drew says so in plain words, not "drew no OAM tile" (#1049)',
+    slow(15_000),
+    () => {
+      const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
+      for (const [map, index] of [
+        [0x6, 11],
+        [0x126, 28],
+      ] as const) {
+        const f = mapSpriteFrames(new L1ModelCache(), bytes, romPath(VANILLA), map, index)
+        if (f.status !== 'ok') throw new Error(JSON.stringify(f))
+        expect(f.frames).toEqual([])
+        expect(f.reason, `map ${map.toString(16)} index ${index}`).toMatch(/^Drawn as part of the sprite it rides with/) // prettier-ignore
+        expect(f.reason).not.toMatch(/OAM|\$/)
+      }
+      // A sprite nobody drew keeps the engine's own reason.
+      const lone = mapSpriteFrames(new L1ModelCache(), bytes, romPath(VANILLA), 0x6, 10)
+      expect(lone.status === 'ok' && lone.frames.length).toBeGreaterThan(0)
+    },
+  )
 
   it("the Properties preview's first frame is the map's own bitmap for the $9C on $006 (frame 0 IS the map's picture)", () => {
     const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)

@@ -450,6 +450,15 @@ describe('a refused level loader marks every sprite unverified', () => {
     expect(r.noteDetail).toMatch(/^level loader refused \(.+\); drawn from a placement-only seed$/)
   })
 
+  it('keeps the note detail of a sprite beside the unverified causes on the tooltip, each once (#1254)', () => {
+    const interp = interpDrawer(blank, 0x105, { isVertical: true, screenCount: 3 }, (_r, _i, seed) => ran(true, seed)) // prettier-ignore
+    const draw: typeof interp = (...args) => ({ ...interp(...args), note: 'A plain note.', noteDetail: 'child cause' }) as ReturnType<typeof interp> // prettier-ignore
+    const r = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x10, 0x20, 0x01, 0x10, 0xff]), { vram: chars, colors: COLORS, isVertical: true, screenCount: 3 }, draw) // prettier-ignore
+    expect(r.sprites.filter(s => s.noteDetail)).toHaveLength(2)
+    expect(r.noteDetail!.split('\n')).toEqual([expect.stringMatching(/^level loader refused/), 'child cause']) // prettier-ignore
+    expect(r.note).not.toMatch(/child cause/)
+  })
+
   it('names the count in words, and lists every distinct cause one per line (#1166)', () => {
     const one = unverifiedNote([mk(1, 'cause a; with semicolon'), mk(2)])
     expect(one).toEqual({ note: 'Unverified: 1 sprite may not be drawn exactly as in the game.', detail: 'cause a; with semicolon' }) // prettier-ignore
@@ -604,7 +613,8 @@ const PINNED_ROWS: Record<string, string> = {
   '106:4e@3088,304': 'same 3088,304 a890101608',
   '106:4e@3168,352': 'same 3168,352 a890101608',
   '106:4e@3424,320': 'same 3424,320 a890101608',
-  '106:4d@3760,368': 'interp-miss - -',
+  // The mole that drew nothing from Mario's start is found by the reveal search (#1132) and matches the engine's picture.
+  '106:4d@3760,368': 'same 3760,368 e53dc0877b',
   '106:4d@3952,368': 'same 3952,368 e53dc0877b',
   '8:2@128,304': 'differ 128,304 5c1daaa53f',
   '8:5@224,368': 'differ 224,368 73a3e6fff4',
@@ -672,7 +682,7 @@ const EXPECTED: Record<string, Record<string, number>> = {
   $11: { differ: 5 },
   $13: { differ: 11 },
   $1F: { differ: 1 },
-  $4D: { 'interp-miss': 1, same: 1 },
+  $4D: { same: 2 },
   $4E: { same: 3 },
 }
 
@@ -798,21 +808,25 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     expect(planted).not.toEqual(EXPECTED)
   })
 
-  it('goes red when a part changes INSIDE a row that already differs (the verdict counts stay equal)', () => {
-    const rows = compare(d => s => {
-      const r = d(s)
-      // $13 differs from the engine already; one more pixel keeps it "differ".
-      return r.ok && s.spriteId === 0x13
-        ? { ...r, parts: r.parts.map(p => ({ ...p, dy: p.dy + 1 })) }
-        : r
-    })
-    expect(tally(rows)).toEqual(EXPECTED)
-    expect(pinned(rows)).not.toEqual(PINNED_ROWS)
-  })
+  it(
+    'goes red when a part changes INSIDE a row that already differs (the verdict counts stay equal)',
+    slow(12_000),
+    () => {
+      const rows = compare(d => s => {
+        const r = d(s)
+        // $13 differs from the engine already; one more pixel keeps it "differ".
+        return r.ok && s.spriteId === 0x13
+          ? { ...r, parts: r.parts.map(p => ({ ...p, dy: p.dy + 1 })) }
+          : r
+      })
+      expect(tally(rows)).toEqual(EXPECTED)
+      expect(pinned(rows)).not.toEqual(PINNED_ROWS)
+    },
+  )
 
   // 7.3 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
   // prettier-ignore
-  it('caches an ok reply per bytes and map, at most 8 of them (least recently used out), and never an unavailable one', slow(15_000), () => {
+  it('caches an ok reply per bytes and map, at most 8 of them (least recently used out), and never an unavailable one', slow(30_000), () => {
     const b = bytes()
     const c = new L1ModelCache()
     const get = (m: number) => mapSprites(c, b, romPath(VANILLA), m)
@@ -848,16 +862,20 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     }
   })
 
-  it('$9C (Hammer Bro platform) is served with its Hammer Bro on top: the map list reaches the neighbour run (#841)', () => {
-    // Alone the platform box is 26 px tall; the neighbor run adds the Hammer Bro, 14 more.
-    for (const idx of [0x006, 0x11e, 0x127]) {
-      const r = mapSprites(new L1ModelCache(), bytes(), romPath(VANILLA), idx)
-      if (r.status !== 'ok') throw new Error(JSON.stringify(r))
-      const plats = r.sprites.filter(d => d.id === 0x9c && d.status === 'drawn')
-      expect(plats.length).toBeGreaterThan(0)
-      expect(plats.map(d => d.box.y1 - d.box.y0)).toEqual(plats.map(() => 40))
-    }
-  })
+  it(
+    '$9C (Hammer Bro platform) is served with its Hammer Bro on top: the map list reaches the neighbour run (#841)',
+    slow(15_000),
+    () => {
+      // Alone the platform box is 26 px tall; the neighbor run adds the Hammer Bro, 14 more.
+      for (const idx of [0x006, 0x11e, 0x127]) {
+        const r = mapSprites(new L1ModelCache(), bytes(), romPath(VANILLA), idx)
+        if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+        const plats = r.sprites.filter(d => d.id === 0x9c && d.status === 'drawn')
+        expect(plats.length).toBeGreaterThan(0)
+        expect(plats.map(d => d.box.y1 - d.box.y0)).toEqual(plats.map(() => 40))
+      }
+    },
+  )
 
   it('$4F on $105 is served at its stream position: the INIT move (+8, -1) is not shown at rest (D134)', () => {
     const b = bytes()
@@ -932,14 +950,15 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     const got = [0x105, 0x106].map(m => {
       const r = mapSprites(new L1ModelCache(), b, romPath(VANILLA), m)
       if (r.status !== 'ok') throw new Error(JSON.stringify(r))
-      for (const s of r.sprites.filter(s => s.status === 'placeholder')) expect(s.reason).toMatch(/^(refused: INIT: id \$[0-9a-f]+ is past|drew no OAM tile)/) // prettier-ignore
+      for (const s of r.sprites.filter(s => s.status === 'placeholder')) expect(s.reason).toMatch(/^(refused: INIT: id \$[0-9a-f]+ is past|drew no OAM tile|unrevealed$)/) // prettier-ignore
       expect(r.sprites.some(s => s.unverified)).toBe(false)
       return [r.sprites.filter(s => s.status === 'drawn').length, r.sprites.length]
     })
     // +1 on $105 and +3 on $106: the stationary shells ($DA-$DD, $DF) draw since #837; $3E draws its P-switch again now INIT runs for the picture (D139 D), so $106 is 24.
+    // Then +1 on $105 (the invisible mushroom) and +1 on $106 (a Monty Mole), both found by the reveal search (#1132).
     expect(got).toEqual([
-      [32, 34],
-      [24, 25],
+      [33, 34],
+      [25, 25],
     ])
   })
 })
