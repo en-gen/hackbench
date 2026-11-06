@@ -28,6 +28,8 @@ These are rules, not locks. Agents run on Brian's admin login, so GitHub would l
 3. Confirm `Content policy` passed. It catches accidents, not intent, and it runs only once CI is approved. ROM-derived bytes merged to a public repo reach the fork network, and only a history rewrite removes them.
 4. Check that reused code fits [the third-party rules](../decisions/2026-10-16-third-party-code.md). `CONTRIBUTING.md` licenses contributions under MIT.
 
+CodeQL runs on a fork's PR through `.github/workflows/codeql.yml`, once CI is approved. GitHub's default setup never did, which is why #1256 could not report the required check. A fork's PR runs its own copy of that workflow, so a change to it can fake a clean result: step 1 comes before approving and before believing the check.
+
 Anything merged to `develop` runs on gh01 in the nightly. Merging is the moment outside code reaches the owner's hardware, not approving CI.
 
 ## If a rule was broken

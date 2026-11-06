@@ -7,6 +7,8 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 | File | State | Decides |
 | --- | --- | --- |
 | [2026-11-06-reveal-search-sprites-that-drew-at-rest.md](2026-11-06-reveal-search-sprites-that-drew-at-rest.md) | Proposed | a sprite that drew at rest, is hidden and nothing reveals keeps its real-start picture in the screen door (not the issue's marker), and gets only the first three conditions (#1132, D192) |
+| [2026-11-05-yoshi-heaven-grouped-slot-no-note.md](2026-11-05-yoshi-heaven-grouped-slot-no-note.md) | Proposed | a user group naming a slot the wings link placed ($0C8) loses its row with no note; the map is still under its holder (#1229) |
+| [2026-11-05-yoshi-heaven-old-groups-empty-folder.md](2026-11-05-yoshi-heaven-old-groups-empty-folder.md) | Proposed | a groups.json written before #1229 keeps an empty Yoshi Heaven folder; the file is left untouched (#1229) |
 | [2026-11-05-gutter-layers-through-band.md](2026-11-05-gutter-layers-through-band.md) | Proposed | Layers 2 and 3 also run through an off-map content band before the gutter; an object-stream Layer 2 shows only tiles the stream wrote past the edge, usually none (#1197) |
 | [2026-11-05-fails-to-parse-means-no-end-marker.md](2026-11-05-fails-to-parse-means-no-end-marker.md) | Proposed | a pointed slot "fails to parse" when a stock-size walk finds no end marker within 128 KB or before the file ends; the exit graph keeps its 8 KB cap (D155) |
 | [2026-11-05-line-guided-picks-read-drawnparts.md](2026-11-05-line-guided-picks-read-drawnparts.md) | Proposed | line-guided picks read `drawnParts` instead of `.parts` after #840 (four reads, nothing else changed in #987's code) |
