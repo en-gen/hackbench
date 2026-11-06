@@ -76,7 +76,11 @@ describe('ropeModel', () => {
   })
   it('a gate-refused draw says why in the note, from the gate own reason', () => {
     const run = (slot: number) => ({ ...drawer(1)(slot), snaps: false, lineGateReason: 'slot 0: it calls $01DC54, which is not a stock routine here' }) as SpriteModel // prettier-ignore
-    expect(ropeModel(rom, at({}), run).lengthNote).toBe("Not checked against the loader's sprite slot: slot 0: it calls $01DC54, which is not a stock routine here.") // prettier-ignore
+    const m = ropeModel(rom, at({}), run)
+    expect(m.lengthNote).toBe(
+      'Not checked against the sprite loader on this ROM, so its length in play may differ.',
+    )
+    expect(m.unverifiedReason).toBe('slot 0: it calls $01DC54, which is not a stock routine here')
   })
   it('a run with no chosen pass cannot throw, and shows the short run', () => {
     const run = (slot: number) =>

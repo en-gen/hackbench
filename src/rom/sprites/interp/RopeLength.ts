@@ -28,6 +28,9 @@ export interface RopeAt {
   spec?: CodeFingerprint
 }
 
+/** The panel's words when the gate refused the draw; the gate's own reason goes to the tooltip (`unverified`, #1166). */
+const NOT_CHECKED =
+  'Not checked against the sprite loader on this ROM, so its length in play may differ.'
 const DIFFERENT_SPOT =
   'the rope starts at a different spot in the two slots it can load into, so only the short length is shown'
 const key = (p: SpritePart) => `${p.dx},${p.dy}`
@@ -60,7 +63,7 @@ export function ropeModel<M extends SpriteModel>(
   if (!long.snaps) {
     const m = runAt(0)
     return m.lineGateReason
-      ? { ...m, lengthNote: `Not checked against the loader's sprite slot: ${m.lineGateReason}.` }
+      ? { ...m, unverifiedReason: m.unverifiedReason ?? m.lineGateReason, lengthNote: NOT_CHECKED }
       : m
   }
   if (w.short === w.long) return long
