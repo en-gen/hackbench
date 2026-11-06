@@ -13,6 +13,9 @@ import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { runnerId } from '../../support/gradeTimeline'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
 
+/** The cart's number step is SBC #SBC / CLC / ADC #ADC (the fixture's own pair); its difference is the game's $DA - 4. */
+const SBC = 0xd9
+const ADC = 3
 const rom = buildSyntheticRom()
 const SHELLS = new Map([
   [0xda, 4],
@@ -70,9 +73,9 @@ describe('stationary shell list ids', () => {
 
   // [name, site, byte planted, id, expected shell number (undefined: not a shell), expected status]
   const OPERANDS: [string, number, number, number, number | undefined, number?][] = [
-    ['ADC #5', 0x02a983, 0x05, 0xda, 5],
-    ['SBC #$DB', 0x02a980, 0xdb, 0xdb, 4],
-    ['shell ceiling $E2', 0x02a8c1, 0xe2, 0xe1, 0xe1 - 0xda + 4],
+    ['ADC #5', 0x02a983, 0x05, 0xda, 0xda - SBC + 5],
+    ['SBC #$DB', 0x02a980, 0xdb, 0xdb, 0xdb - 0xdb + ADC],
+    ['shell ceiling $E2', 0x02a8c1, 0xe2, 0xe1, 0xe1 - SBC + ADC],
     ['status 8 keeps the id', 0x02a8d1, 0x08, 0xda, 0xda, 8],
     ['floor $C0 alone does not free $C5 (ceiling still $DA)', 0x02a8ad, 0xc0, 0xc5, undefined],
     [
@@ -82,8 +85,8 @@ describe('stationary shell list ids', () => {
       0xda,
       undefined,
     ],
-    ['eeries compare $E1 frees $DE', 0x02a88d, 0xe1, 0xde, 0xde - 0xda + 4],
-    ['platforms compare $E1 frees $E0', 0x02a89d, 0xe1, 0xe0, 0xe0 - 0xda + 4],
+    ['eeries compare $E1 frees $DE', 0x02a88d, 0xe1, 0xde, 0xde - SBC + ADC],
+    ['platforms compare $E1 frees $E0', 0x02a89d, 0xe1, 0xe0, 0xe0 - SBC + ADC],
     ['entry $DD drops $DD', 0x02a867, 0xdd, 0xdd, undefined],
   ]
   it.each(OPERANDS)('reads the operand: %s', (_n, at, byte, id, num, status) => {
@@ -99,7 +102,7 @@ describe('stationary shell list ids', () => {
     const r = buildSyntheticRom()
     r.writeAt(0x02a8ad, [0xc0])
     r.writeAt(0x02a8b1, [0xc0])
-    expect(shellLoad(r, 0xc5).shell).toEqual({ number: (0xc5 - 0xda + 4) & 0xff, status: 9 })
+    expect(shellLoad(r, 0xc5).shell).toEqual({ number: (0xc5 - SBC + ADC) & 0xff, status: 9 })
     expect(shellLoad(rom, 0xc5).shell).toBeUndefined()
   })
 
@@ -107,7 +110,7 @@ describe('stationary shell list ids', () => {
     const r = buildSyntheticRom()
     r.writeAt(0x02a8c1, [0xf0])
     expect(shellLoad(r, 0xe8).shell).toBeUndefined()
-    expect(shellLoad(r, 0xe6).shell?.number).toBe(0xe6 - 0xda + 4)
+    expect(shellLoad(r, 0xe6).shell?.number).toBe(0xe6 - SBC + ADC)
   })
 
   it('a non-integer or out-of-range id is no shell', () => {
