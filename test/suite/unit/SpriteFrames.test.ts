@@ -30,6 +30,7 @@ import type {
   MapSpriteDto,
   SpriteFramesResult,
 } from '../../../theia/extension/src/common/project-protocol'
+import { animationText, NOT_ANIMATED } from '../../../theia/extension/src/browser/sprite-props'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 import { COLORS } from '../support/mapInputs'
 import { slow } from '../support/loadTimeout'
@@ -462,6 +463,34 @@ describe('FramePlayer', () => {
     resolve(ok(2))
     await flush()
     expect(c.fn).toBeUndefined()
+  })
+})
+
+describe('framesOf: a sprite that never draws is not "one pose" (#1113)', () => {
+  const unloaded = { vram: { sp1: [] as Uint8Array[] }, colors: COLORS } // no chars loaded: every pass draws a marker
+  /** The line the panel shows for `r`, through the player. */
+  const said = async (r: ReturnType<typeof framesOf>) => {
+    const p = new FramePlayer(async () => ({ status: 'ok', ...r }), {
+      every: () => 1,
+      stop: () => {},
+    })
+    p.select({ manifestPath: 'm', index: 1, spriteIndex: 0 })
+    await new Promise(res => setTimeout(res, 0))
+    return animationText(p.state)
+  }
+
+  it('every pass drawing unloaded chars returns no frames and names why', async () => {
+    const r = framesOf({ m: run([[1, 0], [2, 0]]), fixed: false }, spr, unloaded) // prettier-ignore
+    expect(r).toEqual({ frames: [], reason: 'charsNotLoaded' })
+    expect(await said(r)).toBe(
+      'Animation not shown: Some of its graphics are not loaded on this map.',
+    )
+  })
+
+  it('one real pose still says "one pose"', async () => {
+    const r = framesOf({ m: run([[1, 0], [1, 5]]), fixed: false }, spr, LEVEL) // prettier-ignore
+    expect(r.reason).toBeUndefined()
+    expect(await said(r)).toBe(NOT_ANIMATED)
   })
 })
 

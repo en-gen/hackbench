@@ -45,7 +45,8 @@ export function notDrawnText(reason: string | undefined): string {
  * UI strings); this is the only place they become sentences, and an unknown one never reaches the screen.
  */
 export function framesReasonText(reason: string): string {
-  if (reason === 'extraBits') return WHY_NOT_DRAWN.extraBits!
+  if (WHY_NOT_DRAWN[reason]) return WHY_NOT_DRAWN[reason]
+  if (reason === 'customHandler') return notDrawnText(reason)
   if (reason === 'rom-not-located') return 'The ROM for this project could not be found.'
   if (reason.startsWith('refused:')) return "The app could not run this sprite's code."
   if (reason.startsWith('INIT erased')) return 'The sprite removes itself as it starts.'
