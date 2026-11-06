@@ -1196,6 +1196,7 @@ export const MAX_FRAMES = 16
  * `pos` (`origin`, when `m.snaps`), the draw running before the move. `drawAt` is where the sprite
  * stood when it drew. A sprite with screen-fixed parts (`fixOffsets`) is not animated here: their map
  * position comes from the loader's camera for the chosen pass only, so another pass has no honest place.
+ * When no pass drew, `reason` is the last skipped pass's, so the panel never calls it "one pose" (#1113).
  */
 export function framesOf(
   run: SpriteRun,
