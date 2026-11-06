@@ -63,6 +63,7 @@ async function ropeTiles(page, romFile, name) {
       column: (s.stored ?? s).x / 16,
       tiles: s.parts.length / 4,
       unverified: s.unverified,
+      door: Buffer.from(s.priority, 'base64').filter(b => b & 4).length, // pixels of the extra length drawn in the screen door
     }))
 }
 
@@ -99,4 +100,20 @@ test('an edited sprite loader keeps every rope at 5 tiles and says why', async (
     expect(r.tiles, `column ${r.column}`).toBe(5)
     expect(r.unverified).toMatch(/loader.*not the original/)
   }
+})
+
+test('a rope on a free-slot setting draws its extra length in the screen door, and on setting 1 the same 9 tiles are solid', async ({
+  page,
+}) => {
+  const bytes = new Uint8Array(fs.readFileSync(ROM))
+  const t = lo(0x05ec00) + 0x0f * 2
+  const stream = lo(0x070000 | (bytes[t] | (bytes[t + 1] << 8)))
+  bytes[stream] = (bytes[stream] & 0xc0) | 2 // setting 2: the top sprite slots are shared with ordinary sprites
+  const edited = path.join(tmp, 'setting2.sfc')
+  fs.writeFileSync(edited, bytes)
+  const [door, solid] = [await ropeTiles(page, edited, 'Door'), await ropeTiles(page, ROM, 'Solid')]
+  const at = (list, c) => list.find(r => r.column === c)
+  expect([at(door, 205).tiles, at(solid, 205).tiles]).toEqual([9, 9])
+  expect(at(door, 205).door).toBeGreaterThan(0)
+  expect(at(solid, 205).door).toBe(0)
 })

@@ -24,10 +24,11 @@ describe('ropeModel', () => {
     expect(tiles(ropeModel(rom, at({ x: 0x20, y: 0x10, vertical: true }), drawer(1)))).toBe(9)
     expect(tiles(ropeModel(rom, at({ x: 0x20, y: 0x10, vertical: false }), drawer(1)))).toBe(5)
   })
-  it('setting 0 draws short in every slot, so the run is one solid rope', () => {
+  it('setting 0 draws short in every slot, so the run is one solid rope with nothing tagged', () => {
     for (const x of [0x00, 0x10, 0x20, 0x30]) {
       const m = ropeModel(rom, at({ setting: 0, x }), drawer(0))
       expect(tiles(m)).toBe(5)
+      expect(m.passes[0]!.parts.some(p => p.door)).toBe(false)
     }
   })
   it('the same positions in both slots: the picture is the loader first pick, with its motor tile (an even rope)', () => {
@@ -36,10 +37,13 @@ describe('ropeModel', () => {
       10,
     )
   })
-  it('a top slot the ordinary sprites share: the short rope is shown, with its own motor tile', () => {
+  it('a top slot the ordinary sprites share: the short rope is solid and only the extra length is tagged, going down', () => {
     const m = ropeModel(rom, at({ setting: 2, id: 0x01 }), drawer(2))
-    expect(tiles(m)).toBe(5)
-    expect(m.passes[0]!.parts[0]!.char).toBe(2)
+    const parts = m.passes[0]!.parts
+    expect(parts).toHaveLength(9)
+    expect(parts.filter(p => p.door).map(p => p.dy)).toEqual([80, 96, 112, 128])
+    expect(parts.slice(0, 5).some(p => p.door)).toBe(false)
+    expect(parts[0]!.char).toBe(2) // the short run's own motor tile
   })
   it('keeps slot 0 and says why for a loader or a setting it cannot read', () => {
     const seen: number[] = []

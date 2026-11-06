@@ -13,6 +13,8 @@ import { BLOCK, indicatorBox, paintIndicator, type Box } from '../common/block-i
 import {
   composeScreen,
   doorFlips,
+  DOOR_PART_BIT,
+  DOOR_PART_ID,
   WHOLE_DOOR,
   type SourceKey,
   type ScreenInput,
@@ -143,8 +145,10 @@ function spriteLayer(
         const to = (y - top) * g.width + (x - left)
         out.rgba.set(bmp.rgba.subarray(from * 4, from * 4 + 4), to * 4)
         // No priority: a placeholder, at the pre-#795 slot.
-        out.prio[to] = bmp.prio ? bmp.prio[from]! : 2
-        out.door[to] = (((n + 1) | id) << 1) | ((x - x0 + (y - y0)) & 1)
+        out.prio[to] = bmp.prio ? bmp.prio[from]! & 3 : 2
+        // A pixel of a door part (the rope's extra length) is in the door under an id of its own, so hover and the swap count see it apart.
+        const part = bmp.prio && bmp.prio[from]! & DOOR_PART_BIT ? DOOR_PART_ID | WHOLE_DOOR : 0
+        out.door[to] = (((n + 1) | id | part) << 1) | ((x - x0 + (y - y0)) & 1)
       }
     }
   }
