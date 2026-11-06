@@ -55,41 +55,62 @@ cannot be told from invented values by content, so the claim is the signal;
 say "invented values" instead, or add the pragma. A decimal array with `0x`
 elements mixed in counts toward `byte-tokens` too.
 
-`rom-window` (#1053): an ADDED text file (not `.md`) with a run of byte notation
-(`0x` and `$` tokens, bare hex pairs, `\x` escapes, unbroken hex strings; the
-parser of the ROM-window probe below) that contains an 8-byte window of the
-vanilla ROM. Windows with fewer than 3 distinct values, a constant step (a ramp)
-or a repeat of period 2 to 4 are ignored, since any ROM has them; the cost is
-that a copied table which is itself a pure ramp or short loop is not seen. It
-prints `BLOCKED (rom-window): <path> line N, M windows`, never the bytes, and
-exits 1 like every other rule.
+`rom-window` (#1053): a text file a commit ADDS (not `.md`) with a run of byte
+notation (`0x` and `$` tokens, bare hex pairs, `\x` escapes, unbroken hex strings;
+the parser of the ROM-window probe below) that contains an 8-byte window of the
+vanilla ROM. It prints `BLOCKED (rom-window): <path> line N, M windows`, never the
+bytes, and exits 1 like every other rule. Comments are scanned too (they are
+public); the probe still blanks them.
 
+- **Filters.** Windows with fewer than 3 distinct values, a constant step (a ramp)
+  or a repeat of period 2 to 4 are ignored, because they are common in any ROM.
+  Cost, vanilla US, one machine, 2026-11-05: of 524,281 window positions, 43,597
+  (2,982 distinct windows) fall to the distinct-values filter and 5,770 more (1,036
+  distinct) to the ramp and loop filter, so a copied table that is itself a pure
+  ramp or short loop is not seen.
 - **Local only.** The windows come from the real vanilla ROM (found by
-  `corpus.cjs`, so `HACKBENCH_ROMS` applies). With no ROM (CI) the rule does not
-  run: every mode except `history` prints `rom-window rule DID NOT RUN` on
-  stderr, and the other checks go on as before. No hash set of ROM windows is
-  committed (ruling D155).
-- **Added in the net diff.** In `range` and `push` mode a file counts only if it
-  is added in the net diff (`range`: base to head; `push`: against the merge-base
-  with what the remote has; `--no-renames`, so a rename counts as added), because
-  the per-commit walk (`git log -m`) lists develop's old files as added after
-  develop is merged into a branch. `staged` uses the cached status. Modified
-  files are not judged (they would fail on old content), and neither is `history`
-  mode or `.md` (prose lists addresses, not fixture bytes).
-- **Known limit.** A masked array (`null` between the bytes) is not seen: the
-  `null` ends the run. That gap has its own follow-up work.
-- **Evidence** (2026-11-05, one machine, vanilla US): of the 1,297 non-`.md` text
-  files on develop, 71 hold a run, 1,166 windows. The 3 open PR heads add no
-  file with a run. I have not classified the 71 as copies or legitimate.
-- **Ratchet** (D157). The synthetic ROM builders in `test/suite/support` each
-  carry a pinned count of vanilla windows (11 of 24 are non-zero today); a count
-  that changes fails, a builder missing from the pin fails, and every support
-  module must be listed as a host of a builder or helper-only. Counts fall to 0
-  through #1253.
+  `corpus.cjs`, so `HACKBENCH_ROMS` applies). The file must be a regular file of 512
+  KiB after any copier header with a valid LoROM checksum and complement; any other
+  file at that path, or none, makes the rule not run. No hash set of ROM windows is
+  committed (D155), so CI has no ROM and keeps its other checks. A hack with a valid
+  checksum under the vanilla name is not detected. Every mode except `history`
+  prints `rom-window rule DID NOT RUN` with its reason on stderr; `history` prints
+  its own, since it never judges the rule (old files hold runs).
+- **What counts as added.** The per-commit walk decides: a file is added by a
+  non-merge commit that has it as A, or by a merge that has it as A against every
+  parent (a file merged in from develop is not). Each such blob is judged, so a run
+  committed and later removed or rewritten is caught in `range` and `push`. A rename
+  counts as added (`--no-renames`). `push` walks what is not on the remote, the tips
+  `ls-remote` names that this clone has and the local remote-tracking refs, so a
+  remote that moved on does not make develop's commits look new. An empty remote
+  judges everything. `staged` uses the cached status.
+- **Known gaps.** A file added clean and filled in a later commit, and any edit to
+  an existing file, is never judged (a stub-then-fill route). `.md` is excluded
+  because prose lists addresses, so a run there passes: 8 of 308 tracked `.md` files
+  hold one (43 windows, 2026-11-05). A masked array (`null`, `undefined` or `??`
+  between the bytes) is not seen, because the `null` ends the run; that is #1280. A
+  digits-only two-character token next to a comma reads as decimal, so a list such
+  as `10, 32` is not read as hex. The only override is `git push --no-verify` with a
+  stated reason; CI has no bypass.
+- **Evidence** (2026-11-05, one machine, vanilla US, 17 remote heads). On develop
+  75 of 1,297 non-`.md` text files hold a run (1,092 windows, comments scanned; 71
+  files and 1,166 windows with comments blanked). By longest run, 32 of the 75 hold
+  at most 2 windows, 45 at most 4, 57 at most 8, 18 more than 8, 7 more than 16 (the
+  longest is 36). Only 1 of the 1,092 windows is a single-bit mask table: ordinary
+  tables of that kind are the known legitimate sort. Nothing can prove a short
+  match legitimate; the rest go to #1253. Beyond develop, 14 other heads add no file
+  by path; `feature/music-import-prototype` adds 9 files with a run (windows per
+  file: 1, 1, 1, 1, 1, 1, 3, 26, 3) and `feature/sprite-interpreter-spike` 6 (1 each).
+- **Ratchet** (D157), only where a ROM is present. The test counts, per synthetic
+  builder in `test/suite/support`, the windows shared with the vanilla ROM; 15 of 34
+  are non-zero. Every builder is pinned at default or fixed arguments only. A count
+  that changes fails, a builder missing from the pin fails, and every support module
+  and every exported function returning `Uint8Array` or `RomFile` must be listed
+  (that part runs without a ROM). Counts fall to 0 through #1253.
 
 `test/suite/gates/contentGateRomWindows.test.ts` proves the rule red on planted
-runs in each notation with a fake PRNG ROM (CI) and the real ROM (local), and
-the net-added behavior in throwaway repos.
+runs in each notation with a fake PRNG ROM (CI) and the real ROM (local), and the
+rest in throwaway repos.
 
 Modes: `staged` (no hook runs it since #1183), `range BASE HEAD` (CI),
 `push REMOTE`

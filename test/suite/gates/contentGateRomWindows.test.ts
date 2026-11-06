@@ -27,10 +27,10 @@ import {
 import { hasRom, romPath, VANILLA } from '../support/corpus'
 import { stub } from '../support/syntheticAreas'
 import { bgModeRom } from '../support/bgModeRom'
-import { buildCart, syntheticRoutine } from '../support/syntheticGfxCart'
+import { buildCart, gfxPayloads, gfxStreams, syntheticRoutine } from '../support/syntheticGfxCart'
 import { modeTablesRom, sweepLayouts } from '../support/l3Rom'
-import { map16DecodeStub } from '../support/syntheticMap16'
-import { syntheticOverworldRom } from '../support/syntheticOverworld'
+import { map16DecodeStub, map16Stub } from '../support/syntheticMap16'
+import { l2Tilemap, syntheticOverworldRom } from '../support/syntheticOverworld'
 import { platformCart } from '../support/syntheticPlatforms'
 import { pswitchRom } from '../support/syntheticPSwitch'
 import { fakeRom, rampRom } from '../support/syntheticRegistryRom'
@@ -46,6 +46,12 @@ import { putLoaderStandIns } from '../support/syntheticLoaderStandIns'
 import { putLayer3 } from '../support/syntheticLayer3'
 import { c3StructurePlants } from '../support/staircaseB'
 import { SYNTHETIC_VERTICAL_TABLE } from '../support/verticalTable'
+import { plantUploaderTable } from '../support/l2UploaderRom'
+import { uploadRoutine } from '../support/syntheticSpcUpload'
+import { putEeries } from '../support/syntheticEeries'
+import { putGrinderRoutines } from '../support/syntheticGrinder'
+import { putGm11Spans } from '../support/syntheticGm11Spans'
+import { ALT_HELPER, callSiteBytes, helperBytes, unpackBytes } from '../support/syntheticMode7'
 import { writeStockSkipChain } from '../support/skipChain'
 
 const REPO = join(__dirname, '../../..')
@@ -123,10 +129,11 @@ describe(
       const ramp = Uint8Array.from([3, 7, 11, 15, 19, 23, 27, 31]) // constant step
       const wrap = Uint8Array.from([250, 253, 0, 3, 6, 9, 12, 15]) // constant step across 255 to 0
       const loop = Uint8Array.from([9, 4, 7, 9, 4, 7, 9, 4]) // period 3
+      const loop4 = Uint8Array.from([9, 4, 7, 2, 9, 4, 7, 2]) // period 4, the longest ignored
       const rom2 = prng(256)
-      for (const [i, w] of [ramp, wrap, loop].entries()) rom2.set(w, 20 + i * 20)
+      for (const [i, w] of [ramp, wrap, loop, loop4].entries()) rom2.set(w, 20 + i * 20)
       const set2 = windowSet(rom2)
-      for (const w of [ramp, wrap, loop])
+      for (const w of [ramp, wrap, loop, loop4])
         for (const n of NAMES) expect(checkRomWindows('f.ts', text(n, w), set2), n).toEqual([])
     })
 
@@ -142,78 +149,59 @@ describe(
       const lookup = { has: (k: string) => only.has(k) }
       expect(checkRomWindows('f.ts', text('hex array', planted), lookup)).toHaveLength(1)
     })
-
-    // The CLI end to end in a throwaway repo; the fake ROM is found through HACKBENCH_ROMS.
-    function gateRepo(): string {
-      const dir = mkdtempSync(join(tmp, 'repo-'))
-      installGate(dir)
-      const g = (...a: string[]) => spawnSync('git', a, { cwd: dir })
-      g('init', '-q')
-      g('config', 'user.email', 't@example.com')
-      g('config', 'user.name', 'T')
-      writeFileSync(join(dir, 'f.ts'), text('\\x string', planted))
-      g('add', 'f.ts')
-      return dir
-    }
-    const staged = (dir: string, roms: string) =>
-      spawnSync('node', ['tools/scripts/check-content.mjs', 'staged'], {
-        cwd: dir,
-        env: { ...process.env, HACKBENCH_ROMS: roms },
-      })
-
-    it('CLI with a ROM exits 1 naming the line; with none it exits 0 and says it did not run', () => {
-      const dir = gateRepo()
-      const withRom = join(tmp, 'roms-with')
-      mkdirSync(withRom, { recursive: true })
-      writeFileSync(join(withRom, VANILLA), rom)
-      const red = staged(dir, withRom)
-      expect(red.status).toBe(1)
-      expect(red.stdout.toString()).toMatch(/BLOCKED \(rom-window\): f\.ts line 1, \d+ windows?/)
-
-      const noRom = join(tmp, 'roms-none')
-      mkdirSync(noRom, { recursive: true })
-      const green = staged(dir, noRom)
-      expect(green.status).toBe(0)
-      expect(green.stderr.toString()).toMatch(/rule DID NOT RUN: no vanilla ROM/)
-
-      // A modified file is not judged: only added files are (old content would fail every edit).
-      const g = (...x: string[]) => spawnSync('git', x, { cwd: dir })
-      g('commit', '-q', '-m', 'add')
-      writeFileSync(join(dir, 'f.ts'), `${text('\\x string', planted)}// edit\n`)
-      g('add', 'f.ts')
-      expect(staged(dir, withRom).status).toBe(0)
-      g('reset', '-q', '--hard')
-      g('rm', '-q', '-f', 'f.ts')
-      g('commit', '-q', '-m', 'rm')
-      writeFileSync(join(dir, 'f.md'), text('hex array', planted))
-      g('add', 'f.md')
-      expect(staged(dir, withRom).status).toBe(0) // .md is excluded
-    })
   },
 )
 
-describe('rom-window rule judges the net added files of a range', { timeout: 60000 }, () => {
-  // develop adds a file holding a run after the feature branched; the feature merges develop. The
-  // merge commit diffed against the feature parent lists that file as added (git log -m), but it is
-  // not in the net diff of the range, so it must not be judged.
-  const rom = prng(4096, 0x1053)
-  const at = (() => {
-    let i = 200
-    while (!isCandidate(rom.subarray(i, i + 8))) i++
-    return i
-  })()
-  const run = text('hex array', rom.subarray(at, at + 8))
-  const roms = join(tmp, 'roms-net')
-  mkdirSync(roms, { recursive: true })
-  writeFileSync(join(roms, VANILLA), rom)
+// The CLI end to end in throwaway repos. The fake vanilla ROM is found through HACKBENCH_ROMS and must
+// pass the gate's own checks: a regular file of 512 KiB with a valid LoROM checksum, built here.
+const BIG = 512 * 1024
+function vanillaFile(plants: Uint8Array[] = [], len = BIG, header = false): Uint8Array {
+  const b = prng(len, 0xbada55)
+  plants.forEach((p, i) => b.set(p, 4096 + i * 64))
+  if (len >= 0x7fe0) {
+    b.set([0, 0, 255, 255], 0x7fdc)
+    const sum = b.reduce((n, v) => (n + v) & 0xffff, 0)
+    b.set([~sum & 255, (~sum >> 8) & 255, sum & 255, sum >> 8], 0x7fdc)
+  }
+  return header ? Uint8Array.from([...new Uint8Array(512), ...b]) : b
+}
+const romsDir = (name: string, bytes?: Uint8Array | 'dir'): string => {
+  const d = join(tmp, `roms-${name}`)
+  mkdirSync(d, { recursive: true })
+  if (bytes === 'dir') mkdirSync(join(d, VANILLA))
+  else if (bytes) writeFileSync(join(d, VANILLA), bytes)
+  return d
+}
+const cli = (dir: string, roms: string, args: string[], input?: string) =>
+  spawnSync('node', ['tools/scripts/check-content.mjs', ...args], {
+    cwd: dir,
+    input,
+    env: { ...process.env, HACKBENCH_ROMS: roms },
+  })
+const NOT_RUN = /rule DID NOT RUN: /
+const ident = ['-c', 'user.email=t@e.com', '-c', 'user.name=T']
 
-  function repo(): { dir: string; g: (...a: string[]) => string } {
+describe('rom-window rule through the CLI', { timeout: 120000 }, () => {
+  const win = (() => {
+    const r = prng(4096, 0x1053)
+    let i = 200
+    while (!isCandidate(r.subarray(i, i + 8))) i++
+    return r.subarray(i, i + 8)
+  })()
+  const run = text('hex array', win)
+  const roms = romsDir('good', vanillaFile([win]))
+  const none = romsDir('none')
+  type Repo = { dir: string; g: (...a: string[]) => string }
+
+  // develop adds theirs.ts (a run) after the feature branched; the feature merges develop.
+  function repo(): Repo {
     const dir = mkdtempSync(join(tmp, 'net-'))
     installGate(dir)
-    const g = (...a: string[]) => spawnSync('git', a, { cwd: dir }).stdout.toString().trim()
+    const g = (...a: string[]) =>
+      spawnSync('git', [...ident, ...a], { cwd: dir })
+        .stdout.toString()
+        .trim()
     g('init', '-q', '-b', 'develop')
-    g('config', 'user.email', 't@example.com')
-    g('config', 'user.name', 'T')
     g('add', '-A')
     g('commit', '-q', '-m', 'base')
     g('checkout', '-q', '-b', 'feature')
@@ -228,83 +216,201 @@ describe('rom-window rule judges the net added files of a range', { timeout: 600
     g('merge', '-q', '--no-edit', 'develop')
     return { dir, g }
   }
-  const range = (dir: string, base: string, env = roms) =>
-    spawnSync('node', ['tools/scripts/check-content.mjs', 'range', base, 'feature'], {
-      cwd: dir,
-      env: { ...process.env, HACKBENCH_ROMS: env },
-    })
+  const commitFile = (r: Repo, name: string, body: Buffer | string) => {
+    writeFileSync(join(r.dir, name), body)
+    r.g('add', '-A')
+    r.g('commit', '-q', '-m', name)
+  }
+  const range = (dir: string, env = roms) => cli(dir, env, ['range', 'develop', 'feature'])
+  const bare = () => {
+    const remote = mkdtempSync(join(tmp, 'remote-'))
+    spawnSync('git', ['init', '-q', '--bare', remote])
+    return remote
+  }
+  const push = (r: Repo, env = roms) =>
+    cli(
+      r.dir,
+      env,
+      ['push', 'origin'],
+      `refs/heads/feature ${r.g('rev-parse', 'feature')} x ${'0'.repeat(40)}\n`,
+    )
+  const out = (p: { stdout: Buffer; stderr: Buffer }) => `${p.stdout}${p.stderr}`
 
-  it('a file merged in from develop is not judged; a file the branch adds still is', () => {
-    const { dir, g } = repo()
-    expect(range(dir, 'develop').status).toBe(0)
-    writeFileSync(join(dir, 'planted.ts'), run)
-    g('add', 'planted.ts')
-    g('commit', '-q', '-m', 'plant')
-    const red = range(dir, 'develop')
+  it('staged: red naming the line; modified, .md and clean pass; a rename and comments count', () => {
+    const dir = mkdtempSync(join(tmp, 'st-'))
+    installGate(dir)
+    const g = (...a: string[]) => spawnSync('git', [...ident, ...a], { cwd: dir })
+    g('init', '-q')
+    writeFileSync(join(dir, 'f.ts'), text('\\x string', win))
+    g('add', 'f.ts')
+    const red = cli(dir, roms, ['staged'])
+    expect(red.status).toBe(1)
+    expect(red.stdout.toString()).toMatch(/BLOCKED \(rom-window\): f\.ts line 1, \d+ windows?/)
+    g('commit', '-q', '-m', 'add')
+    writeFileSync(join(dir, 'f.ts'), `${text('\\x string', win)}// edit\n`)
+    g('add', 'f.ts')
+    expect(cli(dir, roms, ['staged']).status).toBe(0) // modified, not added
+    g('reset', '-q', '--hard')
+    g('mv', 'f.ts', 'renamed.ts')
+    expect(cli(dir, roms, ['staged']).stdout.toString()).toContain('renamed.ts') // --no-renames
+    g('reset', '-q', '--hard')
+    g('rm', '-q', '-f', 'f.ts')
+    writeFileSync(join(dir, 'f.md'), run)
+    g('add', 'f.md')
+    expect(cli(dir, roms, ['staged']).status).toBe(0) // .md is excluded
+    // A path ending in cmd or mmd is not markdown, and a comment is scanned too (both public).
+    writeFileSync(join(dir, 'fix.cmd'), run)
+    writeFileSync(join(dir, 'fix.mmd'), run)
+    writeFileSync(join(dir, 'c.ts'), `// ${run}`)
+    g('add', '-A')
+    const o = cli(dir, roms, ['staged']).stdout.toString()
+    for (const f of ['fix.cmd', 'fix.mmd', 'c.ts']) expect(o).toContain(`rom-window): ${f}`)
+    expect(o).not.toContain('f.md')
+  })
+
+  it('range: a file merged in from develop is not judged; one the branch adds is', () => {
+    const r = repo()
+    expect(range(r.dir).status).toBe(0)
+    commitFile(r, 'planted.ts', run)
+    const red = range(r.dir)
     expect(red.status).toBe(1)
     expect(red.stdout.toString()).toMatch(/rom-window\): planted\.ts/)
     expect(red.stdout.toString()).not.toContain('theirs.ts')
   })
 
-  it('a file added then edited in the range is judged on its final content', () => {
-    const { dir, g } = repo()
-    writeFileSync(join(dir, 'late.ts'), 'export const b = 1\n')
-    g('add', 'late.ts')
-    g('commit', '-q', '-m', 'late')
-    writeFileSync(join(dir, 'late.ts'), run)
-    g('add', 'late.ts')
-    g('commit', '-q', '-m', 'late edit')
-    expect(range(dir, 'develop').status).toBe(1)
+  it('range: a run committed then removed or rewritten is blocked; a later edit is not judged', () => {
+    const r = repo()
+    commitFile(r, 'gone.ts', run)
+    r.g('rm', '-q', 'gone.ts')
+    r.g('commit', '-q', '-m', 'remove')
+    commitFile(r, 'rew.ts', run)
+    commitFile(r, 'rew.ts', 'export const b = 2\n')
+    const o = range(r.dir).stdout.toString()
+    expect(o).toContain('rom-window): gone.ts')
+    expect(o).toContain('rom-window): rew.ts')
+    const late = repo()
+    commitFile(late, 'late.ts', 'export const b = 1\n')
+    commitFile(late, 'late.ts', run) // modified, so never judged: the known limit
+    expect(range(late.dir).status).toBe(0)
   })
 
-  it('push mode judges against what the remote has', () => {
-    const { dir, g } = repo()
-    const remote = mkdtempSync(join(tmp, 'remote-'))
-    spawnSync('git', ['init', '-q', '--bare', remote])
-    g('remote', 'add', 'origin', remote)
-    g('push', '-q', 'origin', 'develop')
-    const push = () =>
-      spawnSync('node', ['tools/scripts/check-content.mjs', 'push', 'origin'], {
-        cwd: dir,
-        input: `refs/heads/feature ${g('rev-parse', 'feature')} refs/heads/feature ${'0'.repeat(40)}
-`,
-        env: { ...process.env, HACKBENCH_ROMS: roms },
-      })
-    expect(push().status).toBe(0)
-    writeFileSync(join(dir, 'planted.ts'), run)
-    g('add', 'planted.ts')
-    g('commit', '-q', '-m', 'plant')
-    const red = push()
-    expect(red.status).toBe(1)
-  })
-
-  it('without a ROM the range and staged modes say the check did not run', () => {
-    const { dir, g } = repo()
-    writeFileSync(join(dir, 'planted.ts'), run)
-    g('add', 'planted.ts')
-    const none = join(tmp, 'roms-none-net')
-    mkdirSync(none, { recursive: true })
-    const s = spawnSync('node', ['tools/scripts/check-content.mjs', 'staged'], {
-      cwd: dir,
-      env: { ...process.env, HACKBENCH_ROMS: none },
-    })
-    g('commit', '-q', '-m', 'plant')
-    const r = range(dir, 'develop', none)
-    for (const out of [s, r]) {
-      expect(out.status).toBe(0)
-      expect(out.stderr.toString()).toMatch(/rom-window rule DID NOT RUN: no vanilla ROM/)
-      expect(out.stdout.toString() + out.stderr.toString()).not.toMatch(/\b(clean|passed|ok)\b/i)
+  describe('push', () => {
+    const withRemote = () => {
+      const r = repo()
+      r.g('remote', 'add', 'origin', bare())
+      r.g('push', '-q', 'origin', 'develop')
+      return r
     }
+    it('judges what the remote does not have; a merge of develop stays green', () => {
+      const r = withRemote()
+      expect(push(r).status).toBe(0)
+      commitFile(r, 'planted.ts', run)
+      expect(push(r).status).toBe(1)
+    })
+
+    it('stays green when the remote moved on to commits this clone does not have', () => {
+      const r = withRemote()
+      const other = join(tmp, `other-${Math.random()}`)
+      spawnSync('git', ['clone', '-q', '-b', 'develop', r.g('remote', 'get-url', 'origin'), other])
+      const gc = (...a: string[]) => spawnSync('git', [...ident, ...a], { cwd: other })
+      writeFileSync(join(other, 'newer.txt'), 'x\n')
+      gc('add', '-A')
+      gc('commit', '-q', '-m', 'develop moved')
+      gc('push', '-q', 'origin', 'develop')
+      const p = push(r) // ls-remote names a develop tip we lack; origin/develop names the old one
+      expect(p.status, out(p)).toBe(0)
+    })
+
+    it('an empty remote, or one whose tips are all unknown here, still judges every added file', () => {
+      const r = repo()
+      r.g('remote', 'add', 'origin', bare())
+      const empty = push(r)
+      expect(empty.status).toBe(1)
+      expect(empty.stdout.toString()).toContain('theirs.ts')
+      const stranger = join(tmp, `stranger-${Math.random()}`)
+      mkdirSync(stranger)
+      const gu = (...a: string[]) => spawnSync('git', [...ident, ...a], { cwd: stranger })
+      gu('init', '-q', '-b', 'stranger')
+      gu('commit', '-q', '--allow-empty', '-m', 'unrelated')
+      gu('push', '-q', r.g('remote', 'get-url', 'origin'), 'stranger')
+      expect(push(r).status).toBe(1)
+    })
+  })
+
+  it('says it did not run: staged, range, push and history, with a reason each', () => {
+    const r = repo()
+    commitFile(r, 'planted.ts', run)
+    r.g('remote', 'add', 'origin', bare())
+    const runs = [
+      cli(r.dir, none, ['staged']),
+      range(r.dir, none),
+      push(r, none),
+      cli(r.dir, none, ['history']),
+    ]
+    for (const p of runs) {
+      expect(p.stderr.toString()).toMatch(NOT_RUN)
+      expect(out(p)).not.toMatch(/\b(clean|passed|ok)\b/i)
+    }
+    for (const p of runs.slice(0, 3)) expect(p.stderr.toString()).toContain('no vanilla ROM')
+    expect(runs[3]!.stderr.toString()).toContain('history mode')
+    expect(runs[3]!.stderr.toString()).not.toContain('no vanilla ROM')
+  })
+
+  const BAD: [string, () => string][] = [
+    ['0 bytes', () => romsDir('b0', new Uint8Array(0))],
+    ['7 bytes', () => romsDir('b7', new Uint8Array(7))],
+    ['truncated', () => romsDir('btr', vanillaFile([win]).subarray(0, 400 * 1024))],
+    ['wrong bytes at full size', () => romsDir('bwr', prng(BIG, 7))],
+    ['a corrupted byte', () => romsDir('bco', Uint8Array.from(vanillaFile([win]), (v, i) => (i === 9000 ? v ^ 1 : v)))], // prettier-ignore
+    ['a directory', () => romsDir('bdir', 'dir')],
+  ]
+  it.each(BAD)(
+    'a vanilla-path file that is not a usable ROM (%s): did not run, no crash',
+    (_n, make) => {
+      const r = repo()
+      commitFile(r, 'planted.ts', run)
+      const p = range(r.dir, make())
+      expect(p.status).toBe(0)
+      expect(p.stderr.toString()).toMatch(/DID NOT RUN: the file at the vanilla ROM path (is not a regular file|is \d+ bytes|fails its internal checksum)/) // prettier-ignore
+      expect(p.stderr.toString()).not.toMatch(/\bat .*\.mjs|Error:/)
+    },
+  )
+
+  it('a valid ROM with a copier header is used; the ROM is not read when no file qualifies', () => {
+    const r = repo()
+    commitFile(r, 'planted.ts', run)
+    expect(range(r.dir, romsDir('hdr', vanillaFile([win], BIG, true))).status).toBe(1)
+    const m = repo() // only a modified file is staged: nothing qualifies, so a bad ROM is never opened
+    commitFile(m, 'mine.ts', 'export const a = 3\n')
+    writeFileSync(join(m.dir, 'mine.ts'), 'export const a = 4\n')
+    m.g('add', '-A')
+    const p = cli(m.dir, romsDir('bdir2', 'dir'), ['staged'])
+    expect(p.status).toBe(0)
+    expect(p.stderr.toString()).not.toContain('not a regular file')
+  })
+
+  it('a gitlink in the diff is skipped', () => {
+    const r = repo()
+    r.g('update-index', '--add', '--cacheinfo', `160000,${r.g('rev-parse', 'HEAD')},sub`)
+    expect(cli(r.dir, roms, ['staged']).status).toBe(0)
   })
 })
 
-// What a `put(snes, bytes)` or `writeAt` builder wrote, one part per call (windows across parts are not real).
+// What a `put(snes, bytes)` or `writeAt` builder wrote, with writes at adjoining addresses joined (a table
+// written entry by entry is one run in the cart) and gaps kept apart (a window across a gap is not real).
 const parts = (fill: (put: (at: number, bytes: number[]) => void) => void): Uint8Array[] => {
-  const out: Uint8Array[] = []
-  fill((_at, bytes) => out.push(Uint8Array.from(bytes)))
-  return out
+  const w: [number, number[]][] = []
+  fill((at, bytes) => w.push([at, bytes]))
+  const out: number[][] = []
+  let end = -1
+  for (const [at, bytes] of w.sort((a, b) => a[0] - b[0])) {
+    if (at === end) out[out.length - 1]!.push(...bytes)
+    else out.push([...bytes])
+    end = at + bytes.length
+  }
+  return out.map(c => Uint8Array.from(c))
 }
-const plants = (p: [number, number[]][]) => p.map(([, bytes]) => Uint8Array.from(bytes))
+const plants = (p: [number, number[]][]) => parts(put => p.forEach(([at, b]) => put(at, b)))
 
 // Builders that assemble synthetic code or a cart. Add a new one here AND to PIN: the guards below fail
 // until you do, with no ROM needed. #1085 and #1253 own the builders; this only counts them.
@@ -334,40 +440,43 @@ const BUILDERS: Record<string, () => Uint8Array | Uint8Array[]> = {
   staircaseB: () => plants(c3StructurePlants(0x8000)),
   verticalTable: () => Uint8Array.from(SYNTHETIC_VERTICAL_TABLE),
   skipChain: () => parts(put => writeStockSkipChain({ writeAt: put } as never)),
+  plantUploaderTable: () => parts(put => plantUploaderTable({ writeAt: put } as never)),
+  uploadRoutine: () => [0x038000, 0x0e8000, 0x0f8000].map(a => Uint8Array.from(uploadRoutine(a))), // the addresses its tests use
+  putEeries: () => parts(put => putEeries(put, {} as never)),
+  putGrinderRoutines: () => parts(put => putGrinderRoutines(put, {}, [0x60])),
+  putGm11Spans: () => parts(put => putGm11Spans(put, {})),
+  syntheticMode7: () => [unpackBytes(0, 0, 0), helperBytes(), ALT_HELPER, callSiteBytes(0x8000)].map(b => Uint8Array.from(b)), // prettier-ignore
+  map16Stub: () => map16Stub(),
+  l2Tilemap: () => l2Tilemap(),
+  gfxPayloads: () => gfxPayloads(),
+  gfxStreams: () => gfxStreams(),
 }
 // Every support module is either a host of a builder above (value: its builders) or helper-only.
+// prettier-ignore
 const HOSTS: Record<string, string[]> = {
-  syntheticAreas: ['stub'],
-  bgModeRom: ['bgModeRom'],
-  l3Rom: ['modeTablesRom'],
-  syntheticCart: ['cart', 'productionCart'], // prettier-ignore
-  syntheticGfxCart: ['buildCart'],
-  syntheticMap16: ['map16DecodeStub'],
-  syntheticOverworld: ['syntheticOverworldRom'], // prettier-ignore
-  syntheticPlatforms: ['platformCart'],
-  syntheticPSwitch: ['pswitchRom'],
-  syntheticRegistryRom: ['rampRom', 'fakeRom'], // prettier-ignore
-  syntheticRom: ['blankStockRom'],
-  syntheticSpriteRom: ['buildSyntheticRom'],
-  layer3Cart: ['layer3Cart'], // prettier-ignore
-  clusterPathStandIn: ['clusterPathStandIn'],
-  marioGraphicsFixture: ['marioGraphicsFixture'], // prettier-ignore
-  syntheticCompanion: ['syntheticCompanion'],
-  syntheticDrawProbes: ['syntheticDrawProbes'], // prettier-ignore
-  syntheticLoaderStandIns: ['syntheticLoaderStandIns'],
-  syntheticLayer3: ['syntheticLayer3'], // prettier-ignore
-  staircaseB: ['staircaseB'],
-  verticalTable: ['verticalTable'],
-  skipChain: ['skipChain'],
+  syntheticAreas: ['stub'], bgModeRom: ['bgModeRom'], l3Rom: ['modeTablesRom'],
+  syntheticCart: ['cart', 'productionCart'], syntheticGfxCart: ['buildCart', 'gfxPayloads', 'gfxStreams'],
+  syntheticMap16: ['map16DecodeStub', 'map16Stub'],
+  syntheticOverworld: ['syntheticOverworldRom', 'l2Tilemap'], syntheticPlatforms: ['platformCart'],
+  syntheticPSwitch: ['pswitchRom'], syntheticRegistryRom: ['rampRom', 'fakeRom'],
+  syntheticRom: ['blankStockRom'], syntheticSpriteRom: ['buildSyntheticRom'], layer3Cart: ['layer3Cart'],
+  clusterPathStandIn: ['clusterPathStandIn'], marioGraphicsFixture: ['marioGraphicsFixture'],
+  syntheticCompanion: ['syntheticCompanion'], syntheticDrawProbes: ['syntheticDrawProbes'],
+  syntheticLoaderStandIns: ['syntheticLoaderStandIns'], syntheticLayer3: ['syntheticLayer3'],
+  staircaseB: ['staircaseB'], verticalTable: ['verticalTable'], skipChain: ['skipChain'],
+  l2UploaderRom: ['plantUploaderTable'], syntheticSpcUpload: ['uploadRoutine'],
+  syntheticEeries: ['putEeries'], syntheticGrinder: ['putGrinderRoutines'],
+  syntheticGm11Spans: ['putGm11Spans'], syntheticMode7: ['syntheticMode7'],
 }
-const NOT_BUILDERS = ['asm65', 'captures', 'cartBytes', 'catalogAcceptance', 'collisionBaseline', 'corpus', 'doorBlend', 'fakeAudio', 'ghSpawnReached', 'gitBash', 'gradeTimeline', 'initFacing', 'isolatedGit', 'l1AllowList', 'l1Differential', 'l2UploaderRom', 'le', 'leafGrouping', 'levelSpriteList', 'loadTimeout', 'mapInputs', 'nestedFolders', 'noRealGh', 'oracleImage', 'overworldView', 'romWindows', 'singleStep', 'spriteGrade', 'spritePosition', 'syntheticEeries', 'syntheticGm11Spans', 'syntheticGrinder', 'syntheticMode7', 'syntheticSpcUpload', 'userText', 'vanillaWindows', 'vscodeStub'] // prettier-ignore
+const NOT_BUILDERS = ['asm65', 'captures', 'cartBytes', 'catalogAcceptance', 'collisionBaseline', 'corpus', 'doorBlend', 'fakeAudio', 'ghSpawnReached', 'gitBash', 'gradeTimeline', 'initFacing', 'isolatedGit', 'l1AllowList', 'l1Differential', 'le', 'leafGrouping', 'levelSpriteList', 'loadTimeout', 'mapInputs', 'nestedFolders', 'noRealGh', 'oracleImage', 'overworldView', 'romWindows', 'singleStep', 'spriteGrade', 'spritePosition', 'userText', 'vanillaWindows', 'vscodeStub'] // prettier-ignore
 
-// RATCHET (D157). Windows each builder shares with the vanilla ROM today (one machine, 2026-11-05, vanilla
+// RATCHET (D157), run only where a vanilla ROM is present. Every builder is pinned at default or fixed
+// arguments only; a builder with options can carry windows the pin does not see. Windows each builder shares with the vanilla ROM today (one machine, 2026-11-05, vanilla
 // US, windows not runs). Counts fall to 0 through #1253; a count that changes, up or down, fails, and a
 // builder missing here fails. Builders are NOT changed in this branch.
-const PIN: Record<string, number> = { stub: 5, blankStockRom: 76, syntheticOverworldRom: 230, buildSyntheticRom: 2, platformCart: 1, pswitchRom: 26, rampRom: 0, fakeRom: 0, map16DecodeStub: 0, buildCart: 57, bgModeRom: 9, modeTablesRom: 20, cart: 0, productionCart: 7, layer3Cart: 2, clusterPathStandIn: 0, marioGraphicsFixture: 0, syntheticCompanion: 0, syntheticDrawProbes: 0, syntheticLoaderStandIns: 0, syntheticLayer3: 0, staircaseB: 0, verticalTable: 0, skipChain: 0 } // prettier-ignore
+const PIN: Record<string, number> = { stub: 5, blankStockRom: 76, syntheticOverworldRom: 230, buildSyntheticRom: 2, platformCart: 1, pswitchRom: 26, rampRom: 0, fakeRom: 0, map16DecodeStub: 0, buildCart: 57, bgModeRom: 9, modeTablesRom: 20, cart: 0, productionCart: 7, layer3Cart: 2, clusterPathStandIn: 0, marioGraphicsFixture: 0, syntheticCompanion: 0, syntheticDrawProbes: 0, syntheticLoaderStandIns: 0, syntheticLayer3: 0, staircaseB: 2, verticalTable: 0, skipChain: 0, plantUploaderTable: 27, uploadRoutine: 21, putEeries: 0, putGrinderRoutines: 0, putGm11Spans: 0, syntheticMode7: 0, map16Stub: 287, l2Tilemap: 0, gfxPayloads: 0, gfxStreams: 0 } // prettier-ignore
 
-describe('4a: synthetic ROM builders carry no vanilla window', () => {
+describe('4a: vanilla windows in the synthetic builders are pinned (a ratchet, not zero)', () => {
   const files = readdirSync(join(REPO, 'test/suite/support'))
     .filter(f => f.endsWith('.ts'))
     .map(f => f.replace(/\.ts$/, ''))
@@ -382,6 +491,23 @@ describe('4a: synthetic ROM builders carry no vanilla window', () => {
   it('BUILDERS, the hosts and the pin name the same builders (a new one fails until pinned)', () => {
     expect(Object.keys(PIN).sort()).toEqual(Object.keys(BUILDERS).sort())
     expect(Object.values(HOSTS).flat().sort()).toEqual(Object.keys(BUILDERS).sort())
+  })
+
+  // Heuristic: an `export function|const` line (one line) declaring a Uint8Array or RomFile result.
+  const byteExports = (src: string) =>
+    [
+      ...src.matchAll(/^export (?:function|const) (\w+)[^\n]*?\)\s*:\s*(?:Uint8Array|RomFile)\b/gm),
+    ].map(m => m[1]!)
+  // Read a real ROM, or decode: they assemble nothing.
+  const NOT_EXPORTS = ['freshRom', 'sharedRom', 'loaderImage', 'allCarts', 'oracleCells', 'b64', 'stripHeader', 'loadVanillaBytes'] // prettier-ignore
+
+  it('every exported function that returns bytes or a cart is a pinned builder or listed as not one', () => {
+    const src = (f: string) => readFileSync(join(REPO, 'test/suite/support', `${f}.ts`), 'utf8')
+    const all = files.flatMap(f => byteExports(src(f)))
+    expect(all.length).toBeGreaterThan(20)
+    expect(all.filter(n => !(n in BUILDERS) && !NOT_EXPORTS.includes(n))).toEqual([])
+    // It can fail: a new exported cart builder is flagged.
+    expect(byteExports('export function newCart(o = {}): RomFile {')).toEqual(['newCart'])
   })
 
   it('the sweep can fail: a window copied into a builder output is found', () => {

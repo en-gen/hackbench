@@ -17,7 +17,7 @@ export function locateVanillaRom(env, repoRoot, exists = existsSync) {
 }
 
 /** A window worth looking up: all-00 or all-FF runs and the like match any
- *  ROM, so fewer than MIN_DISTINCT distinct values, a constant step or a short period are ignored. The one filter. */
+ *  ROM, so fewer than MIN_DISTINCT distinct values, a constant step or a short period are ignored. */
 export const isCandidate = w => new Set(w).size >= MIN_DISTINCT && !isPattern(w)
 
 /** A constant step (counting up or down, mod 256) or a repeat of period 2 to 4: any ROM has them,
