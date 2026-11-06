@@ -23,7 +23,6 @@ import {
 import { hasRom, romPath, VANILLA } from '../../support/corpus'
 
 vi.setConfig({ testTimeout: 120_000 }) // each test maps a whole level: seconds alone, tens under a full run
-
 type Edit = (bytes: Uint8Array, stream: number) => void
 const load = (map: number, edit?: Edit) => {
   const path = romPath(VANILLA)
