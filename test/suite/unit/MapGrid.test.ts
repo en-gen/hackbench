@@ -238,7 +238,7 @@ describe('the closing line of an off-map band (#1284)', () => {
     expect(far(g.y, 448)).toMatchObject([{ weight: 1, start: 447, size: 1 }])
   })
 
-  it('sweep: band 1 tile to past a screen, both orientations and both long ends, one far line of the right weight (a screen-boundary edge draws one, not two)', () => {
+  it('sweep: bands of 1 to 70 tiles, both orientations and ends: one far line of the right weight (a screen edge draws one, not two)', () => {
     let cases = 0
     for (const vertical of [false, true])
       for (const axis of ['x', 'y'] as const)
