@@ -97,7 +97,10 @@ describe('ropeModel', () => {
   it('the same number of parts at other positions is not the same rope: the short run is shown, not the long one', () => {
     const run = (slot: number) =>
       standIn(slot === 6 ? [0, 16, 32, 48, 64] : [0, 16, 32, 48, 80], slot)
-    expect(ropeModel(rom, at({ setting: 2, id: 0x01 }), run).passes[0]!.parts[0]!.char).toBe(2)
+    const m = ropeModel(rom, at({ setting: 2, id: 0x01 }), run)
+    expect(m.passes[0]!.parts[0]!.char).toBe(2)
+    // No part is drawn twice and none is doored: the short pass is not inside the long one, so it stays as it is.
+    expect([m.passes[0]!.parts.length, m.passes[0]!.parts.some(p => p.door)]).toEqual([5, false])
     const same = (slot: number) => standIn([0, 16, 32, 48, 64], slot)
     expect(ropeModel(rom, at({ setting: 2, id: 0x01 }), same).passes[0]!.parts[0]!.char).toBe(6)
   })

@@ -41,7 +41,10 @@ function withExtras<M extends SpriteModel>(short: M, long: SpriteModel): M {
     ...short,
     passes: short.passes.map((p, i) => {
       const have = new Set(drawnParts(p).map(key))
-      const extra = drawnParts(long.passes[i] ?? p)
+      const longer = drawnParts(long.passes[i] ?? p)
+      // A pass whose short parts are not all in the long one is a different rope there: it stays the short run, solid.
+      if (![...have].every(k => longer.some(q => key(q) === k))) return p
+      const extra = longer
         .filter(q => !have.has(key(q)))
         .map((q): SpritePart => ({ ...q, door: true }))
       return extra.length ? { ...p, parts: [...p.parts, ...extra] } : p
