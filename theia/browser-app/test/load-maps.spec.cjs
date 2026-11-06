@@ -373,14 +373,13 @@ test('the maps are grouped, not dumped in a flat list', async ({ page }) => {
   // disassembly's own data files are named after (bank_06.asm:33, 35).
   expect(result.specialSlots).toEqual([0x0c7, 0x0c5])
 
-  // DATA_05DBA9's Bonus Games and Yoshi Heaven slots, in each half: listed
-  // once, as bonus rows (reached, so not orphaned, but no entry map either).
+  // DATA_05DBA9's Bonus Games slots, in each half: listed once, as bonus rows (reached, so not
+  // orphaned, but no entry map either). Yoshi Heaven is no row here: it lists under the maps that
+  // hold the wings block (#1229, map-yoshi-wings.spec.cjs).
   const bonus = result.unassignedRows.filter(r => [0x000, 0x100, 0x0c8, 0x1c8].includes(r.index))
   expect(bonus).toEqual([
     { index: 0x000, category: 'bonus' },
-    { index: 0x0c8, category: 'bonus' },
     { index: 0x100, category: 'bonus' },
-    { index: 0x1c8, category: 'bonus' },
   ])
 })
 

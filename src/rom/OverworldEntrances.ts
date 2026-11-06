@@ -105,6 +105,7 @@
  * fully editable, which is the point of ordering the tiers this way.
  */
 
+import type { WingsSeams } from './YoshiWings'
 import type { RomFile } from './RomFile'
 import type { SmwRom, OverworldRoots } from './SmwRom'
 import { buildLevelCatalog, type LevelCatalog } from './LevelCatalog'
@@ -153,6 +154,8 @@ export interface OverworldFingerprints {
   /** LevelStart's screen-exit and main-entrance read spans; their own stock builds when absent. */
   startExit?: readonly string[]
   startMain?: readonly string[]
+  /** YoshiWings' test hooks (a synthetic ROM brings its own spawn, grid and path digest). */
+  wings?: WingsSeams
 }
 export const STOCK_OVERWORLD_FINGERPRINTS: OverworldFingerprints = Object.freeze({
   entry: OVERWORLD_INDEX_BODY.fingerprints,
