@@ -434,9 +434,18 @@ export function stepDiag(cur: Cursor, dcol: number, drow: number): void {
  * Returns the empty-tile sentinel ($25) if the cursor is outside the grid.
  */
 export function peekExistingLow(cur: Cursor): number {
-  const at = bufferCell(cur.row, cur.col, cur.vertical)
-  const v = at ? cur.grid[at.row]?.[at.col] : undefined
+  const v = peekTile(cur)
   return v === undefined ? 0x25 : v & 0xff
+}
+
+/**
+ * The tile at the cursor, at the cell `writeTile` would write it to (`bufferCell`), or undefined where
+ * the grid holds none. Handlers that read a cell before they write it read through this, never
+ * through `cur.grid[cur.row]`, which does not follow a row past the bottom onto the next screen.
+ */
+export function peekTile(cur: Cursor): number | undefined {
+  const at = bufferCell(cur.row, cur.col, cur.vertical)
+  return at ? cur.grid[at.row]?.[at.col] : undefined
 }
 
 /**

@@ -162,3 +162,19 @@ describe('opcode gates behind resolveJsrTarget, resolveJmpTarget and handle_0DB5
     ])
   })
 })
+
+describe('0DB49E bottom merge reads the cell it writes (#1034)', () => {
+  it('a pipe whose bottom row wraps onto the next screen merges with the cell there', () => {
+    const MERGE_TABLE = 0x0da400
+    const rom = cart()
+    rom.writeAt(BOT + 5, [0x77]) // trigger: the cell already holds low byte $77
+    rom.writeAt(BOT + 9, [0x00, 0xa4, 0x0d]) // its table, long address
+    rom.writeAt(MERGE_TABLE, [0x99])
+    const grid = createGrid(2)
+    grid[0]![16 + 4] = 0x77 // row 27 of the strip: row 0 of screen 1, same column
+    const cur = makeCursor(grid, rom, 1, 4, 26, 0x1e, 0x10)
+    cur.handlerAddr = PIPE
+    handle_0DB49E(cur)
+    expect(grid[0]![16 + 4]).toBe(0x99)
+  })
+})
