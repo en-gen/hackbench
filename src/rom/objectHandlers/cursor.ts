@@ -38,7 +38,7 @@ export const MAP16_BYTES_PER_SCREEN_H = 0x1b0
 
 /** Plain words for an object with a tile outside the level's Map16 buffer; the "!" mark's text (#1034). */
 export const OFF_BUFFER_REASON =
-  "Some of its tiles fall outside the level's tile buffer, so they are not drawn."
+  "Some of its tiles land outside the map's tile space, so they are not drawn."
 
 /** A 2D tile grid; grid[row][col] = 9-bit Map16 tile ID (page << 8 | low). */
 export type TileGrid = number[][]

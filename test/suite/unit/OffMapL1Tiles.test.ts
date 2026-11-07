@@ -124,7 +124,9 @@ describe('a write outside the buffer marks its object, once, in plain words', ()
     const obj = { type: 'standard', objectNumber: 1, x: 1, y: 2 }
     const [cell] = refusedCellsOf(cur.refusals!, [...Array(7).fill(obj), obj] as never)
     expect(cell!.reasons).toEqual([OFF_BUFFER_REASON])
-    expect(OFF_BUFFER_REASON).toMatch(/outside the level/)
+    expect(OFF_BUFFER_REASON).toBe(
+      "Some of its tiles land outside the map's tile space, so they are not drawn.",
+    )
   })
 
   it('an interpreter write outside the buffer is counted, not lost', () => {
