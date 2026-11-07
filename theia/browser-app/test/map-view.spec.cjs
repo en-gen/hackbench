@@ -4047,9 +4047,7 @@ test('pinning the preview keeps the layer, sprite, grid and collision toggles, d
   await expect.poll(() => shape(0x111), { timeout: 60000 }).toEqual(want)
 })
 
-test('a pin keeps its own presses over the preview; a pin for another row starts at defaults and leaves the preview', async ({
-  page,
-}) => {
+test('a pin keeps its own presses over the preview of the same map', async ({ page }) => {
   await loadTree(page)
   const want = on => PRESSES.map(c => String(on.includes(c)))
   await clickRow(page, 0x106, true)
@@ -4059,28 +4057,49 @@ test('a pin keeps its own presses over the preview; a pin for another row starts
   await clickRow(page, 0x106, true)
   expect(await pressedOf(page, 0x106)).toEqual(want(['palace-red']))
   await expect(page.locator(root('preview'))).toHaveCount(0)
+})
+
+// Presses and one toggle set in a preview of 0x105, so a pin for another row has something to (not) carry.
+async function dirtyPreview(page) {
   await clickRow(page, 0x105)
+  await control(page, 'preview', 'layer-l1').click()
   await pressAll(page, 'preview')
-  await page.evaluate(async () => {
-    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-explorer')
-    w.fireOpen(
-      w.model.root.children
-        .find(r => r.id === 'group:unassigned')
-        .children.find(n => n.index === 0x109),
-      true,
-    )
-  })
+}
+
+test('Enter on a filtered row pins it at defaults and leaves the preview of the other map as it was', async ({
+  page,
+}) => {
+  await loadTree(page)
+  await dirtyPreview(page)
+  await page.evaluate(() =>
+    getSvc('WidgetManager')
+      .getOrCreateWidget('hackbench.map-explorer')
+      .then(w => w.node.focus()),
+  )
+  await page.keyboard.type('$109')
+  await page.keyboard.press('Enter')
+  opened.push('hackbench.map-view:265')
   await expect.poll(() => pressedOf(page, 0x109)).toEqual(all('false'))
+  await expect(control(page, 0x109, 'layer-l1')).toHaveAttribute('aria-pressed', 'true')
   expect(await pressedOf(page, 'preview')).toEqual(all('true'))
+  await expect(control(page, 'preview', 'layer-l1')).toHaveAttribute('aria-pressed', 'false')
   expect(
     await page.evaluate(() =>
       getSvc('ApplicationShell').getWidgetById('hackbench.map-view:preview').shows(0x105),
     ),
   ).toBe(true)
-  await clickRow(page, 0x105)
-  await pressAll(page, 'preview')
+})
+
+test('a double click on another row pins it at default presses with the toggle carried, then the next preview still resets', async ({
+  page,
+}) => {
+  await loadTree(page)
+  await dirtyPreview(page)
   await clickRow(page, 0x014, true)
   expect(await pressedOf(page, 0x014)).toEqual(all('false'))
+  await expect(control(page, 0x014, 'layer-l1')).toHaveAttribute('aria-pressed', 'false')
+  await clickRow(page, 0x105)
+  await pressAll(page, 'preview')
   await clickRow(page, 0x111)
   expect(await pressedOf(page, 'preview')).toEqual(all('false'))
 })

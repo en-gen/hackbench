@@ -99,7 +99,7 @@ export class PreviewTabs {
     await this.sequence.settled(wantedId)
     const existingPreview = this.shell.widgets.find(w => w.id === wantedId) as W | undefined
     const widget = await this.widgets.getOrCreateWidget<W>(viewId, key)
-    // Handed over only while the preview still shows this row, so a pin for another row starts clean.
+    // Handed over only while the preview still shows this row: a real double click has moved it there, a filtered Enter has not.
     const carry = existingPreview !== widget && existingPreview && sameRow(existingPreview)
     await apply(widget, carry ? existingPreview : undefined)
     removeClass(widget, PREVIEW_TAB_CLASS)

@@ -393,6 +393,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
 
   /** Starts a map in this widget; a reused tab drops the earlier map's replies via the open counter. */
   async open(options: MapViewOptions, from?: MapViewWidget): Promise<void> {
+    // First, before `view.state` is read or the New early return: another map starts unpressed (D181).
+    if (isDifferentMap(this.options, options)) this.view.reset()
     // A pin starts from its preview's presses and toggles (#1299); a tab already showing a map keeps its own.
     if (from && !this.options) {
       this.view.reset(from.view.state)
@@ -403,8 +405,6 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       this.showCollision = from.showCollision
       this.showGrid = from.showGrid
     }
-    // First, before `view.state` is read or the New early return: another map starts unpressed (D181).
-    if (isDifferentMap(this.options, options)) this.view.reset()
     this.options = options
     this.id = `${MAP_VIEW_ID}:${options.index}`
     this.title.label = options.label

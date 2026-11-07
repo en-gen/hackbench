@@ -13,9 +13,12 @@ import { previewId } from '../../../theia/extension/src/browser/preview-id'
 
 // `pin` runs against fakes, since Theia's modules need a DOM; the mock names the resolved file because a bare specifier does not match it.
 const browser = vi.hoisted(
-  () => `${process.cwd()}/theia/node_modules/@theia/core/lib/browser/index.js`,
+  () => `${__dirname}/../../../theia/node_modules/@theia/core/lib/browser/index.js`,
 )
 const theiaInstalled = fs.existsSync(browser)
+it('Theia is installed wherever HB_REQUIRE_THEIA says it must be', () => {
+  if (process.env.HB_REQUIRE_THEIA) expect(theiaInstalled).toBe(true)
+})
 vi.mock(browser, () => ({ ApplicationShell: class {}, WidgetManager: class {}, Widget: class {} }))
 vi.mock('../../../theia/extension/src/browser/project-context', () => ({
   ProjectContext: class {},
