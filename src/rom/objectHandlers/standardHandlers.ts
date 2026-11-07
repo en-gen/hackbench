@@ -42,6 +42,7 @@ import {
   readGatedLongOperand,
   readImmByte,
   refuseUnported,
+  VERTICAL_WALL_REASON,
   MAP16_BYTES_PER_SCREEN_H,
 } from './cursor'
 import { mirror } from '../addressing'
@@ -5027,7 +5028,7 @@ function pokeMap16(cur: Cursor, addr: number, page: number, low: number): void {
  */
 export function handle_0DDF3A(cur: Cursor): void {
   if (cur.vertical) {
-    refuseUnported(cur, cur.handlerAddr, 'HackBench cannot draw this object on a vertical map yet.')
+    refuseUnported(cur, cur.handlerAddr, VERTICAL_WALL_REASON)
     return
   }
   const k = readWallSites(cur)
