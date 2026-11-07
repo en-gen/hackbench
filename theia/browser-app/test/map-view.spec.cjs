@@ -1386,6 +1386,7 @@ test('$018: the camera-locked layer 3 is drawn, and its toggle changes the pictu
   await expect(button).toHaveAttribute('aria-pressed', 'false')
   expect((await readScreen(page, 0x018, 0)).checksum).not.toBe(on)
   await button.click()
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
   expect((await readScreen(page, 0x018, 0)).checksum).toBe(on)
 })
 
