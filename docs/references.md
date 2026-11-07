@@ -16,11 +16,10 @@ traced against the ROM, design proposals, or records of what the code does.
 | Level and overworld data formats | https://smwspeedruns.com/Level_Data_Format and https://smwspeedruns.com/Overworld_Data_Format |
 | Level data format, second opinion | https://sneslab.net/wiki/SMW_level_data_format |
 | ROM map annotations and regional differences | https://datacrystal.tcrf.net/wiki/Super_Mario_World |
-| Routine-level behaviour, the authority for this project | SMWDisX disassembly, https://github.com/IsoFrieze/SMWDisX (local checkout at `C:\Projects\SMWDisX`) |
+| Routine-level behaviour, the authority for this project | SMWDisX disassembly, https://github.com/IsoFrieze/SMWDisX |
 
-For anything about what the game *does*, SMWDisX is the source of truth. See
-the "ROM is a collection of lookup tables" section of `CLAUDE.md`: trace the
-disassembly to find the index, then read the table from the ROM.
+For anything about what the game *does*, SMWDisX is the source of truth: trace
+the disassembly to find the index, then read the table from the ROM.
 
 ## SNES hardware
 
@@ -33,8 +32,8 @@ disassembly to find the index, then read the table from the ROM.
 | Register-level detail and timing | SNESdev Wiki, https://snes.nesdev.org/wiki/ and SnesLab, https://sneslab.net/wiki/ |
 | Authoritative hardware specification | Nintendo SNES Development Manual Books I and II (1993 to 1995). Not linked: it is Nintendo's copyrighted documentation, widely archived but not ours to redistribute. |
 
-The project-wide SNES rulebook for addressing, BGR555 and VRAM layout lives at
-`C:\Projects\SMWDisX\.claude\rules\snes-global.md`.
+The project-wide SNES rulebook for addressing, BGR555 and VRAM layout is
+`.claude/rules/snes-global.md` in the SMWDisX checkout.
 
 ## Why this file exists instead of the documents
 

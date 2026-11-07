@@ -7,6 +7,8 @@ because vanilla and magic are the same ROM with and without a copier header).
 No emulator was run. Nothing here is verified against live hardware or an
 accurate emulator, and no claim should be read as dynamically confirmed.
 
+Corrected 2026-11-07: was "`test/roms/`" throughout, because the ROM corpus moved out of the repo to `hackbench-tools/roms/`; tests resolve it through `test/suite/support/corpus.ts` (see `docs/testing.md`). The ROM files and measurements below are unchanged. The sprite engine is at `src/rom/model/sprites/generic/`, with 16 descriptors in `SPRITE_DRAW_DESCRIPTORS` (5 bespoke, 11 walk family); the tests are under `test/suite/unit/sprites/`. [EST: `ls`, `grep`]
+
 ## How to read this document
 
 It is APPEND-ONLY, written one work session per section in commit order, and
