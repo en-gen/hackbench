@@ -45,11 +45,10 @@ machine, and it stores no ROM bytes at all.
 ```
 MyHack/
   MyHack.hbproj      manifest: what the hack is, and which ROM it is built on
-  levels/            created with the project
-  snapshots/         created with the project
   ops/               your edits, as ordered layers of {address, old, new}
   export/            the .bps you ship
   saves/             the emulator's save game (SRAM, not ROM content)
+  (plus levels/, snapshots/ and meta/; see docs/architecture/project-format.md)
 ```
 
 What follows from that:
@@ -61,14 +60,13 @@ What follows from that:
   identical for both.
 - **Undo is portable.** A layer carries the old value as well as the new, so
   a fresh clone on another machine has working undo and redo.
-- **Your ROM is never written to.** The only thing HackBench writes to
-  a ROM is nothing at all.
+- **Your ROM is never written to.**
 
 ## What you can do today
 
 | View | State |
 |------|-------|
-| **Maps** | every map in the ROM, grouped with real counts; opening one shows its decoded header beside the raw bytes |
+| **Maps** | every map in the ROM, grouped with real counts; opening one draws its tiles and sprites, with optional collision, block-content and refused-object overlays. Read-only |
 | **Palettes** | **editable.** Pick a color, click OK, it becomes a layer |
 | **Map16** | **editable.** Subtiles write through the same layer mechanism |
 | **Graphics** | every GFX file decoded, selectable bit depth and palette row, and the Map16 tile editor |
@@ -77,16 +75,11 @@ What follows from that:
 
 Undo and redo work across the layer stack and survive closing the project.
 
-Edits propagate between the views that read the working copy: recolor a
-palette cell and an already-open GFX sheet repaints with no manual reload.
-The Maps view is **not** one of them yet. It still reads the base ROM
-directly, so a palette edit is not visible there; see
+Every view reads the working copy, so edits show everywhere: recolor a
+palette cell and an open GFX sheet or map repaints with no manual reload. See
 [docs/glossary.md](docs/glossary.md), "Working copy".
 
-Level editing is not wired up yet. Opening a map shows what the ROM says
-about that slot, with every field traceable to an ASM citation and the raw
-header bytes shown beside the decode, so you can check it rather than trust
-it. The tile canvas and the editor grow out of that.
+Level editing is not wired up yet; the Maps view only shows what the ROM says.
 
 ## Install
 
@@ -112,9 +105,8 @@ yarn --cwd theia build
 yarn --cwd theia start
 ```
 
-You need Node 22.12 or newer, `npm`, and `yarn` 1.x. Theia 1.75 pins
-Electron 42.8.1, whose engines field requires it, which is why CI builds the
-desktop app on 22. The first build is slow; it bundles the whole frontend.
+You need Node 22.12 or newer (the Electron that Theia pins requires it),
+`npm`, and `yarn` 1.x. The first build is slow; it bundles the whole frontend.
 
 Full walkthrough: [docs/guide/getting-started.md](docs/guide/getting-started.md).
 
