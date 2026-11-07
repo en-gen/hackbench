@@ -791,7 +791,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const m = this.padMemo
     if (m && m.l === l && m.s === this.sprites) return m.pad
     const [w, h] = this.mapPx(l)
-    const rects = contentRects(l.refusedCells ?? [], this.sprites?.sprites ?? [])
+    const rects = contentRects(l.refusedCells ?? [], this.sprites?.sprites ?? [], w, h)
     const pad = offMapPad(w, h, rects, l.orientation === 'vertical', l.screenCount)
     this.padMemo = { l, s: this.sprites, pad }
     return pad

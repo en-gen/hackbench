@@ -409,7 +409,7 @@ screen width of gutter on each end with ui to add a screen") and R24 (the back c
 the fade stays, over the far-end gutter only.
 
 `offMapPad` (`browser/off-map-extent.ts`, pure) is the one place the canvas grows. Per side, the pad is
-the content the data places off the map there (a refused-object mark's 16 px cell, a sprite's `box`),
+the content the data places off the map there (a refused-object mark's 16 px cell, a sprite's placement cell: `stored`, else its anchor; art past an edge is cut and grows nothing, #1325, except that a sprite with no art on the map at all also counts its `box`, D52),
 rounded up to whole 16 px tiles, so the grid runs on across it on the same lattice. At the FAR end only
 (right of a horizontal map, bottom of a vertical one) a fixed 256 px gutter (`GUTTER_PX`, one screen) is
 added BEYOND that content, even when nothing is off the map, unless the map has 32 screens (`MAX_SCREENS`:

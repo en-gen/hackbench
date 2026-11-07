@@ -27,7 +27,7 @@ function check(map: number, side: Side): { reach: number; pad: number } {
       side === 'left' ? -s.box.x0 : side === 'top' ? -s.box.y0 : s.box.y1 - h,
     ),
   )
-  const pad = offMapPad(w, h, contentRects([], sp.sprites), vertical, sp.screenCount)
+  const pad = offMapPad(w, h, contentRects([], sp.sprites, w, h), vertical, sp.screenCount)
   const bare = offMapPad(w, h, [], vertical, sp.screenCount)
   return { reach, pad: pad[side] - bare[side] }
 }

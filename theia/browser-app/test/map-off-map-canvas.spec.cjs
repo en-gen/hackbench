@@ -21,8 +21,9 @@
  *
  * Planted-offset sanity for the verifier (each should turn the named cases red): drop `- pad.left` or
  * `- pad.top` in updateHover (hover, on $105 and $109), drop `+ pad.top` from the sprite anchor (the anchor
- * case on $109), write `(y + pad.top) * w + x` without `+ pad.left` in offMapSpritePixels (the $C4/$DD
- * canvas-pixel cases), make the back area a solid color (the fade case), or request screens outside the
+ * case on $109), write `(y + pad.top) * w + x` without `+ pad.left` in offMapSpritePixels (no case here:
+ * since #1325 no vanilla map has a left pad, so only OffMapExtent.test.ts, "placed off each of the 4 sides",
+ * reads a left-pad pixel), make the back area a solid color (the fade case), or request screens outside the
  * map in visibleScreens (any case would then show a screen error).
  */
 const { test, expect } = require('@playwright/test')

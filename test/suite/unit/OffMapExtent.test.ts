@@ -369,7 +369,7 @@ describe('what grows the canvas: placement, never art (#1325)', () => {
     m: (typeof SIZES)[number],
     sprites: MapSpriteDto[],
     refused: { x: number; y: number }[] = [],
-  ) => offMapPad(m.w, m.h, contentRects(refused, sprites), m.vertical, 5)
+  ) => offMapPad(m.w, m.h, contentRects(refused, sprites, m.w, m.h), m.vertical, 5)
   /** The pad with the far-end gutter taken out, so the long side compares like the short ones. */
   const bare = (m: (typeof SIZES)[number], p: Pad): Pad => ({
     ...p,
@@ -377,32 +377,62 @@ describe('what grows the canvas: placement, never art (#1325)', () => {
     bottom: p.bottom - (m.vertical ? G : 0),
   })
 
-  it('art past each of the 4 sides, from a placement on the map, pads nothing', () => {
-    for (const m of SIZES) {
-      const arts: Rect[] = [
-        { x0: -8, y0: 40, x1: 24, y1: 72 },
-        { x0: 40, y0: -8, x1: 72, y1: 24 },
-        { x0: m.w - 24, y0: 40, x1: m.w + 40, y1: 72 },
-        { x0: 40, y0: m.h - 24, x1: 72, y1: m.h + 40 },
-      ]
-      for (const art of arts) {
-        const s = sp(Math.max(art.x0, 0), Math.max(art.y0, 0), art)
-        expect(bare(m, padOf(m, [s]))).toEqual(NO_PAD)
+  it('art overhanging each of the 4 sides by 1 to 32 px, from a placement on the map, pads nothing', () => {
+    for (const m of SIZES)
+      for (let k = 1; k <= 32; k++) {
+        const arts: Rect[] = [
+          { x0: -k, y0: 40, x1: 48 - k, y1: 88 },
+          { x0: 40, y0: -k, x1: 88, y1: 48 - k },
+          { x0: m.w - 48 + k, y0: 40, x1: m.w + k, y1: 88 },
+          { x0: 40, y0: m.h - 48 + k, x1: 88, y1: m.h + k },
+        ]
+        for (const art of arts) {
+          const s = sp(Math.max(art.x0, 0), Math.max(art.y0, 0), art)
+          expect(bare(m, padOf(m, [s])), `${k}px ${JSON.stringify(art)}`).toEqual(NO_PAD)
+        }
       }
+  })
+
+  it('a sprite placed off each of the 4 sides pads that side AND draws there; a refused cell pads too', () => {
+    const CELL = { left: 16, top: 32, right: 16, bottom: 32 }
+    const white = Buffer.alloc(16 * 16 * 4, 255).toString('base64')
+    for (const m of SIZES) {
+      const cases: [number, number, keyof Pad][] = [
+        [-16, 40, 'left'],
+        [40, -32, 'top'],
+        [m.w, 40, 'right'],
+        [40, m.h + 16, 'bottom'],
+      ]
+      for (const [x, y, side] of cases) {
+        const s = { ...sp(x, y, { x0: x, y0: y, x1: x + 16, y1: y + 16 }), rgba: white }
+        const pad = padOf(m, [s])
+        expect(bare(m, pad)[side], `${side} pad`).toBe(CELL[side])
+        const out = offMapSpritePixels([s], m.w, m.h, pad, m.vertical)
+        const i = ((y + 8 + pad.top) * (m.w + pad.left + pad.right) + x + 8 + pad.left) * 4 + 3
+        expect(out?.[i], `${side} draws`).toBe(255)
+      }
+      const refused: [number, number, keyof Pad][] = [
+        [-1, 5, 'left'],
+        [5, -1, 'top'],
+        [m.w / 16, 5, 'right'],
+        [5, m.h / 16, 'bottom'],
+      ]
+      for (const [x, y, side] of refused)
+        expect(bare(m, padOf(m, [], [{ x, y }]))[side], `refused ${side}`).toBe(16)
     }
   })
 
-  it('a sprite placed off the map pads that side, on both shapes, and a refused cell off the map too', () => {
-    for (const m of SIZES) {
-      const at = (x: number, y: number) =>
-        bare(m, padOf(m, [sp(x, y, { x0: x, y0: y, x1: x + 16, y1: y + 16 })]))
-      expect(at(-16, 40)).toEqual({ ...NO_PAD, left: 16 })
-      expect(at(40, -32)).toEqual({ ...NO_PAD, top: 32 })
-      expect(at(m.w, 40)).toEqual({ ...NO_PAD, right: 16 })
-      expect(at(40, m.h + 16)).toEqual({ ...NO_PAD, bottom: 32 })
-      expect(bare(m, padOf(m, [], [{ x: -1, y: 5 }]))).toEqual({ ...NO_PAD, left: 16 })
-      expect(bare(m, padOf(m, [], [{ x: 5, y: m.h / 16 }]))).toEqual({ ...NO_PAD, bottom: 16 })
-    }
+  it('a sprite with no art on the map is never hidden (D52): its box pads and draws, 1 px of art on the map does not', () => {
+    const m = SIZES[0]!
+    const box = { x0: -48, y0: 8, x1: -32, y1: 24 }
+    const rgba = Buffer.alloc(16 * 16 * 4, 255).toString('base64')
+    const s = { ...sp(-48, 8, box, { x: 8, y: 8 }), rgba }
+    const pad = padOf(m, [s])
+    expect(pad.left).toBe(48)
+    const out = offMapSpritePixels([s], m.w, m.h, pad, false)
+    expect(out?.[((8 + pad.top) * (m.w + pad.left + pad.right) + pad.left - 48) * 4 + 3]).toBe(255)
+    const one = sp(-47, 8, { x0: -15, y0: 8, x1: 1, y1: 24 }, { x: 8, y: 8 })
+    expect(padOf(m, [one]).left).toBe(0)
   })
 
   it('a sprite placed off the map still draws there, while its art past the edge from a placed-on-map sprite is not in the pad', () => {

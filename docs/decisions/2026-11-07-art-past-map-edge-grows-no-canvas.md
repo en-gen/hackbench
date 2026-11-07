@@ -24,14 +24,11 @@ Answering Planning's three questions on #1325:
 
 So on every side, art that spills past the map's edge is cut there and grows nothing. A sprite or object whose own placement is off the map still grows the canvas and shows at that cell, as D76 call 2 ruled.
 
-Two calls were taken in the build and are not ruled:
-
-- [PROP] Placement means `stored` where a sprite has it, else its anchor (the tile corner), as one 16 x 16 cell.
-- [PROP] Art that lands in the far-end gutter still draws there, since that canvas exists either way.
+Three build calls under this ruling are not ruled: see [2026-11-07-art-past-edge-proposed-calls.md](2026-11-07-art-past-edge-proposed-calls.md).
 
 ## Why
 
-The empty row served no placement: it held only the tail of a sprite whose placement is on the map. Vanilla census (`mapSprites` over 488 maps, develop dfb9d43a, one machine, sprite boxes only): art past the bottom on 4 maps (16 px), the top on 1 (8 px), the left on 9 (8 px), and 0 sprites stored off the map, so on vanilla no sprite grows the canvas. `[EST]`
+The empty row served no placement: it held only the tail of a sprite whose placement is on the map. Vanilla census (`mapSprites` over 488 maps, develop dfb9d43a, one machine, sprite boxes only): art past the bottom on 4 maps (16 px), the top on 1 (8 px), the left on 9 (8 px), and 0 sprites stored off the map, so on vanilla no sprite grows the canvas. `[EST]` Two corrections from the adversarial review of this branch (not re-measured here): $0F8 also loses a 32 px right-side content band (ring $E2 art), so its far end is now the gutter alone; the per-map pad changes above are for sprite boxes only. Corpus test `OffMapPlacement.corpus.test.ts` re-checks the short sides on those 14 maps, one machine, branch feature/1325-no-empty-row. `[INF]`
 
 ## Applies to
 
