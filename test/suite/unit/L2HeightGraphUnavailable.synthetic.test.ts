@@ -8,10 +8,20 @@ import { SmwRom, type MapEntrances } from '../../../src/rom/SmwRom'
 import type { RomFile } from '../../../src/rom/RomFile'
 import type { L1Inputs } from '../../../src/rom/model/L1Model'
 import { buildL2Inputs } from '../../../src/rom/model/L2Model'
-import { EXIT_GRAPH_UNAVAILABLE, GRAPH_UNAVAILABLE } from '../../../src/rom/model/L3Model'
-import { buildMapInputs, readMapEntrances } from '../../../theia/extension/src/node/map-screen'
+import {
+  buildL3Verdict,
+  EXIT_GRAPH_UNAVAILABLE,
+  GRAPH_UNAVAILABLE,
+} from '../../../src/rom/model/L3Model'
+import { parseLevelHeader } from '../../../src/rom/LevelParser'
+import {
+  buildMapInputs,
+  readMapEntrances,
+  screenResult,
+} from '../../../theia/extension/src/node/map-screen'
+import { hGrid, inputs } from '../support/mapInputs'
 import { VANILLA, freshRom, hasRom } from '../support/corpus'
-import { modeTablesRom, STANDARD } from '../support/l3Rom'
+import { modeTablesRom, STANDARD, withLayer3 } from '../support/l3Rom'
 import { plantUploaderTable } from '../support/l2UploaderRom'
 import { writeStockSkipChain } from '../support/skipChain'
 
@@ -106,6 +116,34 @@ describe('the Theia build (#1039)', () => {
   it('a graph that builds but never reaches the map gives no note', () => {
     expect(noteOf(build1(new Map()))).not.toContain(EXIT_GRAPH_UNAVAILABLE) // the synthetic cart's own code gate still speaks
   })
+})
+
+describe('the notes the user sees, through the real merge (#1039, #926)', () => {
+  const header = parseLevelHeader(Uint8Array.from([0, 1, 0, 0, 0]))
+  const sheets = () => [[]] as never
+  // Real L2 and L3 builders on one cart, the graph unavailable; the model goes through screenResult.
+  const layerNotes = (gateOn: boolean) => {
+    const raw = withLayer3(build(false), { level: MAP, tileset: 0, setting: 2, settingsByte: 0x02, word: 2 }) // prettier-ignore
+    const smw = { rom: raw, getVerticalTable: () => ({ ok: true, table: new Array(32).fill(0) }) }
+    const l1 = { ...inputs(hGrid(1), false, 1, 0), header }
+    const l2 = buildL2Inputs(smw as unknown as SmwRom, MAP, l1, GRAPH_UNAVAILABLE, gateOn ? undefined : () => null) // prettier-ignore
+    // `[]` spans leave the L3 side with no gate reason of its own; gate-on leaves both on the real gate, which words the same reason for each.
+    const l3 = buildL3Verdict(raw, MAP, l1, { ok: true, mode: 1 }, sheets, { ok: true }, undefined, GRAPH_UNAVAILABLE, gateOn ? undefined : []) // prettier-ignore
+    const w = screenResult({ ...l1, l2, l3 }, 0)
+    if (w.status !== 'ok') throw new Error(w.status)
+    return w.layerNotes
+  }
+
+  it.each([false, true])(
+    'gate on=%s: one line naming both layers, the sentence once, none apart',
+    gateOn => {
+      const notes = layerNotes(gateOn)
+      expect(notes).toHaveLength(1)
+      expect(notes[0]).toMatch(/^Background height and Layer 3 position unverified: /)
+      expect(notes[0]!.split(EXIT_GRAPH_UNAVAILABLE)).toHaveLength(2)
+      expect(/ \$[0-9A-F]{6} /.test(notes[0]!)).toBe(gateOn)
+    },
+  )
 })
 
 describe.skipIf(!hasRom(VANILLA))(

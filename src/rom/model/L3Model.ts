@@ -38,7 +38,7 @@ export const GRAPH_UNAVAILABLE = 'graph-unavailable'
  * would contradict. Reads after "Layer 3 position unverified: ".
  */
 export const EXIT_GRAPH_UNAVAILABLE =
-  'HackBench could not work out which entrance starts this map, so this layer is placed as if the map were entered from its main entrance.' // prettier-ignore
+  'HackBench could not work out which entrance starts this map, so the map is shown as if it were entered from its main entrance.' // prettier-ignore
 
 /**
  * A world-locked Layer 3 is anchored at the camera of a direct load; a map entered by a screen exit starts
