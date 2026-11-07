@@ -77,13 +77,14 @@ describe('a write past the bottom row of a horizontal map', () => {
   })
 })
 
-describe('a step left off column 0 lands on the row above (DEY has no screen test)', () => {
+describe('a step left off column 0 is before the buffer: marked, not drawn on the row above', () => {
   it.each([false, true])('vertical %s', vertical => {
     const grid = vertical ? vGrid(2) : hGrid(2)
+    const before = JSON.stringify(grid)
     const cur = at(grid, 3, -1, vertical)
     writeTile(cur, 0x41)
-    expect(grid[2]![15]).toBe(0x41)
-    expect(cur.refusals).toEqual([])
+    expect(JSON.stringify(grid)).toBe(before)
+    expect(cur.refusals).toHaveLength(1)
   })
 })
 
@@ -106,8 +107,10 @@ describe('a write outside the buffer marks its object, once, in plain words', ()
     ['past the 32-screen end', 0, 0x200, false],
     ['before the buffer start', 0, -1, false],
     ['above the first row of screen 0', -1, 0, false],
-    ['below the last vertical screen', 512, 0, true],
+    ['below the 28th vertical screen', 28 * 16, 0, true],
+    ['above a vertical map', -1, 0, true],
     ['left of a vertical map', 0, -1, true],
+    ['right of a vertical map', 0, 32, true],
   ]
   it.each(outside)('%s', (_why, row, col, vertical) => {
     const grid = vertical ? vGrid(2) : hGrid(2)
