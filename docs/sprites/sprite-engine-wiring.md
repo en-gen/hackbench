@@ -58,7 +58,7 @@ rather than constructing the appearance by hand.
 Engine sprites advance on the existing sprite timer, not a second one.
 `Sprite.tickAnimation` ticks the shipped appearance and the engine appearance
 in turn; `EngineSpriteAppearance.tickAnimation` adds `ROM_FRAMES_PER_TICK`
-(7.5 game frames per 125 ms editor tick) to its own free-running game-frame
+(8 game frames per editor tick, `SPRITE_ANIM_FRAME_STRIDE`; was 7.5 until the shared frame clock, commit `dde3b49f`) to its own free-running game-frame
 counter. The engine appearance never ticks its fallback, so nothing is
 double-advanced.
 

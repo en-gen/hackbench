@@ -28,7 +28,9 @@ frontend and backend pair:
 | map16     | Map16 tile editor         | Map16 server    | `/services/hackbench-map16`    |
 | emulator  | emulator view             | emulator server | `/services/hackbench-emulator` |
 
-They are separate because each owns a view, a protocol and a server that can
+Maps have no extension of their own: the project service serves them. A
+seventh entry holds the Electron-only OS locale hook. The extensions are
+separate because each owns a view, a protocol and a server that can
 be reasoned about on its own, not because Theia requires it.
 
 ## The three-way split
@@ -143,14 +145,8 @@ where an edit asks it to re-read.
 - `register` serves a project that was waiting for its ROM (the emulator's
   "Locate ROM...");
 - a `get` finds the ROM of a project that was waiting for it (it reappeared
-  without `register` or `relocate`), so a view stuck on "Locate" refreshes.
-  Evidence scope: `WorkingRomRegistry.get()` keeps the waiting marker until the
-  copy is built; synthetic ROMs on one machine, pinned by two tests in
-  `test/suite/unit/RomChangedEvent.test.ts` ("a waiting project served by a
-  later get() is announced once, and a later register adds nothing" and "a
-  waiting project whose layer is unreadable keeps waiting; the get that
-  finally builds it fires once"), each seen red against the code without the
-  behaviour;
+  without `register` or `relocate`), so a view stuck on "Locate" refreshes
+  (`test/suite/unit/RomChangedEvent.test.ts`);
 - a rebuild replaces an existing cache entry (a header flip, or layers
   rewritten under it).
 
@@ -176,372 +172,129 @@ known gap, not a decision.
 
 Five views, each with a focus command in the `HackBench` category.
 **Maps**, **Graphics**, **Palettes** and **Audio** dock in the left
-sidebar; the **Emulator** docks in the bottom panel beside Problems, so it
-can sit below whatever you are editing.
+sidebar; the **Emulator** docks in the bottom panel beside Problems. A
+**Properties** panel docks on the right. Placement is each contribution's
+`defaultWidgetOptions` in `theia/extension/src/browser/*-contribution.ts`;
+read it there. Project-level commands (`New Project...`, `Open Project...`,
+`Open Recent Project...`, `Project Properties...`, `Export Patch`) are on the
+same category and in the File menu.
 
-Each view's side and ordering is its contribution's
-`defaultWidgetOptions`, in `theia/extension/src/browser/*-contribution.ts`.
-Read it there rather than trusting this paragraph: the emulator moved from
-the main area to the right sidebar in #472, then to the bottom panel.
-Project-level commands (`New Project...`, `Open Project...`, `Open Recent
-Project...`, `Project Properties...`, `Export Patch`) live on the same
-category and are reachable from the File menu.
+Opening another project first closes every GFX, Map16 and map view of the old
+one (widgets implementing `ProjectBound`), through the shell so a view with
+unsaved strokes asks. The switch aborts if any is still attached afterwards
+(a cancelled prompt, or a failed Save), because Theia reports the close as
+done either way. A view still loading is disposed when `PreviewTabs` would
+attach it (#628). The palette explorer and the music, emulator and overworld
+views re-target on `ProjectContext.onChanged`; palette group views close.
 
-Opening another project first closes every GFX, Map16 and map view of the old one
-(the widgets that implement `ProjectBound`), through the shell so a view with
-unsaved strokes asks. The switch aborts if any such view is still attached
-afterwards (a cancelled prompt, or a Save that failed), because Theia reports
-the close as done either way. A view still loading during the switch is
-disposed when `PreviewTabs` would attach it (#628). The palette explorer and
-the music, emulator and overworld views re-target on `ProjectContext.onChanged`;
-palette group views close themselves there.
+Views follow the active Theia theme rather than pinning colors
+(`theia/browser-app/test/load-maps.spec.cjs` asserts it).
 
-The map tab shows each screen as one composite canvas. The backend sends the
-six plane canvases per screen plus two plane lists (main and sub, bottom to
-top) and the CGADSUB and fixed color; the widget runs `composeScreen`
-(`src/rom/model/ColorMath.ts`) over them on every layer toggle, so layer 3 and
-the SNES color math draw on every non-Mode-7 level mode (#562). The plane
-canvases stay in the DOM as the compositor's source, never seen. Rules and
-evidence: `docs/rom/level-rendering.md`.
+## The map tab
 
-Views follow the active Theia theme rather than pinning their own colors,
-which `theia/browser-app/test/load-maps.spec.cjs` asserts.
+The map tab draws each screen from `ProjectService` calls, all reading the
+working copy through `WorkingRomRegistry`. Rules and evidence for what it
+draws are in [level-rendering.md](../rom/level-rendering.md) and
+[obj-priority.md](../rom/obj-priority.md); behavior rulings are in
+[decisions/](../decisions/README.md). What follows is only the wiring.
 
-### The map tab's block content indicators (#566)
+| Call | Returns | Node side |
+| ---- | ------- | --------- |
+| `mapScreen` | six plane canvases per screen, main and sub plane lists, CGADSUB and fixed color; `refusedCells` for the whole map | `map-screen.ts` |
+| `mapBeyond` | L2 and L3 planes past the last screen (the gutter) | `map-screen.ts` |
+| `mapSprites` | every sprite as one RGBA bitmap in map pixels, with `status`, `unverified`, `priority` and a `note` | `map-sprites.ts` |
+| `mapSpriteFrames` | the other poses of one sprite, for Properties | `map-sprites.ts` |
+| `mapBlockContents` | item-block art and where each block shows which | `map-block-contents.ts` |
+| `mapCollisionCheck`, `mapCollision` | whether the probe can run; floor, ceiling, wall and unknown polylines | `map-collision.ts` |
 
-`ProjectService.mapBlockContents(manifestPath, index)` returns the distinct
-16 x 16 item arts of a map (`arts`, by key) and where each item block shows
-which (`indicators`: plane, map-pixel corner, art key), from the working copy,
-with a plain-words `note` for blocks it does not draw. The tables' refusal
-comes back as `unavailable` and the tab shows the reason.
-The composite canvas of each screen stays native-size and is never given indicators. A screen that
-holds one also has a display canvas (`data-layer="display"`) over it, which hides the composite and shows
-the same picture at the zoom (`IndicatorDisplay`, `browser/map-view-model.ts`): the native composite
-scaled up, with each indicator's block cell recomposed at the zoom, its planes scaled by nearest
-sampling, its plane's indicators painted into the plane's copy and the planes stacked and put through
-color math as ever. So hiding a graphics layer hides its indicators, and a nearer plane or a sprite covers an
-indicator exactly as it covers its block. A hidden plane is left out of the plane set, not empty. A hover
-change recomposes only the cells it touches (about 2 ms at 3x on a screen with three blocks, measured in
-node), and the display is built once per screen and zoom. Screens with no indicator show the composite
-itself. Hover is tracked on the scroller (`onPointerMove`, and re-found on scroll, zoom and new replies);
-the topmost visible plane's block under the pointer expands. The display publishes the boxes it painted
-in `data-indicators`.
+The widget runs `composeScreen` (`src/rom/model/ColorMath.ts`) on every layer
+toggle, so layer 3 and SNES color math draw on every non-Mode-7 level mode
+(#562). The plane canvases stay in the DOM as the compositor's source, never
+seen.
 
-### The map tab's sprite layer (#564)
-
-`ProjectService.mapSprites(manifestPath, index)` returns every
-sprite of a map as one RGBA bitmap in map pixels (`MapSpriteDto`: index, id,
-anchor, `box`, base64 `rgba`, `status` of `drawn` or `placeholder`, and the
-reason a marker is a marker: the interpreter's refusal (`refused: ...`), an
-empty run (`drew no OAM tile`), or `extraBits` / `charsNotLoaded`), plus the
-screen size and orientation. A sprite may carry `unverified`, the
-engine's own words for why HackBench cannot vouch that the picture matches the
-game; several causes can be joined by `; `, and new ones are added over time. For
-example: some of its pieces have no graphics in the map's loaded sprite set (they
-are left out and the count said; `charsNotLoaded` is the marker only when none
-has), the level loader refused this ROM (placement-only seed), the map's memory
-setting differs from the one checked, or an earlier sprite may hold its slot. The reply's `note`
-joins two caveats: the stream has no end marker in the bytes read (sprites past
-them are not drawn), and, once per map, a plain count ("Unverified: 2 sprites
-may not be drawn exactly as in the game."). Sprite notes join as a set, except spawned children
-that did not draw (`undrawn` on the sprite), which are summed per kind (#1281). The causes go in `noteDetail`, one
-per line, for the note's tooltip (the castle flames' detail joins it); the Sprites
-toggle's tooltip and the Properties line carry the same text, never the visible
-words (#1166).
-`node/map-sprites.ts` is the pure module behind it; `project-server.ts`
-reads the working copy through `WorkingRomRegistry`, as `mapScreen` does.
-It is a separate call from `mapScreen` because a sprite is not cut at screen
-edges: parts sit at the anchor plus the engine's `dx`/`dy`, negative and off
-the 16 px grid. The frontend cuts each bitmap per screen
-(`compositeSpriteScreen`, `browser/map-view-model.ts`) into one `sprites`
-canvas per screen, stacked just under L1's priority plane. The `S` toggle
-hides those canvases with `visibility: hidden`, as L1 and L2 do.
-Each drawn sprite also carries `priority`, one byte per pixel: the OAM
-priority (attribute bits 5:4) of the part that wins the pixel (#795). The
-composite does not use the canvas: `spritePlanes` splits each screen's
-sprites into `sprites0` to `sprites3`, which `screenPlanes` places at their
-mode 1 slots ([obj-priority.md](../rom/obj-priority.md) section 5).
-A sprite pixel a nearer tile covers draws in the hidden-tile screen door (D52):
-`spriteDoors` returns, per screen, a `Uint32Array` of `sprite id << 1 | parity`
-on the sprite's own pixel grid, passed to `composeScreen` as `doors`. The swap
-decision per id (`doorFlips`) is counted over the whole native screen; a
-caller that composes a crop or a scaled cell passes the native result as
-`flips`. `IndicatorDisplay` does this: it scales `doors` with each cell
-(nearest) and reuses the native flips, so a covered sprite pixel under an
-indicator cell keeps its door at any zoom. Main screen only.
-Hover (#879): the widget finds the sprite under the pointer with `doorIdAt`
-(the door id at the native pixel) and passes it as `lift` to `composeScreen`
-and `IndicatorDisplay`; that sprite's covered pixels draw opaque. The lift is
-part of the composite's cache key for the screens whose door map holds the id, so a lifted frame is never kept as the normal one and other screens do not repaint. The id is global to the map, so a sprite crossing a screen edge lifts on each screen it reaches; a sprite with no covered pixel on any composed screen never lifts.
-
-Sprite label (#981): `MapSpriteDto.name` is filled node-side from
-`getSpriteMetadata(id)?.displayName` (the sprite name table in
-`src/rom/model/sprites/SpriteMetadata.ts`); an id the table lacks has none and
-gets no hover, unless it is a marker (#1083). `spriteAt` (`map-view-model.ts`) returns the sprite that
-owns an opaque map pixel, using the same `stackOrder` as `spriteLayer`, so the
-named sprite is the one drawn on top. The widget asks Theia's `HoverService`
-for a hover whose text is `spriteName` (the name; for a marker also its id and the plain-words reason,
-the same reason sentence Properties shows after its `Not drawn: ` prefix, so a nameless marker has a hover too), placed against an
-invisible fixed box over the sprite, so it takes the editor hover theme
-colours; there is no native `title` and nothing in the status bar. Leaving
-the sprite, a sprite reload, the sprite toggle going off or closing the tab
-cancels it.
-
-### The map tab's collision overlay (#435)
-
-`ProjectService.mapCollision(manifestPath, index)` returns a map's collision as
-tagged polylines in map pixels (`MapCollisionResult`: `width`, `height`, and
-`lines` of `kind` `floor`, `ceiling`, `wall` or `unknown`; an unknown line is
-the cell's closed outline). The lines come from SMW's own block collision run
-on the 65816 core (`src/rom/collision/`), not from `TileFactory.classify`, so a
-patched block routine would show; vanilla block code only for now.
-`node/map-collision.ts` is the pure module behind it; `project-server.ts` reads
-the working copy through `WorkingRomRegistry` and passes a `cancelled` check
-(the working copy's bytes moved on), so a probe for old bytes stops between
-tiles. It is a separate call from `mapScreen`: a cold map takes about 3 s of
-CPU (the probe yields to the event loop after every tile), then a revisit is a
-cache hit. Probe results are cached per working-copy bytes by tileset, game
-state and tile id; the composed reply per bytes and map (eight kept).
-
-A map the probe cannot run answers `unavailable` with the reason (the ROM's
-level loader refused it, or the level is vertical): the toolbar's
-`collision-toggle` is then disabled with that reason as its tooltip, never an
-empty overlay. Nothing is probed until the toggle is pressed: on map open the
-view calls the cheap `mapCollisionCheck` (the level's shape and the ROM's own
-level loader, no tile probed), which decides the toggle's state; `mapCollision`
-runs on the press and on every working-copy push while the overlay is on. With
-it off, an edit only drops the stale lines and the next press refetches. Replies
-to an older request are dropped by `generation`, as for sprites.
-
-The overlay (`browser/collision-overlay.tsx`) is one SVG inside the strip, in
-map coordinates, so it follows `ZoomController` by scaling its box.
-`vector-effect: non-scaling-stroke` keeps every line 2 CSS px wide. Surfaces
-(`#ffeb3b`) and walls (`#d500f9`) are separate `<g data-group>` elements;
-unknown cells are hatched. The overlay follows the view's four palace toggles and the blue P-switch
-(`mapCollision` takes the same flags as `mapScreen`: the grid is built with them, since $06A-$06D
-become $16A-$16D on 48 levels, and the probe's WRAM gets $1F27-$1F2A and $14AD to match). The silver
-P-switch also changes tiles ($12F becomes coin $2B under it) but is not modelled, so the overlay does
-not follow it; ON/OFF swaps chars, not tiles, so it does not matter here. Mario is small. The state is
-in the composed reply's key. The per-tile probe cache, calibration and level-of-air runs key on the
-tileset and the blue P-switch only, not the palaces: on vanilla the block code reads the palace flags
-only in the big palace switch (bank_00.asm:12508), whose two branches give the same collision, so a
-palace toggle reuses every cached tile and probes only the ids new to the map ($015 yellow: 1 tile, about
-20 ms warm, against re-probing the whole map). The probe records any read of $1F27-$1F2A (even though it sets them), and an entry that read them is cached per
-palace state, so a hack whose blocks read the flags stays right after a toggle. Before probing, the ROM's call
-sites into the two collision routines are byte-checked (`entryProblem`, bank_00.asm:11723-11771): a hook that
-reroutes them refuses with a reason, in the toggle's check as well as the probe.
-
-An edit does not empty the probe cache. Each cached result (tile, calibration, level-of-air runs) keeps
-the ROM bytes its runs read and the seed-WRAM bytes it read before writing them, with the values seen.
-`mapCollision` gives new working-copy bytes the previous bytes' cache, owing the diffed byte ranges;
-the next probe of a tileset (`ProbeCache.validate`) drops only entries whose ROM reads meet those ranges
-or whose seed reads differ in the freshly loaded seed. The grid and compose always re-run on the new
-bytes, so moving tiles in level data re-probes only ids new to the map (about 40 ms on $105), and a
-byte only one tile's code reads drops the tiles sharing it (a few ms to a fraction of a second);
-a byte the level-of-air runs read drops everything. Seed level data is a dependency only if a run read it. Tile results are otherwise reused across levels
-of a tileset without a per-level check (until an edit, when seed reads are compared): that rests on the
-cross-level test and a sweep of 800 level pairs with no wrong result, not on a check per level. Evidence:
-vanilla, $105, a sequence of twelve moves and byte edits, each equal to a cold probe.
-
-The toggles live in `MapViewStateStore` (`browser/map-view-state-store.ts`, over the Theia-free
-`map-view-state.ts`), a per-tab flux-style store on Theia's `Emitter`: the buttons only `dispatch`
-(`togglePalace`, `toggleSwitch`), the store replaces its state and fires `onDidChange({ state,
-changed })` once per real change, and three consumers decide for themselves. The toolbar re-renders for
-`aria-pressed`; layer 1 refetches the screens in view; the collision overlay follows `collisionPlan`:
-a palace or blue P-switch change drops its lines and any reply still on the way, asks again if the
-overlay is on, and, if the toggle was disabled by a probe's refusal for the old state, runs the cheap
-check again (a refusal is tied to its state key; only the cheap check's refusals are the map's). Lines
-are kept with the key they were probed for and drawn only for the current one. On the server a newer
-state asked for the same map stops the older probe at its next tile. Layers, grid and the collision
-toggle are still widget fields.
-
-The probe's calibration and level-of-air runs come from the first level probed on a tileset, then
-serve every later level of that tileset (checked identical on $105/$1C6; $105 and $111 differ, so
-tileset is in every cache key). Command `hackbench.maps.toggleCollision` is enabled only while a map
-tab is focused and its toggle is usable (`canToggleCollision`, the button's own test), in
-`grid-toggle-contribution.ts`.
-
-### The map tab's refused-object overlay (#816)
-
-Layer 1 objects the expander refused draw nothing, so the tab marks where they are. `refusedCells`
-rides on every `mapScreen` reply (whole map, absent when none), built in `buildL1Inputs`
-(`src/rom/model/RefusedCells.ts`): one cell per object, since one object can be refused twice
-(handle_0DB49E), carrying all its reasons (below). The overlay
-(`browser/refused-overlay.tsx`) is one SVG in map coordinates, scaled by `ZoomController` like the
-collision overlay. Cells are red, dashed and marked "!", unlike the collision overlay's orange hatched
-unknown cells. Z-order is 150: above the screens, below the collision lines (200). It is hidden
-while the tab shows a screen error, so no marks sit on a blank strip.
-
-Only the anchor cell (the parser's x,y) is marked: a refused object's footprint is unknown, and a
-guessed rectangle would be [PROP]. The cell keeps the object's own x,y at any distance, inside the map
-or off it: it is never clamped (D76 call 2, D145) and never dropped (D52), and the canvas grows to hold it,
-see "The map strip's pad" below.
-
-Each cell lists EVERY distinct issue on its object (#1005): `RefusedCell.reasons`, gate reasons first,
-then unported, identical text counted once. The count is "places in the object's drawing code that
-HackBench checked and found changed" [PROP]: a handler stops at its first failed check, so a hack that
-changed three places may show one or two. The app does not run every check just to count them. A gate line
-leads with words and ends in hex (`Its drawing code was changed where HackBench expects a call (byte
-$0DB4B1 is $00).`); the address is what tells two gate lines on one object apart. The cell's handler is
-the first gate refusal's, else the first refusal's.
-
-With 2+ issues the cell gets a count badge: a solid red circle, no outline, with a white number ("9+" past 9) centered on it (text-anchor middle, central baseline, at the circle's own center). It lies wholly inside
-the tile's top-right 8 x 8 quadrant (r 3.5 centered 4 px in from the tile's right and top, 0.5 px from the
-quadrant's edges), in map pixels so it scales with zoom. The "!" moves left and down (x 5, y 10, 10 px) so
-the circle never sits on it. Geometry and tooltip text are pure functions in `browser/refused-badge.ts`;
-the quadrant containment is unit-swept over cells 0..99 x 0..59, counts 2, 9 and 10 (not yet seen in the
-running app by me; the owner passed the look in T26).
-
-Test hooks: `data-control="refused-overlay"` (absent when there are no cells), per cell
-`data-control="refused-cell"` with `data-x`, `data-y` (tiles), `data-object` and `data-count` (issues,
-always present), and `Object <n> (<type>)` plus one line per reason (bulleted with 2+) as the `<title>`
-tooltip; the `aria-label` is the same text, prefixed `<n> issues.` with 2+. The badge is
-`data-control="refused-badge"`, present only when the count is 2 or more.
+- **Sprites (#564, #795, #879, #981).** A sprite is not cut at screen edges
+  (parts sit at anchor plus `dx`/`dy`), so `mapSprites` is separate from
+  `mapScreen`; the frontend cuts it per screen (`compositeSpriteScreen`). Each
+  pixel keeps its OAM priority and composites at that priority's mode 1 slot
+  (`spritePlanes`, `screenPlanes`). A sprite pixel a nearer tile covers draws
+  through the hidden-tile screen door (D52, `spriteDoors`); hovering a sprite
+  lifts its door (`doorIdAt`) and shows its name (`spriteAt`, Theia's
+  `HoverService`). The `S` toggle hides the sprite canvases.
+- **Block content indicators (#566).** A screen that holds an item block gets
+  a display canvas (`IndicatorDisplay`, `map-view-model.ts`) that recomposes
+  the indicator's cell at the zoom; the native composite is never given
+  indicators. Hiding a layer hides its indicators.
+- **Collision overlay (#435).** `src/rom/collision/` runs SMW's own block code
+  on the 65816 core, so a patched block routine shows (vanilla block code
+  only for now). One SVG in map coordinates (`browser/collision-overlay.tsx`),
+  scaled by `ZoomController`. Nothing is probed until the toggle is pressed; a
+  cold map costs about 3 s of CPU, then probe results are cached by
+  working-copy bytes, tileset, game state and tile id. An edit keeps every
+  cached entry whose ROM and seed reads it did not touch
+  (`ProbeCache.validate`). A map the probe cannot run answers `unavailable`
+  with a reason, which becomes the disabled toggle's tooltip. The overlay
+  follows the palace and blue P-switch toggles; the silver P-switch is not
+  modelled. Method and evidence: `spikes/collision-probe/README.md`.
+- **Refused objects (#816, #1005).** Layer 1 objects the expander refuses draw
+  nothing; `refusedCells` (`src/rom/model/RefusedCells.ts`) marks each one's
+  anchor cell in a red dashed SVG (`browser/refused-overlay.tsx`) listing every
+  distinct reason, with a count badge for 2 or more. Test hooks:
+  `data-control="refused-overlay"`, `refused-cell`, `refused-badge`.
+- **Toggles.** `MapViewStateStore` (`map-view-state-store.ts`) holds the palace
+  and switch toggles per tab as a flux-style store: buttons `dispatch`, the
+  store fires `onDidChange` once per real change, and the toolbar, layer 1 and
+  the collision overlay each react. Layers, grid and the collision toggle are
+  still widget fields.
 
 ### The map strip's pad (#1004)
 
-Owner rulings: D76 call 2 ("draw it off the map where the game indicates it is drawn. the canvas can and
-should extend beyond the map bounds"), D145 ("no matter what. the user needs ways to extend the size of the
-map") and, since #1228 (R36 and R41, plan gate D172), "I don't want any gutter to the left of the map, only
-to the right for the purpose of leaving space to add more map to the right" with "I think "the gutter" should
-be 1 screen wide" (`decisions/2026-11-04-map-gutter-far-end-only.md`). That replaces the left half of D48 part 2 ("half a
-screen width of gutter on each end with ui to add a screen") and R24 (the back color fades in the gutter):
-the fade stays, over the far-end gutter only.
+Content the data places off the map (a refused-object cell, a sprite's placement
+cell: `stored`, else its anchor) must draw where the data names it, so `offMapPad` (`browser/off-map-extent.ts`)
+is the one place the canvas grows: per side, the content extent rounded up to
+whole 16 px tiles. Art past an edge from a placement on the map is cut and
+grows nothing (#1325); only a sprite whose box touches neither the map nor its
+placement cell also counts its `box` (D52). At the far end only (right of a horizontal map, bottom of a
+vertical one) a fixed 256 px gutter (`GUTTER_PX`) is added beyond it, except
+on a 32-screen map (`MAX_SCREENS`), which cannot grow. There is no gutter
+before position 0. Rulings: D76 call 2, D145 and
+[2026-11-04-map-gutter-far-end-only.md](../decisions/2026-11-04-map-gutter-far-end-only.md).
 
-`offMapPad` (`browser/off-map-extent.ts`, pure) is the one place the canvas grows. Per side, the pad is
-the content the data places off the map there (a refused-object mark's 16 px cell, a sprite's placement cell: `stored`, else its anchor; art past an edge is cut and grows nothing, #1325, except that a sprite with no art on the map at all also counts its `box`, D52),
-rounded up to whole 16 px tiles, so the grid runs on across it on the same lattice. At the FAR end only
-(right of a horizontal map, bottom of a vertical one) a fixed 256 px gutter (`GUTTER_PX`, one screen) is
-added BEYOND that content, even when nothing is off the map, unless the map has 32 screens (`MAX_SCREENS`:
-the header's count is 5 bits, so it cannot grow and `farGutter` is 0). Before position 0 there is no gutter,
-since growing that way would move (0,0); the near side and the short sides get the content alone, no gutter
-and no extra margin. The "add screen" control (#950, D69) will sit in the far-end gutter.
+Everything that turns a pointer or scroll offset into a map position
+subtracts the leading pad; `mapOrigin()` is the same value as a point. Over
+the pad the widget:
 
-The pad is derived from the layout (marks) and the sprites reply together and memoized by both, so it can
-change when the sprites arrive (`keepViewOnPadChange`, below). It is read from one getter, `pad`, by every
-consumer, and `mapOrigin()` (protected, map pixels: `{x: pad.left, y: pad.top}`; same name, signature and
-units as #977's neighbor-card hook) is the same value as a point.
+- fades the back color to transparent across the gutter (`fadeMask`);
+- draws off-map sprite pixels on one canvas (`data-layer="off-map-sprites"`);
+- continues layers 2 and 3 through the gutter from `mapBeyond`
+  (`data-layer="gutter-layers"`;
+  [2026-11-05-gutter-layers-through-band.md](../decisions/2026-11-05-gutter-layers-through-band.md));
+- marks the map edge (`data-control="map-edge"`) and runs the grid across it.
 
-With the pad the widget:
-
-- pads `.hb-map-view-strip` by the pad times the zoom, so the screens keep their place relative to the map;
-- paints the back area over the whole strip, masked along the scroll axis (`fadeMask`, "to right" on a
-  horizontal map, "to bottom" on a vertical one): the map's back color, solid from the near edge across the
-  map and any content band, and fading linearly to transparent over the 256 px far-end gutter only, which
-  starts beyond the content. No mask at all on a 32-screen map. A content band, on any side, is not a
-  gutter and stays solid [PROP];
-- draws the refused SVG in a user space whose origin is the MAP origin (`viewBox` starts at the negative
-  left/top pad), so marks off the map land where the data names them;
-- draws the sprite pixels that fall outside the map on one canvas (`data-layer="off-map-sprites"`, z 120).
-  The pixels inside the map stay with the screens, under the tiles' priority. The canvas spans the whole
-  padded strip rather than the pad bands (simpler) and is mounted only when `offMapSpritePixels` returns
-  pixels, so a map whose sprites all lie inside it has no such element. Like the refused overlay it is not
-  drawn while the tab shows a screen error;
-- continues Layers 2 and 3 through the far end (#1197; `decisions/2026-11-05-gutter-layers-through-band.md`,
-  [PROP]): one canvas (`data-layer="gutter-layers"`, z 110: over the back area, under the off-map sprites at
-  120, the refused overlay at 150, the edge line and the collision overlay), from the map's far edge to the
-  canvas's far end, so through any off-map content band and the gutter. Mounted only where `farGutter` is
-  above 0, so a 32-screen map has none. Its pixels come from the new `mapBeyond` RPC (screens
-  `screenCount ..`, bounded by `MAX_BEYOND_SCREENS`; L2 and L3 planes only, through the same model cache as
-  `mapScreen`, whose range check is unchanged) and are fetched once the map's last screen is in view, under
-  `fetchScreen`'s cache key and generation rules. They are composed with `composeScreen` from the shown planes
-  only (`layerShown`, so toggles 2 and 3 apply; no Layer 1, sprites or flames), pixels no layer covered
-  cleared (`clearUncovered`, so the back area is not faded twice) and faded by `fadeFarEnd`: opaque across a
-  content band, then linear to clear over the last `farGutter` px, derived from the same number as `fadeMask`.
-  Layer 2: an image is one fixed 512 px plane (`L2Inputs.plane`), so it has content at any position; an object
-  stream has only the tiles it wrote past the last screen (`L2Inputs.beyond`, from `loadL2Objects`' extra
-  room), usually none, never a repeat of the last screen. Layer 3 repeats by x as on a screen (one copy when
-  it follows the camera); a vertical map has none (L3Model). The map's own grid is untouched: a `mapScreen`
-  JSON differential over 488 vanilla maps (adversarial review; one machine, one run) found 0 that differ, before and after;
-  hack ROMs are refused by the build and were not compared, so there is no hack evidence. One difference in
-  `loadL2Objects` itself: with extra room the spill of an object past the last screen moves to `beyond`, where
-  a plain call grows the row (`writeTile` pads to column $200); `map-block-contents.ts:189` iterates
-  `l2.grid` rows, so a spilled L2 block would no longer appear there (0 vanilla maps do this). The reference
-  extension has no edge continuation: `src/providers/MapEditorProvider.ts:374-387` tiles an image by modulo
-  over `screens * 16` columns, stops at the map and passes object grids through. A read that fails shows the
-  map note `data-note="gutter-layers"` (technical text in the tooltip) and is not asked again until the next
-  refresh. The gutter always composes: per screen past the end it draws the current key's reply, else that screen's last good planes (`gutterLast`, cleared by `open`, not by `refresh`), so after an edit the old planes stay up until the new replies land and a layer toggle in between hides only its own layer; a failed current key draws clear;
-- confines the checkerboard (`.hb-checkerboard`, "nothing here") to the strip without the far-end gutter: it
-  reaches the near canvas edge and stops at the gutter, so where the back color fades out the panel shows
-  behind it, not the checkerboard [PROP];
-- marks the map's edge with a 1 px outline (`data-control="map-edge"`) [PROP]; on a side with no pad (the near
-  side of most maps since #1228) that line falls on the canvas edge and is not visible there; and runs the grid
-  (`MapGridOverlay`, `map-grid.ts` `pad`) on across the pad.
-
-Everything that turns a pointer or scroll offset into a map position subtracts the leading pad: hover
-(`updateHover`), click selection and the hover anchor of a sprite (#981, #984; the anchor adds the pad back),
-`liftAt` (positions off the map never lift: no tile covers a sprite there), `visibleScreens`
-(`screensInView`) and `placeStart` (`centerScroll`), both unit-tested on the arithmetic. A scroll window wholly
-in a pad touches no screen, and no screen outside the map is ever requested (a request for one would set a
-screen error that sticks). Fit's cross axis
-includes the short-side pads (`measureFit`). A newly opened map still scrolls to the player's start
-(`placeStart` centers it, lead included). The lead is content only (zero for most maps), and every
-consumer reads the pad as one origin, so #1228 changed none of them.
-
-When a sprites reply grows the pad, `keepViewOnPadChange` refits and restores the view: the map pixel under
-the view center is recorded before the change and the scroll set absolutely after the refit commits (an
-axis at scroll 0 is left alone), skipped when the map was reopened or the user zoomed in between;
-`.hb-map-view-scroller` sets `overflow-anchor: none` so the browser does not shift it as well. Evidence:
-the Playwright case in `map-off-map-canvas.spec.cjs` (Fit, same map pixel under the center within 1 px, one
-machine, Chromium via the Theia browser app); not a proof for every zoom or reply order.
-
-What vanilla does (a sweep of the 488 maps that build, one machine, vanilla ROM, with `offMapPad` at this
-commit over every sprite `box` and refused cell; vanilla refuses no object): 14 maps have content off the
-map, the other 474 (including $105 and $109) are padded by the gutters alone. Content pad beyond the
-gutter, in px:
-
-| map                                                | content (sprite ids)                      | left | right | bottom |
-| -------------------------------------------------- | ----------------------------------------- | ---- | ----- | ------ |
-| $C4 $EB $F0 $FB $1DA $1E6 $1E7 $1F9 (ghost houses) | $8D door, box starts 8 px left of the map | 16   | 0     | 0      |
-| $DD                                                | $63, 8 px left                            | 16   | 0     | 0      |
-| $F8                                                | $E2                                       | 0    | 32    | 16     |
-| $0E, $110                                          | $9E                                       | 0    | 0     | 16     |
-| $1B                                                | $AD                                       | 0    | 0     | 16     |
-| $102                                               | $5D, $A4 (24 px below)                    | 0    | 0     | 32     |
-
-The table is from the two-sided 128 px gutter commit. Since #1228 the left pad is the left column alone, and
-the right pad is the right column plus 256 (the sweep's maps are 1 to 7 screens); a bottom pad has no gutter
-on a horizontal map.
-
-Sharing the space with #977: its neighbor cards sit in bands that are siblings of the scroller and are
-positioned from `mapOrigin()`, while the gutter is inside the strip, so the two never overlap. The "add
-screen" control (#950) goes in the far-end gutter.
-
-The reference VS Code extension has no off-map canvas: its map editor pans with padding that is clamped
-to the map (`src/webview/mapEditor/main.ts:301`), so there is nothing to port.
+When a sprites reply grows the pad, `keepViewOnPadChange` refits and restores
+the view. Evidence: `map-off-map-canvas.spec.cjs` (Fit, same map pixel under
+the center within 1 px, one machine, Chromium via the Theia browser app). The
+reference extension has no off-map canvas, so there is nothing to port.
 
 ## Properties view (#984)
 
-One right-hand side panel, `hackbench.properties`, reopened from View > Properties. It shows a SUBJECT held by
-`PropertiesModel` (`properties-model.ts`): `none` or `sprite` today. A map tab publishes as its own owner and
-only the owner's clear takes effect, so closing a background map never wipes the front map's sprite. Clicking a sprite publishes it and reveals the panel without
-activating it; empty ground, hiding or closing the map clears it to "No sprite selected".
+One right-hand panel, `hackbench.properties` (View > Properties), showing a
+subject held by `PropertiesModel` (`properties-model.ts`): `none` or `sprite`
+today. A map tab publishes as its own owner and only the owner's clear takes
+effect, so closing a background map never wipes the front map's sprite.
 
-It is a small `ReactWidget`, not `@theia/property-view`: that package is not a dependency and adding it churns
-the lockfile for a selection-service round trip that would lose the owner rule. Everything it shows comes from
-the `MapSpriteDto` the map view draws from (`parts` is filled by `drawSprites` from the same list that blits the
-bitmap), via the pure `sprite-props.ts`; nothing re-reads the ROM and nothing writes.
+It is a small `ReactWidget`, not `@theia/property-view`, which would lose the
+owner rule. It reads only the `MapSpriteDto` the map view draws from, via the
+pure `sprite-props.ts`; nothing re-reads the ROM and nothing writes.
 
-Animation: `mapSprites` still ships one pose per sprite (the interpreter's `chosen` pass). The panel asks for the
-rest on demand through `mapSpriteFrames(manifestPath, mapIndex, spriteIndex)`: the node side runs that one sprite
-again with the map view's seed and camera, and blits every pass that draws through `drawSprites` (no second draw
-path). `Machine.passes` are consecutive game frames. The loop starts at the pass the map shows (`chosen`, so frame
-0 is the map's bitmap) and goes on to later passes, kept in pass order and capped at 16. The sprite's own movement
-is subtracted (from `pos`, or from `origin` for a $67 on a vanilla-shaped handler, whose parts are measured from the
-pass before), then poses are deduped by each part's char, flips and offset from the other parts, so parts that
-move against each other are a new pose and whole-sprite drift is not. One pose says "Not animated"; no frames at
-all, or a chosen pass that is not drawn with under two poses drawn after it (the reason is kept; two or more later poses still play), says "Animation not shown" plus a plain reason (the node and player keep reason codes, `framesReasonText`
-puts them in words). Sprites with screen-fixed parts (`fixOffsets`) are not animated, because that fix is only
-derived for the chosen pass. `FramePlayer` (`sprite-frames.ts`) requests on selection, drops replies and errors
-for an older selection, steps every 133 ms (8 game frames) and stops its timer on clear, hide and dispose. The
-widget follows the model through `followSubject` (`properties-follow.ts`), which applies the current subject
-first: a click publishes BEFORE the reveal command creates the widget. Evidence scope: vanilla ROM, one machine; a Koopa ($04)
-yields at least 2 frames across maps $0C7 and $105, a $9F at most 1 (`SpriteFrames.test.ts`). Known follow-ups: no keyboard
-selection of a sprite yet, and `parts` now rides on every drawn sprite in the `mapSprites` reply.
-
-Adding the map description (#1023): add a `map` variant to `PropertiesSubject`, publish it from the map widget
-where it now publishes `none`, and call `registerSubjectRenderer('map', ...)` in `properties-widget.tsx` (the
-renderer registry; `render()` does not change); the sprite breadcrumb in `SpriteSubject` is where "Back" goes.
+Animation is on demand: `mapSpriteFrames(manifestPath, mapIndex, spriteIndex)`
+reruns that one sprite with the map's seed and camera and blits later passes
+through `drawSprites` (no second draw path), capped at 16 poses and deduped by
+each part's char, flips and offset. `FramePlayer` (`sprite-frames.ts`) steps
+every 133 ms. One pose says "Not animated"; none says "Animation not shown"
+plus a reason. Evidence: vanilla ROM, one machine (`SpriteFrames.test.ts`).
+To add the map description (#1023): add a `map` variant to
+`PropertiesSubject`, publish it from the map widget, and call
+`registerSubjectRenderer('map', ...)` in `properties-widget.tsx`.
 
 ## The emulator view
 

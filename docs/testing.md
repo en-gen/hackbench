@@ -16,148 +16,66 @@ This affects how the test suite is organized:
 - **Small vanilla tables are not committed either.** A test that needs vanilla
   behaviour asserts the decoded result in a corpus-gated test (`describe.skipIf`)
   and uses made-up tables everywhere else.
-- **Tests that need real ROM data are developer-local only.** They are
-  either skipped automatically when no ROM is present, or depend on fixtures
-  that live under `test/fixtures/` (gitignored).
-- **Everything under `test/fixtures/` is gitignored** by default. If you
-  regenerate fixtures locally, they stay on your machine. See
-  [.gitignore](../.gitignore) for the specific rule.
+- **Tests that need real ROM data are developer-local only.** They skip
+  automatically when no ROM is present, or read fixtures under
+  `test/fixtures/`, which is gitignored (see [.gitignore](../.gitignore)).
 
 Do not submit PRs that add ROM data, decompressed game resources, or
 fixtures derived from the ROM. These will be rejected.
 
 ## The content gate
 
-`tools/scripts/check-content.mjs` (issue #678) blocks: ROM/save/patch and
-native/wasm extensions, `.asm`-family disassembly, and any binary file (a
-NUL byte, or content that isn't valid UTF-8, anywhere in the blob) except
-a `build/icons/**` PNG/ICO/ICNS whose magic bytes match its extension and
-is 512 KB or smaller; plus, on text content, base64 blobs, `data:...;
-base64,` payloads, oversized hex/byte-token counts (xxd dumps, `db`/`dw`/
-`.byte` directives, `\x` escapes), and disassembly-shaped listings. Text
-over 8 MB is blocked outright as `oversize`, never sniffed. Commit
-messages and annotated tag bodies get the same text-content rules. An
-in-file `content-gate: allow <rule> -- <reason>` pragma, only at the
-start of a comment line, exempts one file from one content rule.
+`tools/scripts/check-content.mjs` (issue #678) keeps ROM-derived bytes out of
+the repo. `.gitignore` alone is defeated by `git add -f`. Rules, by what they
+read:
 
-`rom-provenance` (#812): a comment that says nearby data was copied from the
-game (`vanilla $<address>` or `0x<address>`, `copied|taken|lifted|dumped
-from`, `from the ROM at $<address>`, `ROM bytes`, `real ROM
-bytes|data|values`), either leading and followed within 3 lines by a CODE
-line, or trailing on the literal's own line, blocks when that code holds a
-numeric array literal opening of 2+ elements (decimal, `0x`, `$`, mixed). A
-literal inside a comment is a citation and never counts. Comments are `//`
-(trailing too, spaced or not), `/* */` (open blocks carry across lines),
-and a leading `#` or `*`; delimiters inside quoted strings are skipped. In
-`.md` files a leading `#` or `*` is a heading or bullet, not a comment;
-`<!-- -->` is one, and `/*` opens a block only at line start. A 4-byte copy
-cannot be told from invented values by content, so the claim is the signal;
-say "invented values" instead, or add the pragma. A decimal array with `0x`
-elements mixed in counts toward `byte-tokens` too.
-
-`rom-window` (#1053): a text file a commit ADDS (not `.md`) with a run of byte
-notation (`0x` and `$` tokens, bare hex pairs, `\x` escapes, unbroken hex strings;
-the parser of the ROM-window probe below) that contains an 8-byte window of the
-vanilla ROM. It prints `BLOCKED (rom-window): <path> line N, M windows`, never the
-bytes, and exits 1 like every other rule. The text is read
-whole (bytes inside a comment count, and comment markers are not separators) and,
-for JS/TS and asm files only, again with comments blanked (so a `// step N` on every
-line does not split a run). Rows from both views are kept and the CLI prints one line per
-file and rule, so fixing one run can reveal the next. The probe blanks comments only.
-
-- **Filters.** Windows with fewer than 3 distinct values, a constant step (a ramp)
-  or a repeat of period 2 to 4 are ignored, because the vanilla ROM is full of them (measured below).
-  Cost, vanilla US, one machine, 2026-11-05: of 524,281 window positions, 43,597
-  (2,982 distinct windows) fall to the distinct-values filter and 5,770 more (1,036
-  distinct) to the ramp and loop filter, so a copied table that is itself a pure
-  ramp or short loop is not seen.
-- **Local only.** The windows come from the real vanilla ROM (found by
-  `corpus.cjs`, so `HACKBENCH_ROMS` applies): a regular file of 512 KiB after any
-  copier header with a valid LoROM checksum and complement. Any other file at that
-  path, or none, makes the rule not run. No hash set of ROM windows is committed
-  (D155), so CI has no ROM and keeps its other checks. A hack with a valid checksum
-  under the vanilla name is not detected. With no ROM, every mode except `history`
-  prints `rom-window rule DID NOT RUN` on stderr; a file that is not usable prints
-  its reason when a file qualifies to be judged (a bad ROM with only edits in the
-  range prints nothing, as there is nothing to judge); `history` prints its own
-  notice, since it never judges the rule (old files hold runs).
-- **What counts as added.** The per-commit walk decides: a file is added by a
-  non-merge commit that has it as A, or by a merge that has it as A against every
-  parent (a file merged in from develop is not). Each such blob is judged, so a run
-  committed and later removed or rewritten is caught in `range` and `push`. A rename
-  counts as added (`--no-renames`). `push` walks what is not on the remote, the tips
-  `ls-remote` names that this clone has, plus the tracking ref of a branch the remote
-  advertises at a tip this clone lacks (the remote moved on, or was rewritten: an
-  unknown tip cannot tell them apart, and the exclusion covers every rule in push). A tracking ref of a branch the
-  remote no longer advertises is not trusted, and an empty remote judges everything.
-  Known false blocks, loud (`--no-verify` is the way past), when the remote moved on
-  past this clone: a push by URL, an absent tracking ref; a lagging second remote also blocks when nothing moved, as those commits are not on it. `staged` uses the cached status and does
-  not apply the merge rule.
-- **Known gaps.** A file added clean and filled in a later commit, and any edit to
-  an existing file, is never judged (a stub-then-fill route; a run added by a merge
-  resolution to a file a parent has, or by a type change, are variants). A force-push
-  of a branch to a tip this clone lacks leaves its old tracking ref trusted, so a run
-  on that old ref passes until a fetch (pinned by a test). Not seen: a commented-out
-  table with under 8 bytes on each marked comment line (an unmarked block comment is read whole), and a comment on every line in files other than JS/TS
-  and asm (`.lua`, `.py`, `.yml`, `.c`, `.html`, `.css`, `.vue`, `.jsonc`).
-  `package-lock.json` and `yarn.lock` are exempt at any path. `.md` is excluded
-  because prose lists addresses, so a run there passes: 8 of 314 tracked `.md` files
-  hold one (43 windows, 70bf5b3f, 2026-11-05). A masked array (`null`, `undefined` or `??`
-  between the bytes) is not seen, because the `null` ends the run; that is #1280. A
-  digits-only two-character token next to a comma reads as decimal, so a list such
-  as `10, 32` is not read as hex. The only override is `git push --no-verify` with a
-  stated reason; CI has no bypass.
-- **Evidence** (2026-11-05, one machine, vanilla US, 16 remote heads). On develop
-  75 of 1,307 non-`.md` text files hold a run in the whole view (1,092 windows), 71
-  (1,166 windows) with comments blanked, 78 in either (develop 70bf5b3f). By longest run, 32 of the 75 hold
-  at most 2 windows, 45 at most 4, 57 at most 8, 18 more than 8, 7 more than 16 (the
-  longest is 36). Only 1 of the 1,092 windows is a single-bit mask table: ordinary
-  tables of that kind are the known legitimate sort. Nothing can prove a short
-  match legitimate; the rest go to #1253. Beyond develop, 13 other heads add no file
-  by path; `feature/music-import-prototype` adds 9 files with a run (windows per
-  file: 1, 1, 1, 1, 1, 1, 3, 26, 3) and `feature/sprite-interpreter-spike` 6 (1 each).
-- **Builders.** The ratchet that pins how many vanilla windows each synthetic
-  ROM builder carries (D157) follows in a later PR; builder counts are not pinned
-  until then.
-
-`test/suite/gates/contentGateRomWindows.test.ts` proves the rule red on planted
-runs in each notation (fake PRNG ROM in CI, real ROM locally), and the rest in
-throwaway repos.
+- **Paths.** ROM, save and patch extensions, native and wasm extensions,
+  `.asm`-family disassembly, Mesen traces, fixtures, and any binary file
+  (a NUL byte or invalid UTF-8) except a `build/icons/**` PNG, ICO or ICNS of
+  512 KB or less whose magic bytes match its extension.
+- **Text content.** Base64 blobs and `data:` payloads, oversized hex or
+  byte-token counts (`byte-tokens`: xxd dumps, `db`/`dw`/`.byte`, `\x`
+  escapes), and disassembly-shaped listings. Text over 8 MB is blocked as
+  `oversize`, never sniffed. Commit messages and annotated tag bodies get the
+  same text rules.
+- **`rom-provenance` (#812).** A comment claiming nearby data was copied from
+  the game (`vanilla $<address>`, `copied|taken|lifted|dumped from`, `ROM
+  bytes`, ...) over a numeric array literal of 2+ elements. A claim is the
+  signal because 4 copied bytes cannot be told from invented ones; write
+  "invented values" instead, or add a pragma.
+- **`rom-window` (#1053).** A non-`.md` text file a commit adds holding a run
+  of byte notation that contains an 8-byte window of the vanilla ROM. Local
+  only: the windows come from the real vanilla ROM found by `corpus.cjs`; CI
+  has no ROM, no hash set is committed (D155), and with no ROM every mode
+  except `history` prints `rom-window rule DID NOT RUN`. Windows with fewer
+  than 3 distinct values, a constant step or a short repeat are ignored.
+  Known gaps (a file added clean then filled in later, edits to existing
+  files, `.md`, masked arrays) are tracked in #1253 and #1280.
+  The probe that shares its parser is
+  [ROM-window probe](#rom-window-probe). Proof it can fail:
+  `test/suite/gates/contentGateRomWindows.test.ts`.
+- **Pragma.** `content-gate: allow <rule> -- <reason>` at the start of a
+  comment line exempts one file from one content rule.
 
 Modes: `staged` (no hook runs it since #1183), `range BASE HEAD` (CI),
-`push REMOTE`
-(`.githooks/pre-push`, reading stdin ref-updates and querying the remote
-live via `git ls-remote`, trusting a local tracking ref only for a branch the
-remote advertises at a tip this clone lacks), and `history [REF]` (the repo-migration oracle, run
-in CI only once public: every blob reachable from `REF`, default `HEAD`,
-plus tags, never other branches, so an unmerged branch cannot fail an
-unrelated ref (unless tagged) (D59 A); a ref
-that does not resolve exits 2; it also refuses a shallow clone, a grafts file,
-and a tag pointing at a blob or tree outside any commit's tree). Trade-off of
-D59 A: a branch pushed with no PR, or a PR whose base is not develop, main or
-feature/\*\*, gets no server-side scan until it is merged or PR'd; the
-pre-push hook is the only check there.
+`push REMOTE` (`.githooks/pre-push`), and `history [REF]` (every blob reachable
+from `REF`, default `HEAD`, plus tags; run in CI on the public repo; it refuses
+a shallow clone or a grafts file). A branch pushed with no PR gets no
+server-side scan; the pre-push hook is the only check there (D59 A).
 
-Read budget (#461): before any content is buffered, object sizes are
-checked with `git cat-file --batch-check`. A blob over 32 MiB, or (in
-`staged`, `range` and a per-ref `push`) a set whose total exceeds 128 MiB,
-exits 2 naming the path; path-rule hits (such as a staged `.smc`) are still
-printed alongside the refusal. `history`, and a `push` to an empty remote,
-skip the total refusal and read in chunks of at most 128 MiB instead, so
-memory stays bounded as history grows. A size exactly at a limit passes.
-The largest tracked file today is 340 KB. The limits can be overridden with
-`CONTENT_GATE_MAX_BLOB_BYTES` and `CONTENT_GATE_MAX_TOTAL_BYTES`; these exist
-so tests need not write megabytes, not for normal use.
+Before any content is buffered, object sizes are checked with `git cat-file
+--batch-check`: a blob over 32 MiB, or in `staged`, `range` and per-ref `push`
+a set over 128 MiB, exits 2 naming the path (`CONTENT_GATE_MAX_BLOB_BYTES` and
+`CONTENT_GATE_MAX_TOTAL_BYTES` override this for tests). `history` and a push
+to an empty remote read in chunks instead.
 
-A commit MESSAGE already on protected `develop` cannot be amended, so a false
-positive there would red `history` mode forever. Such a message goes in
-`tools/scripts/content-gate-reviewed.txt` as `<sha> <rule> -- <reason>`,
-after a person checks it. It exempts that message for that rule only; file
-content is never exempt, and a malformed line or unknown rule exits 2.
+A commit message already on protected `develop` cannot be amended, so a false
+positive there would red `history` forever. A person who has checked it adds
+`<sha> <rule> -- <reason>` to `tools/scripts/content-gate-reviewed.txt`. That
+exempts the message for that rule only; file content is never exempt.
 
-`npm install` sets `core.hooksPath` to `.githooks` automatically
-(`tools/scripts/set-hooks-path.cjs`). The only local bypass is
-`git push --no-verify`, which skips the pre-push hook only; CI has no bypass.
+`npm install` points `core.hooksPath` at `.githooks`. The only local bypass is
+`git push --no-verify` (pre-push only); CI has no bypass, so say why in the PR.
 
 ### The 8-byte window rule (synthetic carts)
 
@@ -437,9 +355,6 @@ file's suite, confirm the expected number of failures, revert. Anchor on a
 single line - these files use CRLF, so a multi-line search string will not
 match and the "mutation" silently becomes a no-op that looks like a pass.
 
-Three of the entries below were added only after a first pass showed the
-test could not fail. That is the point of doing it.
-
 ### `src/rom/L2UploaderTable.ts` - L2 uploader by level mode
 
 Run against `L2UploaderTable.test.ts` and `MapScreenL2.test.ts`; one
@@ -564,35 +479,24 @@ the run:
 | Make the clamp return the slot CAPACITY, so a short sheet over-offers     | 2         |
 | Take the edit axis from the picker rather than the sheet on screen        | 2         |
 
-`*` This one is the exception to the corpus-absent rule: both cases that
-catch it are `describe.skipIf(!romPresent)`, so with no cartridge the
-mutation runs GREEN. That is stated rather than hidden. The claim is that
-the atlas and the character palettes composite from the same VRAM, which is
-a fact about a CALL SITE in `decodeMap16Sheet` rather than about any one
-function, so no synthetic fixture reaches it; the alternative was a
-source-text tripwire, which fails on a rename and passes on a respelling.
-It is proven wherever a cartridge exists, and the figure it asserts (75 of
-80 animated characters differing on vanilla tileset 0) is a tripwire on the
-fixture itself.
+`*` The exception to the corpus-absent rule: both cases that catch it are
+`describe.skipIf(!romPresent)`, so with no cartridge the mutation runs
+GREEN. The claim is a fact about a call site in `decodeMap16Sheet` (atlas and
+character palettes composite from the same VRAM), which no synthetic fixture
+reaches; a source-text tripwire would fail on a rename and pass on a
+respelling. The figure it asserts (75 of 80 animated characters differing on
+vanilla tileset 0) is a tripwire on the fixture itself.
 
-A fourteenth is planted by the Playwright suite itself rather than by hand.
-`map16-view.spec.cjs`'s hover-reflow oracle adds a hover rule that changes
-`padding` instead of painting, confirms the same comparison catches it, and
-removes the rule again. It is inline because the first version of that
-oracle measured viewport coordinates and so fired on a SCROLL while saying
-nothing about a reflow: an oracle that can only be trusted after someone
-remembers to plant a defect by hand is one that goes untrusted.
+A fourteenth is planted by the Playwright suite itself: `map16-view.spec.cjs`'s
+hover-reflow oracle adds a hover rule that changes `padding`, confirms the
+comparison catches it, and removes the rule. It is inline because the first
+version measured viewport coordinates and fired on a SCROLL, not a reflow.
 
-Two of these exist because the first pass showed no test could fail. The
-palette/VRAM one, because nothing compared a palette cell against the
-quadrant citing it. And the edit-axis one, which began as a source-text
-tripwire on the reasoning that `Map16ViewWidget` extends `ReactWidget` and
-cannot be constructed in node: true, and beside the point, because the
-DECISION is a pure function of the sheet and the picker. Extracting it as
-`editAxisFor` turned an untestable coupling into five ordinary cases, the
-same move `previewId` and `gateQuadrantWrite` made. A grep over source text
-passes when the bug returns under a different spelling and fails on an
-innocent rename, which is the wrong failure mode twice over.
+Two rows exist because a first pass showed no test could fail: the
+palette/VRAM one (nothing compared a palette cell against the quadrant citing
+it) and the edit-axis one. `Map16ViewWidget` extends `ReactWidget` and cannot
+be constructed in node, so the decision was extracted as the pure
+`editAxisFor`, the same move `previewId` and `gateQuadrantWrite` made.
 
 ### `eslint.config.mjs` - cloudevents is imported for types only
 
@@ -730,46 +634,37 @@ directly.
 ## Sweeping the hack store
 
 `tools/scripts/hack-sweep.ts` runs the readers behind each view (map tree,
-map details for every real map (the level mode, plus the object parser, name lookup and graphics notes behind the future Properties panel, and the sprite parser on maps with readable level data and a readable sprite pointer), overworld, graphics, Map16, palettes, music,
-SFX) over every patched ROM in the hack store, and records `ok`, `unavailable`
-with every failing gate it can see, or `crash` with the error and its top
-frame. The summary ranks each gate by how many hacks it alone blocks. It also
-applies each patch to vanilla (`applyBps`, or `decodeIps` for IPS) and compares
-the SHA-256 with the store's index.
+map details, overworld, graphics, Map16, palettes, music, SFX) over every
+patched ROM in the hack store and records `ok`, `unavailable` (with every
+failing gate it can see) or `crash` (error and top frame). The summary ranks
+each gate by how many hacks it alone blocks, and checks each patch's SHA-256
+against the store's index after applying it to vanilla.
 
 ```bash
 npx tsx tools/scripts/hack-sweep.ts
 ```
 
-`HACKBENCH_HACKS` names the store (default `C:/Projects/hackbench-tools/hacks`),
-which the sweep only reads. `HACKBENCH_SWEEP_OUT` names the output directory
-(default `C:/Projects/hackbench-tools/sweep`), which gets `results.json` and
-`summary.md`. Both hold hashes, ids, names, verdicts and counts. A reason may
-quote one instruction's bytes; any longer run is elided. Neither file is
-committed. The sweep is hand-run, since CI has no store; its verdict and
-summary code is tested in `HackSweep.synthetic.test.ts`.
+`HACKBENCH_HACKS` names the store (default `C:/Projects/hackbench-tools/hacks`,
+read only). `HACKBENCH_SWEEP_OUT` names the output directory (default
+`C:/Projects/hackbench-tools/sweep`), which gets `results.json`, `summary.md`
+and `tracking-issue.md`. They hold hashes, ids, names, verdicts and counts; a
+reason may quote one instruction's bytes, never a longer run. None is
+committed, and CI has no store, so the sweep is hand-run.
 
-Each run covers `HACKBENCH_SWEEP_BATCH` hacks (default 50, a positive integer),
-taken in id order from the cursor and wrapping at the end, so repeated runs
-rotate through the store. The cursor is the next smwc_id, not a position, so
-adding or removing a hack does not skip or repeat another. `results.json` holds
-`{ cursor, records }`; it is read and checked before any sweeping (a truncated
-file stops the run with a message and nothing is overwritten), the previous one
-is copied to `results.prev.json`, and every file is written through a temp file
-and a rename, `results.json` last, so a killed run leaves the old state and the
-next run repeats the batch. `tracking-issue.md` is written beside the summary:
-new and cleared crashes, verdict changes, works-on % and blocker-rank moves for
-hacks swept this run, the hacks added, and the hacks removed from the store.
-Records for hacks outside the batch that are still in the store are carried
-forward with `carried: true`, so `summary.md` covers the whole store and says
-how many records are fresh; a carried record is never reported as changed, and
-a record for a hack no longer in the store is dropped. A bare-array
-`results.json` from before the cursor is read as a cursor of 0 and converted
-on the next write. Evidence scope for all of the above: 51 synthetic-fixture
-cases in `HackSweep.synthetic.test.ts` and `HackSweepRun.synthetic.test.ts`
-(in-memory and temp-directory stores, none skipped), including a planted
-mid-run death and a failing earlier write; not yet observed on a run against
-the real hack store.
+Each run covers `HACKBENCH_SWEEP_BATCH` hacks (default 50) in id order from a
+cursor (the next smwc_id, so adding or removing a hack skips or repeats
+nothing), wrapping at the end. Records for hacks outside the batch are carried
+forward with `carried: true` and never reported as changed. `results.json` is
+checked before sweeping (a truncated file stops the run, nothing overwritten),
+the previous one is copied to `results.prev.json`, and every file is written
+through a temp file and a rename, `results.json` last, so a killed run leaves
+the old state. `tracking-issue.md` lists new and cleared crashes, verdict
+changes, works-on % and blocker-rank moves, and hacks added or removed.
+
+Evidence scope: 51 synthetic-fixture cases in `HackSweep.synthetic.test.ts`
+and `HackSweepRun.synthetic.test.ts` (in-memory and temp-directory stores, none
+skipped), including a planted mid-run death and a failing earlier write. Not
+yet observed on a run against the real store.
 
 ## Unit tests cannot reach an authenticated gh
 
@@ -862,9 +757,9 @@ Two tests judge wall-clock time and flake when another vitest file runs beside t
 
 ## Commands
 
+Everyday commands are in [CONTRIBUTING.md](../CONTRIBUTING.md#commands). Also:
+
 ```bash
-npm run lint           # ESLint on src/
-npm run test:unit      # Vitest, single run
 npm run test:unit -- --coverage    # + v8 coverage
 npx vitest run test/suite/unit/LcLz2.synthetic.test.ts   # one file
 ```
@@ -873,19 +768,13 @@ npx vitest run test/suite/unit/LcLz2.synthetic.test.ts   # one file
 
 ## Perf gates
 
-Settled by the owner 2026-09-28; design calls delegated to the orchestrator. Spec: `superpowers/specs/2026-09-28-perf-gates-design.md`.
+Settled by the owner 2026-09-28. Spec: `superpowers/specs/2026-09-28-perf-gates-design.md`.
 
-- Nightly paired benchmarks on GitHub-hosted runners, baseline and candidate in one job, every other night. `[EST]`
-- Measures core microbenchmarks, app timings, startup and heap; not emulator fps. `[EST]`
-- A local scheduled Claude session fixes regressions, with a PR under normal merge rules. `[EST]`
-- An intended cost is proposed through `accept.sh`; only the owner runs it. `[EST]`
+- Nightly paired benchmarks on GitHub-hosted runners, baseline and candidate in one job, every other night. Measures core microbenchmarks, app timings, startup and heap; not emulator fps. `[EST]`
+- A local scheduled Claude session fixes regressions via PR under normal merge rules. An intended cost goes through `accept.sh`, which only the owner runs. `[EST]`
 - Rules in the spec: the base advances only on an unflagged run; `perf-nightly-infra` for no-verdict runs; a plant run is green only when detected. `[EST]`
-- Issues: #413 core/detector, #414 app marks/specs, #415 `perf-nightly.yml` in hackbench-validation, #416 scheduled fixer and docs. #415 waits for the self-hosted runner. `[EST]`
-- Status as of 2026-09-29: the owner paused; #424 and PR #430 (#414) merged since. Re-check #415 (hackbench-validation PR 24) and #416 before assuming progress. `[OPEN]`
-- Known flakes #438, #443; leak #429. Numbers before 2026-09-27 are archive numbers; verify. `[OPEN]`
-- Guard against forged statuses: unit tests once reached the real authenticated `gh` and posted forged `perf-nightly` success statuses on develop. PR #539 (merged 2026-10-04) added the vitest globalSetup guard `test/suite/support/noRealGh.ts`; the suite no longer needs `--exclude perfAccept.test.ts`. `[EST]`
-- Statuses cannot be deleted, only superseded with `error`. A forged success is indistinguishable from a real `accept.sh` accept until #538 adds a marker. `[OPEN]`
-- A stray `perf-nightly` success: compare its description with the unit-test strings ("a reason", "a valid reason", "an intended cost") before trusting it. `[EST]`
+- Issues: #413 core/detector, #414 app marks/specs, #415 `perf-nightly.yml` in hackbench-validation (waits for the self-hosted runner), #416 scheduled fixer and docs. As of 2026-11-07 #415 and #416 are open. Known flake #438 and leak #429 are open (#443 is closed). Numbers before 2026-09-27 are archive numbers; verify. `[OPEN]`
+- Forged statuses: unit tests once reached the real authenticated `gh` and posted `perf-nightly` successes on develop. PR #539 (2026-10-04) added the `noRealGh.ts` guard. Statuses cannot be deleted, only superseded with `error`, so a forged success looks like a real `accept.sh` accept until #538 adds a marker. Compare its description with the unit-test strings ("a reason", "a valid reason", "an intended cost") before trusting it. `[EST]` `[OPEN]`
 - Never print a gh credential in test output; assert with booleans.
 
 ## Playwright and RPC

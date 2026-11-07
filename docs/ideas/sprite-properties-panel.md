@@ -1,5 +1,7 @@
 # Sprite properties panel
 
+Status (2026-11-07): partly built. Selecting a sprite fills the Properties view (#984; `theia/extension/src/browser/sprite-props.ts`, `properties-widget.tsx`). It shows name and id, position, draw status with a plain-words reason, animation, unverified notes, parts and palette rows. The facet tables below remain the target inventory; Status columns in them were written before that view and were not re-audited. [EST] from reading `sprite-props.ts`
+
 Clicking a sprite in the map editor should make it visually SELECTED and
 present its properties in a panel. This document inventories what that panel
 has to show: every facet HackBench interprets from the ROM in order to draw
@@ -19,10 +21,7 @@ an emulator.
 
 ## Selection behaviour
 
-- Clicking a sprite selects it and marks it visually. There is no selection
-  affordance today; the map editor has an inspector pane (`props-ctx`) but
-  sprites do not populate it, and a click surfaces the sprite's identity in
-  the STATUS BAR instead.
+- Clicking a sprite selects it and marks it visually. Corrected 2026-11-07: was "no selection affordance today; sprites do not populate the inspector pane", because the Theia Properties view now takes a selected sprite (above).
 - The selection mark must be distinguishable from the engine marker and from
   annotations, which are different things the editor already draws.
 - Annotations belong to the sprite for hit-testing purposes. Clicking the
@@ -37,8 +36,10 @@ an emulator.
 | Position (col, row)  | same stream                              | read   |
 | Extra bits           | same stream                              | read   |
 | Main handler pointer | `$01:85CC + id*2`                        | read   |
-| Init handler pointer | `$01:817D + id*3`                        | read   |
+| Init handler pointer | `$01:817D + id*2`                        | read   |
 | Provenance           | both pointers compared against vanilla   | read   |
+
+Corrected 2026-11-07: the init pointer stride was `id*3`, because the table is `dw` entries (SMWDisX `bank_01.asm:231`, read in [map-rendering-engines.md](map-rendering-engines.md) section 3.6).
 
 Provenance is the honest-degradation hook. When a handler diverges the engine
 declines to assert rather than rendering vanilla confidently, and the panel
@@ -113,10 +114,7 @@ sprite counter) versus a ONE-SHOT STATE TIMER counting down from a seed. They
 need different modelling, and only the former is phase-reproducible in a still
 editor.
 
-Cadence is a known trap. `animTimer` re-bases with `lastTickMs = now` rather
-than `+= interval`, so the realised period is `ceil(interval / frameMs) *
-frameMs`: 8.0 game frames at 60 Hz, exactly 7.5 at 120 and 144 Hz. A separate
-task is making that timer accumulate.
+Cadence was a known trap: the old `animTimer` re-based with `lastTickMs = now`, so the period was 8.0 game frames at 60 Hz and 7.5 at 120 and 144 Hz. Corrected 2026-11-07: was "a separate task is making that timer accumulate", because `src/webview/shared/frameClock.ts` now counts game frames. The 125 ms row above was not re-checked against it.
 
 ## 6. Handler work outside the shared routine
 

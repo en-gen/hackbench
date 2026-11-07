@@ -55,8 +55,8 @@ from the project name, so renaming the manifest cannot orphan the data.
 MyHack/
   MyHack.hbproj      the manifest
   ops/               the layer stack, one file per layer
-    000.json
-    001.json
+    0000.json
+    0001.json
     redo/            layers that undo took back off the stack
   levels/            created with the project
   snapshots/         created with the project
@@ -68,7 +68,7 @@ MyHack/
     data-banks.json  where the ROM keeps the code HackBench reads (DataBanksConfig.ts)
 ```
 
-`ops/`, `export/` and `meta/` are created on first use. `levels/` and
+`ops/`, `export/`, `saves/` and `meta/` are created on first use. `levels/` and
 `snapshots/` are created when the project is created; `levels/` currently
 doubles as the sentinel that tells `openProject` the manifest has not been
 moved away from its data. Neither holds layer content today: the live stack
@@ -78,18 +78,15 @@ The manifest holds project identity: the base ROM plus the hack's name,
 title, summary, authors and version. `meta/` holds user metadata that never
 becomes ROM bytes, one JSON file per concern, through `ProjectMeta.ts`.
 
-`meta/data-banks.json` is detect once, hand edit wins (#755). Opening the
+`meta/data-banks.json` is detect once, hand edit wins (#755). Opening a
 project reads the loader's long jump in the BASE ROM to find the layer 1
-object code bank (`DataBanks.ts`) and writes `{ "version": 1, "rom": "<base sha256>",
-"banks": { "objectCode": "$0D" } }`, or `{ "notFound": "<reason>" }` when the
-jump does not look like the loader's. Detection fills only an absent entry;
-a value already in the file always wins, so a person can correct it by hand.
-A file whose `rom` is a different base ROM is rewritten. A value that is not
-`$00`-`$FF` hex, or a file that is not valid, refuses with a reason naming
-the file, and the layer 1 drawing falls back to its port instead of guessing.
-The backend reads the file on every request for the working copy, so an edit
-shows on the next map request without reopening the project; the map models
-built with the old bank are dropped.
+object code bank (`DataBanks.ts`) and writes `{ "version": 1, "rom": "<base
+sha256>", "banks": { "objectCode": "$0D" } }`, or `{ "notFound": "<reason>" }`
+when the jump does not look like the loader's. A value already in the file
+wins; a file for a different base ROM is rewritten; an invalid value or file
+refuses with a reason naming the file, and layer 1 drawing falls back to its
+port. The backend re-reads the file per request, so an edit shows on the next
+map request.
 
 ## What a layer looks like
 
@@ -128,15 +125,13 @@ flowchart LR
 ```
 
 Layers apply one at a time, in stack order, onto the running result. They
-are not flattened to "last write per offset wins". Palette ops never overlap
-today, since each is an isolated two-byte word write, but sequential replay
-is a contract of the working copy rather than a property of the current op
-type.
+are not flattened to "last write per offset wins"; sequential replay is a
+contract of the working copy, not a property of the current op types.
 
-The byte mutation itself is a pure reducer in `src/rom/PaletteOp.ts`: no
-I/O, no project, no ROM on disk. `WorkingRom` is the orchestration
-around it, and views dispatch by appending or popping layers. They never
-write bytes any other way.
+The byte mutation is a pure reducer (`src/rom/PaletteOp.ts` for word ops,
+`src/rom/GfxLayer.ts` for GFX layers): no I/O, no project, no ROM on disk.
+`WorkingRom` orchestrates them, and views dispatch by appending or popping
+layers. They never write bytes any other way.
 
 ## Export
 

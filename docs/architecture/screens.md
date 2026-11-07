@@ -17,7 +17,7 @@ addresses, one 3-byte entry per screen. The high-coordinate bit adds `$100`
 bytes to the pointer (`bank_05.asm:778-782`), 16 rows of 16 columns. So the
 `$200` vertical block is two 16 x 16 pages, one per half. The viewer draws those
 two pages SIDE BY SIDE: a vertical screen is 32 wide x 16 tall (`screenTiles`,
-`theia/extension/src/node/map-screen.ts:50`). That its 32 x 16 equals "32 rows x
+`theia/extension/src/node/map-screen.ts`). That its 32 x 16 equals "32 rows x
 16 cols" transposed is INFERENCE, supported by the nibble swap below and the
 right-half comment (`bank_05.asm:781`).
 
