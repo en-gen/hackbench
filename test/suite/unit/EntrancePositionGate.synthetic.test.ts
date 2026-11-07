@@ -52,8 +52,10 @@ function withStockCode(rom: RomFile): RomFile {
   for (const c of SCREEN_EXIT.filter(c =>
     SPANS.some(s => c.addr >= s.addr && c.addr < s.addr + s.length),
   )) {
-    // prettier-ignore
-    rom.writeAt(c.addr, c.bytes.map(b => (b === WILD ? 0 : b)))
+    rom.writeAt(
+      c.addr,
+      c.bytes.map(b => (b === WILD ? 0 : b)),
+    )
   }
   return rom
 }

@@ -10,8 +10,8 @@ Ruled 2026-11-05 (Brian)
 
 Ruled 2026-11-05 (Brian): "D178 B" and "D179 A". The exception, "for this block only", on four conditions:
 
-1. The threshold, bias, high byte and branch displacements stay out of the source; they are still read from the ROM. Only opcodes and RAM addresses are named.
-2. The built synthetic ROM shows 0 vanilla byte windows, with invented operands. The proof is the scan of the assembled bytes, not a probe of the source.
+1. The threshold, bias, high byte and branch displacements stay out of the source; they are still read from the ROM. Only opcodes and RAM addresses are named. D191 (2026-11-05, 187B, 188A) settled two readings: no branch distance is named, because the three displacements sit in a digest (`OVERWORLD_INDEX_BODY`, and `ENTRY_SITE_DIGEST` for the one the Lunar Magic site hook overwrites) under FINGERPRINT MINIMUM rule 6 with at least 86 unknown bytes each, and the synthetic ROM invents them; and for the threshold, bias and high byte the condition reads "this PR adds none". The statements of them that develop already holds (comments in `OverworldEntrances.ts` and `SmwRom.ts`, `docs/rom/map-data-mechanics.md`, an expected value in `OverworldEntrances.rom.test.ts`) are left to #1109.
+2. The built synthetic ROM shows 0 vanilla byte windows at the entry site, with invented operands (D191, 189A: entry-site scope; the other 53 windows of the whole built ROM, 51 in bank 04 and 2 at the SCREEN_EXIT literal, are #1109's). The proof is the scan of the assembled bytes, not a probe of the source.
 3. Where a ROM is present, a test checks the RAM table against the ROM (read from the ROM, gated with `describe.skipIf`).
 4. The exception is written down (this file) and is no precedent for other blocks.
 

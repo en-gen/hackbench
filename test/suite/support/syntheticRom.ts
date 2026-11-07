@@ -4,6 +4,7 @@ import { ADDR, LEVEL_COUNT } from '../../../src/rom/SmwRom'
 import {
   LM_ENTRY_HOOK,
   MIDWAY_HOOK_SITE,
+  ENTRY_SITE_DIGEST,
   OVERWORLD_ENTRY,
   OVERWORLD_INDEX_BODY,
   SCREEN_EXIT,
@@ -54,11 +55,24 @@ function syntheticCall(): Buffer {
   return span
 }
 
-/** OVERWORLD_INDEX_BODY as planted: NOPs, or on a hooked cart the head MIDWAY_HOOK_SITE reads; both are in SYNTHETIC_FINGERPRINTS.entry. */
-export function syntheticIndexSpan(hooked = false): Buffer {
-  const span = nops(OVERWORLD_INDEX_BODY.length)
+/** The cart's three branch displacements, each invented (none is vanilla's) and planted at a literal address:
+ *  the guard's BNE, the bias BCC and the high-byte BEQ. The digests of OVERWORLD_INDEX_BODY and ENTRY_SITE_DIGEST
+ *  hold them (D191 187B); SYNTHETIC_FINGERPRINTS.entry carries the cart's own. */
+export const SYNTHETIC_DISP = Object.freeze({ bne: 0x2e, bcc: 0x1b, beq: 0x4d })
+
+/**
+ * The digest bytes of OVERWORLD_INDEX_BODY as planted, in digest order: NOPs with the BNE displacement at
+ * offset 8, then the BCC displacement; with `site` the BEQ displacement too (ENTRY_SITE_DIGEST). On a hooked
+ * cart the head MIDWAY_HOOK_SITE reads. All four are in SYNTHETIC_FINGERPRINTS.entry.
+ */
+export function syntheticIndexSpan(hooked = false, site = false): Buffer {
+  const span = nops(93)
+  span[8] = SYNTHETIC_DISP.bne
   if (hooked) span.set(MIDWAY_HOOK_SITE.slice(0, 4), 0)
-  return span
+  return Buffer.concat([
+    span,
+    Buffer.from(site ? [SYNTHETIC_DISP.bcc, SYNTHETIC_DISP.beq] : [SYNTHETIC_DISP.bcc]),
+  ])
 }
 
 /**
@@ -101,7 +115,11 @@ export const SYNTHETIC_RAM: RamTable = Object.freeze({
 export const SYNTHETIC_FINGERPRINTS: OverworldFingerprints = Object.freeze({
   entry: Object.freeze(
     Object.assign(
-      [false, true].map(h => spanFingerprint(syntheticIndexSpan(h), OVERWORLD_INDEX_BODY.mask)!),
+      [false, true].flatMap(site =>
+        [false, true].map(h =>
+          spanFingerprint(syntheticIndexSpan(h, site), OVERWORLD_INDEX_BODY.mask)!,
+        ),
+      ),
       { ram: SYNTHETIC_RAM },
     ),
   ) as EntryFingerprints,
@@ -182,15 +200,28 @@ export function plantStockSubmapCode(rom: RomFile): void {
   const stock = [...OVERWORLD_ENTRY, ...SCREEN_EXIT]
   // Spans first: the index span covers the guard's two opcodes, which go on top.
   for (const c of stock) {
-    if ('fingerprints' in c) rom.writeAt(c.addr, c === OVERWORLD_INDEX_BODY ? syntheticIndexSpan() : nops(c.length)) // prettier-ignore
+    if ('fingerprints' in c)
+      rom.writeAt(
+        c.addr,
+        c === OVERWORLD_INDEX_BODY || c === ENTRY_SITE_DIGEST
+          ? syntheticIndexSpan().subarray(0, 93)
+          : nops(c.length),
+      )
   }
+  rom.writeAt(0x05d8a5, [SYNTHETIC_DISP.bcc])
+  rom.writeAt(0x05d8b2, [SYNTHETIC_DISP.beq])
   for (const c of stock) {
-    // An opcode, and for a branch the displacement that lands where the stock one does.
     if ('op' in c) {
-      rom.writeAt(c.addr, [c.op, ...(c.lands === undefined ? [] : [(c.lands - c.addr - 2) & 0xff])]) // prettier-ignore
+      rom.writeAt(c.addr, [c.op])
       // The invented RAM operand, little-endian, so the operand is never vanilla's.
       if (c.ram !== undefined)
-        rom.writeAt(c.addr + 1, Array.from({ length: operandBytes(c.op) }, (_, i) => (SYNTHETIC_RAM[c.ram!] >> (8 * i)) & 0xff)) // prettier-ignore
+        rom.writeAt(
+          c.addr + 1,
+          Array.from(
+            { length: operandBytes(c.op) },
+            (_, i) => (SYNTHETIC_RAM[c.ram!] >> (8 * i)) & 0xff,
+          ),
+        )
     } else if (!('fingerprints' in c)) rom.writeAt(c.addr, [...c.bytes])
   }
   plantScreenExitFiling(rom)

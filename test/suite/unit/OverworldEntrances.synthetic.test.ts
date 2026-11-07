@@ -340,7 +340,8 @@ describe('deriveOverworldEntrances: constants read from ROM, not hardcoded', () 
     for (let i = 0; i < 0x10; i++) tiles[i] = 0x6e // translevels 1..16
     const rom = buildRom(tiles)
     // Bias now fires at translevel >= $08, subtracting $07.
-    rom.rom.writeAt(0x05d8a2, [0xc9, 0x08, 0x90, 0x03, 0x38, 0xe9, 0x07])
+    rom.rom.writeAt(0x05d8a3, [0x08]) // threshold
+    rom.rom.writeAt(0x05d8a8, [0x07]) // bias
     const bySlot = new Map(derive(rom).entrances.map(e => [e.translevel, e.slot]))
     expect(bySlot.get(0x07)).toBe(0x007)
     expect(bySlot.get(0x08)).toBe(0x001) // stock $25/$24 would leave this un-subtracted
@@ -524,7 +525,8 @@ describe('deriveOverworldEntrances: roots', () => {
   it('applies the bias the ROM holds, not the stock $25/$24', () => {
     // Threshold $04, bias $03: sub translevels 3,4,5,6 -> $103,$101,$102,$103.
     const rom = buildRom(tiles(2, 4))
-    rom.rom.writeAt(0x05d8a2, [0xc9, 0x04, 0x90, 0x03, 0x38, 0xe9, 0x03])
+    rom.rom.writeAt(0x05d8a3, [0x04]) // threshold
+    rom.rom.writeAt(0x05d8a8, [0x03]) // bias
     expect(derive(rom).roots).toEqual({
       main: new Set([1, 2]),
       sub: new Set([0x101, 0x102, 0x103]),
@@ -556,7 +558,8 @@ describe('deriveOverworldEntrances: roots', () => {
   it('roots only the walked slots: slot $000 and a gap in the numbering are not roots', () => {
     // Threshold $03, bias $FE: translevels 1-4 land on $001, $002, $005, $006.
     const rom = buildRom(tiles(4, 0))
-    rom.rom.writeAt(0x05d8a2, [0xc9, 0x03, 0x90, 0x03, 0x38, 0xe9, 0xfe])
+    rom.rom.writeAt(0x05d8a3, [0x03]) // threshold
+    rom.rom.writeAt(0x05d8a8, [0xfe]) // bias
     const roots = derive(rom).roots
     expect(roots!.main).toEqual(new Set([1, 2, 5, 6]))
     for (const s of [0x000, 0x003, 0x004]) expect(isOverworldLevel(s, roots)).toBe(false)

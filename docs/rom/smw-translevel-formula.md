@@ -13,9 +13,9 @@ slot = (high << 8) | low
 
 The high byte comes from the player's submap, never from the translevel. A
 translevel at or above the threshold on the main map is still biased and
-still lands in $000-$0FF. `biasThreshold` and `bias` ($25 and $24 on
-vanilla) are read from the `CMP`/`SBC` operands
-(`src/rom/OverworldEntrances.ts`).
+still lands in $000-$0FF. `biasThreshold` and `bias` are read from the
+`CMP`/`SBC` operands (`readEntrySite` in `src/rom/SubmapFlagGate.ts`); the
+source states neither value.
 
 Statically, the submap flag is the buffer half a launch tile sits in:
 `CODE_05D83E` adds $400 to the `OWLayer1Translevel` index when

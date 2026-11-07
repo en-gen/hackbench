@@ -99,9 +99,10 @@ describe('recognized builds', () => {
 })
 
 describe('the stock test and load around the fingerprint', () => {
-  // Each opcode, a branch's displacement, and the head of the index digest the guard's ops sit in.
+  // Each opcode, the guard branch's displacement, and the head of the index digest the guard's ops sit in.
   const pinned = [
-    ...[...OVERWORLD_INDEX_GUARD, ...OVERWORLD_INDEX_LOAD].flatMap(c => [c.addr, ...(c.lands ? [c.addr + 1] : [])]), // prettier-ignore
+    ...[...OVERWORLD_INDEX_GUARD, ...OVERWORLD_INDEX_LOAD].map(c => c.addr),
+    0x05d846, // the guard's BNE displacement, in the digest
     ...[0, 1, 2, 3].map(i => OVERWORLD_INDEX_BODY.addr + i),
   ]
   it.each(pinned)('refuses with $%s flipped', at => {
