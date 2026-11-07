@@ -86,6 +86,8 @@ cited to the disassembly.
 - [rom/smw-overworld-wram.md](rom/smw-overworld-wram.md) - overworld WRAM tables
 - [rom/layer3-world-locked.md](rom/layer3-world-locked.md) - Layer 3 on settings
   byte $81-$BF: load Y, per-frame scroll, entrance camera, drawing rule
+- [rom/map-layer2-motion.md](rom/map-layer2-motion.md) - what moves Layer 2 on
+  $009 and $1EF: routines, captures, interpreter probe
 - [rom/level-rendering.md](rom/level-rendering.md) - the level rendering pipeline
 - [rom/obj-priority.md](rom/obj-priority.md) - OBJ priority and the
   compositor pass list
