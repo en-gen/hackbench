@@ -35,6 +35,7 @@ export const OP = {
   STY_DP: 0x84,
   STX_ABS: 0x8e,
   INC_DPX: 0xf6,
+  DEC_DPX: 0xd6,
   INC_A: 0x1a,
   TAX: 0xaa,
   PLB: 0xab,

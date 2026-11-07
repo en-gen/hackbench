@@ -2,6 +2,8 @@
  * Ids 34, 35 and 36 of the synthetic cart, the probes of the runner's draw-position sample (#842). Id 34 draws,
  * moves X by +4, and draws again; ids 35 and 36 each write OAM-range memory the runner's draw-position filter
  * must ignore, then move X by +4, then draw, so the draw position is the one after the move.
+ * Ids 37, 38 and 39 are the at-rest draw-origin probes of #1131 (draw then move, move then draw, lift Y around
+ * the draw).
  * Split from syntheticSpriteRom.ts to keep that file under the content gate's byte-token limit. Hand-written
  * with its own one-piece draw (not the shared `draw` of syntheticSpriteRom.ts, which the older ids use).
  */
@@ -29,7 +31,6 @@ export function putDrawPosProbes(put: (snes: number, bytes: number[]) => void): 
   put(0x019800, [...DRAW.slice(0, -1), ...MOVE4, OP.RTS])
   put(0x019840, [...MOVE4, ...DRAW])
   // 39 lifts Y by 16, draws, and puts Y back, as a taller sprite's draw routine does.
-  const LIFT = Array.from({ length: 16 }, () => [0xd6, 0xd8]).flat()
-  const DROP = Array.from({ length: 16 }, () => [OP.INC_DPX, 0xd8]).flat()
-  put(0x019880, [...LIFT, ...DRAW.slice(0, -1), ...DROP, OP.RTS])
+  const yBy16 = (op: number) => Array.from({ length: 16 }, () => [op, 0xd8]).flat()
+  put(0x019880, [...yBy16(OP.DEC_DPX), ...DRAW.slice(0, -1), ...yBy16(OP.INC_DPX), OP.RTS])
 }
