@@ -97,6 +97,7 @@ export interface StockOp {
   cite: string
 }
 
+/** A frozen StockOp. Only the opcode and a RAM key are stated; a branch's distance is deliberately not (it sits in a digest). */
 const op = (
   addr: number,
   code: number,
@@ -464,7 +465,11 @@ const HOOKS = new Map<object, readonly [string, (rom: RomFile, h: Hooks) => stri
 ])
 type Hooks = [builds?: readonly MidwayHookBuild[], helpers?: readonly FastRoutine[]]
 
-/** Each check on the path into CODE_05D8A2 on its own: null where it holds. */
+/**
+ * Each check on the path into CODE_05D8A2 on its own: null where it holds. The body digest is the one
+ * check with a second accepted form: Lunar Magic's site hook overwrites $05D8B2, so once that hook is
+ * recognized the digest is retried with the byte omitted. A stock site never gets that retry.
+ */
 export function entryPathMismatches(
   rom: RomFile,
   spanFingerprints?: EntryFingerprints,
@@ -570,6 +575,7 @@ function opMismatch(rom: RomFile, c: StockOp, ram: RamTable): string | null {
  *
  * @param spanFingerprints Replaces every span's own list; for a synthetic ROM. Its `ram`, if any,
  *   replaces ENTRY_RAM the same way.
+ * @param lmSite Hash a span with its `lmSiteOmit` byte dropped; only for a recognized LM site hook.
  */
 export function stockCodeMismatch(
   rom: RomFile,
