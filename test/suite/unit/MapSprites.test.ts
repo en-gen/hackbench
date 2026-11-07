@@ -544,16 +544,16 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
   )
 
   // Full sweep of all 0x200 maps, 2026-11-06, one machine: 14 sprites with `drawnBy`, all $9B beside a $9C, on maps
-  // $006 (4), $11E (1), $126 (3), $127 (3), $1C0 (1), $1C4 (1) and $1C5 (1). This test reads only the maps whose stream
-  // holds a $9B (cheap parse, no engine), so a $9B on another map is not counted.
+  // $006 (4), $11E (1), $126 (3), $127 (3), $1C0 (1), $1C4 (1), $1C5 (1). Reads every map whose stream holds a $9B (no engine);
+  // a `drawnBy` sprite of another id on a map with no $9B is not counted. 24 maps answer unavailable and hold no $9B (review of #1310).
   it(
-    'counts the 14 vanilla sprites a parent drew; each gives the rides-with sentence (#1310)',
+    'counts the 14 vanilla $9B rows a parent drew; each gives the rides-with sentence (#1310)',
     slow(60_000),
     () => {
       const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
       const rom = new SmwRom(RomFile.fromBytes(romPath(VANILLA), Buffer.from(bytes)))
       const cache = new L1ModelCache()
-      let rows = 0
+      const rows: string[] = []
       for (let map = 0; map < 0x200; map++) {
         const ptr = rom.getLevelSpritePointer(map)
         if (
@@ -567,10 +567,14 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
           const f = mapSpriteFrames(cache, bytes, romPath(VANILLA), map, s.index)
           const why = f.status === 'ok' && f.reason ? framesReasonText(f.reason) : undefined
           expect(why, `map ${map.toString(16)} index ${s.index}`).toBe('Drawn as part of the sprite it rides with, not on its own.') // prettier-ignore
-          rows++
+          expect(s.id).toBe(0x9b)
+          rows.push(`${map.toString(16)}:${s.index}`)
         }
       }
-      expect(rows).toBe(14)
+      expect(rows.join(' ')).toBe(
+        '6:11 6:22 6:29 6:42 11e:35 126:28 126:41 126:50 127:2 127:9 127:36 1c0:3 1c4:7 1c5:7',
+      )
+      expect(rows).toHaveLength(14)
     },
   )
 

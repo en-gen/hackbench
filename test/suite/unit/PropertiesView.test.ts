@@ -213,11 +213,12 @@ describe('animationText: reasons reach the screen in words', () => {
   it('a sprite its parent drew says so, not that the frames failed (#1310)', () => {
     expect(animationText(still(RIDES_WITH_REASON))).toBe('Animation not shown: Drawn as part of the sprite it rides with, not on its own.') // prettier-ignore
   })
-  it('the node answer for a drawnBy sprite reaches the panel as that sentence; one without keeps its own reason (#1310)', () => {
-    const none = { frames: [], reason: 'drew no OAM tile' }
+  it('framesAnswer gives a drawnBy sprite the rides-with code at any index; one without keeps its own reason (#1310)', () => {
+    const none = { frames: [], reason: 'unrevealed' }
     const rode = framesAnswer(none, { drawnBy: 3 })
     expect(rode).toEqual({ status: 'ok', frames: [], reason: RIDES_WITH_REASON })
     expect(rode.status === 'ok' && animationText(still(rode.reason))).toBe('Animation not shown: Drawn as part of the sprite it rides with, not on its own.') // prettier-ignore
+    for (const drawnBy of [0, 255]) expect(framesAnswer(none, { drawnBy })).toEqual(rode)
     expect(framesAnswer(none, {})).toEqual({ status: 'ok', ...none })
     expect(framesAnswer(none, undefined)).toEqual({ status: 'ok', ...none })
   })
