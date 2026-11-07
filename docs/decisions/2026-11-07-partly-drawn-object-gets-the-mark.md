@@ -15,6 +15,8 @@ B. Mark only an object with no tile drawn.
 
 wording not recorded. Option A was taken as [PROP] on Overwatch's word, 2026-11-07, for owner review. Not ruled.
 
+A second [PROP], 2026-11-07, on Overwatch's word: #1034 is accepted at 82 of 80 source lines (2 over) for the reviewer-found mark-text fix (`PLAIN_REASONS`). Splitting it would have meant a deferred CodeRabbit thread, which blocks approval. Not ruled.
+
 ## Why
 
 1. #1034 acceptance 1 allows the mark.
