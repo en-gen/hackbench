@@ -543,15 +543,15 @@ export function horizontalPlacement(
 }
 
 /** The grid cell a buffer address is, on a horizontal level; null off the grid. */
-function gridCell(addr: number, cols: number): { row: number; col: number; high: boolean } | null {
+function gridCell(addr: number): { row: number; col: number; high: boolean } | null {
   const c = cellOfOffset((addr & 0xffff) - (BUF_LO & 0xffff))
-  return c && c.col < cols ? { ...c, high: addr >>> 16 !== 0x7e } : null
+  return c && { ...c, high: addr >>> 16 !== 0x7e }
 }
 
 /** A `seed` that reads the tiles a horizontal-level grid already holds. */
 export function seedFromGrid(grid: TileGrid): (addr: number) => number | undefined {
   return addr => {
-    const c = gridCell(addr, 0x200)
+    const c = gridCell(addr)
     const t = c ? grid[c.row]?.[c.col] : undefined
     return c && t !== undefined ? (c.high ? t >> 8 : t & 0xff) : undefined
   }
@@ -571,7 +571,7 @@ export function applyWrites(
 ): number {
   let dropped = 0
   for (const { addr, value } of writes) {
-    const c = gridCell(addr, 0x200)
+    const c = gridCell(addr)
     const row = c && grid[c.row]
     if (!c || !row) {
       dropped++
