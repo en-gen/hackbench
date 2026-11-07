@@ -2,7 +2,7 @@
 
 A protocol is a named mode the owner enacts to change how normal operation runs. It is on or off, it changes the rules listed under its Changes heading for every session in this repository while it is on, and every change is logged. Day shift is the default mode. Procedures are runbooks, not protocols.
 
-Activate with `/protocol <name> on` or `off` (the command lands with the protocol mechanism; see the spec in `docs/superpowers/specs/2026-10-07-agentic-protocols-design.md`). Only the owner enacts a protocol, in chat; the BA runs the command on the owner's words. `throttle` is the one that may switch itself on.
+Activate with `/protocol <name> on` or `off` (design: `docs/superpowers/specs/2026-10-07-agentic-protocols-design.md`). Only the owner enacts a protocol, in chat; the BA runs the command on the owner's words. `throttle` is the one that may switch itself on.
 
 | Protocol                      | Group           | What it is for                        |
 | ----------------------------- | --------------- | ------------------------------------- |

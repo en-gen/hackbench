@@ -9,6 +9,8 @@ Evidence scope for every ROM claim below: static reads of the six ROM files in
 
 ## THIS IS SCAFFOLDING
 
+Status 2026-11-07: this section and everything down to "Known limits of the wiring" describe the reference VS Code extension's webview (`src/webview/mapEditor`, `src/rom/model/rehydrate.ts`), which is not a shipping target. The toggle, `Sprite.engineAppearance` and `editorStore.spriteEngine` still exist there. The Theia map view does not use them; see "Theia wiring" below. [EST: `grep` over `src/` and `theia/`]
+
 The `Sprite engine` toolbar button is a **temporary comparison control**, not a
 feature. It exists so one person can click back and forth on one map and see
 whether the engine draws what the shipped classes draw. It is deliberately:
