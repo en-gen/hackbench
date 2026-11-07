@@ -1,6 +1,7 @@
 /**
- * World-locked Layer 3 against the layers_v5 Mesen captures (#563): maps $011, $130 and $1C1 (settings
- * byte $81 on tileset 9). Gated on the vanilla ROM and the capture set; a machine without either skips
+ * World-locked Layer 3 against the layers_v5 Mesen captures (#563, #805): maps $011, $130 and $1C1 (settings
+ * byte $81 on tileset 9) and $018 (the same byte on tileset 13, level mode 0E: BG3 alone on the main screen,
+ * its additive math over layers 1 and 2; its odd-length RLE stripe runs once lost 40 cells). Gated on the vanilla ROM and the capture set; a machine without either skips
  * all of it. At frame 0 (about 30 frames after the level loaded, EffFrame 31..) the captured WRAM and
  * VRAM must agree with what the model draws from:
  *   - Layer3YPos ($24) is the model's yPx ($C0) and equals Layer1YPos,
@@ -23,7 +24,7 @@ import { L3_HUD_ROW_CUTOFF } from '../../../src/rom/L3Loader'
 
 /** ClearOutLayer3 fills the tilemap with this blank tile (seen in every cell the stripe image leaves alone); the model leaves those 0. */
 const BLANK = 0x38fc
-const MAPS = ['011', '130', '1c1']
+const MAPS = ['011', '130', '1c1', '018']
 
 describe.skipIf(!hasRom(VANILLA) || !hasCaptures())(
   'world-locked layer 3 vs the captures (corpus)',

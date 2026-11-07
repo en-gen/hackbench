@@ -172,6 +172,24 @@ describe('parseStripeImage', () => {
     expect(buf[base + 2]).toBe(0) // only 2 tiles written
   })
 
+  it('RLE entry with an odd byte count writes a last word too: ceil(count / 2) tiles (#805)', () => {
+    // LoadStripeImage's two RLE DMAs (bank_00.asm:906-955) are mode 1, N bytes each: units of two bytes
+    // to $2118/$2119, then $2119/$211A, so the odd last byte still writes one word's worth. COUNT=4 is N=5.
+    for (const [count, tiles] of [
+      [4, 3],
+      [5, 3],
+      [6, 4],
+      [0, 1],
+    ] as const) {
+      const data = new Uint8Array([0x58, 0x00, 0x40, count, 0x34, 0x12, 0xff])
+      const buf = parseStripeImage(data)
+      const base = 0x5800 - L3_TILEMAP_BASE
+      const written = Array.from(buf.slice(base, base + 8)).filter(v => v === 0x1234).length
+      expect([count, written]).toEqual([count, tiles])
+      expect(buf[base + tiles]).toBe(0)
+    }
+  })
+
   it('RLE entry followed by normal entry parses both correctly', () => {
     // RLE at $5800 (2 tiles of $AABB), then normal at $5040 (1 tile of $0201)
     // $5800 → sub 2, within=0 → hw (row 32, col 0) → flat 2048

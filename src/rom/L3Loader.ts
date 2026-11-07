@@ -751,7 +751,10 @@ export function parseStripeImageInto(tilemap: Uint16Array, data: Uint8Array): vo
     const countBytes = (((b2 & 0x3f) << 8) | b3) + 1
     i += 4
 
-    const tileCount = countBytes >> 1
+    // Plain data is N bytes into 2-byte units, N / 2 words. An RLE run is two DMAs of N bytes (the low bytes, then the
+    // high bytes), each unit taking two bytes, so an odd N still lands its last unit's word: ceil(N / 2) (#805,
+    // LoadStripeImage, bank_00.asm:906-955). Plain data with an odd N would write a low byte only; no vanilla set has one.
+    const tileCount = rle ? (countBytes + 1) >> 1 : countBytes >> 1
     // VRAM address stride: horizontal = +1 word, vertical = +32 words
     // (matches SNES VMAINC register modes 00/01 used by LoadStripeImage)
     const stride = vertical ? 32 : 1
