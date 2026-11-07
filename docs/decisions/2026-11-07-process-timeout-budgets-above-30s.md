@@ -24,6 +24,8 @@ Evidence, one machine, head 88c9c32d: the two RevealSweep tests ("refuses a repo
 
 Calibration (night-shift [PROP], Overwatch, 2026-11-07): the 33-process burner put full-suite walls at 911 to 935 s, so Overwatch set a counting band of 408 to 552 s (its rule, not the acceptance text) and stepped the burner down; 16 processes gave 333 to 338 s and 20 processes gave 407 to 410 s, so no run met the band, and the runs are shown side by side in PR #1330 for the verifier to grade.
 
+Overwatch, 2026-11-07: the 408 to 552 s wall band was an Overwatch error; acceptance 2 names the 24-8-1 recipe and has no wall-time condition, so the band is dropped and batch 2 counts; lintGate (`ESLINT_TIMEOUT_MS` 120 s to 240 s, for 126.7 s and 131.0 s) and perfAccept (the no-shell `gh` spawn kill 60 s to 120 s, killed at 60111 ms) were changed for its failures.
+
 ## Applies to
 
 `test/suite/unit/RevealSweep.test.ts`, `test/suite/gates/playwrightPortGate.test.ts`.

@@ -82,7 +82,8 @@ afterAll(() => {
  * inherited. It is a timeout, not a weakening: the assertions are unchanged.
  */
 // 102.6 s worst via npx over 10 loaded runs (two concurrent full unit runs, 32-core machine, 2026-10-09/10); 28.9 s worst direct in one full run.
-const ESLINT_TIMEOUT_MS = loadTimeout(120_000)
+// 126.7 s and 131.0 s at the 24-8-1 recipe (#1209 batch 2) against 55.5 s in the spike: 240 s is 1.8x the worst, about 4x the spike.
+const ESLINT_TIMEOUT_MS = loadTimeout(240_000)
 // 4.3 s loaded worst (10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10); 30 s so the file budget is not undercut.
 const PRETTIER_TIMEOUT_MS = loadTimeout(30_000)
 
