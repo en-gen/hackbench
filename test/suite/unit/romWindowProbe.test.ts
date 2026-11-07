@@ -16,7 +16,7 @@ import {
   windowSet,
 } from '../../../tools/scripts/lib/rom-windows.mjs'
 import { resolveRomDir, VANILLA } from '../support/corpus'
-import { loadTimeout } from '../support/loadTimeout'
+import { loadTimeout, slow } from '../support/loadTimeout'
 
 vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
@@ -390,12 +390,12 @@ y
     it('catches a run that starts on an unchanged line and ends on an added one', () => {
       expect(out).toContain('HIT half.txt:1 windows=1')
     })
-    it('reads a..b, a...b and a lone rev alike', () => {
+    it('reads a..b, a...b and a lone rev alike', slow(60_000), () => {
       for (const spec of ['HEAD~1...HEAD', 'HEAD~1']) {
         const r2 = probe(['--rom', romFile, '--repo', repo, '--git-range', spec])
         expect(r2.stdout.split('\n').filter(l => l.startsWith('HIT')).length).toBe(6)
       }
-    }, 20000) // two probe runs over 8 touched files, 2 git spawns per file: 1.3 to 5.5 s alone, one Windows machine, 2026-11-05
+    }) // two probe runs over 8 touched files, 2 git spawns per file: 1.3 to 5.5 s alone, one Windows machine, 2026-11-05
     it('a...b diffs from the merge base, not from a', () => {
       git('checkout', '-q', '-b', 'side', 'HEAD~1')
       write(

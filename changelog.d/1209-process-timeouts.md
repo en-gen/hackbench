@@ -1,3 +1,3 @@
 ### Changed
 
-- Tests (#1209): every test file that starts a process now carries a load-scaled `testTimeout` and `hookTimeout` (30 s, 60 s floor in CI), enforced by `processTimeoutGate.test.ts`, so spawn-heavy files stop timing out at 5 s on a busy machine.
+- Tests (#1209): every test file that starts a process now sets a 30 s file-level `testTimeout` and `hookTimeout` through `loadTimeout`, and `processTimeoutGate.test.ts` fails for a process-starting file without that line. Four per-test budgets that undercut or lagged measured runs are raised: SpriteReport, romWindowProbe, contentGate and the protocolGate and lintGate cases.

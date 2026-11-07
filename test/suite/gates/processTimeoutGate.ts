@@ -12,10 +12,14 @@ const CP_DYNAMIC = new RegExp(
 )
 const HELPER = /^import\s+(?!type\b)[^'"]*?from\s+['"][^'"]*\/(?:isolatedGit|gitBash)['"]/ms
 const MOCKED = new RegExp(String.raw`^vi\.mock\(\s*${CP}`, 'm')
-/** Both keys, each through loadTimeout (a bare number loses CI's 60 s floor). */
+/** The exact line, value included, both keys through loadTimeout (a bare number loses CI's 60 s floor). */
 const BUDGET =
-  /^vi\.setConfig\(\s*\{(?=[^}]*\btestTimeout:\s*loadTimeout\()(?=[^}]*\bhookTimeout:\s*loadTimeout\()[^}]*\}\s*\)/m
-/** vitest reads the timeout when a test or hook is registered, so the budget must precede these. */
+  /^vi\.setConfig\(\{ testTimeout: loadTimeout\(30_000\), hookTimeout: loadTimeout\(30_000\) \}\)$/m
+/**
+ * vitest reads the timeout when a top-level `it` or hook is registered, so the budget must precede
+ * these. `describe` callbacks run at collection, so a budget after one would work; the rule is
+ * deliberately stricter there, to keep one placement.
+ */
 const REGISTRATION = /^(?:describe|it|test|beforeAll|beforeEach|afterAll|afterEach)\b/m
 
 /** True when the source value-imports a real process starter, or a helper that spawns. */
@@ -23,19 +27,10 @@ export function startsProcess(src: string): boolean {
   if (MOCKED.test(src)) return false
   if (HELPER.test(src) || CP_DYNAMIC.test(src)) return true
   return [...src.matchAll(CP_IMPORT)].some(([, spec]) => {
-    const named = /\{([^}]*)\}/.exec(spec)?.[1]
-    if (
-      named === undefined ||
-      spec
-        .replace(/\{[^}]*\}/, '')
-        .replace(/,/g, '')
-        .trim()
-    )
-      return true
-    return named.split(',').some(s => {
-      const n = s.trim()
-      return n && !n.startsWith('type ') && STARTERS.test(n.split(/\s+as\s+/)[0])
-    })
+    const named = /\{([^}]*)\}/.exec(spec)
+    // A default or namespace import cannot be narrowed to a starter, so it counts.
+    if (!named || spec.replace(named[0], '').replace(',', '').trim()) return true
+    return named[1].split(',').some(s => STARTERS.test(s.trim().split(/\s+as\s+/)[0]))
   })
 }
 
@@ -54,13 +49,15 @@ export function testFiles(dir: string): string[] {
   })
 }
 
+/** Every process-starting test file under `dir` (absolute paths). */
+export function processStartingFiles(dir: string): string[] {
+  return testFiles(dir).filter(f => startsProcess(fs.readFileSync(f, 'utf8')))
+}
+
 /** Process-starting test files under `dir` that lack the budget, as `dir`-relative paths. */
 export function processTimeoutOffences(dir: string): string[] {
-  return testFiles(dir)
-    .filter(f => {
-      const src = fs.readFileSync(f, 'utf8')
-      return startsProcess(src) && !hasBudgetBeforeTests(src)
-    })
+  return processStartingFiles(dir)
+    .filter(f => !hasBudgetBeforeTests(fs.readFileSync(f, 'utf8')))
     .map(f => path.relative(dir, f).split(path.sep).join('/'))
     .sort()
 }

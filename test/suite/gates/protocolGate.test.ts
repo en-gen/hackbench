@@ -103,7 +103,7 @@ describe('the protocol command, hardened', () => {
   })
 
   // 5.8 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
-  it('accepts only owner, schedule or session:<desktop id> for --by', slow(12_000), () => {
+  it('accepts only owner, schedule or session:<desktop id> for --by', slow(30_000), () => {
     expect(run(['night-shift', 'on', '--by', 'schedule']).code).toBe(0)
     expect(run(['night-shift', 'off', '--by', 'owner']).code).toBe(0)
     expect(run(['throttle', 'on', '--by', `session:${LOCAL_ID}`]).code).toBe(0)
@@ -158,7 +158,7 @@ describe('the protocol command, hardened', () => {
 // starts each left 1).
 describe('parallel registers', () => {
   // Timed out at the 5 s default in 2 of 10 loaded runs (two concurrent full unit runs, 32-core machine, 2026-10-09/10), true duration unknown; idle about 2.3 s.
-  it('keep every entry', slow(13_000), async () => {
+  it('keep every entry', slow(30_000), async () => {
     const mod = pathToFileURL(script).href
     const startAt = Date.now() + 1500
     const ids = Array.from({ length: 8 }, (_, i) => `00000000-0000-4000-8000-00000000000${i}`)

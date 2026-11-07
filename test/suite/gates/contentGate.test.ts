@@ -33,7 +33,8 @@ vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const realScript = path.join(repoRoot, 'tools/scripts/check-content.mjs')
-const CLI_TIMEOUT_MS = 30000
+// 45882 ms worst for one test (#1209 review); loadTimeout keeps CI's 60 s floor.
+const CLI_TIMEOUT_MS = loadTimeout(60_000)
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
 // ---------------------------------------------------------------------------

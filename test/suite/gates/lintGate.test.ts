@@ -83,8 +83,8 @@ afterAll(() => {
  */
 // 102.6 s worst via npx over 10 loaded runs (two concurrent full unit runs, 32-core machine, 2026-10-09/10); 28.9 s worst direct in one full run.
 const ESLINT_TIMEOUT_MS = loadTimeout(120_000)
-// About 2x the 4.3 s loaded worst (10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10). Pure package.json cases need no timeout.
-const PRETTIER_TIMEOUT_MS = loadTimeout(10_000)
+// 4.3 s loaded worst (10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10); 30 s so the file budget is not undercut.
+const PRETTIER_TIMEOUT_MS = loadTimeout(30_000)
 
 const UNUSED_VAR = 'export function f(): number {\n  const dead = 1\n  return 2\n}\n'
 

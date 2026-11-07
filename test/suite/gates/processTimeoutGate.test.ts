@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { processTimeoutOffences } from './processTimeoutGate'
+import { processStartingFiles, processTimeoutOffences } from './processTimeoutGate'
+import { slow } from '../support/loadTimeout'
 
 const BUDGET =
   'vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })'
@@ -18,7 +19,10 @@ const dirs: string[] = []
 function plant(files: Record<string, string>): string[] {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptg-'))
   dirs.push(dir)
-  for (const [n, src] of Object.entries(files)) fs.writeFileSync(path.join(dir, n), src)
+  for (const [n, src] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(dir, n)), { recursive: true })
+    fs.writeFileSync(path.join(dir, n), src)
+  }
   return processTimeoutOffences(dir)
 }
 const offences = (...lines: string[]) => plant({ 'p.test.ts': lines.join('\n') })
@@ -31,6 +35,12 @@ describe('processTimeoutGate planted sources', () => {
   it('accepts the module-scope budget', () => {
     expect(offences(SPAWN, BUDGET, TEST)).toEqual([])
   })
+  it.each(['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork'])(
+    'refuses a bare %s with no budget',
+    name => {
+      expect(offences(`import { ${name} } from 'child_process'`, TEST)).toEqual(['p.test.ts'])
+    },
+  )
   it.each([
     ['multi-line, aliased', ['import {', '  spawnSync as run,', "} from 'node:child_process'"]],
     ['namespace', ["import * as cp from 'child_process'"]],
@@ -39,6 +49,12 @@ describe('processTimeoutGate planted sources', () => {
     ['dynamic import', ["const cp = await import('node:child_process')"]],
     ['isolatedGit', ["import { isolatedGit } from '../support/isolatedGit'"]],
     ['gitBash', ["import { findBash } from '../support/gitBash'"]],
+    ['default plus named', ["import cp, { type SpawnSyncReturns } from 'child_process'"]],
+    [
+      'a second import that is the starter',
+      ["import { ChildProcess } from 'child_process'", SPAWN],
+    ],
+    ['a commented-out vi.mock', [SPAWN, "// vi.mock('child_process')"]],
   ])('refuses %s with no budget', (_n, imp) => {
     expect(offences(...imp, TEST)).toEqual(['p.test.ts'])
   })
@@ -47,16 +63,25 @@ describe('processTimeoutGate planted sources', () => {
       'p.test.ts',
     ])
   })
-  it('refuses a budget placed after the first test', () => {
-    expect(offences(SPAWN, TEST, BUDGET)).toEqual(['p.test.ts'])
+  it.each([
+    ['the first test', TEST],
+    ['a top-level hook', 'beforeAll(() => {})'],
+  ])('refuses a budget placed after %s', (_n, first) => {
+    expect(offences(SPAWN, first, BUDGET)).toEqual(['p.test.ts'])
   })
-  it('refuses a bare number, and a budget with only one key', () => {
-    expect(offences(SPAWN, 'vi.setConfig({ testTimeout: 20_000 })', TEST)).toEqual(['p.test.ts'])
-    const one = 'vi.setConfig({ testTimeout: loadTimeout(30_000) })'
-    expect(offences(SPAWN, one, TEST)).toEqual(['p.test.ts'])
+  it.each([
+    ['a bare number', 'vi.setConfig({ testTimeout: 20_000, hookTimeout: 20_000 })'],
+    ['one key', 'vi.setConfig({ testTimeout: loadTimeout(30_000) })'],
+    ['a different value', BUDGET.replace('(30_000), h', '(1), h')],
+    ['a different hook value', BUDGET.replace('(30_000) })', '(1) })')],
+    ['an indented line', `  ${BUDGET}`],
+    ['a trailing comment line', `// ${BUDGET}`],
+  ])('refuses %s in place of the budget', (_n, line) => {
+    expect(offences(SPAWN, line, TEST)).toEqual(['p.test.ts'])
   })
   it('does not list a type import, a mocked child_process, or a non-starter', () => {
     expect(offences("import type { SpawnSyncReturns } from 'child_process'", TEST)).toEqual([])
+    expect(offences("import type { isolatedGit } from '../support/isolatedGit'", TEST)).toEqual([])
     expect(offences("import { type spawn } from 'child_process'", TEST)).toEqual([])
     expect(offences(SPAWN, "vi.mock('node:child_process')", TEST)).toEqual([])
     expect(offences("import { ChildProcess } from 'child_process'", TEST)).toEqual([])
@@ -68,10 +93,23 @@ ${TEST}
     const files = { 'a.test.ts': src, 'b.timing.test.ts': src, 'c.nightly.test.ts': src }
     expect(plant(files)).toEqual(['a.test.ts'])
   })
+  it('walks nested directories but skips __fixtures__', () => {
+    const files = {
+      'a/b/deep.test.ts': `${SPAWN}
+${TEST}
+`,
+      '__fixtures__/x.test.ts': SPAWN,
+    }
+    expect(plant(files)).toEqual(['a/b/deep.test.ts'])
+  })
 })
 
 describe('processTimeoutGate real tree', () => {
-  it('lists no process-starting test file without the budget', () => {
-    expect(processTimeoutOffences(path.resolve(__dirname, '..'))).toEqual([])
+  const root = path.resolve(__dirname, '..')
+  it('lists no process-starting test file without the budget', slow(30_000), () => {
+    expect(processTimeoutOffences(root)).toEqual([])
+  })
+  it('finds the 26 process-starting files, so an empty walk cannot pass', slow(30_000), () => {
+    expect(processStartingFiles(root).length).toBeGreaterThanOrEqual(26)
   })
 })

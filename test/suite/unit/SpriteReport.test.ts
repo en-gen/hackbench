@@ -78,11 +78,10 @@ const git = (cwd: string, ...a: string[]): string => {
   return r.stdout
 }
 
-// Git-heavy tests (30 to 45 git spawns each). Measured worst case: 12 copies of this file at once,
-// n=12, one 32-CPU machine shared with other work: 8479 ms for the clone-spellings test, 5.4 s for
-// the others (some were cut off by the 5 s default, so their true worst is higher). 20 s is local-load
-// headroom, not a CI number; slow() keeps CI's 60 s floor.
-const GIT_HEAVY = slow(20_000)
+// Git-heavy tests (30 to 45 git spawns each). Measured worst case: 31258 ms for the
+// clone-spellings test, run alone after other batches on one Windows machine (#1209 review);
+// earlier, 12 copies at once gave 8479 ms. 60 s is local-load headroom, and it is also CI's floor.
+const GIT_HEAVY = slow(60_000)
 
 const COUNTS: Record<ReportVerdict, number> = {
   exact: 4,
