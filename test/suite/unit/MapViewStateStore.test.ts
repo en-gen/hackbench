@@ -68,4 +68,15 @@ describe.skipIf(!theiaInstalled)('MapViewStateStore', () => {
     expect(s.state).toEqual(initialSwitchState())
     expect(got).toEqual([])
   })
+
+  it('reset with a state replaces it, silently', () => {
+    const s = new Store()
+    const from = new Store()
+    from.dispatch({ type: 'togglePalace', palace: 'red' })
+    from.dispatch({ type: 'toggleSwitch', key: 'silver' })
+    const { got } = seen(s)
+    s.reset(from.state)
+    expect(s.state).toEqual(from.state)
+    expect(got).toEqual([])
+  })
 })

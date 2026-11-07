@@ -32,11 +32,12 @@ export class MapViewStateStore {
   }
 
   /**
-   * Back to nothing pressed, without firing. `open` has already dropped the collision state and `refresh`
-   * rebuilds every consumer, so a fire mid-open would only start fetches against a half-open widget.
+   * Back to nothing pressed, or to `state` (a pin carrying its preview's presses), without firing. `open` has
+   * already dropped the collision state and `refresh` rebuilds every consumer, so a fire mid-open would only
+   * start fetches against a half-open widget.
    */
-  reset(): void {
-    this.current = initialSwitchState()
+  reset(state: SwitchState = initialSwitchState()): void {
+    this.current = state
   }
 
   dispose(): void {
