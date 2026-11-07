@@ -3,7 +3,13 @@
  * scroll in taken from the wrapped strip. Synthetic planes, no ROM.
  */
 import { describe, expect, it } from 'vitest'
-import { FRAME_MS, frameAt, shiftPlane } from '../../../theia/extension/src/browser/map-motion-play'
+import {
+  decodeStrips,
+  FRAME_MS,
+  frameAt,
+  shiftPlane,
+  type Motion,
+} from '../../../theia/extension/src/browser/map-motion-play'
 
 const W = 2
 const H = 6
@@ -62,5 +68,18 @@ describe('frameAt', () => {
 
   it('a run of no frames stays at 0', () => {
     expect(frameAt(5000, 0)).toBe(0)
+  })
+})
+
+describe('decodeStrips', () => {
+  const b64 = (v: number) => Buffer.from(Uint8Array.of(v, 0, 0, 255)).toString('base64')
+  const motion = (strips: Motion['strips']) => ({ strips }) as Motion
+
+  it('keeps the low and high planes apart and passes a screen with nothing as blank planes', () => {
+    const [a, b] = decodeStrips(motion([{ low: b64(1), high: b64(2) }, null]))
+    expect([a!.low![0], a!.high![0]]).toEqual([1, 2])
+    expect(b).toEqual({ low: null, high: null })
+    const [c] = decodeStrips(motion([{ low: null, high: b64(9) }]))
+    expect([c!.low, c!.high![0]]).toEqual([null, 9])
   })
 })

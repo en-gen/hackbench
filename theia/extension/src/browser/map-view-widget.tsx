@@ -650,10 +650,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.playStart = performance.now()
     this.playFrame = 0
     this.playShift = 0
-    // The indicator cells are drawn at rest; they step aside while Layer 2 moves.
-    this.sync()
     this.playRaf = requestAnimationFrame(this.playTick)
     this.update()
+  }
+
+  /** The indicator displays of every screen, redone for the pictures just painted. */
+  protected syncDisplays(): void {
+    for (const [k, canvas] of this.canvases)
+      if (k.startsWith(`${DISPLAY}:`)) this.syncDisplay(canvas, Number(k.split(':')[1]))
   }
 
   protected readonly playTick = (now: number): void => {
@@ -664,6 +668,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       this.playFrame = f
       this.playShift = m.shiftY[f] ?? 0
       for (const [s, canvas] of this.composites) this.paintComposite(s, canvas)
+      // Block indicators stay up (D52): they sit on Layer 1, which does not move, and are redrawn over each frame.
+      this.syncDisplays()
       this.placeCameraFrame()
     }
     this.playRaf = requestAnimationFrame(this.playTick)
@@ -1098,8 +1104,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       }
     }
     for (const [s, canvas] of this.composites) this.paintComposite(s, canvas)
-    for (const [k, canvas] of this.canvases)
-      if (k.startsWith(`${DISPLAY}:`)) this.syncDisplay(canvas, Number(k.split(':')[1]))
+    this.syncDisplays()
     this.syncOffMap()
     this.syncGutterLayers()
   }
@@ -1299,8 +1304,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       this.displays.delete(s)
       this.showBare(canvas, comp)
     }
-    // Playing: the composite alone is on screen, whatever asked for a display (hover, lift, a toggle, a late reply).
-    if (this.playing || !comp?.dataset.drawn || !shot || !b) return hide()
+    if (!comp?.dataset.drawn || !shot || !b) return hide()
     const want = `${comp.dataset.drawn}:${this.blocksVersion}:${this.zoom}`
     // A screen found to hold no indicator stays that way for this key: skip the rebuild (#973).
     if (this.bare.get(s) === want) return this.showBare(canvas, comp)

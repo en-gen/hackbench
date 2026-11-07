@@ -9,8 +9,10 @@
  * Checked on that reply and on the canvases the user sees: the offset the widget draws at each sampled frame is
  * the run's value for that frame, and each drawn screen canvas is keyed to it. During play a hover over an
  * indicator and a layer toggle leave every screen moving.
+ * Block indicators stay visible while it plays (D52); a refused map has a disabled button with the reason; a
+ * hidden tab stops it.
  * Plant for the verifier: in `playTick` (map-view-widget.tsx) use `m.shiftY[f + 1]`; the offset assertion goes
- * red. In `syncDisplay` drop the `this.playing ||` test; the hover assertion goes red.
+ * red. In `playTick` drop `this.syncDisplays()`; the indicator assertions go red.
  * NOT covered: the exact pixels of a shifted Layer 2 (unit tests cover the shift and the wrap).
  */
 const { test, expect } = require('@playwright/test')
@@ -197,10 +199,11 @@ test('stop restores what is visible exactly, indicator screens included, and wri
   await page.locator(playOf(0x9)).click()
   await untilShifted(page, 0x9, run)
   const during = await snapshot(page, 0x9)
-  // While playing no display is up and every drawn composite shows.
-  for (const v of Object.values(during.screens)) {
-    expect(v.displayWidth).toBe(0)
-    expect(v.compositeHidden).toBe(false)
+  // Indicators stay up while playing (D52): a screen that had a display at rest still has one over its composite.
+  for (const [s, v] of Object.entries(before.screens)) {
+    if (v.displayWidth === 0) continue
+    expect(during.screens[s]?.displayWidth).toBeGreaterThan(0)
+    expect(during.screens[s]?.compositeHidden).toBe(true)
   }
   expect(Object.keys(during.screens).some(s => during.screens[s].h !== before.screens[s]?.h)).toBe(
     true,
@@ -253,23 +256,50 @@ test('while playing, a hover over an indicator and a layer toggle leave every sc
     await page.waitForTimeout(500)
     const b = await snapshot(page, 0x9)
     const ids = Object.keys(b.screens)
-    return (
-      ids.length > 0 &&
-      ids.every(
-        s =>
-          b.screens[s].key !== a.screens[s]?.key &&
-          b.screens[s].displayWidth === 0 &&
-          !b.screens[s].compositeHidden,
-      )
+    return ids.length > 0 && ids.every(s => b.screens[s].key !== a.screens[s]?.key)
+  }
+  // Indicators stay up while Play runs (D52): a display canvas with width sits over a hidden composite.
+  const shown = async () =>
+    Object.values((await snapshot(page, 0x9)).screens).some(
+      v => v.displayWidth > 0 && v.compositeHidden,
     )
-  }
-  // Hover across the strip so a block indicator is under the pointer at some point.
-  const box = await page.locator(`${rootOf(0x9)} [data-control="map-edge"]`).boundingBox()
-  for (let i = 1; i < 12; i++) {
-    await page.mouse.move(box.x + (box.width * i) / 12, box.y + box.height * 0.4)
-    await page.waitForTimeout(80)
-  }
+  await expect.poll(shown, { timeout: 20000 }).toBe(true)
+  // The pointer on an actual indicator, at the position the widget holds for it.
+  const at = await page.evaluate(() => {
+    const w = getSvc('ApplicationShell').widgets.find(x => x.id === 'hackbench.map-view:9')
+    const i = w.blocks.indicators[0]
+    const edge = document.querySelector('[id="hackbench.map-view:9"] [data-control="map-edge"]')
+    const r = edge.getBoundingClientRect()
+    const mapW = w.mapLayout.width * w.mapLayout.screenCount
+    const mapH = w.mapLayout.height
+    const sc = edge.closest('[data-control="map-scroller"]')
+    const target = {
+      x: r.left + ((i.x + 8) * r.width) / mapW,
+      y: r.top + ((i.y + 8) * r.height) / mapH,
+    }
+    const view = sc.getBoundingClientRect()
+    sc.scrollBy(target.x - (view.left + view.width / 2), target.y - (view.top + view.height / 2))
+    const r2 = edge.getBoundingClientRect()
+    return {
+      id: `${i.plane}:${i.x}:${i.y}`,
+      x: r2.left + ((i.x + 8) * r2.width) / mapW,
+      y: r2.top + ((i.y + 8) * r2.height) / mapH,
+    }
+  })
+  await page.mouse.move(at.x + 1, at.y)
+  await page.mouse.move(at.x, at.y)
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const w = getSvc('ApplicationShell').widgets.find(x => x.id === 'hackbench.map-view:9')
+          return w.hover ? `${w.hover.plane}:${w.hover.x}:${w.hover.y}` : null
+        }),
+      { timeout: 15000 },
+    )
+    .toBe(at.id)
   await expect.poll(moving, { timeout: 20000 }).toBe(true)
+  await expect.poll(shown, { timeout: 20000 }).toBe(true)
   // A layer toggle is honored and Play keeps going.
   const l1 = page.locator(`${rootOf(0x9)} [data-control="layer-l1"]`)
   await l1.click()
@@ -277,6 +307,40 @@ test('while playing, a hover over an indicator and a layer toggle leave every sc
   expect((await snapshot(page, 0x9)).playing).toBe(true)
   await l1.click()
   await expect.poll(moving, { timeout: 20000 }).toBe(true)
+})
+
+test('a refused map has a disabled button that says why, and moves nothing', async ({ page }) => {
+  for (const [slot, reason] of [
+    [0x122, /depends on where Mario is/],
+    [0xd4, /camera follows Mario/],
+  ]) {
+    await openMap(page, slot)
+    const run = await motionOf(page, slot)
+    expect(run.status).toBe('unavailable')
+    const play = page.locator(playOf(slot))
+    await expect(play).toBeDisabled({ timeout: 30000 })
+    await expect(play).toHaveAttribute('data-play-state', 'refused')
+    await expect(play).toHaveAttribute('title', reason)
+    expect((await snapshot(page, slot)).playing).toBe(false)
+  }
+})
+
+test('a tab that is hidden stops Play, and shows the map at rest when it comes back', async ({
+  page,
+}) => {
+  await openMap(page, 0x9)
+  const run = await motionOf(page, 0x9)
+  await expect(page.locator(playOf(0x9))).toBeEnabled({ timeout: 30000 })
+  await page.locator(playOf(0x9)).click()
+  await untilShifted(page, 0x9, run)
+  await openMap(page, 0x105)
+  await expect.poll(async () => (await snapshot(page, 0x9)).playing, { timeout: 15000 }).toBe(false)
+  await page.evaluate(() => {
+    const shell = getSvc('ApplicationShell')
+    return shell.activateWidget('hackbench.map-view:9')
+  })
+  await expect(page.locator(playOf(0x9))).toHaveAttribute('data-play-state', 'ready')
+  expect((await snapshot(page, 0x9)).shift).toBe(0)
 })
 
 test('$1EF: plays as if Mario stands on Layer 2, says so, and shows no camera frame', async ({

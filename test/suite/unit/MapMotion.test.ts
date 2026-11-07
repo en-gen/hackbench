@@ -92,7 +92,7 @@ describe('synthetic carts', () => {
   it('relativeShift: sampled where the camera has moved, off a nonzero base, and across the 16-bit wrap', () => {
     const f = { l1x: [0, 0, 0], l1y: [192, 150, 80], l2x: [0, 0, 0], l2y: [192, 100, 210] }
     // Camera minus Layer 2: 0, 50, -130; frame 0 is the base.
-    expect(relativeShift(f)).toEqual({ y: [0, 50, -130], xMoves: false })
+    expect(relativeShift(f)).toEqual({ y: [0, 50, -130], x: [0, 0, 0], xMoves: false })
     const off = { l1x: [0, 0], l1y: [192, 192], l2x: [0, 0], l2y: [100, 90] }
     expect(relativeShift(off).y).toEqual([0, 10])
     // Positions near the wrap: 0 - 65535 is +1, 0 - 1 is -1, so the offset is -2.
@@ -126,6 +126,29 @@ describe('synthetic carts', () => {
 
   it('a routine whose motion follows Mario is refused even though it moves by itself', () => {
     expect(run('marioDrive')).toMatchObject({ status: 'refused', kind: 'mario-dependent' })
+  })
+
+  it('a dependence that shows only after the first frames is still found', () => {
+    // The rise takes 256 frames at step 1; Mario's Y reaches Layer 1 only from frame 200.
+    expect(run('lateMario', 1)).toMatchObject({ status: 'refused', kind: 'mario-dependent' })
+  })
+
+  it('Mario stays moved on every frame of the dependence run', () => {
+    // The routine zeroes his Y each frame and reads it from frame 3: moved once, the difference would vanish.
+    expect(run('marioHeld')).toMatchObject({ status: 'refused', kind: 'mario-dependent' })
+  })
+
+  it('a camera that follows Mario, with Layer 2 following the camera, is refused with its own reason', () => {
+    const r = run('camFollow')
+    expect(r).toMatchObject({ status: 'refused', kind: 'camera-follows-mario' })
+    if (r.status === 'refused') expect(r.reason).toMatch(/camera follows Mario/)
+  })
+
+  it('code that faults only in the Mario run, or only in the camera run, is an interpreter refusal', () => {
+    expect(run('brkIfMario')).toMatchObject({ status: 'refused', kind: 'interpreter' })
+    expect(run('brkIfCam')).toMatchObject({ status: 'refused', kind: 'interpreter' })
+    // Faulting in the camera run alone must not be lost to the run after it, which goes on to say no-motion.
+    expect(run('brkCamOnly')).toMatchObject({ status: 'refused', kind: 'interpreter' })
   })
 
   it('a start later than 60 frames is still found', () => {
@@ -188,7 +211,22 @@ describe('synthetic carts', () => {
 })
 
 /** The refusals a vanilla slot may end in: never the loader, the entries or the interpreter. */
-const KEPT_REFUSALS = ['no-motion', 'sideways', 'mario-dependent']
+const KEPT_REFUSALS = ['no-motion', 'sideways', 'mario-dependent', 'camera-follows-mario']
+
+/** Every vanilla slot with a scroll command, and what the run says for it (the sweep, one machine, 2026-11-07). */
+const PINNED: Record<number, string> = {
+  0x009: 'ok:own-motion',
+  0x1e2: 'ok:needs-mario',
+  0x1ec: 'ok:needs-mario',
+  0x1ef: 'ok:needs-mario',
+  ...Object.fromEntries(
+    [0x00c, 0x01f, 0x0c8, 0x0e7, 0x1c8, 0x1d4, 0x1fc].map(n => [n, 'refused:sideways']),
+  ),
+  ...Object.fromEntries([0x01a, 0x111, 0x122, 0x1d1].map(n => [n, 'refused:mario-dependent'])),
+  ...Object.fromEntries(
+    [0x0d4, 0x0dc, 0x115, 0x1ce, 0x1cf, 0x1e3, 0x1f3].map(n => [n, 'refused:camera-follows-mario']),
+  ),
+}
 
 describe.skipIf(!hasRom(VANILLA))('vanilla corpus', () => {
   const rom = () => freshRom(VANILLA)
@@ -229,13 +267,23 @@ describe.skipIf(!hasRom(VANILLA))('vanilla corpus', () => {
   it('every slot runs: none is refused by the loader, the entries or the interpreter', () => {
     const r = rom()
     const seen = new Map<string, number>()
+    const wrong: string[] = []
     for (let level = 0; level < 0x200; level++) {
       const m = runMapMotion(r, level)
       const key = m.status === 'refused' ? `refused:${m.kind}` : `${m.status}`
       seen.set(key, (seen.get(key) ?? 0) + 1)
+      const got = m.status === 'ok' ? `ok:${m.kind}` : m.status === 'none' ? 'none' : key
+      if (got !== (PINNED[level] ?? 'none')) wrong.push(`${level.toString(16)}: ${got}`)
       if (m.status === 'refused')
         expect(KEPT_REFUSALS, `slot ${level.toString(16)}: ${m.reason}`).toContain(m.kind)
     }
-    expect(seen.get('ok')).toBeGreaterThan(2)
+    expect(wrong).toEqual([])
+    expect(Object.fromEntries(seen)).toEqual({
+      none: 490,
+      ok: 4,
+      'refused:sideways': 7,
+      'refused:mario-dependent': 4,
+      'refused:camera-follows-mario': 7,
+    })
   }, 600_000)
 })

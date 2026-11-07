@@ -123,6 +123,22 @@ describe('mapMotion refusals', () => {
   })
 })
 
+describe('mapMotion strips on the wire', () => {
+  it('a screen with nothing below it sends null, one with ink sends it in the plane it belongs to', () => {
+    const grid = blank(32, 32)
+    grid[28]![16] = 1 // screen 1 only, below the screen
+    const plain = reply(modelOf(l2Of(grid, solid)), runOf())
+    const high = reply(modelOf(l2Of(grid, prio)), runOf())
+    if (plain.status !== 'ok' || high.status !== 'ok') throw new Error('expected ok')
+    expect(plain.strips[0]).toBeNull()
+    expect(plain.strips[1]!.high).toBeNull()
+    expect(plain.strips[1]!.low).toEqual(expect.any(String))
+    expect(high.strips[0]).toBeNull()
+    expect(high.strips[1]!.low).toBeNull()
+    expect(high.strips[1]!.high).toEqual(expect.any(String))
+  })
+})
+
 describe('drawL2Strip', () => {
   const model = inputs(hGrid(2), false, 2)
   const W = 256

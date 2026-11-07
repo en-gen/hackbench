@@ -79,6 +79,7 @@ export type MotionResult =
         | 'no-motion'
         | 'sideways'
         | 'mario-dependent'
+        | 'camera-follows-mario'
       reason: string
     }
 
@@ -102,15 +103,12 @@ export function motionEntries(rom: RomFile): { screen: number; scroll: number } 
 }
 
 /** Layer 2's draw offsets: how far its position against Layer 1 has moved from frame 0. */
-export function relativeShift(f: MotionFrames): { y: number[]; xMoves: boolean } {
+export function relativeShift(f: MotionFrames): { y: number[]; x: number[]; xMoves: boolean } {
   const y0 = diff16(f.l1y[0]!, f.l2y[0]!)
   const x0 = diff16(f.l1x[0]!, f.l2x[0]!)
-  let xMoves = false
-  const y = f.l1y.map((_, i) => {
-    if (diff16(f.l1x[i]!, f.l2x[i]!) !== x0) xMoves = true
-    return diff16(diff16(f.l1y[i]!, f.l2y[i]!), y0)
-  })
-  return { y, xMoves }
+  const x = f.l1x.map((_, i) => diff16(diff16(f.l1x[i]!, f.l2x[i]!), x0))
+  const y = f.l1y.map((_, i) => diff16(diff16(f.l1y[i]!, f.l2y[i]!), y0))
+  return { y, x, xMoves: x.some(v => v !== 0) }
 }
 
 interface Pass {
@@ -203,6 +201,10 @@ const relMoved = (f: MotionFrames): boolean => {
 
 const MARIO_DEPENDENT =
   'What this map moves depends on where Mario is, so Play cannot show it on its own.'
+const CAMERA_FOLLOWS = 'The camera follows Mario here, and Play has no Mario to follow.'
+
+const same = (a: number[], b: number[]): boolean =>
+  a.length === b.length && a.every((v, i) => v === b[i])
 
 /** The same from a loaded map's WRAM (copied into each run's own machine, so the caller's array is not touched). */
 export function motionFromWram(rom: RomFile, wram: Uint8Array): MotionResult {
@@ -223,11 +225,14 @@ export function motionFromWram(rom: RomFile, wram: Uint8Array): MotionResult {
   let pass = run('none')
   if (failed(pass)) return failed(pass)!
   if (moved(pass.frames)) {
-    // The same frames with Mario somewhere else: any difference means he drives the motion.
+    // The same frames with Mario somewhere else. What Play draws is Layer 2 against the camera: if that
+    // differs he drives the motion; if only the camera differs, the camera follows him.
     const other = run('mario', pass.frames.l1x.length - 1)
     if (failed(other)) return failed(other)!
-    if (KEYS.some(k => other.frames[k].some((v, i) => v !== pass.frames[k][i])))
-      return refuse('mario-dependent', MARIO_DEPENDENT)
+    const [a, b] = [relativeShift(pass.frames), relativeShift(other.frames)]
+    if (!same(a.y, b.y) || !same(a.x, b.x)) return refuse('mario-dependent', MARIO_DEPENDENT)
+    if (!same(pass.frames.l1x, other.frames.l1x) || !same(pass.frames.l1y, other.frames.l1y))
+      return refuse('camera-follows-mario', CAMERA_FOLLOWS)
   } else {
     kind = 'needs-mario'
     // The camera alone must move nothing: a routine the placed camera moves depends on where Mario is.

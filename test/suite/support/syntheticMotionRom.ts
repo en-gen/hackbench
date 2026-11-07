@@ -14,6 +14,12 @@ export type MotionRoutine =
   | 'late' // rises once a frame counter has passed 150
   | 'marioDrive' // rises, and Layer 1 Y copies Mario's Y
   | 'followx' // the camera X rises and Layer 2 X follows it
+  | 'lateMario' // from frame 200, Layer 1 Y copies Mario's Y
+  | 'marioHeld' // from frame 3, Layer 1 Y copies Mario's Y, and Mario's Y is zeroed every frame
+  | 'brkIfMario' // faults when Mario's Y is not 0
+  | 'brkIfCam' // moves nothing, and faults when the camera X is not 0
+  | 'brkCamOnly' // moves nothing, and faults when the camera is placed but Layer2Touched is clear
+  | 'camFollow' // rises, and both camera X words copy Mario's X
   | 'idle'
   | 'brk'
   | 'sideways' // Layer 2 X rises alone
@@ -72,6 +78,12 @@ const ROUTINES: Record<MotionRoutine, string> = {
   marioDrive: `${OPEN} ${rise(0x1468)} a5 96 8d 64 14 ${CLOSE}`,
   // rise the camera X, then copy it to NextLayer2X
   followx: `${OPEN} ${rise(0x1462)} ad 62 14 8d 66 14 ${CLOSE}`,
+  lateMario: `${OPEN} ad 00 15 1a 8d 00 15 c9 c8 00 90 05 a5 96 8d 64 14 ${rise(0x1468)} ${CLOSE}`,
+  marioHeld: `${OPEN} ad 00 15 1a 8d 00 15 c9 03 00 90 05 a5 96 8d 64 14 64 96 ${rise(0x1468)} ${CLOSE}`,
+  brkIfMario: `${OPEN} a5 96 f0 02 00 00 ${rise(0x1468)} ${CLOSE}`,
+  brkIfCam: `${OPEN} ad 62 14 f0 02 00 00 ${CLOSE}`,
+  brkCamOnly: `${OPEN} ad 0e 14 d0 07 ad 62 14 f0 02 00 00 ${CLOSE}`,
+  camFollow: `${OPEN} ${rise(0x1468)} a5 94 8d 62 14 8d 66 14 ${CLOSE}`,
   idle: '8b ab 6b',
   brk: '8b 00 00',
   sideways: `${OPEN} ${rise(0x1466)} ${CLOSE}`,
