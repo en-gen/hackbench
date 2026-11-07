@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { readMarioGraphics, uploadProbe } from '../../../../src/rom/MarioGraphics'
+import { MARIO_GFX_BASE, readMarioGraphics, uploadProbe } from '../../../../src/rom/MarioGraphics'
 import { parseLevelSprites } from '../../../../src/rom/LevelParser'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
@@ -25,7 +25,11 @@ import { slow } from '../../support/loadTimeout'
 
 /** The three maps Golf's one-off sweep of all 512 found changes on; a full sweep takes minutes, so it is not committed. */
 const MAPS = [0x11c, 0x1c4, 0x1c5]
-/** `map:spriteIndex:id:neighbourRun` (hex map and id). The brief and Golf's sweep said 13; this sweep of all 512 maps found 1. */
+/**
+ * `map:spriteIndex:id:neighbourRun` (hex map and id). Golf's 13 counted RUNS on 3 sprites (11c:1:1f, 1c4:8:1e, 1c5:8:1e);
+ * 12 are reveal-probe runs whose uploads are discarded unless the reveal is 'hidden' (map-sprites.ts:862-864), so 1 sprite's
+ * model uploads change. A full sweep (488 of 512 maps compared, one machine, one run, not committed) agreed.
+ */
 const CHANGED = ['11c:1:1f:same']
 /** The changed sprites whose frames differ; a frame change is a neighbor's art going away. */
 const FRAMES_CHANGED: string[] = []
@@ -47,9 +51,22 @@ const oldRun = (
   })
   return Object.assign(m, { uploads: u.byPass })
 }
+/** A planted old run: every pass but the chosen one also points all 10 slots into the player buffer, so the frames differ. */
+const plantedRun: typeof oldRun = (...a) => {
+  const m = oldRun(...a)
+  const slots = Array.from({ length: 10 }, (_, slot) => ({
+    slot,
+    ptr: MARIO_GFX_BASE + 0x80 * slot,
+  }))
+  return {
+    ...m,
+    uploads: m.passes.map((_, p) => (p === m.chosen ? (m.uploads?.[p] ?? []) : slots)),
+  }
+}
 
-describe.skipIf(!hasRom(VANILLA))('neighbor rerun upload probe vs frames (#1169)', () => {
-  it('lists the sprites whose uploads changed and compares their frames', slow(120_000), () => {
+/** Sweeps `maps`: the sprites whose uploads differ between today's runs and `before`'s, and whether their frames do. */
+function sweep(maps: number[], beforeRun: typeof oldRun) {
+  {
     const path = romPath(VANILLA)
     const bytes = new Uint8Array(readFileSync(path))
     const rom = RomFile.fromBytes(path, Buffer.from(bytes))
@@ -60,7 +77,7 @@ describe.skipIf(!hasRom(VANILLA))('neighbor rerun upload probe vs frames (#1169)
     const framesDiff: string[] = []
     const table: string[] = []
     const t0 = Date.now()
-    for (const index of MAPS) {
+    for (const index of maps) {
       const ptr = smw.getLevelSpritePointer(index)
       const built = ptr === null ? undefined : cache.get(bytes, path, index, none)
       if (!ptr || !built?.ok) continue
@@ -83,7 +100,7 @@ describe.skipIf(!hasRom(VANILLA))('neighbor rerun upload probe vs frames (#1169)
           rom,
           index,
           model,
-          oldRun,
+          beforeRun,
           () => base,
           undefined,
           undefined,
@@ -113,7 +130,19 @@ describe.skipIf(!hasRom(VANILLA))('neighbor rerun upload probe vs frames (#1169)
       }
     }
     console.log(`${table.join('\n')}\nsweep ${Date.now() - t0} ms`)
-    expect(changed).toEqual(CHANGED)
-    expect(framesDiff).toEqual(FRAMES_CHANGED)
+    return { changed, framesDiff }
+  }
+}
+
+describe.skipIf(!hasRom(VANILLA))('neighbor rerun upload probe vs frames (#1169)', () => {
+  it('lists the sprites whose uploads changed and compares their frames', slow(120_000), () => {
+    const r = sweep(MAPS, oldRun)
+    expect(r.changed).toEqual(CHANGED)
+    expect(r.framesDiff).toEqual(FRAMES_CHANGED)
+  })
+
+  // Proves the frames comparison can fail: extra uploads on the passes the picture is not drawn from must show as a frame change.
+  it('reports a frames change when the old run uploads more (planted)', slow(120_000), () => {
+    expect(sweep([0x11c], plantedRun).framesDiff.length).toBeGreaterThan(0)
   })
 })
