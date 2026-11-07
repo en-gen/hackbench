@@ -19,8 +19,8 @@ SMW runs BG mode 1. Traceable:
 
 The priority ORDER itself is not in the disassembly and cannot be: it is PPU
 silicon, not code. It is taken from
-[`snes-superfamicom-selected.md:501-518`](snes-superfamicom-selected.md),
-which is hardware documentation and the one link in this chain with no
+the Super Famicom Development Wiki's rendering-the-screen page
+([references.md](../references.md)), which is hardware documentation and the one link in this chain with no
 `SMWDisX` citation. Front to back with the BG3-priority bit SET:
 
 | | layer |

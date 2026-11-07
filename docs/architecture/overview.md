@@ -38,16 +38,11 @@ flowchart TB
 
 **`src/rom/` and `src/project/` are the core.** Plain TypeScript with no
 Theia and no VS Code imports, so every one of them is testable without
-starting a shell. This is enforced by convention and stated at the top of
-each module. Everything that knows how to read a ROM lives here.
-`src/rom/cpu/` is a 65816 core over a `Bus` interface (registers, flags and
-memory effects per instruction, no timing, no SMW knowledge).
-`src/rom/collision/` runs SMW's own Mario-vs-layer-1 block code on that core
-to find what each Map16 tile does (`TileProbe.ts`: floor and ceiling depth per
-pixel column, blocked sides, hurt, or unknown when a run throws, spends its
-budget or leaves ROM), then composes the tiles of a map into floor, ceiling,
-wall and unknown polylines (`Compose.ts`). Method and evidence:
-`spikes/collision-probe/README.md`.
+starting a shell. Everything that knows how to read a ROM lives here.
+`src/rom/cpu/` is a 65816 core over a `Bus` interface (no timing, no SMW
+knowledge). `src/rom/collision/` runs SMW's own block code on it to find what
+each Map16 tile does (`TileProbe.ts`), then composes a map's tiles into
+polylines (`Compose.ts`). Evidence: `spikes/collision-probe/README.md`.
 
 **`theia/` is the application.** It consumes the core and adds the user
 interface. See [theia-shell.md](theia-shell.md).
@@ -77,17 +72,12 @@ A ROM on disk is read once into base bytes; the layer stack is applied over
 them to make the working copy; the node servers decode from that on demand
 and hand results to the widgets over JSON-RPC.
 
-
-A view that shows ROM content is supposed to read the **working copy**,
-never the base bytes. That is what makes a palette edit show up immediately
-in an already-open GFX sheet: both read the same `WorkingRom` instance,
-handed out by `WorkingRomRegistry`.
-
-Palette, GFX, Map16 and Maps all read the working copy through
-`WorkingRomRegistry`. There is no exception: since #421 step 3
+Every view reads the **working copy**, never the base bytes, which is why a
+palette edit shows up at once in an open GFX sheet: both read the same
+`WorkingRom` instance, handed out by `WorkingRomRegistry`.
 `test/suite/gates/workingCopyGate.test.ts` bans `RomFile.load(` and
-`RomRegistry` in every `*-server.ts`, `project-server.ts` included. See
-[../glossary.md](../glossary.md), "Working copy".
+`RomRegistry` in every `*-server.ts`. See [../glossary.md](../glossary.md),
+"Working copy".
 
 ## The edit model is a flux loop
 
@@ -119,13 +109,6 @@ server, and [theia-shell.md](theia-shell.md) is where they are set out.
 
 Layer ordering is a contract rather than an implementation detail;
 [project-format.md](project-format.md) states it.
-
-## Where the bytes are allowed to live
-
-The project format carries no ROM bytes at all, and that falls out of the
-design rather than being a policy applied on top. The one deliberate
-exception is the op format itself.
-[project-format.md](project-format.md) explains both.
 
 ## Related reading
 
