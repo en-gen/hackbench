@@ -6,11 +6,14 @@
  * of its own misses the one the config picked: 122 of 653 tests were refused
  * a connection on gh01's first full run, 2026-11-05.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const CONFIG = path.resolve(__dirname, '../../../theia/browser-app/playwright.config.cjs')
 const SPECS = path.join(path.dirname(CONFIG), 'test')
@@ -88,7 +91,7 @@ describe('Playwright specs take their port from HB_PORT', () => {
   })
 })
 
-describe('playwright.config.cjs ports', { timeout: 60000 }, () => {
+describe('playwright.config.cjs ports', { timeout: loadTimeout(120_000) }, () => {
   it('HB_PORT=3002 drives the webServer command and url', () => {
     const { out } = load({ HB_PORT: '3002' })
     expect(out.url).toBe('http://127.0.0.1:3002')

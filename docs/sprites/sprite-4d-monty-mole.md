@@ -36,6 +36,11 @@ The branch is NOT taken for `_F` in [-96, +95]: a 192 px window, 96 px
 left and 95 px right of the sprite anchor. That is the width of the
 editor's detection-zone overlay.
 
+Only the LOW byte of the distance is tested (`SubHorizPos` keeps the high-byte difference for the sign only, 13342
+reads `_F` alone, bank_01.asm:6124-6129), so the window repeats every 256 px: a mole 256 px from Mario is
+as awake as one beside him. A check that probes Mario at whole-distance offsets misses the hidden band
+(`docs/rom/reveal-search.md`).
+
 ### State 1: the pose the editor draws
 
 `CODE_01E309` (13362) sets `SpriteYSpeed = #$B0` (13367-13368), calls

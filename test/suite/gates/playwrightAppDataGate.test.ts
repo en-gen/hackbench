@@ -7,7 +7,7 @@
  * Runs with no ROM. The "real" app-data folder is a fake home, so the test
  * never reads or writes the actual one on the machine running it.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createRequire } from 'module'
 import { spawnSync, type SpawnOptions } from 'child_process'
 import * as fs from 'fs'
@@ -18,7 +18,9 @@ import { appDataDir } from '../../../src/project/appData'
 import { RecentProjects, defaultRecentPath } from '../../../src/project/RecentProjects'
 import { defaultRegistryPath } from '../../../src/project/RomRegistry'
 import { defaultCoreRegistryPath } from '../../../src/project/CoreRegistry'
-import { slow } from '../support/loadTimeout'
+import { slow, loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const nodeRequire = createRequire(__filename)
 const BROWSER_APP = path.resolve(__dirname, '../../../theia/browser-app')

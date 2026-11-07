@@ -7,6 +7,7 @@ import {
   collisionKey,
   collisionPlan,
   initialSwitchState,
+  isDifferentMap,
   reduce,
   type MapViewAction,
 } from '../../../theia/extension/src/browser/map-view-state'
@@ -73,5 +74,16 @@ describe('collisionPlan', () => {
   it('re-checks when the toggle was disabled by a probe refusal for the old state, so it does not stay stuck', () => {
     expect(plan(yellow, false, true).recheck).toBe(true)
     expect(plan(yellow, false, false).recheck).toBe(false)
+  })
+})
+
+describe('isDifferentMap', () => {
+  const a = { manifestPath: '/p/a.hbproj', index: 0x105 }
+
+  it('is false for the same map and for a first open, true for another index or manifest', () => {
+    expect(isDifferentMap(a, { ...a })).toBe(false)
+    expect(isDifferentMap(undefined, a)).toBe(false)
+    expect(isDifferentMap(a, { ...a, index: 0x106 })).toBe(true)
+    expect(isDifferentMap(a, { ...a, manifestPath: '/p/b.hbproj' })).toBe(true)
   })
 })

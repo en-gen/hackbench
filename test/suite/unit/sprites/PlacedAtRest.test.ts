@@ -19,6 +19,7 @@ import { L1ModelCache } from '../../../../theia/extension/src/node/map-screen'
 import { VANILLA, hasRom, romPath } from '../../support/corpus'
 import { grinderShape } from '../../support/syntheticGrinder'
 import { buildSyntheticRom } from '../../support/syntheticSpriteRom'
+import { slow } from '../../support/loadTimeout'
 
 const rom = buildSyntheticRom()
 
@@ -66,30 +67,34 @@ describe.skipIf(!hasRom(VANILLA))('at rest on vanilla', () => {
     [0x0f, 0x65, 30],
     [0x1a, 0x67, 13],
   ] as const)
-    it(`every $${id.toString(16)} on map $${map.toString(16)} is drawn on its line (odd column) or stays on its tile (even column, never appears), D156`, () => {
-      const got = placed(map, id)
-      expect(got.length).toBeGreaterThan(0)
-      let n = 0
-      for (const { s, r } of got) {
-        if (!('m' in r)) throw new Error('direct answer')
-        expect(r.m.refusal).toBeUndefined()
-        // The oracle is InitLineGuidedSpr (bank_01.asm:11788-11809): bit 4 of X clear subtracts $140, set adds $0F. D156:
-        // an odd column starts ahead of the scroll and is drawn on its line (INIT's spot is `initAt`); an even column
-        // starts behind it in every spawn, so it stays on its stored tile.
-        expect(r.m.anchor).toMatchObject({ rawX: s.x * 16, rawY: s.y * 16 })
-        if ((s.x * 16) & 0x10) {
-          expect(r.m.shifted).toBe(true)
-          expect(r.m.initAt).toEqual({ x: s.x * 16 + 15, y: s.y * 16 })
-        } else {
-          expect(r.m.neverAppears).toBe(true)
-          expect([r.m.anchor?.x, r.m.anchor?.y]).toEqual([s.x * 16, s.y * 16])
-          expect(r.m.shifted).toBeUndefined()
+    it(
+      `every $${id.toString(16)} on map $${map.toString(16)} is drawn on its line (odd column) or stays on its tile (even column, never appears), D156`,
+      slow(15_000),
+      () => {
+        const got = placed(map, id)
+        expect(got.length).toBeGreaterThan(0)
+        let n = 0
+        for (const { s, r } of got) {
+          if (!('m' in r)) throw new Error('direct answer')
+          expect(r.m.refusal).toBeUndefined()
+          // The oracle is InitLineGuidedSpr (bank_01.asm:11788-11809): bit 4 of X clear subtracts $140, set adds $0F. D156:
+          // an odd column starts ahead of the scroll and is drawn on its line (INIT's spot is `initAt`); an even column
+          // starts behind it in every spawn, so it stays on its stored tile.
+          expect(r.m.anchor).toMatchObject({ rawX: s.x * 16, rawY: s.y * 16 })
+          if ((s.x * 16) & 0x10) {
+            expect(r.m.shifted).toBe(true)
+            expect(r.m.initAt).toEqual({ x: s.x * 16 + 15, y: s.y * 16 })
+          } else {
+            expect(r.m.neverAppears).toBe(true)
+            expect([r.m.anchor?.x, r.m.anchor?.y]).toEqual([s.x * 16, s.y * 16])
+            expect(r.m.shifted).toBeUndefined()
+          }
+          if (r.m.chosen !== undefined) n++
+          else expect(r.m.emptyReason).toMatch(/drew no OAM tile/)
         }
-        if (r.m.chosen !== undefined) n++
-        else expect(r.m.emptyReason).toMatch(/drew no OAM tile/)
-      }
-      expect(n).toBe(drawn)
-    })
+        expect(n).toBe(drawn)
+      },
+    )
 })
 
 describe('a line-guided sprite whose INIT shifts it is drawn where INIT left it (R16, synthetic cart)', () => {
@@ -344,5 +349,49 @@ describe('the D139 picture', () => {
     expect(m.initFrames).toBe(1)
     expect(m.anchor).toMatchObject({ x: 0x80, rawX: 0x80 })
     expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
+  })
+})
+
+describe('at rest, a handler that moves in MAIN (#1131)', () => {
+  // Ids 37 and 38 move by ($0E, $0F) in MAIN, 37 after its draw and 38 before; 39 lifts Y by 16 around its draw and
+  // 40 then moves X by +4; 32 draws from its second pass on and moves X by +4 after each draw.
+  const moving = (dx: number, dy: number) => withSeed({ ram: { 0x0e: dx, 0x0f: dy } })
+  const MOVES = [[4, 0], [0, 4], [3, 5], [7, 2], [0, 0]] as const // prettier-ignore
+  for (const [dx, dy] of MOVES) {
+    it(`draws before a move of (${dx}, ${dy}): the picture sits at the placed spot`, () => {
+      const m = runOnce(rom, 37, moving(dx, dy), { atRest: true })
+      expect(m.refusal).toBeUndefined()
+      expect(m.passes[0]!.pos).toEqual({ x: 0x80 + dx, y: 0x80 + dy })
+      expect(m.passes[0]!.origin).toEqual({ x: 0x80, y: 0x80 })
+      expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
+    })
+    it(`moves (${dx}, ${dy}) before the draw: the picture keeps the move (the Podoboo jump)`, () => {
+      const m = runOnce(rom, 38, moving(dx, dy), { atRest: true })
+      expect(m.refusal).toBeUndefined()
+      expect(m.passes[0]!.origin).toEqual(m.passes[0]!.pos)
+      expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
+    })
+  }
+  it('lifts Y for the draw and restores it: the picture keeps the end-of-pass spot (id 39)', () => {
+    const m = runOnce(rom, 39, SPRITE_SEED, { atRest: true })
+    expect(m.refusal).toBeUndefined()
+    expect(m.passes[0]!.drawPos!.y).toBe(m.passes[0]!.pos.y - 16)
+    expect(m.passes[0]!.origin).toEqual(m.passes[0]!.pos)
+    expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: -16 })
+  })
+  it('a displaced draw followed by a move cannot be told from a move first: the end of the pass stands (id 40)', () => {
+    const m = runOnce(rom, 40, SPRITE_SEED, { atRest: true })
+    expect(m.passes[0]!.drawPos!.y).toBe(m.passes[0]!.pos.y - 16)
+    expect(m.passes[0]!.origin).toEqual(m.passes[0]!.pos)
+    expect(m.passes[0]!.parts[0]).toMatchObject({ dx: -4, dy: -16 })
+  })
+  it('a pass that draws nothing keeps the end of the pass; a later pass measures from where it began (id 32)', () => {
+    const m = runOnce(rom, 32, SPRITE_SEED, { atRest: true })
+    expect(m.chosen).toBe(1)
+    expect(m.passes[0]!.drawPos).toBeUndefined()
+    expect(m.passes[0]!.origin).toEqual(m.passes[0]!.pos)
+    expect(m.passes[1]!.drawPos).toEqual(m.passes[0]!.pos)
+    expect(m.passes[1]!.origin).toEqual(m.passes[0]!.pos)
+    expect(m.passes[1]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
   })
 })

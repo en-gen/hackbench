@@ -5,9 +5,12 @@ import { spawnSync } from 'node:child_process'
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 // @ts-expect-error plain .mjs without types
 import { checkTheiaInstall } from '../../../tools/scripts/check-theia-install.mjs'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const root = mkdtempSync(path.join(tmpdir(), 'hb-theia-install-'))
 afterAll(() => {

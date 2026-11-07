@@ -4,6 +4,7 @@
  * no shell imports, so it is unit tested without Theia.
  */
 import type { MapSpriteDto, SpritePartDto } from '../common/project-protocol'
+import { RIDES_WITH_REASON } from '../common/project-protocol'
 import type { FramesState } from './sprite-frames'
 
 const TILE = 16
@@ -14,25 +15,31 @@ export function spriteLabel(s: Pick<MapSpriteDto, 'id' | 'name'>): string {
   return s.name ? `${s.name} (sprite ${id})` : `Sprite ${id}`
 }
 
+/** The hover text of a marker, "Name (sprite $XX): why", or undefined for a sprite that is drawn (#1083). */
+export const placeholderText = (
+  s: Pick<MapSpriteDto, 'id' | 'name'> & Partial<Pick<MapSpriteDto, 'status' | 'reason'>>,
+): string | undefined =>
+  s.status === 'placeholder' ? `${spriteLabel(s)}: ${notDrawnText(s.reason)}` : undefined
+
 /** What the pane says for a sprite with one pose; when frames could not be had it says `Animation not shown` instead. */
 export const NOT_ANIMATED = 'Not animated: this sprite shows one pose.'
 export const LOADING_FRAMES = 'Checking for animation frames...'
 export const animatedText = (n: number) => `Animated: ${n} frames, looping.`
 
-/** Why a sprite is drawn as a numbered marker, in words; the engine's own reason is kept when it is not one of these. */
+/** Why a sprite is drawn as a numbered marker, in words. The engine's own codes are not kept: an unknown one gets the generic line. */
 const WHY_NOT_DRAWN: Record<string, string> = {
   extraBits:
     'It uses the extra-bits marker that custom sprites use, so vanilla art would be wrong.',
   noParts: 'Its code drew no tiles.',
   charsNotLoaded: 'Some of its graphics are not loaded on this map.',
   noDescriptor: 'The app has no drawing rules for this sprite yet.',
+  unrevealed: 'It draws nothing at first, and the app could not tell what reveals it.',
 }
 
 /** Why a sprite is a marker, in words. The engine's reason codes never reach the screen: an unknown one gets the generic line. */
 export function notDrawnText(reason: string | undefined): string {
   if (!reason) return 'The app has no reason recorded for this.'
-  const known = WHY_NOT_DRAWN[reason]
-  if (known) return known
+  if (Object.hasOwn(WHY_NOT_DRAWN, reason)) return WHY_NOT_DRAWN[reason]!
   if (reason === 'customHandler') return 'This map runs different code for this sprite than the game does, so vanilla art would be wrong.' // prettier-ignore
   if (reason.startsWith('refused:')) return "The app could not run this sprite's code."
   if (reason.startsWith('drew no')) return WHY_NOT_DRAWN.noParts!
@@ -44,7 +51,9 @@ export function notDrawnText(reason: string | undefined): string {
  * UI strings); this is the only place they become sentences, and an unknown one never reaches the screen.
  */
 export function framesReasonText(reason: string): string {
-  if (reason === 'extraBits') return WHY_NOT_DRAWN.extraBits!
+  if (Object.hasOwn(WHY_NOT_DRAWN, reason)) return WHY_NOT_DRAWN[reason]!
+  if (reason === RIDES_WITH_REASON)
+    return 'Drawn as part of the sprite it rides with, not on its own.'
   if (reason === 'rom-not-located') return 'The ROM for this project could not be found.'
   if (reason.startsWith('refused:')) return "The app could not run this sprite's code."
   if (reason.startsWith('INIT erased')) return 'The sprite removes itself as it starts.'

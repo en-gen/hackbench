@@ -55,11 +55,80 @@ cannot be told from invented values by content, so the claim is the signal;
 say "invented values" instead, or add the pragma. A decimal array with `0x`
 elements mixed in counts toward `byte-tokens` too.
 
+`rom-window` (#1053): a text file a commit ADDS (not `.md`) with a run of byte
+notation (`0x` and `$` tokens, bare hex pairs, `\x` escapes, unbroken hex strings;
+the parser of the ROM-window probe below) that contains an 8-byte window of the
+vanilla ROM. It prints `BLOCKED (rom-window): <path> line N, M windows`, never the
+bytes, and exits 1 like every other rule. The text is read
+whole (bytes inside a comment count, and comment markers are not separators) and,
+for JS/TS and asm files only, again with comments blanked (so a `// step N` on every
+line does not split a run). Rows from both views are kept and the CLI prints one line per
+file and rule, so fixing one run can reveal the next. The probe blanks comments only.
+
+- **Filters.** Windows with fewer than 3 distinct values, a constant step (a ramp)
+  or a repeat of period 2 to 4 are ignored, because the vanilla ROM is full of them (measured below).
+  Cost, vanilla US, one machine, 2026-11-05: of 524,281 window positions, 43,597
+  (2,982 distinct windows) fall to the distinct-values filter and 5,770 more (1,036
+  distinct) to the ramp and loop filter, so a copied table that is itself a pure
+  ramp or short loop is not seen.
+- **Local only.** The windows come from the real vanilla ROM (found by
+  `corpus.cjs`, so `HACKBENCH_ROMS` applies): a regular file of 512 KiB after any
+  copier header with a valid LoROM checksum and complement. Any other file at that
+  path, or none, makes the rule not run. No hash set of ROM windows is committed
+  (D155), so CI has no ROM and keeps its other checks. A hack with a valid checksum
+  under the vanilla name is not detected. With no ROM, every mode except `history`
+  prints `rom-window rule DID NOT RUN` on stderr; a file that is not usable prints
+  its reason when a file qualifies to be judged (a bad ROM with only edits in the
+  range prints nothing, as there is nothing to judge); `history` prints its own
+  notice, since it never judges the rule (old files hold runs).
+- **What counts as added.** The per-commit walk decides: a file is added by a
+  non-merge commit that has it as A, or by a merge that has it as A against every
+  parent (a file merged in from develop is not). Each such blob is judged, so a run
+  committed and later removed or rewritten is caught in `range` and `push`. A rename
+  counts as added (`--no-renames`). `push` walks what is not on the remote, the tips
+  `ls-remote` names that this clone has, plus the tracking ref of a branch the remote
+  advertises at a tip this clone lacks (the remote moved on, or was rewritten: an
+  unknown tip cannot tell them apart, and the exclusion covers every rule in push). A tracking ref of a branch the
+  remote no longer advertises is not trusted, and an empty remote judges everything.
+  Known false blocks, loud (`--no-verify` is the way past), when the remote moved on
+  past this clone: a push by URL, an absent tracking ref; a lagging second remote also blocks when nothing moved, as those commits are not on it. `staged` uses the cached status and does
+  not apply the merge rule.
+- **Known gaps.** A file added clean and filled in a later commit, and any edit to
+  an existing file, is never judged (a stub-then-fill route; a run added by a merge
+  resolution to a file a parent has, or by a type change, are variants). A force-push
+  of a branch to a tip this clone lacks leaves its old tracking ref trusted, so a run
+  on that old ref passes until a fetch (pinned by a test). Not seen: a commented-out
+  table with under 8 bytes on each marked comment line (an unmarked block comment is read whole), and a comment on every line in files other than JS/TS
+  and asm (`.lua`, `.py`, `.yml`, `.c`, `.html`, `.css`, `.vue`, `.jsonc`).
+  `package-lock.json` and `yarn.lock` are exempt at any path. `.md` is excluded
+  because prose lists addresses, so a run there passes: 8 of 314 tracked `.md` files
+  hold one (43 windows, 70bf5b3f, 2026-11-05). A masked array (`null`, `undefined` or `??`
+  between the bytes) is not seen, because the `null` ends the run; that is #1280. A
+  digits-only two-character token next to a comma reads as decimal, so a list such
+  as `10, 32` is not read as hex. The only override is `git push --no-verify` with a
+  stated reason; CI has no bypass.
+- **Evidence** (2026-11-05, one machine, vanilla US, 16 remote heads). On develop
+  75 of 1,307 non-`.md` text files hold a run in the whole view (1,092 windows), 71
+  (1,166 windows) with comments blanked, 78 in either (develop 70bf5b3f). By longest run, 32 of the 75 hold
+  at most 2 windows, 45 at most 4, 57 at most 8, 18 more than 8, 7 more than 16 (the
+  longest is 36). Only 1 of the 1,092 windows is a single-bit mask table: ordinary
+  tables of that kind are the known legitimate sort. Nothing can prove a short
+  match legitimate; the rest go to #1253. Beyond develop, 13 other heads add no file
+  by path; `feature/music-import-prototype` adds 9 files with a run (windows per
+  file: 1, 1, 1, 1, 1, 1, 3, 26, 3) and `feature/sprite-interpreter-spike` 6 (1 each).
+- **Builders.** The ratchet that pins how many vanilla windows each synthetic
+  ROM builder carries (D157) follows in a later PR; builder counts are not pinned
+  until then.
+
+`test/suite/gates/contentGateRomWindows.test.ts` proves the rule red on planted
+runs in each notation (fake PRNG ROM in CI, real ROM locally), and the rest in
+throwaway repos.
+
 Modes: `staged` (no hook runs it since #1183), `range BASE HEAD` (CI),
 `push REMOTE`
 (`.githooks/pre-push`, reading stdin ref-updates and querying the remote
-live via `git ls-remote` rather than trusting local, possibly stale,
-remote-tracking refs), and `history [REF]` (the repo-migration oracle, run
+live via `git ls-remote`, trusting a local tracking ref only for a branch the
+remote advertises at a tip this clone lacks), and `history [REF]` (the repo-migration oracle, run
 in CI only once public: every blob reachable from `REF`, default `HEAD`,
 plus tags, never other branches, so an unmerged branch cannot fail an
 unrelated ref (unless tagged) (D59 A); a ref
@@ -95,13 +164,19 @@ content is never exempt, and a malformed line or unknown rule exits 2.
 A synthetic cart must not carry the game's code. The rule is mechanical: no 8 consecutive bytes with at least 3
 distinct values may also occur anywhere in the vanilla ROM. `test/suite/support/vanillaWindows.ts` holds the
 checker (it reports each hit as an SNES address) and `test/suite/unit/sprites/SyntheticSpriteRomNoVanilla.test.ts`
-applies it to the sprite cart, the default and each `SyntheticOptions` value on its own; it needs the vanilla ROM and
-skips without it. `CastleFlames.test.ts` applies it to the bytes its fixtures write over the plain cart.
+applies it to the sprite cart: the default and one variant set per `SyntheticOptions` field (`BY_OPTION`; a no-ROM check reads the
+`SyntheticOptions` interface as text and fails on a field with no entry, since the test tree is not typechecked in CI, with `grinderInitDelta` at every value real tests use, with and without
+`grinderAliases`), not combinations of options; `spawnTimer` and `initShift` are swept over 0..255. The scan needs the
+vanilla ROM and skips without it; CI has no ROM, so a vanilla window there stays green. The allow list ratchet, the
+planted cases and the variant coverage check need no ROM and run in CI. `CastleFlames.test.ts` applies it to the bytes its fixtures write over the plain cart.
 
-Where a reader in `src/` fixes the game's opcodes (or a fixture keeps the game's operand values on purpose), the
-window stays and the gate's allow list names the region and why. Each region spans at most 64 bytes and lists its
-exact hit count: a count that rises, drops or reaches zero fails until the list is updated, and planted cases prove
-those checks go red.
+The sprite cart's allow list (`ALLOWED` in that test) is empty and held there: a test that needs no ROM fails if it
+has any entry, and a planted entry proves it goes red (#1073). Some readers in `src/` still fix the game's own bytes
+(`ShellSprites.ts` SITES and the stored arrays in `SpriteDispatch.ts`, tracked in #1109); the cart keeps those
+opcodes in the game's order, with operands of its own, until #1109 removes the reader arrays. When a reader forces a window, change the
+fixture to an equivalent sequence with the same effect (a different operand pair with the same difference, or
+different instructions for the same state; never the game's instructions reordered or split), or make the reader run or fingerprint the code; do not add an
+allow list entry, which the ratchet refuses.
 
 ExecutePtr, CallSpriteInit and the grinder handler (#1082) were removed by running them instead: a stock-code
 SHA-256 needs at least 24 unknown bytes (not masked, not stated elsewhere in the working tree), and each of those had
@@ -125,9 +200,6 @@ pointer table.
 - The block spawn dispatcher, slot search and status write are one 81-byte span (`BLOCK_SPAWN_DISPATCHER`).
 
 Planted defects for each are in `test/suite/unit/sprites/ShapeRuns.test.ts`.
-
-The fix for an allowed region is to make the reader recognize the code by SHA-256 (as
-`CastleFlames.ts` and `SubmapFlagGate.ts` do, the latter also by named opcodes read one instruction at a time; its seven RAM addresses are a table, checked with no ROM only against a hand copy, and the assembled window scans need a ROM), then delete the region.
 
 Source-text probes read the file text only, so they miss runs built from helpers, named opcodes or spread
 arrays. The assembled gate, run against the built cart, is the oracle; a clean probe alone proves nothing.
@@ -335,9 +407,23 @@ in it.
 
 `lintGate.test.ts` creates and deletes files under `test/suite/gates/__fixtures__`
 while other workers run, so any walker over `test/` must skip that directory
-(#754). The three walkers that do: `sourceFiles` in `controlBytesGate.test.ts`,
-`testFiles` in `testRegistrationGate.test.ts`, and `walk` in
-`perfConfigSeparation.test.ts`.
+(#754). The four walkers that do: `sourceFiles` in `controlBytesGate.test.ts`,
+`testFiles` in `testRegistrationGate.test.ts`, `walk` in
+`perfConfigSeparation.test.ts`, and `testFiles` in `processTimeoutGate.ts`.
+
+A test file that starts a process (a value import of `spawn`, `exec`, `execFile`
+or `fork` families from `child_process`, or of `support/isolatedGit` or
+`support/gitBash`) carries, at module scope before its first test or hook,
+`vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })`.
+Under a build-like load the 5 s default failed 10 process-starting tests across 3
+full runs (4, 3, 3), one machine, develop a9de2145 (#485). On CI the budget line keeps the
+60 s floor of `loadTimeout`. A per-test `slow()` or number wins over the file
+budget whether it is larger or smaller, so a per-test value under 30 s undercuts
+it. `processTimeoutGate.test.ts` walks the directory, skips `*.timing.test.ts`
+and `*.nightly.test.ts` (which `test:unit` does not collect) and `__fixtures__`,
+and refuses a file without the line (#1209). A file that mocks `child_process` is
+exempt, as is a type-only import. The gate reads text, exempts a partial mock,
+and does not see a starter reached through a helper other than those two.
 
 ## Proving an oracle can fail
 
@@ -829,6 +915,20 @@ npm run sprite:report -- --out <dir> --no-commit             # same tree, nothin
 npm run sprite:report -- --sheet --map 105 --out <dir>       # one contact-sheet PNG (or --sprite 1b)
 ```
 
+### The reveal audit (#1132)
+
+`npm run sprite:report -- --reveal --map <hex> [--out <file>]` lists, for each placed sprite of one map, what the at-rest
+run did (drew, blank, refused, special), whether the reveal search found it hidden, and what reveals it; sprites that drew
+at rest and are now hidden are listed apart, and so are those no condition reveals (`none-found`, kept in the screen
+door). It needs only the vanilla ROM. `npx tsx tools/scripts/reveal-sweep.ts --rom <file> [--rom <file>...] --out
+<report.txt> [--solid <list.txt>]` runs it over every map of one or more ROMs and counts sprites per condition and
+markers per reason; the report is sorted and has no times, so two runs are byte-identical. Like the sprite report it
+holds ids and places of a copyrighted ROM, so `reveal-sweep` refuses an `--out` or `--solid` path inside the checkout.
+`RevealAudit.test.ts` covers the report text and the `--reveal` command on synthetic rows, and `RevealSweep.test.ts` covers
+`revealRowsOf` (the rows from two runners) and the `--out` refusal on a synthetic cart. The `revealRows` wiring (level model,
+sprite list, seed) is covered by `RevealC7.corpus.test.ts` only, which needs the vanilla ROM; the `reveal-sweep` main loop
+over maps is not run by any test.
+
 ROM and captures come from `corpus.ts` (`HACKBENCH_ROMS`, `HACKBENCH_CAPTURES`);
 a missing one exits non-zero naming it. The hardware side shows the recorded
 frame the grader scores best against our chosen pass (`grade` against each
@@ -872,8 +972,8 @@ private to the test file.
 `node tools/scripts/rom-window-probe.mjs` reports 8-byte windows of text or
 assembled bytes that also occur in the vanilla ROM, so a synthetic ROM,
 fixture or detection pattern can be checked before pushing. It is
-report-only and local-only: no hook, CI job or `check-content.mjs` runs it,
-and CI has no ROM to run it against.
+report-only: no hook or CI job runs it (the content gate's `rom-window` rule shares
+its parser and window finder, and runs where a ROM is present).
 
 ```
 node tools/scripts/rom-window-probe.mjs <files...>        text scan (PARTIAL, below)
@@ -894,7 +994,7 @@ never scanned, but a touched file whose post-image cannot be read is an error.
 decimal 0-255 tokens, with comments blanked: `//` and block comments in
 JS/TS files, `;` in `.asm`/`.inc`/`.s` files, nothing in any other file
 type (no Lua `--`, no markdown). Quoted strings are skipped when blanking, so
-`'http://x'` hides nothing. It does not see 16-bit words, hex strings,
+`'http://x'` hides nothing. It reads `\x` escapes and unbroken hex strings of 8+ bytes, but not 16-bit words,
 quoted-byte arrays, per-byte writes (`buf[a] = 0xa9`), split strings, or values
 behind `as number`. Comment blanking can desync on a regex literal with an escaped slash or an
 unterminated backtick, and `.c`/`.h` files get none. A comma-separated list of bare hex pairs (also in asm, e.g. `.db a9, 10, 85`), or a
@@ -906,7 +1006,8 @@ check:** have the fixture builder write its bytes to a scratch file
 (`writeFileSync(scratch, builder())`), then run
 `rom-window-probe.mjs --bin <scratch>`.
 
-Windows with fewer than 3 distinct values are ignored (they match any ROM):
+Windows with fewer than 3 distinct values, a constant step or a short repeat are ignored
+(they match any ROM; the counts below are for the distinct-values filter alone):
 43,597 of 524,281 positions and 2,982 of 442,994 distinct windows in the
 vanilla ROM (one machine). A 512-byte copier header is stripped, so no window
 straddles it. Output is `HIT path:line windows=N` (`offset=0x..` for bytes) and

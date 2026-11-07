@@ -30,13 +30,17 @@ describe.skipIf(!hasRom(VANILLA))('buildMapTree on vanilla, flat', () => {
     expect(dests(0x0be)).toEqual([0x0d0])
   })
 
-  it("lists every root's children once, with nothing below depth 1", () => {
+  // #1295: the wings link is the one thing that nests, and it never goes deeper than depth 2.
+  it("lists every root's children once, with nothing below depth 1 but the wings row", () => {
     for (const root of tree.overworld) {
       const ids = root.children.map(c => c.index)
       expect(new Set(ids).size, `$${root.index.toString(16)}`).toBe(ids.length)
       expect(ids, `$${root.index.toString(16)} ascending`).toEqual([...ids].sort((x, y) => x - y))
       for (const c of root.children) {
-        expect(c.children).toEqual([])
+        for (const k of c.children) {
+          expect([root.index, c.index, k.reachedBy]).toEqual([0x115, 0x1e3, 'yoshi-heaven'])
+          expect(k.children).toEqual([])
+        }
         expect(c.kind).toBe('map')
       }
     }

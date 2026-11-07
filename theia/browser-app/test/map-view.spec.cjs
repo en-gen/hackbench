@@ -171,10 +171,10 @@ async function activate(page, index) {
 }
 
 /** Scrolls a screen into view and waits until it is painted for the given palaces. */
-async function showScreen(page, index, screen, yellow = false) {
+async function showScreen(page, index, screen, yellow = false, blue = false) {
   const sel = `${root(index)} canvas[data-screen="${screen}"][data-plane="l1Low"]`
   await page.locator(sel).evaluate(el => el.scrollIntoView({ inline: 'start', block: 'nearest' }))
-  await expect(page.locator(sel)).toHaveAttribute('data-drawn', drawn(screen, yellow), {
+  await expect(page.locator(sel)).toHaveAttribute('data-drawn', drawn(screen, yellow, blue), {
     timeout: 15000,
   })
 }
@@ -1424,7 +1424,7 @@ test('the sprite toggle hides and restores the sprites, and changes what is on s
   expect((await shownPixels(page, strip)).checksum).toBe(shown.checksum)
 })
 
-test('an interpreter-drawn sprite shows its own pixels where the service placed it; a miss shows a marker', async ({
+test('an interpreter-drawn sprite shows its own pixels where the service placed it; a hidden mole is drawn in the screen door', async ({
   page,
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
@@ -1437,35 +1437,41 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
   )
   expect(reply.status).toBe('ok')
   expect(reply.sprites).toHaveLength(25)
-  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(24) // 21 plus the 3 stationary shells (#968) and the P-switch (D139 D)
+  // 21 plus the 3 stationary shells (#968), the P-switch (D139 D), and the $4D at (3760, 368) the reveal search
+  // finds (#1132): all 25 draw, no marker is left on $106.
+  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(25)
+  expect(reply.sprites.filter(s => s.status === 'placeholder')).toHaveLength(0)
   // Measured on vanilla: the first $05 is at tile (27, 20), a 16 x 32 body whose top is above its anchor.
   const koopa = reply.sprites.find(s => s.id === 5)
   expect(koopa).toMatchObject({ x: 432, y: 320, status: 'drawn' })
   expect(koopa.box).toEqual({ x0: 432, y0: 304, x1: 448, y1: 336 })
-  // After #968 the one $106 miss is $4D at (3760, 368), in screen 14 (3584-3840): measured on vanilla.
-  const marker = reply.sprites.find(s => s.status === 'placeholder' && s.id === 0x4d)
-  expect(marker, 'a marker on $106').toBeTruthy()
+  // The $4D at (3760, 368), in screen 14 (3584-3840), drew nothing from Mario's start before #1132 (a marker, "drew no
+  // OAM tile in 64 passes"); the search finds it and it is drawn whole in the screen door, with its condition.
+  const mole = reply.sprites.find(s => s.id === 0x4d && s.x === 3760 && s.y === 368)
+  expect(mole, 'the $4D on $106 at (3760, 368)').toBeTruthy()
+  expect(mole).toMatchObject({ status: 'drawn', screenDoor: true })
+  expect(mole.reason, 'no marker reason').toBeUndefined()
+  expect(mole.reveal).toContain('appears when Mario gets close to this spot')
   // D139 D: INIT runs for the picture, so the P-switch ($3E) is drawn at its list position (D134).
   const pswitch = reply.sprites.filter(s => s.id === 0x3e)
   expect(pswitch.map(s => s.status)).toEqual(['drawn'])
   expect(pswitch[0]).toMatchObject({ x: 4512, y: 272 })
-  expect(reply.sprites.filter(s => s.status === 'placeholder')).toHaveLength(1)
-  expect(marker).toMatchObject({ id: 0x4d, x: 3760, y: 368 })
-  const mScreen = Math.floor(marker.box.x0 / 256)
+  const mScreen = Math.floor(mole.box.x0 / 256)
   expect(mScreen).toBe(14)
   await showScreen(page, 0x106, mScreen)
   await expect(spritePlane(page, 0x106, mScreen)).toHaveAttribute('data-drawn', SPRITES_DRAWN)
-  // The interpreter's own words: the sprite ran 64 passes and drew no OAM tile.
-  expect(marker.reason).toMatch(/^drew no OAM tile in 64 passes/)
+  // The composite the door is read from is painted after the plane it is made of.
+  await expect(
+    page.locator(
+      `[id="hackbench.map-view:262"] canvas[data-layer="screen"][data-screen="${mScreen}"]`,
+    ),
+  ).toHaveAttribute('data-drawn', /./, { timeout: 30000 })
 
   const read = await page.evaluate(
-    ({ koopa, marker, mScreen }) => {
-      const ctxOf = n =>
-        document
-          .querySelector(
-            `[id="hackbench.map-view:262"] canvas[data-screen="${n}"][data-plane="sprites"]`,
-          )
-          .getContext('2d')
+    ({ koopa, mole, mScreen }) => {
+      const canvasOf = (n, sel) =>
+        document.querySelector(`[id="hackbench.map-view:262"] canvas[data-screen="${n}"]${sel}`)
+      const ctxOf = n => canvasOf(n, '[data-plane="sprites"]').getContext('2d')
       const ctx = ctxOf(1)
       const cut = (s, n = 1, c = ctx) => {
         const w = s.box.x1 - s.box.x0
@@ -1487,17 +1493,47 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
       const abs = ctx.getImageData(432 - 256, 304, 16, 32).data
       let inBox = 0
       for (let i = 3; i < abs.length; i += 4) if (abs[i] !== 0) inBox++
-      return { koopa: { ...cut(koopa), inBox }, marker: cut(marker, mScreen, ctxOf(mScreen)) }
+      // The door on the composite the view paints: the sprite plane holds the served bitmap whole, the composite
+      // shows it at the door's strength. The door keeps the parity of the sprite's own grid ((x + y) from its box
+      // corner) that has fewer opaque pixels, the even one on a tie; those pixels show the sprite's colour, the
+      // rest show what is behind (a quarter of the sprite), except where the sprite is black over a black backdrop.
+      const sprite = Uint8Array.from(atob(mole.rgba), ch => ch.charCodeAt(0))
+      const w = mole.box.x1 - mole.box.x0
+      const comp = canvasOf(mScreen, '[data-layer="screen"]').getContext('2d')
+      const got = comp.getImageData(mole.box.x0 - 256 * mScreen, mole.box.y0, w, mole.box.y1 - mole.box.y0).data // prettier-ignore
+      const counts = [0, 0]
+      const parityOf = i => (((i / 4) % w) + Math.floor(i / 4 / w)) % 2
+      for (let i = 0; i < sprite.length; i += 4) if (sprite[i + 3] !== 0) counts[parityOf(i)]++
+      const keep = counts[0] > counts[1] ? 1 : 0
+      const door = { kept: 0, keptShown: 0, holes: 0, holeShown: 0, holeBlack: 0 }
+      for (let i = 0; i < sprite.length; i += 4) {
+        if (sprite[i + 3] === 0) continue
+        const kept = parityOf(i) === keep
+        const shown =
+          got[i + 3] === 255 && [0, 1, 2].every(k => Math.abs(got[i + k] - sprite[i + k]) <= 2)
+        const black = [0, 1, 2].every(k => sprite[i + k] <= 2)
+        if (kept) {
+          door.kept++
+          if (shown) door.keptShown++
+        } else {
+          door.holes++
+          if (shown) door.holeShown++
+          if (shown && black) door.holeBlack++
+        }
+      }
+      return { koopa: { ...cut(koopa), inBox }, mole: cut(mole, mScreen, ctxOf(mScreen)), door }
     },
-    { koopa, marker, mScreen },
+    { koopa, mole, mScreen },
   )
   expect(read.koopa.opaque, 'the interpreter drew pixels').toBeGreaterThan(0)
   expect(read.koopa.inBox, 'canvas pixels inside the absolute box (432,304)-(448,336)').toBeGreaterThan(0) // prettier-ignore
   expect(read.koopa.same, 'the canvas holds the served bitmap at its box').toBe(true)
-  expect(read.marker.same).toBe(true)
-  // The marker is 16 x 16 at the anchor, its frame the editor blue.
-  expect([marker.box.x1 - marker.box.x0, marker.box.y1 - marker.box.y0]).toEqual([16, 16])
-  expect(read.marker.corner).toEqual([90, 200, 255, 255])
+  // The sprite plane holds the mole's own bitmap whole; the door is applied when the screen is composed.
+  expect(read.mole.opaque, 'the mole has pixels').toBeGreaterThan(0)
+  expect(read.mole.same, 'the sprite plane holds the served bitmap at its box').toBe(true)
+  expect(read.door.keptShown, 'the door: every full square shows the sprite').toBe(read.door.kept)
+  expect(read.door.holes, 'the door: and it has holes').toBeGreaterThan(0)
+  expect(read.door.holeShown, 'the door: holes show the sprite only where it is black over black').toBe(read.door.holeBlack) // prettier-ignore
 })
 
 test('$4F on $105 is served at its stream position: the INIT move (+8, -1) is not shown at rest (D134)', async ({
@@ -1510,7 +1546,10 @@ test('$4F on $105 is served at its stream position: the INIT move (+8, -1) is no
     project.manifestPath,
   )
   expect(reply.status).toBe('ok')
-  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(32) // 31 plus the shell $DB at 3344,368 (#968)
+  // 31 plus the shell $DB at 3344,368 (#968), and the invisible mushroom $C7 the reveal search draws (#1132); the $8E
+  // that nothing reveals stays a marker.
+  expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(33)
+  expect(reply.sprites.filter(s => s.status === 'placeholder').map(s => s.id)).toEqual([0x8e])
   // Stream positions (1808, 336), (2224, 320), (4544, 320): measured on vanilla, absolute.
   const fours = reply.sprites.filter(s => s.id === 0x4f)
   expect(fours.map(s => [s.x, s.y, s.status])).toEqual([
@@ -3817,4 +3856,260 @@ test('data-details is pending while the reply is held, done after, and pending a
   expect(await generation()).not.toBe(second)
   await release()
   await expect(main).toHaveAttribute('data-details', 'done')
+})
+
+// D181 (#1274): the preview tab drops presses on another map, keeps toggles. $105: yellow moves screen 9; $014: blue P-switch moves screen 0.
+const PRESSES = [...['yellow', 'green', 'red', 'blue'].map(k => `palace-${k}`), ...['blue', 'silver', 'onOff'].map(k => `switch-${k}`)] // prettier-ignore
+const control = (page, tab, c) => page.locator(`${root(tab)} [data-control="${c}"]`)
+
+async function loadTree(page) {
+  const dir = path.join(tmp, 'MyHack')
+  const mp = (await createProject(page, dir)).manifestPath
+  fs.mkdirSync(path.join(dir, 'meta'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'meta', 'groups.json'), '[]\n')
+  await page.evaluate(async mp => {
+    await getSvc('HackBenchContribution').openPath(mp)
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-explorer')
+    await w.load(mp)
+    await getSvc('ApplicationShell').activateWidget('hackbench.map-explorer')
+  }, mp)
+}
+
+async function clickRow(page, slot, pin = false) {
+  const id = await page.evaluate(async slot => {
+    const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-explorer')
+    const node = w.model.root.children.find(r => r.id === 'group:unassigned').children.find(n => n.index === slot) // prettier-ignore
+    w.focusService.setFocus(undefined)
+    w.focusService.setFocus(node)
+    w.updateScrollToRow()
+    return node.id
+  }, slot)
+  const tab = pin ? slot : 'preview'
+  const seq = () => page.evaluate(w => getSvc('ApplicationShell').getWidgetById(w)?.startSeq ?? 0, `hackbench.map-view:${tab}`) // prettier-ignore
+  const before = await seq() // startSeq moves only on open: sees a second open of the shown map
+  const row = page.locator(`[id="hackbench.map-explorer"] .theia-TreeNode[data-node-id="${id}"]`)
+  await row.waitFor()
+  await (pin ? row.dblclick() : row.click())
+  opened.push(`hackbench.map-view:${tab}`)
+  await expect.poll(seq, { timeout: 30000 }).toBeGreaterThan(before)
+}
+
+const pressedOf = (page, tab) => Promise.all(PRESSES.map(c => control(page, tab, c).getAttribute('aria-pressed'))) // prettier-ignore
+const all = v => PRESSES.map(() => v)
+async function pressAll(page, tab) {
+  for (const c of PRESSES) await control(page, tab, c).click()
+  await expect.poll(() => pressedOf(page, tab)).toEqual(all('true'))
+}
+
+for (const [a, b, screen, press] of [
+  [0x014, 0x105, 9, 'palace-yellow'],
+  [0x105, 0x014, 0, 'switch-blue'],
+]) {
+  test(`one preview tab goes from $${a.toString(16)} to $${b.toString(16)} unpressed and draws it so`, async ({
+    page,
+  }) => {
+    await loadTree(page)
+    const read = async () => (await viewSettledOf(page, 'preview'), readScreen(page, 'preview', screen)) // prettier-ignore
+    await clickRow(page, b)
+    await showScreen(page, 'preview', screen)
+    const fresh = await read()
+    await control(page, 'preview', press).click()
+    await showScreen(page, 'preview', screen, press === 'palace-yellow', press === 'switch-blue')
+    expect((await read()).checksum, 'the press moves B, so the check can fail').not.toBe(fresh.checksum) // prettier-ignore
+    await clickRow(page, a)
+    await pressAll(page, 'preview')
+    await clickRow(page, b)
+    expect(await pressedOf(page, 'preview')).toEqual(all('false'))
+    await showScreen(page, 'preview', screen)
+    expect((await read()).checksum).toBe(fresh.checksum)
+    await expect(page.locator(root('preview'))).toHaveCount(1) // reused, not one tab per row
+  })
+}
+
+test('the preview tab carries the layer, sprite and collision toggles to the next map, presses cleared', async ({
+  page,
+}) => {
+  await loadTree(page)
+  const toggles = ['layer-l1', 'layer-l2', 'layer-l3', 'layer-sprites', 'collision-toggle']
+  const states = () => Promise.all(toggles.map(c => control(page, 'preview', c).getAttribute('aria-pressed'))) // prettier-ignore
+  const lines = () => page.evaluate(s => [...document.querySelectorAll(`${s} [data-control="collision-overlay"] polyline`)].map(p => p.getAttribute('points')).join('|'), root('preview')) // prettier-ignore
+  await clickRow(page, 0x111)
+  await expect(control(page, 'preview', 'collision-toggle')).toHaveAttribute('data-collision-state', 'ready', { timeout: 30000 }) // prettier-ignore
+  await pressAll(page, 'preview')
+  for (const c of toggles) await control(page, 'preview', c).click()
+  const flipped = ['false', 'false', 'false', 'false', 'true'] // layers 1-3 and sprites off, collision on
+  await expect.poll(states).toEqual(flipped)
+  await expect.poll(lines, { timeout: 60000 }).not.toBe('')
+  const aLines = await lines()
+  await clickRow(page, 0x011)
+  expect(await states()).toEqual(flipped)
+  expect(await pressedOf(page, 'preview')).toEqual(all('false'))
+  await expect.poll(lines, { timeout: 60000 }).not.toBe('')
+  expect(await lines()).not.toBe(aLines)
+})
+
+test('refreshing or single-clicking the same map keeps presses; a pinned tab keeps its own on its row', async ({
+  page,
+}) => {
+  await loadTree(page)
+  await clickRow(page, 0x105)
+  await pressAll(page, 'preview')
+  await page.evaluate(() => getSvc('ApplicationShell').getWidgetById('hackbench.map-view:preview').refresh()) // prettier-ignore
+  expect(await pressedOf(page, 'preview')).toEqual(all('true'))
+  await clickRow(page, 0x105)
+  expect(await pressedOf(page, 'preview')).toEqual(all('true'))
+  // Pinned: a pin never shows another map, so its reopen is the same row. $106 has its own press.
+  await clickRow(page, 0x106, true)
+  for (const c of ['palace-red', 'switch-onOff']) await control(page, 0x106, c).click()
+  await clickRow(page, 0x109, true) // on top of $106 now: only the top tab can be clicked
+  await control(page, 0x109, 'palace-yellow').click()
+  await clickRow(page, 0x106, true)
+  const want = on => PRESSES.map(c => String(on.includes(c)))
+  expect(await pressedOf(page, 0x109)).toEqual(want(['palace-yellow']))
+  expect(await pressedOf(page, 0x106)).toEqual(want(['palace-red', 'switch-onOff']))
+  await expect(page.locator(root(0x106))).toHaveCount(1)
+})
+
+// #1299: a double click pins what the preview shows. The explorer's click selects first, so a pin for another row comes from Enter in a filtered search or a double click that has moved the preview.
+const planeOn = (page, tab, p) =>
+  page
+    .locator(`${root(tab)} canvas[data-plane="${p}"]`)
+    .first()
+    .evaluate(el => getComputedStyle(el).visibility !== 'hidden')
+const shown = async (page, tab, screen) => {
+  await page
+    .locator(`${root(tab)} canvas[data-screen="${screen}"][data-plane="l1Low"]`)
+    .evaluate(el => el.scrollIntoView({ inline: 'start' }))
+  return (await viewSettledOf(page, tab), (await readScreen(page, tab, screen)).checksum)
+}
+
+for (const [m, screen] of [
+  [0x014, 0],
+  [0x105, 9],
+]) {
+  test(`pinning $${m.toString(16)}'s preview keeps every press and draws the map pressed`, async ({
+    page,
+  }) => {
+    await loadTree(page)
+    await clickRow(page, m)
+    const fresh = await shown(page, 'preview', screen)
+    await pressAll(page, 'preview')
+    await expect.poll(() => shown(page, 'preview', screen)).not.toBe(fresh)
+    const pressed = await shown(page, 'preview', screen)
+    await clickRow(page, m, true)
+    await expect.poll(() => pressedOf(page, m)).toEqual(all('true'))
+    await expect.poll(() => shown(page, m, screen)).toBe(pressed)
+    await expect(page.locator(root('preview'))).toHaveCount(0)
+  })
+}
+
+test('pinning the preview keeps the layer, sprite, grid and collision toggles, drawn so', async ({
+  page,
+}) => {
+  await loadTree(page)
+  const toggles = [
+    'layer-l1',
+    'layer-l2',
+    'layer-l3',
+    'layer-sprites',
+    'collision-toggle',
+    'grid-toggle',
+  ]
+  const shape = async tab => ({
+    pressed: await Promise.all(
+      toggles.map(c => control(page, tab, c).getAttribute('aria-pressed')),
+    ),
+    planes: await Promise.all(['l1Low', 'l2Low', 'l3Low'].map(p => planeOn(page, tab, p))),
+    lines: await page.evaluate(
+      s =>
+        [...document.querySelectorAll(`${s} [data-control="collision-overlay"] polyline`)]
+          .map(p => p.getAttribute('points'))
+          .join('|'),
+      root(tab),
+    ),
+    grid: (await readGrid(page, root(tab))) !== null,
+    pixels: await shown(page, tab, 0),
+  })
+  await clickRow(page, 0x111)
+  await expect(control(page, 'preview', 'collision-toggle')).toHaveAttribute(
+    'data-collision-state',
+    'ready',
+    { timeout: 30000 },
+  )
+  const fresh = await shape('preview')
+  for (const c of toggles) await control(page, 'preview', c).click()
+  await expect.poll(async () => (await shape('preview')).lines, { timeout: 60000 }).not.toBe('')
+  const want = await shape('preview')
+  expect(want.pressed).toEqual(['false', 'false', 'false', 'false', 'true', 'false'])
+  expect([want.planes, want.grid]).toEqual([[false, false, false], false])
+  expect(want.pixels, 'the toggles move the drawing, so the check can fail').not.toBe(fresh.pixels)
+  await clickRow(page, 0x111, true)
+  await expect.poll(() => shape(0x111), { timeout: 60000 }).toEqual(want)
+})
+
+test('a pin keeps its own presses over the preview of the same map', async ({ page }) => {
+  await loadTree(page)
+  const want = on => PRESSES.map(c => String(on.includes(c)))
+  await clickRow(page, 0x106, true)
+  await control(page, 0x106, 'palace-red').click()
+  await clickRow(page, 0x106) // a preview of a map that is already pinned
+  await control(page, 'preview', 'palace-blue').click()
+  await clickRow(page, 0x106, true)
+  expect(await pressedOf(page, 0x106)).toEqual(want(['palace-red']))
+  await expect(page.locator(root('preview'))).toHaveCount(0)
+})
+
+// Presses and one toggle set in a preview of 0x105, so a pin for another row has something to (not) carry.
+async function dirtyPreview(page) {
+  await clickRow(page, 0x105)
+  await control(page, 'preview', 'layer-l1').click()
+  await pressAll(page, 'preview')
+}
+
+test('Enter on a filtered row pins it at defaults and leaves the preview of the other map as it was', async ({
+  page,
+}) => {
+  await loadTree(page)
+  await dirtyPreview(page)
+  await page.evaluate(() =>
+    getSvc('WidgetManager')
+      .getOrCreateWidget('hackbench.map-explorer')
+      .then(w => w.node.focus()),
+  )
+  await page.keyboard.type('$109')
+  // The filter selects after a debounce; an earlier Enter would open the row still selected.
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        getSvc('WidgetManager')
+          .getOrCreateWidget('hackbench.map-explorer')
+          .then(w => w.model.selectedNodes[0]?.index),
+      ),
+    )
+    .toBe(0x109)
+  await page.keyboard.press('Enter')
+  opened.push('hackbench.map-view:265')
+  await expect.poll(() => pressedOf(page, 0x109)).toEqual(all('false'))
+  await expect(control(page, 0x109, 'layer-l1')).toHaveAttribute('aria-pressed', 'true')
+  expect(await pressedOf(page, 'preview')).toEqual(all('true'))
+  await expect(control(page, 'preview', 'layer-l1')).toHaveAttribute('aria-pressed', 'false')
+  expect(
+    await page.evaluate(() =>
+      getSvc('ApplicationShell').getWidgetById('hackbench.map-view:preview').shows(0x105),
+    ),
+  ).toBe(true)
+})
+
+test('a double click on another row pins it at default presses with the toggle carried, then the next preview still resets', async ({
+  page,
+}) => {
+  await loadTree(page)
+  await dirtyPreview(page)
+  await clickRow(page, 0x014, true)
+  expect(await pressedOf(page, 0x014)).toEqual(all('false'))
+  await expect(control(page, 0x014, 'layer-l1')).toHaveAttribute('aria-pressed', 'false')
+  await clickRow(page, 0x105)
+  await pressAll(page, 'preview')
+  await clickRow(page, 0x111)
+  expect(await pressedOf(page, 'preview')).toEqual(all('false'))
 })

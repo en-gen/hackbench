@@ -149,7 +149,7 @@ describe('the Maps tree', () => {
     expect(t.counts.noPointer).toBe(0)
   })
 
-  it('the vanilla seed files them into Bonus Games and Yoshi Heaven, not orphaned', () => {
+  it('the vanilla seed files the bonus room, and leaves Yoshi Heaven to the wings link (#1229)', () => {
     const grouped = applyGroups(tree(), VANILLA_SEED)
     const group = (name: string): [number, boolean][] | undefined =>
       grouped.groups.find(g => g.name === name)?.maps.map(m => [m.index, m.orphan])
@@ -157,10 +157,10 @@ describe('the Maps tree', () => {
       [0x000, false],
       [0x100, false],
     ])
-    expect(group('Yoshi Heaven')).toEqual([
-      [0x0c8, false],
-      [0x1c8, false],
-    ])
+    expect(group('Yoshi Heaven')).toBeUndefined()
+    // No wings link on a synthetic ROM: they stay reached bonus maps, never orphans.
+    const left = grouped.unassigned.filter(m => [0x0c8, 0x1c8].includes(m.index))
+    expect(left.map(m => m.orphan)).toEqual([false, false])
   })
 
   it('lists a slot both roles name once, under the first', () => {

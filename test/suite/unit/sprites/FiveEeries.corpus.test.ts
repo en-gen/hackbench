@@ -19,6 +19,7 @@ import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import { L1ModelCache } from '../../../../theia/extension/src/node/map-screen'
 import { mapSprites } from '../../../../theia/extension/src/node/map-sprites'
 import { CAPTURE_DIR, freshRom, hasCaptures, hasRom, romPath, VANILLA } from '../../support/corpus'
+import { slow } from '../../support/loadTimeout'
 
 /**
  * Every vanilla map that places $DE: its placements, and the Eeries each spawns from empty slots. $1E8 and $1E9 share
@@ -79,7 +80,7 @@ describe.skipIf(!hasRom(VANILLA))('sprite $DE, vanilla ROM', () => {
     },
   )
 
-  it('draws through the map view as one sprite per placement, never a marker', () => {
+  it('draws through the map view as one sprite per placement, never a marker', slow(10_000), () => {
     const bytes = new Uint8Array(freshRom().buffer)
     for (const [map, n, count] of MAPS) {
       const r = mapSprites(new L1ModelCache(), bytes, romPath(VANILLA), map)

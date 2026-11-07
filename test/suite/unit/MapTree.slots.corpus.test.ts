@@ -83,8 +83,9 @@ for (const name of CORPUS_ROMS) {
           name,
         ).toEqual(roots)
         for (const n of tree.overworld) {
+          // The wings link (#1229) adds Yoshi Heaven; the exit graph's own sub areas are what the old rule gives.
           expect(
-            n.children.map(c => c.index),
+            n.children.filter(c => !tree.wingsPlaced!.includes(c.index)).map(c => c.index),
             `${name} $${n.index.toString(16)}`,
           ).toEqual(reachableSlots(n.index, graph, stops))
         }
@@ -123,8 +124,6 @@ const PINNED = [
     bonus: [
       [0x000, 'bonus-game'],
       [0x100, 'bonus-game'],
-      [0x0c8, 'yoshi-heaven'],
-      [0x1c8, 'yoshi-heaven'],
     ],
   },
   {
@@ -140,8 +139,6 @@ const PINNED = [
     bonus: [
       [0x000, 'bonus-game'],
       [0x100, 'bonus-game'],
-      [0x0c8, 'yoshi-heaven'],
-      [0x1c8, 'yoshi-heaven'],
     ],
   },
   {

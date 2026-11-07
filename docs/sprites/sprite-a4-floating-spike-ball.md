@@ -87,3 +87,13 @@ $A4 on map $102, 13 $5D on map $102 (empty to exact), 6 $16 on map $127 and 1 $1
 map $002 grade shape instead of exact, because they now move in liquid and draw before they move. Grading
 at the draw position fixes those, and the 808 shape results (all now exact).
 Matching the capture's sample point exactly (sprite slot check and the size-table range) changed no count.
+
+## Consequence for the off-map canvas spec (#1233)
+
+`theia/browser-app/test/map-off-map-canvas.spec.cjs` once expected map $102 to grow a 32 px band below the
+map, because its floating platforms ($5D) and spike balls ($A4) sank to y 432 and drew past the map's
+432 px bottom. That was the INIT retry loop above (status 1 at `bank_01.asm:6842-6844`, run again by
+`SpriteRunner.ts:912-921`), not what the game draws. #842 (the loader runs the Layer 3 handler) and #1119 (a
+sprite draws at its placed spot at rest) retired it: on $102 the lowest sprite bottom is now 424, inside the
+432 px map (vanilla, `mapSprites` over maps 0-$1FF, one machine, 2026-11-05). The spec now rests its band
+cases on a synthetic box and on map $1B ([sprite-ad-wooden-spike.md](sprite-ad-wooden-spike.md)).

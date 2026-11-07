@@ -6,6 +6,7 @@
  * contract both ends compile against.
  */
 import type { EditEvent } from '../../../../src/project/EditEvent'
+import type { UndrawnChildren } from '../../../../src/rom/sprites/interp/SpawnedChildren'
 import type { ScreenPlanes } from '../../../../src/rom/model/ScreenPlanes'
 import type { Map16SwitchButtonImages, Map16SwitchKind } from './map16-protocol'
 
@@ -72,6 +73,8 @@ export interface MapNodeDto {
   noPointer?: true
   /** A map whose data could not be read back; the row warns and opening it says so. */
   unreadable?: true
+  /** Yoshi Heaven's row (#1229): a direct row or a child of the sub area that holds the wings block (#1295); it carries the icon and tooltip. */
+  reachedBy?: 'yoshi-heaven'
   children: MapNodeDto[]
 }
 
@@ -324,8 +327,8 @@ export interface MapSpriteDto {
    */
   parts?: SpritePartDto[]
   /**
-   * Each pixel's OAM priority 0-3 (#795), one byte per `box` pixel, base64: the
-   * attribute bits 5:4 of the part that wins the pixel. Absent on a placeholder,
+   * Each pixel's OAM priority 0-3 (#795) in bits 0-1 and the rope's door-part flag (#1230) in bit 2, one byte
+   * per `box` pixel, base64: the part that wins the pixel. Absent on a placeholder,
    * which has no OAM entry and keeps the pre-#795 slot, priority 2.
    */
   priority?: string
@@ -352,7 +355,18 @@ export interface MapSpriteDto {
   unverified?: string
   /** A plain-words line about what the map shows of this sprite, not a flaw (for example fewer Eeries than the placement asks for); the map's note line carries it too. */
   note?: string
+  /** Spawned children that did not draw, as data: the map's note sums them across spawners (#1281); `note` keeps its sentence and the reason is in `noteDetail`. */
+  undrawn?: UndrawnChildren
+  /** Technical detail behind a plain note, for its tooltip. */
+  noteDetail?: string
+  /** Every pixel of the sprite is drawn in the screen door: it draws nothing in play until something happens (#1132). */
+  screenDoor?: boolean
+  /** What makes it appear ("appears when Mario gets close to this spot", with his state), or that nothing was found to; present with `screenDoor`, for the hover. */
+  reveal?: string
 }
+
+/** The frames `reason` code for a sprite its parent drew; the panel words it (`framesReasonText`), so neither side spells the sentence. */
+export const RIDES_WITH_REASON = 'ridesWith'
 
 /**
  * One sprite's distinct poses for the Properties preview (#984), each a `MapSpriteDto` bitmap measured from

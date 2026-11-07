@@ -28,6 +28,7 @@ import { putDrawPosProbes } from './syntheticDrawProbes'
 import { EERIE_HANDLER, putEeries } from './syntheticEeries'
 import { putLoaderStandIns } from './syntheticLoaderStandIns'
 import { putGrinderRoutines } from './syntheticGrinder'
+import { putRevealSprites } from './syntheticRevealSprites'
 
 export interface SyntheticOptions {
   /** Ids 31 and 103 get id 0's INIT (adds `initShift` to X), so the line-guided id moves before its first frame. */
@@ -99,6 +100,8 @@ export interface SyntheticOptions {
   spawnTimer?: number
   /** The spawn routine never returns. */
   spawnLoop?: boolean
+  /** The spawn leaves SpriteTableC2 = 2 only for a block at X pixel (this column of 4) * 16 in $9A, else 1: the wings rule's shape, columns 0-3 (#1229). */
+  wingsColumn?: number
   /** Id 103's handler body differs from the vanilla shape in one operand (behaviour the same). */
   alteredGrinder?: boolean
   /** Id 103 draws on its first MAIN only. */
@@ -300,6 +303,10 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[33] = 0x8a80
   mainTable[35] = 0x9700
   mainTable[36] = 0x9740
+  mainTable[37] = 0xa900
+  mainTable[38] = 0xa980
+  mainTable[39] = 0xaa00
+  mainTable[40] = 0xaa80
   if (o.eeries) mainTable[57] = EERIE_HANDLER
   initTable[80] = 0xa600
   mainTable[80] = 0x8640
@@ -313,6 +320,9 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[86] = 0x8640
   if (o.id31IsGrinder) mainTable[31] = 0x9500
   for (const id of [20, 21, 22, 23, 24, 25]) mainTable[id] = 0x8640
+  const reveal = putRevealSprites(put)
+  for (const [id, w] of Object.entries(reveal.main)) mainTable[Number(id)] = w
+  for (const [id, w] of Object.entries(reveal.init)) initTable[Number(id)] = w
   const words = (t: number[]) => t.flatMap(w => [w & 0xff, w >> 8])
   put(0x018170 + SYNTHETIC_INIT_TABLE_OFFSET, words(initTable))
   put(0x018320 + 9, words(mainTable))
@@ -333,7 +343,11 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
     0x028936,
     o.spawnLoop
       ? [0x4c, 0x36, 0x89]
-      : [0xa9, o.spawnTimer ?? 0x37, 0x9d, 0x40, 0x15, 0xf6, 0xc2, 0x6b],
+      : o.wingsColumn !== undefined
+        ? // our own shape, no shifts or masks: LDA #t / STA $1540,X / LDA $9A / CMP #(col * 16) / BNE +5 / LDA #2 / STA $C2,X / RTL / LDA $C2,X / INC A / STA $C2,X / RTL
+          // prettier-ignore
+          [0xa9, o.spawnTimer ?? 0x37, 0x9d, 0x40, 0x15, 0xa5, 0x9a, 0xc9, o.wingsColumn * 16, 0xd0, 0x05, 0xa9, 0x02, 0x95, 0xc2, 0x6b, 0xb5, 0xc2, 0x1a, 0x95, 0xc2, 0x6b]
+        : [0xa9, o.spawnTimer ?? 0x37, 0x9d, 0x40, 0x15, 0xb5, 0xc2, 0x1a, 0x95, 0xc2, 0x6b], // the counter step is LDA / INC A / STA, not the game's INC dp,X
   )
   // The level loader's shell sites (bank_02.asm:5290-5291, 5312-5361, 5456-5462), written as the instructions they are.
   // CMP #op / branch to `to`: the displacement is computed from the target label's address.
@@ -342,12 +356,14 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   cmpBr(0x02a866, 0xe7, 0x90, 0x02a88c)
   cmpBr(0x02a88c, 0xde, 0xd0, 0x02a89c)
   cmpBr(0x02a89c, 0xe0, 0xd0, 0x02a8ac)
-  cmpBr(0x02a8ac, 0xcb, 0x90, 0x02a8d4)
+  // The generator floor is inert while it is below the ceiling operand (shellLoad: `id < floor || id < ceil`), so it is a value of our own.
+  cmpBr(0x02a8ac, 0xc8, 0x90, 0x02a8d4)
   cmpBr(0x02a8b0, 0xda, 0xb0, 0x02a8c0)
   cmpBr(0x02a8c0, 0xe1, 0x90, 0x02a8d0)
   put(0x02a8d0, [0xa9, 0x09, 0x80, 0x02a8df - 0x02a8d0 - 4])
   put(0x02a978, [0xc9, 0x09, 0xb7, 0x00, 0x90, 0x06])
-  put(0x02a97e, [0x38, 0xe9, 0xda, 0x18, 0x69, 0x04])
+  // The number step is SBC #a / CLC / ADC #b: only a - b matters, so both are values of our own with the same difference.
+  put(0x02a97e, [0x38, 0xe9, 0xd9, 0x18, 0x69, 0x03])
   // status1 sets status 1. A handler ending `xx 60` before the zero fill ends `60, 0xea`: those two bytes plus the fill are a window of the game's.
   // listAdd appends `vals` to the NMI upload list at $0682+ (the last of `vals` is the terminator); stY stores a constant through Y.
   const status1 = [0xa0, 0x01, 0x98, 0x9d, 0xc8, 0x14]
