@@ -233,6 +233,21 @@ describe('the at-rest re-base exemption (synthetic cart, no ROM)', () => {
       expect(m.anchor).toMatchObject({ x: sp.x + 8, y: sp.y })
     }
   })
+  it('an absolute row keeps its anchor as the origin, even for a sprite that draws before it moves (#1131)', () => {
+    const r = buildSyntheticRom()
+    r.buffer.set([...HEAD, 0x23, 0xb1], 2 * 0x8000 + (LOAD & 0x7fff))
+    r.buffer[2 * 0x8000 + (0xb123 & 0x7fff)] = 3
+    const loaded = new Uint8Array(WRAM)
+    const seed = withSeed({ sprite: { x: 0x80, y: 0x80 }, loaded })
+    const row = { ...initRow(true), initPointer: 0x8600, code: [{ at: 0, length: 7, sha256: hash(bytesAt(r, 0x018600, 7)) }] } // prettier-ignore
+    // Id 32 draws from its second pass on and moves X by +4 after each draw, so that pass starts 4 px off the anchor.
+    const m = runOnce(r, 32, seed, { atRest: true, latches: { 32: row }, slotSearch })
+    expect(m.refusal).toBeUndefined()
+    expect(m.absolutePlacement).toBe(true)
+    expect(m.chosen).toBe(1)
+    expect(m.passes[1]!.origin).toEqual({ x: m.anchor!.x, y: m.anchor!.y })
+    expect(m.passes[1]!.parts[0]).toMatchObject({ dx: 4, dy: 0 })
+  })
   it('a sprite memory setting other than the traced one 0 is marked unverified, in plain words; setting 0 is not (sweep 0..18)', () => {
     const r = buildSyntheticRom()
     r.buffer.set([...HEAD, 0x23, 0xb1], 2 * 0x8000 + (LOAD & 0x7fff))

@@ -130,7 +130,7 @@ export interface SpritePart {
   priority: number
   flipX: boolean
   flipY: boolean
-  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position when INIT's moves are kept, and the position at the end of the pass at rest (`PassResult.pos`; the picture is then drawn on the placed spot, `SpriteModel.anchor`), except for a line-guided id on a vanilla-shaped handler. */
+  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position when INIT's moves are kept, and the position at the end of the pass at rest (`PassResult.pos`; the picture is then drawn on the placed spot, `SpriteModel.anchor`), or where the pass began when the sprite drew there and then moved (#1131), except for a line-guided id on a vanilla-shaped handler. */
   dx: number
   dy: number
   /** Raw attribute byte, for graders that compare it whole. */
@@ -158,7 +158,7 @@ export interface PassResult {
    * moves (DolphinMain, SMWDisX bank_02.asm:7896-7901). Absent when the pass wrote no OAM.
    */
   drawPos?: { x: number; y: number }
-  /** Where this pass's parts are measured from: `SpriteModel.anchor` when INIT's moves are kept; the end-of-pass `pos` at rest; the pass before's `pos` for a line-guided id on a vanilla-shaped handler (where the pass before left it). */
+  /** Where this pass's parts are measured from: `SpriteModel.anchor` when INIT's moves are kept; the end-of-pass `pos` at rest, or the pass's starting position when the sprite's first OAM write was there (it drew before it moved, #1131); the pass before's `pos` for a line-guided id on a vanilla-shaped handler (where the pass before left it). */
   origin: { x: number; y: number }
   parts: SpritePart[]
   /** Plain run only: pieces written under any other `$15E9` (a sprite this run spawned, a cluster index), same origin. Not the grader's: the map view draws `drawnParts` (D52, #840). */
@@ -701,6 +701,9 @@ export class Machine {
   }
 }
 
+/** True when two sprite positions agree on both x and y (the pass-start versus first-draw test, #1131). */
+const sameSpot = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+  a.x === b.x && a.y === b.y
 const s8 = (v: number) => (v > 127 ? v - 256 : v)
 
 /** Parts the pass wrote, relative to `anchor`, in screen terms (camera removed). */
@@ -1000,6 +1003,7 @@ function runCore(
       m.clearOamWrites()
       n = m.steps
       const hw = new Map(m.bus.hwWrites)
+      const start = m.pos()
       m.frame()
       model.steps.push(m.steps - n)
       probe?.(p, w)
@@ -1016,19 +1020,24 @@ function runCore(
       })
       // The draw ran before this pass's own move, so for a line-guided id it ran where the pass before left it.
       // At rest the parts are measured from where the pass ended, so MAIN's own few pixels of motion do not
-      // leak into the picture (the Podoboo's jump). A handler that draws and then moves is measured from its
-      // end too: measuring from the draw changed 12 vanilla rows ($05, $06) from same to differ against the table engine.
+      // leak into the picture (the Podoboo's jump). The one exception is a sprite whose first OAM write was at the
+      // spot the pass began at: it drew before it moved, so it is shown where it drew (#1131). A draw routine that
+      // displaces the sprite and restores it (SMWDisX bank_01.asm:1772-1784) draws off the start and keeps the end of
+      // the pass; so does a displaced draw followed by a move, which cannot be told from a move before the draw
+      // (vanilla, gate on, 512 slots: 0 rows, as the gate catches $62, the one vanilla case; hacks not tested).
+      const drawn = m.drawPos()
       const origin = snaps
         ? (model.passes[p - 1]?.pos ?? anchor)
         : atRest && !model.absolutePlacement
-          ? m.pos()
+          ? drawn && sameSpot(drawn, start)
+            ? start
+            : m.pos()
           : anchor
       const drew = neighbourRun ? m.drew(origin) : undefined
-      const drawPos = m.drawPos()
       model.passes.push({
         pass: p,
         pos: m.pos(),
-        ...(drawPos ? { drawPos } : {}),
+        ...(drawn ? { drawPos: drawn } : {}),
         origin: { x: origin.x, y: origin.y },
         parts: readParts(m, origin),
         companions: readParts(m, origin, m.companionOam()),
