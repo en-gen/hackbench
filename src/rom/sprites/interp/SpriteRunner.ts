@@ -1019,7 +1019,7 @@ function runCore(
       // spot the pass began at: it drew before it moved, so it is shown where it drew (#1131). A draw routine that
       // displaces the sprite and restores it (SMWDisX bank_01.asm:1772-1784) draws off the start and keeps the end of
       // the pass; so does a displaced draw followed by a move, which cannot be told from a move before the draw
-      // (no vanilla row, 512 vanilla level numbers; hacks only).
+      // (vanilla, gate on, 512 slots: 0 rows, as the gate catches $62, the one vanilla case; hacks not tested).
       const drawn = m.drawPos()
       const origin = snaps
         ? (model.passes[p - 1]?.pos ?? anchor)
