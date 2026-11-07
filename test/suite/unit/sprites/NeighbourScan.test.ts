@@ -363,6 +363,45 @@ describe('a sprite its parent drew, through the real drawer (#1049)', () => {
     },
   )
 
+  it.each([0, 1, 8, 9, 12])(
+    '%i stock neighbors beside an extra-bit one: still marked (the cap does not hide it, #1173)',
+    n => {
+      const stock = Array.from({ length: n }, (_, i) => sp(2 + i, QUIET, 1 + i, 9))
+      const list = [
+        sp(0, SCANNER, 8, 8),
+        { ...sp(1, QUIET, 9, 7), raw: [0x08] } as LevelSprite,
+        ...stock,
+      ]
+      expect(drawn(list)[0]!.unverified).toContain(NEIGHBOUR_EXTRA_BIT_REASON)
+    },
+  )
+
+  const stub = (
+    list: LevelSprite[],
+    mark: (probe: boolean | undefined) => string | undefined,
+    reveal = false,
+  ) => {
+    const run = ((r: RomFile, id: number, q: never, o?: { stopAtDraw?: boolean }) => {
+      const m = runOnce(r, id, q)
+      return { ...m, ...(reveal && o?.stopAtDraw ? { passes: [] } : {}), unverifiedReason: mark(o?.stopAtDraw) }
+    }) as typeof runOnce // prettier-ignore
+    const d = interpDrawer(rom, 0x104, { isVertical: false, screenCount: 2 }, run, () => withSeed({ loaded: new Uint8Array(0x2000) }), undefined, undefined, undefined, list, reveal) // prettier-ignore
+    return drawSprites(list, { vram, colors: COLORS } as never, d)[0]!.unverified
+  }
+  const withExtra = [sp(0, SCANNER, 8, 8), { ...sp(1, QUIET, 9, 7), raw: [0x08] } as LevelSprite]
+
+  it('a scanner that already carries another reason keeps it, not the extra-bit one (#1173)', () => {
+    const u = stub(withExtra, () => 'earlier')
+    expect(u).toContain('earlier')
+    expect(u).not.toContain(NEIGHBOUR_EXTRA_BIT_REASON)
+  })
+
+  it("the reveal search's own reason wins over the carried one, which only fills a gap (#1173)", () => {
+    const u = stub(withExtra, probe => (probe === false ? 'own' : undefined), true)
+    expect(u).toContain('own')
+    expect(u).not.toContain(NEIGHBOUR_EXTRA_BIT_REASON)
+  })
+
   it('the mark survives the reveal search, which swaps in its own model (#1173)', () => {
     // A probe run (stopAtDraw) draws nothing, so the sprite counts as hidden and the search's rerun replaces the model.
     const blind = ((r: RomFile, id: number, q: never, o?: { stopAtDraw?: boolean }) => o?.stopAtDraw ? { ...runOnce(r, id, q), passes: [] } : runOnce(r, id, q)) as typeof runOnce // prettier-ignore

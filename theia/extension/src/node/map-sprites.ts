@@ -83,6 +83,7 @@ import {
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
 import {
   EXTRA_BITS,
+  hasExtraBitNeighbour,
   NEIGHBOUR_EXTRA_BIT_REASON,
   neighboursOf,
 } from '../../../../src/rom/sprites/interp/Neighbours'
@@ -869,13 +870,22 @@ export function interpRunner(
       earlierSpriteLoaded(list, s, i => w?.[SPRITE_LOAD_STATUS + i] ?? 0)
     )
       m = { ...m, unverifiedReason: EARLIER_SPRITE_REASON }
-    // An extra-bit entry is never seeded, so a scanner (known only by a run that has it) would draw without its companion: marked.
-    const all = neighboursOf(list, s, e => ({ x: pixelX(e), y: e.y * TILE }), true)
+    // An extra-bit entry is never seeded, so a scanner would draw without it: marked. With stock neighbors seeded the run above
+    // had the scan hook and `scansSlots` is exact; with none, one probe run with the extras in finds out. A rope is not probed (its slot run differs).
     if (
       !rope &&
       !m.unverifiedReason &&
-      all.length > neighbours.length &&
-      run(rom, s.spriteId, seed(camera, { opening, neighbours: all })).scansSlots
+      hasExtraBitNeighbour(list, s) &&
+      (neighbours.length
+        ? m.scansSlots
+        : run(
+            rom,
+            s.spriteId,
+            seed(camera, {
+              opening,
+              neighbours: neighboursOf(list, s, e => ({ x: pixelX(e), y: e.y * TILE }), true),
+            }),
+          ).scansSlots)
     )
       // prettier-ignore
       m = { ...m, unverifiedReason: NEIGHBOUR_EXTRA_BIT_REASON }

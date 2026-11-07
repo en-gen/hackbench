@@ -48,6 +48,17 @@ export function neighboursOf(
     .slice(0, MAX_NEIGHBOURS - 1)
 }
 
-/** Why a scanning sprite beside an extra-bit list entry is drawn as if alone: that entry may be its companion (#1173). */
+/** True when an extra-bit slot entry sits in range of `s`: counted before the cap, so a full list cannot hide it (#1173). */
+export function hasExtraBitNeighbour(list: readonly LevelSprite[], s: LevelSprite): boolean {
+  return list.some(
+    e =>
+      e.index !== s.index &&
+      isSlotSprite(e.spriteId) &&
+      !!((e.raw[0] ?? 0) & EXTRA_BITS) &&
+      Math.abs(e.screen - s.screen) <= 1,
+  )
+}
+
+/** Why a scanning sprite beside an extra-bit list entry is marked: that entry was left out of its run (#1173). */
 export const NEIGHBOUR_EXTRA_BIT_REASON =
-  'a nearby sprite with the extra bit set was left out of this run, so a companion this sprite scans for may be missing'
+  'a nearby sprite this one checks was left out (custom-sprite flag set)'
