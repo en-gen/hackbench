@@ -14,7 +14,8 @@
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { createGrid, TILE_EMPTY } from '../../../src/rom/ObjectExpander'
-import { makeCursor, TileGrid } from '../../../src/rom/objectHandlers/cursor'
+import { makeCursor, TileGrid, VERTICAL_WALL_REASON } from '../../../src/rom/objectHandlers/cursor'
+import { refusedCellsOf } from '../../../src/rom/model/RefusedCells'
 import { handle_0DDF3A } from '../../../src/rom/objectHandlers/standardHandlers'
 import { STANDARD_HANDLERS } from '../../../src/rom/objectHandlers/dispatch'
 
@@ -128,9 +129,12 @@ function run(
   size: number,
   screens = 4,
   vertical = false,
+  rows27 = false,
 ): TileGrid {
   const grid = vertical ? createGrid(screens, true) : prefilled(screens)
-  const cur = makeCursor(grid, rom, 11, x, y, 0x37, size)
+  // A one-screen vertical map a wrapped write grew to 27 rows: only the cursor's flag tells it from a horizontal map (#1034).
+  while (rows27 && grid.length < 27) grid.push(new Array<number>(32).fill(TILE_EMPTY))
+  const cur = makeCursor(grid, rom, 11, x, y, 0x37, size, null, -1, undefined, vertical)
   cur.handlerAddr = HANDLER
   handle_0DDF3A(cur)
   return grid
@@ -256,5 +260,29 @@ describe('CODE_0DDF3A castle wall (synthetic cart)', () => {
 
   it('declines to draw on a vertical level, whose Map16 layout it does not model', () => {
     expect(run(cart(), 0, 0, 0x02, 2, true)).toEqual(createGrid(2, true))
+  })
+
+  it('says so when it declines a vertical level, so the object is marked and not lost silently', () => {
+    const cur = makeCursor(createGrid(1, true), cart(), 11, 0, 0, 0x37, 2, null, 3, undefined, true)
+    cur.handlerAddr = HANDLER
+    cur.refusals = []
+    handle_0DDF3A(cur)
+    expect(cur.refusals).toEqual([
+      {
+        objectIndex: 3,
+        handler: HANDLER,
+        reason: VERTICAL_WALL_REASON,
+      },
+    ])
+    // The mark shows the sentence, not the generic "cannot draw this object type yet".
+    const object = { type: 'standard', objectNumber: 0x37, x: 0, y: 0 }
+    const cells = refusedCellsOf(cur.refusals, [object, object, object, object] as never)
+    expect(cells[0]!.reasons).toEqual([VERTICAL_WALL_REASON])
+  })
+
+  it('declines on a vertical level grown to 27 rows, which only the cursor flag tells from a horizontal one', () => {
+    const grown = createGrid(1, true)
+    while (grown.length < 27) grown.push(new Array<number>(32).fill(TILE_EMPTY))
+    expect(run(cart(), 0, 0, 0x02, 1, true, true)).toEqual(grown)
   })
 })

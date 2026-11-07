@@ -31,6 +31,7 @@ import {
   setPage0,
   setPage1,
   peekExistingLow,
+  peekTile,
   diagonalDownLeft,
   diagonalDownRight,
   writeTileSlopeMerge,
@@ -42,6 +43,7 @@ import {
   readGatedLongOperand,
   readImmByte,
   refuseUnported,
+  VERTICAL_WALL_REASON,
   MAP16_BYTES_PER_SCREEN_H,
 } from './cursor'
 import { mirror } from '../addressing'
@@ -696,7 +698,7 @@ function writeVerticalPipeMerge(
   const trigger2 = readImmByte(cur, helperAddr + 16)
   const table2 = readLongOperand(cur, helperAddr + 20)
 
-  const existing = readExistingLow(cur)
+  const existing = peekExistingLow(cur)
   let out = baseTile
   if (existing === trigger1) {
     out = cur.rom.readByte(table1 + X) ?? baseTile
@@ -705,14 +707,6 @@ function writeVerticalPipeMerge(
   }
   setPage0(cur) // ASM StzTo6ePointer before the write
   writeTile(cur, out)
-}
-
-function readExistingLow(cur: Cursor): number {
-  const row = cur.grid[cur.row]
-  if (!row) return 0x25
-  const v = row[cur.col]
-  if (v === undefined) return 0x25
-  return v & 0xff
 }
 
 /**
@@ -3967,7 +3961,7 @@ export function handle_0DBA4C(cur: Cursor): void {
     advanceRowRaw(cur)
     // CPX #imm sets N from bit 7 of (X - imm); BPL skips the page-1 store when N is clear.
     if (((X - threshold) & 0x80) !== 0) setPage1(cur)
-    else cur.page = ((cur.grid[cur.row]?.[cur.col] ?? 0) >> 8) & 1
+    else cur.page = ((peekTile(cur) ?? 0) >> 8) & 1
     writeTile(cur, bodyTile)
   }
 }
@@ -5026,7 +5020,10 @@ function pokeMap16(cur: Cursor, addr: number, page: number, low: number): void {
  * when a JSR does not reach the stock subroutine the port models.
  */
 export function handle_0DDF3A(cur: Cursor): void {
-  if (cur.grid.length !== 27) return
+  if (cur.vertical) {
+    refuseUnported(cur, cur.handlerAddr, VERTICAL_WALL_REASON)
+    return
+  }
   const k = readWallSites(cur)
   if (!k) return
   const word = (addr: number): number => (readImmByte(cur, addr + 1) << 8) | readImmByte(cur, addr)

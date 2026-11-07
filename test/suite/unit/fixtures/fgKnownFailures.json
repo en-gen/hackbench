@@ -1,13 +1,6 @@
 {
   "entries": [
     {
-      "map": "$021",
-      "table": "grid",
-      "issue": 587,
-      "count": 7,
-      "sha256": "9927a5eec90b1d39762053a0557b6c01a50ecf59863eafd3f951a259f068d2d8"
-    },
-    {
       "map": "$0C3",
       "table": "grid",
       "issue": 570,
@@ -16,14 +9,6 @@
     }
   ],
   "examples": [
-    {
-      "issue": 587,
-      "map": "$021",
-      "table": "grid",
-      "cell": "159,0",
-      "expected": "$154",
-      "actual": "$25"
-    },
     {
       "issue": 570,
       "map": "$0C3",

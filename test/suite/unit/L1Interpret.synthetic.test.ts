@@ -16,7 +16,12 @@ import {
   TILE_EMPTY,
 } from '../../../src/rom/ObjectExpander'
 import type { LevelObject } from '../../../src/rom/LevelParser'
-import { OWNER_NONE, makeCursor } from '../../../src/rom/objectHandlers/cursor'
+import {
+  OFF_BUFFER_REASON,
+  OWNER_NONE,
+  makeCursor,
+  type Refusal,
+} from '../../../src/rom/objectHandlers/cursor'
 import {
   drawInterpreted,
   type InterpretedSink,
@@ -553,6 +558,17 @@ describe('the expander draws CODE_0DADEB from the interpreter (#342)', () => {
     expect(lips(r.grid)).toEqual(STAIRS)
     expect(r.unverified).toEqual([])
     expect(r.grid).not.toEqual(port(good(), 0x35))
+  })
+
+  it('marks the object when the run writes past the 32 screens, and still draws what fits (#1034)', () => {
+    // Column 15 of screen 31: the first lip's second tile is screen 32, offset $3600 and up of the $3800-byte buffer.
+    const refusals: Refusal[] = []
+    const grid = createGrid(32)
+    const edge = { ...obj(0x35), x: 31 * 16 + 15 } as LevelObject
+    const sink = { draw: drawInterpreted, vertical: false, unverified: [], primitives: STAND_IN_PRIMITIVES } // prettier-ignore
+    expandObject(grid, edge, good(), 0, null, 7, undefined, sink, false, refusals)
+    expect(refusals).toEqual([{ objectIndex: 7, handler: expect.any(Number), reason: OFF_BUFFER_REASON }]) // prettier-ignore
+    expect(grid[2]![31 * 16 + 15]).not.toBe(TILE_EMPTY)
   })
 
   it('goes red when the ADC #$04 step is mutated', () => {
