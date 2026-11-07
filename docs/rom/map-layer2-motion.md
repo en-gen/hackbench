@@ -217,3 +217,51 @@ restart from the saved load state. For $1EF run the same pair with `Layer2Touche
 control, default off (nothing moves), and say so. State needed beyond the loader image: SpriteLock 0.
 Unknowns: the $1EF camera X reproduction, a natural Layer 2 touch on $1EF, hack ROMs, and sweep motion past
 frame 1,200.
+
+## Play, as built (phase 2)
+
+Code: `src/rom/MapMotion.ts` (the run), `theia/extension/src/node/map-motion.ts` (the reply and the strips),
+`theia/extension/src/browser/map-motion-play.ts` and `map-view-widget.tsx` (the view). Same evidence scope as
+above; the figures in this section are from the run of the shipped `runMapMotion` on the vanilla ROM,
+one machine, 2026-11-07.
+
+**What is drawn.** Layer 1 stays still in the map view, so Layer 2 is drawn at its position against Layer 1:
+the offset at a frame is (L1Y - L2Y) at that frame minus the same at the load frame. A positive offset moves
+Layer 2 down. Frame 0 is the load state, so its offset is 0 and the picture is the at-rest one: the node side
+checks that the at-rest `l2.dy` equals (L1Y - L2Y) at load and refuses otherwise (true for $009 and $1EF).
+
+**Range.** $009: -101 to +66 rows (L1Y spans 112 rows, L2Y spans 196, so the camera and Layer 2 offset each
+other in part; the absolute L2Y range alone would suggest the wrong figure). $1EF: 0 to +192. Both lie inside
+the 512 px period. Relative X is 0 at every frame of both runs (checked on every frame, not assumed); a run
+whose relative X changes is refused ("sideways"), so no horizontal shift exists.
+
+**Compositing.** The view holds each screen's Layer 2 as two 256 x 432 planes baked at the at-rest offset
+(`drawL2` in `node/map-screen.ts`, wrapped on BG2's 512 px period, `bank_00.asm:1270-1271`). A shift of up to
+about 190 rows needs the 80 rows the screen does not hold, so the reply carries, per screen, the plane rows 432
+to 511 drawn by the same code (`drawL2Strip`), and `shiftPlane` takes row r from row (r - shift) mod 512 of
+the two joined. Horizontal maps only; a vertical map is refused ("horizontal maps only"). The shifted planes go
+through `composeScreen` as the at-rest ones do, so priorities and color math are unchanged.
+
+**Pass 2's stated inputs ($1EF).** When the routine moves nothing on its own, the run is repeated with these
+cells set before every frame, and nothing else: `Layer2Touched` ($140E) = 1; `NextLayer1XPos` ($1462) and
+`NextLayer2XPos` ($1466) = 256; Mario's X ($94) = 384 (camera X + 128). Mario's X has to move with the camera
+because the camera code pulls the camera back to him otherwise. Probe, vanilla, one machine: this constant
+camera gives the same sink as the capture's fed camera X on $1EF, 109 of 109 frames aligned at the first row
+at or below 185, and the sink reaches its floor (0). The sink values come only from the ROM; the forced cells
+are inputs, not a path. The camera frame is not shown for this kind (the forced camera is not the routine's).
+
+**Run size and stall.** $009: 7,785 frames, 151 KB of JSON for the four position lists and the offsets, about
+1 s on the backend thread for the whole run (load, pass 1), measured on the shipped function in node, one
+machine. $1EF: 448 frames, 8.6 KB, 49 ms. A map with no routine: 17 ms. The reply is kept per working-copy
+bytes, so it is paid once per edit. The 1 s is on the RPC thread; chunking was not needed.
+
+**Entry checks.** `motionEntries` reads the JSL operands at the two call sites inside `CODE_00A28A`
+(`bank_00.asm:4505-4506`) and requires each callee to open with PHB; a failed check is a refusal
+("unrecognized-code") with the site named. No byte run is stored.
+
+**Sweep.** `MapMotion.test.ts` runs every slot (no ROM, no run): every slot ends `ok`, `none`, or refused
+with `no-motion` or `sideways`; none is refused by the loader, the entries or the interpreter. The switch,
+trigger and timer maps land on `no-motion` or play as `needs-mario`.
+
+**Cross-check against `scrollSim.ts`.** Not done: the hand port's fixtures (`MESEN_FIXTURES_DIR`) are absent
+here, and the interpreter run already matches the Mesen capture frame for frame.

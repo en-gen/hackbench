@@ -286,6 +286,20 @@ colours; there is no native `title` and nothing in the status bar. Leaving
 the sprite, a sprite reload, the sprite toggle going off or closing the tab
 cancels it.
 
+### Play: a map's own scroll motion (#1242)
+
+`ProjectService.mapMotion(manifestPath, index)` runs the map's scroll routines on the core from the working
+copy (`src/rom/MapMotion.ts`; `node/map-motion.ts` wraps it) and answers once per working-copy bytes: `none`
+(no scroll command after the load, so the view shows no button), `unavailable` with a plain-words reason (the
+button is disabled and says why), or `ok` with the four positions per frame, Layer 2's draw offset in rows
+(`shiftY`: the change in camera minus Layer 2 from the load frame), and per screen the Layer 2 rows below the
+screen up to its 512 px period. The view (`map-view-widget.tsx`, pure parts in `map-motion-play.ts`) plays on a
+`requestAnimationFrame` loop that picks the frame by elapsed time (60 per second, looping to the load state),
+repaints each screen's composite with Layer 2's planes shifted with wrap, and moves a screen-sized frame
+(`data-control="camera-frame"`) when the run moved the camera. Stop repaints from the unshifted planes, so the
+composites return to the at-rest pixels; nothing is written to the working copy. Measured on $009 (7,785
+frames): 151 KB of positions and about 1 s on the backend thread, once, then cached.
+
 ### The map tab's collision overlay (#435)
 
 `ProjectService.mapCollision(manifestPath, index)` returns a map's collision as

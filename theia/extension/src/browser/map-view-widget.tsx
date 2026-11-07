@@ -31,6 +31,7 @@ import {
 } from '../common/project-protocol'
 import { ProjectContext } from './project-context'
 import { decodeRgba, TILE_PX } from './map16-pixels'
+import { decodeStrips, frameAt, shiftPlane, type Motion, type Strip } from './map-motion-play'
 import {
   spriteDoors,
   spriteAt,
@@ -129,6 +130,10 @@ const GUTTER_UNREAD = 'The graphics layers past the end of the map could not be 
 
 /** The one-line note an opened New slot shows until its empty editor exists (#950). */
 export const NEW_SLOT_NOTE = 'This slot is new. It has no map yet.'
+
+/** The game's screen, which the camera frame outlines (256 x 224). */
+const CAMERA_W = 256
+const CAMERA_H = 224
 
 type Layout = Extract<MapScreenResult, { status: 'ok' }>
 
@@ -315,6 +320,19 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected pendingStart: { x: number; y: number } | undefined
   /** Where this open's start stands, for the strip's `data-start` (a test waits on it, not on a timer). */
   protected startState: 'pending' | 'placed' | 'skipped' | 'unavailable' = 'pending'
+  /** What the map's own scroll routines move (#1242): the run, or why not. Absent while it is read or when there is no routine. */
+  protected motion?: Motion
+  protected motionStrips: Strip[] = []
+  protected motionWhy?: string
+  protected motionSeq = 0
+  /** While playing: when it started, the frame shown, and Layer 2's draw offset in rows (0 at rest). */
+  protected playing = false
+  protected playStart = 0
+  protected playFrame = 0
+  protected playShift = 0
+  protected playRaf = 0
+  protected cameraFrame: HTMLDivElement | null = null
+
   /** The view left offset 0 while the start was pending, even if it came back: the user has taken over. */
   protected movedBeforeStart = false
 
@@ -332,6 +350,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       dispose: () => this.node.removeEventListener('keydown', this.countInput, true),
     })
     this.toDispose.push({ dispose: () => this.selectSprite(undefined) })
+    this.toDispose.push({ dispose: () => this.stopPlay() })
     this.toDispose.push(this.view)
     // Three consumers of one store, each deciding for itself.
     this.toDispose.push(
@@ -528,6 +547,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.hover = undefined
     this.blocksVersion++
     void this.loadSprites()
+    void this.loadMotion()
     // The probe runs the ROM's code: it runs only while the overlay is on. Off, an edit drops the stale
     // lines and the toggle's refusal is re-read (a cheap check, no probe); the next press fetches.
     if (this.showCollision) void this.loadCollision()
@@ -589,6 +609,90 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** What a failed overlay read is called in the log: the map and the overlay. */
   protected what(overlay: string): string {
     return `Map ${this.options?.index.toString(16)} ${overlay}`
+  }
+
+  /** Reads what the map's own scroll routines do. A map being replaced or edited stops a run in progress. */
+  protected async loadMotion(): Promise<void> {
+    const o = this.options
+    this.stopPlay()
+    this.motion = undefined
+    this.motionStrips = []
+    this.motionWhy = undefined
+    if (!o) return
+    const seq = ++this.motionSeq
+    const r = await this.projects
+      .mapMotion(o.manifestPath, o.index)
+      .catch(readFailed(this.what('scroll motion')))
+    if (seq !== this.motionSeq) return
+    if (r.status === 'ok') {
+      this.motion = r
+      this.motionStrips = decodeStrips(r)
+    } else if (r.status === 'unavailable') this.motionWhy = r.reason
+    this.update()
+  }
+
+  protected get canPlay(): boolean {
+    return !!this.motion && !this.screenError
+  }
+
+  /** The play/stop button: Layer 2 moves by the run's offsets, 60 frames a second, until stopped. */
+  protected togglePlay(): void {
+    if (this.playing) return this.stopPlay()
+    if (!this.motion || !this.canPlay) return
+    this.playing = true
+    this.playStart = performance.now()
+    this.playFrame = 0
+    this.playShift = 0
+    // The indicator cells are drawn at rest; they step aside while Layer 2 moves.
+    for (const [k, c] of this.canvases) {
+      if (k.startsWith(`${DISPLAY}:`))
+        this.showBare(c, this.composites.get(Number(k.split(':')[1])))
+    }
+    this.playRaf = requestAnimationFrame(this.playTick)
+    this.update()
+  }
+
+  protected readonly playTick = (now: number): void => {
+    const m = this.motion
+    if (!this.playing || !m) return
+    const f = frameAt(now - this.playStart, m.shiftY.length)
+    if (f !== this.playFrame) {
+      this.playFrame = f
+      this.playShift = m.shiftY[f] ?? 0
+      for (const [s, canvas] of this.composites) this.paintComposite(s, canvas)
+      this.placeCameraFrame()
+    }
+    this.playRaf = requestAnimationFrame(this.playTick)
+  }
+
+  /** Back to the picture at rest: the same planes, the same compose, so the pixels are the ones before play. */
+  protected stopPlay(): void {
+    if (!this.playing) return
+    cancelAnimationFrame(this.playRaf)
+    this.playing = false
+    this.playShift = 0
+    this.playFrame = 0
+    for (const [s, canvas] of this.composites) this.paintComposite(s, canvas)
+    this.sync()
+    this.update()
+  }
+
+  /** The camera's screen-sized frame at the run's current camera position; only for a run that moves the camera. */
+  protected placeCameraFrame(): void {
+    const el = this.cameraFrame
+    const m = this.motion
+    if (!el || !m) return
+    const z = this.zoom
+    const pad = this.pad
+    el.style.left = `${(pad.left + (m.l1x[this.playFrame] ?? 0)) * z}px`
+    el.style.top = `${(pad.top + (m.l1y[this.playFrame] ?? 0)) * z}px`
+    el.style.width = `${CAMERA_W * z}px`
+    el.style.height = `${CAMERA_H * z}px`
+  }
+
+  protected readonly cameraFrameRef = (el: HTMLDivElement | null): void => {
+    this.cameraFrame = el
+    this.placeCameraFrame()
   }
 
   /**
@@ -1100,7 +1204,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       return
     }
     const lift = this.liftOn(s)
-    const want = `${this.generation}:${this.key(s)}:${+this.showL1}${+this.showL2}${+this.showL3}${+this.showSprites}:${this.spritesVersion}:${lift ?? ''}` // prettier-ignore
+    const want = `${this.generation}:${this.key(s)}:${+this.showL1}${+this.showL2}${+this.showL3}${+this.showSprites}:${this.spritesVersion}:${lift ?? ''}:${this.playShift}` // prettier-ignore
     if (canvas.dataset.drawn === want) return
     canvas.width = shot.width
     canvas.height = shot.height
@@ -1126,6 +1230,25 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     canvas.dataset.drawn = want
   }
 
+  /** While playing, Layer 2's planes drawn at the run's offset, the rows that scroll in taken from the wrapped strip. */
+  protected shiftLayer2(
+    s: number,
+    shot: ScreenImages,
+    planes: Partial<Record<SourceKey, Uint8ClampedArray | null>>,
+  ): void {
+    const m = this.motion
+    const strip = this.motionStrips[s]
+    if (!this.playing || !m || !strip || this.playShift === 0) return
+    for (const [k, extra] of [
+      ['l2Low', strip.low],
+      ['l2High', strip.high],
+    ] as const) {
+      if (!(k in planes)) continue
+      const base = planes[k] ?? null
+      planes[k] = shiftPlane(base, extra, shot.width, shot.height, m.stripRows, this.playShift)
+    }
+  }
+
   /** The sources a screen composes: a hidden layer's plane is left out (not empty), so its indicators go with it. */
   protected shownPlanes(
     s: number,
@@ -1134,6 +1257,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     // prettier-ignore
     const planes: Partial<Record<SourceKey, Uint8ClampedArray | null>> = {}
     for (const k of MAP_PLANE_KEYS) if (this.layerShown(k)) planes[k] = shot.planes[k]?.data ?? null
+    this.shiftLayer2(s, shot, planes)
     // The sprites are four more sources, one per OAM priority (#795), not in color math (their palette split is #564's to add).
     if (this.showSprites) {
       Object.assign(planes, spritePlanes(this.sprites, s))
@@ -1565,6 +1689,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return l3.reason ?? (l3.priority ? 'Layer 3 · Overlay' : 'Layer 3 · Background')
   }
 
+  /** The button's tooltip: what Play shows, or in plain words why it cannot. */
+  protected playTitle(): string {
+    if (this.playing) return 'Stop'
+    if (!this.motion) return this.motionWhy ?? 'Play is not available for this map.'
+    const base = 'Play what the map moves'
+    return this.motion.note ? `${base}. ${this.motion.note}` : base
+  }
+
   /** The view of a New slot: one plain-words note, no toolbar and no error (D155). */
   protected renderNewSlot(): React.ReactNode {
     return (
@@ -1635,6 +1767,23 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           >
             <span className="codicon codicon-layout-panel-dock" />
           </button>
+          {(this.motion || this.motionWhy) && (
+            <button
+              data-control="map-play"
+              type="button"
+              className={'hb-icon-btn' + (this.playing ? ' hb-icon-btn-on' : ' hb-icon-btn-off')}
+              data-play-state={this.playing ? 'playing' : this.motion ? 'ready' : 'refused'}
+              aria-pressed={this.playing}
+              disabled={!this.canPlay}
+              title={this.playTitle()}
+              aria-label={this.playing ? 'Stop' : 'Play'}
+              onClick={() => this.togglePlay()}
+            >
+              <span
+                className={'codicon ' + (this.playing ? 'codicon-debug-stop' : 'codicon-play')}
+              />
+            </button>
+          )}
           <span className="hb-toolbar-sep" data-control="toolbar-sep" />
           {PALACES.map(p => this.renderToggle(p))}
           {SWITCH_ORDER.map(k => (
@@ -1907,6 +2056,13 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
                 className="hb-map-view-edge"
                 data-control="map-edge"
                 style={{ left: pad.left * z, top: pad.top * z, width: mapW * z, height: mapH * z }}
+              />
+            )}
+            {this.playing && this.motion?.cameraMoved && (
+              <div
+                className="hb-map-camera-frame"
+                data-control="camera-frame"
+                ref={this.cameraFrameRef}
               />
             )}
             {this.selectedSprite?.stored && (
