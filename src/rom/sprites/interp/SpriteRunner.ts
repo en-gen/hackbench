@@ -196,7 +196,7 @@ export interface SpriteModel {
   refusal?: string
   /** Why no part was drawn across all passes, when the run completed. */
   emptyReason?: string
-  /** Position after INIT (the placed spot at rest), and the raw placement it started from. For $67 on a vanilla-shaped handler: the position its drawn (chosen) pass drew at, after the line snap. */
+  /** Position after INIT (the placed spot at rest), and the raw placement it started from. For a line-guided id on a vanilla-shaped handler: the position its drawn (chosen) pass drew at, after the line snap. */
   anchor?: { x: number; y: number; rawX: number; rawY: number }
   /**
    * Where the level state came from: the ROM's own level loader, or a generic
@@ -220,14 +220,14 @@ export interface SpriteModel {
   passes: PassResult[]
   /**
    * The frame policy: index of the first pass at or after INIT that draws at
-   * least one tile (within the pass cap), absent when none does; for $67 on a vanilla-shaped
+   * least one tile (within the pass cap), absent when none does; for a line-guided id on a vanilla-shaped
    * handler, the pass on the line: two after it when each step moved the sprite and draws (#126). A policy, not a claim about which
    * frame a map should show.
    */
   chosen?: number
-  /** Why a $67 handler got the generic rule: the grinder gate ran it and it did not make the vanilla calls in order. */
+  /** Why a line-guided handler got the generic rule: the grinder gate ran it and it did not make the vanilla calls in order. */
   lineGateReason?: string
-  /** Why a $67 on a vanilla-shaped handler stayed on its first drawn pass although the next one draws. */
+  /** Why a line-guided id on a vanilla-shaped handler stayed on its first drawn pass although the next one draws. */
   lineStepReason?: string
   /** Why a $65-$68 sprite's INIT is not the stock InitLineGuidedSpr: its shift is unverified, though the interpreter ran it. */
   lineInitReason?: string
@@ -305,7 +305,7 @@ export interface RunOptions {
   spawn?: SpawnRun
   probe?: Probe
   trackInputs?: boolean
-  /** The dispatch shape the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
+  /** The dispatch shape the line-guided gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   grinderDispatch?: DispatchShape
   /** The InitLineGuidedSpr fingerprint to hold the INIT of $65-$68 to; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   stockInits?: readonly Routine[]
@@ -314,7 +314,7 @@ export interface RunOptions {
   /**
    * `true` is the map view's at-rest picture. D139 D, D138 A: INIT runs for the look only (tiles, flips,
    * variants, status). D134, D91: the drawing is re-based onto the placed spot, so INIT's moves and the
-   * 320 px shift are not shown, and there is no $67 line-walk pick. Default false: INIT first and its moves
+   * 320 px shift are not shown, and there is no line-guided line-walk pick. Default false: INIT first and its moves
    * kept, as the game and the graders do.
    */
   atRest?: boolean
