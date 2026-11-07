@@ -550,25 +550,36 @@ function cart(
     0x20,
     ABOVE & 0xff,
     ABOVE >> 8,
-    // the lives and the star branches: a call to a stub only when the run seeds the cell (the game's own tests differ)
+    // The lives, countdown and star gates, with the game's conditions but other instructions: the countdown only under a
+    // non-zero lives, the lives hook from 2, the star hook from 8. A seed that misses a gate leaves its stub unseen.
+    ...[0xae, LIVES_CELL & 0xff, LIVES_CELL >> 8, 0xf0, 15],
     ...[
-      [LIVES_CELL, 0xf0, 0x03, LIVES_HOOK],
-      [STAR_CELL, 0xf0, 0x03, STAR_HOOK],
-      [TIMER_CELL, 0xf0, 0x03, TIMER_HOOK],
-    ].flatMap(([cell, beq, skip, hook]) => [
-      0xad,
-      cell! & 0xff,
-      cell! >> 8,
-      beq!,
-      skip!,
+      0xac,
+      TIMER_CELL & 0xff,
+      TIMER_CELL >> 8,
+      0xf0,
+      3,
       0x20,
-      hook! & 0xff,
-      hook! >> 8,
-    ]),
+      TIMER_HOOK & 0xff,
+      TIMER_HOOK >> 8,
+    ],
+    ...[0xe0, 2, 0x90, 3, 0x20, LIVES_HOOK & 0xff, LIVES_HOOK >> 8],
+    ...[
+      0xae,
+      STAR_CELL & 0xff,
+      STAR_CELL >> 8,
+      0xe0,
+      8,
+      0x90,
+      3,
+      0x20,
+      STAR_HOOK & 0xff,
+      STAR_HOOK >> 8,
+    ],
     0xa5,
     0x14,
     0xf0,
-    0x45 - 24,
+    0x45 - 30,
   ])
   put(ABOVE, [RTS])
   put(LIVES_HOOK, [RTS])

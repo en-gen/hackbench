@@ -114,6 +114,7 @@ function stretchProblem(
   seeds: Record<number, number>,
 ): string | null {
   nativeReset(cpu)
+  cpu.a = cpu.x = cpu.y = 0 // nativeReset leaves them: a pass starts from the last one's
   for (const [cell, value] of Object.entries(seeds)) cpu.bus.write(+cell, value)
   cpu.db = ENTRY_DB
   cpu.pb = STRETCH_AT >> 16

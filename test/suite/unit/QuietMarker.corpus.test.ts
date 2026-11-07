@@ -5,6 +5,7 @@
 import { readFileSync } from 'fs'
 import { describe, it, expect } from 'vitest'
 import { parseLevelSprites } from '../../../src/rom/LevelParser'
+import { instructionLength } from '../../../src/rom/dispatch/HandlerWalk'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { mapSprites } from '../../../theia/extension/src/node/map-sprites'
@@ -92,5 +93,45 @@ describe.each([VANILLA, MAGIC])('the loader routing of %s, every id', name => {
       // With extra bit 3 set only the scroll commands stay scroll commands.
       expect(classes.of(id, true)).toBe(expected(id) === 'scroll' ? 'scroll' : 'normal')
     })
+  })
+})
+
+// A hook planted at every instruction start of the main loop's stretch (bank_02.asm:1355-1409, from $02:8AB1 to the last
+// call before the loader's at $02:8B1D). Starts come from a decode of the ROM's own bytes (8-bit widths: the stretch has no REP or SEP).
+describe.skipIf(!hasRom(VANILLA))('a planted loop in the stretch before the loader call', () => {
+  const FIRST = 0x028ab1
+  const LAST = 0x028b1a
+  const starts: { at: number; op: number }[] = []
+  if (hasRom(VANILLA)) {
+    const rom = freshRom()
+    for (let at = FIRST; at <= LAST;) {
+      const op = rom.readAt(at, 1)![0]!
+      starts.push({ at, op })
+      at += instructionLength(op, true, true)
+    }
+  }
+  const status = (edit: (rom: RomFile) => void) => {
+    const rom = freshRom()
+    edit(rom)
+    return loadClasses(rom).status
+  }
+
+  it('decodes the whole stretch and an unmodified ROM reads ok', () => {
+    expect(starts.length).toBe(48) // reviewer's measure of the decode, one machine, 2026-11-07
+    expect(starts[0]!.at).toBe(FIRST)
+    expect(status(() => undefined)).toBe('ok')
+  })
+
+  it('is unavailable with a loop planted at every instruction start', () => {
+    const missed = starts.filter(
+      s => status(rom => rom.writeAt(s.at, [0x80, 0xfe])) !== 'unavailable',
+    )
+    expect(missed.map(s => s.at.toString(16))).toEqual([])
+  })
+
+  it('still reads ok with the JSL at :1401 replaced by NOPs', () => {
+    const jsl = starts.filter(s => s.op === 0x22)
+    expect(jsl.length).toBe(1)
+    expect(status(rom => rom.writeAt(jsl[0]!.at, [0xea, 0xea, 0xea, 0xea]))).toBe('ok')
   })
 })
