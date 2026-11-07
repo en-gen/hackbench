@@ -31,9 +31,14 @@
 import type { InterpretedDraw } from './interpretedDraw'
 import { RomFile } from '../RomFile'
 import { formatAddr } from '../addressing'
+import { MAX_SCREENS } from '../model/MapGutter'
 
 /** Map16 RAM bytes per horizontal-level screen: 27 rows x 16 cols. */
 export const MAP16_BYTES_PER_SCREEN_H = 0x1b0
+
+/** Plain words for an object with a tile outside the level's Map16 buffer; the "!" mark's text (#1034). */
+export const OFF_BUFFER_REASON =
+  "Some of its tiles land outside the map's tile space, so they are not drawn."
 
 /** A 2D tile grid; grid[row][col] = 9-bit Map16 tile ID (page << 8 | low). */
 export type TileGrid = number[][]
@@ -244,26 +249,86 @@ export function writeTileAdvance(cur: Cursor, lowByte: number): void {
 }
 
 /**
+ * The grid cell of a byte `offset` into the horizontal Map16 buffer, which is linear: a screen is
+ * $1B0 bytes, 27 rows of 16, so a row past the 27th is the next screen's top rows and a column past
+ * the 16th the next screen (SMWDisX bank_0D.asm:1996-2031; docs/rom/map-data-mechanics.md). Null
+ * outside the 32 screens. The one place that arithmetic lives: the cursor and the interpreter share it.
+ */
+export function cellOfOffset(offset: number): { row: number; col: number } | null {
+  if (offset < 0 || offset >= MAX_SCREENS * MAP16_BYTES_PER_SCREEN_H) return null
+  const screen = Math.floor(offset / MAP16_BYTES_PER_SCREEN_H)
+  const rem = offset % MAP16_BYTES_PER_SCREEN_H
+  return { row: rem >> 4, col: screen * 16 + (rem & 0x0f) }
+}
+
+/**
+ * Where the game's buffer puts a write at the cursor's (row, col). A horizontal map's rows wrap into
+ * the next screen (`cellOfOffset`). A vertical map's rows simply continue, one 16-row screen after
+ * another, up to its 28 screens; its column wrap (`CODE_0DA95D` adds $1B0, bank_0D.asm:2003-2011) is
+ * not modelled. Null when the write falls outside the buffer: before its start, past the last screen
+ * the layout holds (32 horizontal, 28 vertical), or past a vertical map's 32 columns.
+ */
+export function bufferCell(
+  row: number,
+  col: number,
+  vertical: boolean,
+): { row: number; col: number } | null {
+  if (!vertical)
+    return cellOfOffset((col >> 4) * MAP16_BYTES_PER_SCREEN_H + row * 16 + (col & 0x0f))
+  // A vertical map is 28 screens of $200 bytes ($3800, bank_00.asm:6831-6861), 32 columns wide.
+  return row < 0 || col < 0 || col >= 32 || row >= 28 * 16 ? null : { row, col }
+}
+
+/**
+ * Mark the object being drawn: some of its tiles fall outside the level's buffer and are not drawn.
+ * Once per object, so a long object is one "!" and not one per tile (#1034).
+ */
+export function refuseOffBuffer(cur: Cursor): void {
+  const same = (r: Refusal) => r.objectIndex === cur.owner && r.reason === OFF_BUFFER_REASON
+  if (!cur.refusals?.some(same)) refuseUnported(cur, cur.handlerAddr, OFF_BUFFER_REASON)
+}
+
+/**
+ * The cell a write at the cursor goes to, or null (after marking the object) when the buffer has
+ * none. A vertical grid grows by whole rows, 32 wide, to reach it. The cursor's own row and col are
+ * left as they are: later steps of the ROM routine read them.
+ */
+function placeCell(cur: Cursor): { row: number; col: number } | null {
+  const at = bufferCell(cur.row, cur.col, cur.vertical)
+  if (!at) {
+    refuseOffBuffer(cur)
+    return null
+  }
+  const width = cur.grid[0]?.length ?? 0
+  while (cur.grid.length <= at.row) {
+    cur.grid.push(new Array<number>(width).fill(0x25))
+    cur.owners?.push(new Array<number>(width).fill(OWNER_NONE))
+  }
+  return at
+}
+
+/**
  * Write the low byte at the cursor, combined with the current page.
  * Mirrors raw STA [Map16LowPtr],Y - the page byte was set by a prior call to
  * Sta1To6ePointer / StzTo6ePointer (setPage1 / setPage0 here).
  *
- * Writes past the current row length auto-grow the row (padded with TILE_EMPTY)
- * up to a 512-col cap - matches the SNES behaviour where the Map16 RAM buffer
- * has far more headroom than the level's declared screen count. Narrow castle
- * rooms (e.g. level $0FD) stamp right-wall fill tiles one column past the
- * declared levelLength; the engine happily writes there and Mesen captures it.
+ * The cell is where the game's linear buffer puts the write (`bufferCell`): a row past the map's
+ * bottom is the next screen's top, a column past the last screen grows the row (padded with
+ * TILE_EMPTY) up to a 512-col cap, as the SNES buffer has far more headroom than the level's
+ * declared screen count. Narrow castle rooms (e.g. level $0FD) stamp right-wall fill tiles one
+ * column past the declared levelLength; Mesen captures it. A write outside the buffer marks the
+ * object instead of vanishing (`refuseOffBuffer`).
  */
 export function writeTile(cur: Cursor, lowByte: number): void {
-  if (cur.row < 0 || cur.row >= cur.grid.length) return
-  if (cur.col < 0 || cur.col >= 0x200) return
+  const at = placeCell(cur)
+  if (!at) return
   const tile = ((cur.page & 0x01) << 8) | (lowByte & 0xff)
-  const row = cur.grid[cur.row]
+  const row = cur.grid[at.row]
   // Pad with TILE_EMPTY ($25) up to the target column so downstream readers
   // that iterate by row length see a contiguous tile stream.
-  while (row.length < cur.col) row.push(0x25)
-  row[cur.col] = tile
-  claimCell(cur)
+  while (row.length < at.col) row.push(0x25)
+  row[at.col] = tile
+  claimCell(cur, at)
 }
 
 /**
@@ -273,13 +338,11 @@ export function writeTile(cur: Cursor, lowByte: number): void {
  * shape; a shorter owner row would read as OWNER_NONE for a cell that an
  * object really did draw, and the click on it would select nothing.
  */
-function claimCell(cur: Cursor): void {
-  const owners = cur.owners
-  if (!owners) return
-  const orow = owners[cur.row]
+function claimCell(cur: Cursor, at: { row: number; col: number }): void {
+  const orow = cur.owners?.[at.row]
   if (!orow) return
-  while (orow.length < cur.col) orow.push(OWNER_NONE)
-  orow[cur.col] = cur.owner
+  while (orow.length < at.col) orow.push(OWNER_NONE)
+  orow[at.col] = cur.owner
 }
 
 /**
@@ -288,15 +351,15 @@ function claimCell(cur: Cursor): void {
  * (SMWDisX bank_0D.asm:2112-2114 StzTo6ePointer; skips at 1736-1740 and
  * 4804-4808; see SMWDisX bank_0D/MEMO.md, "Hillside tables and
  * StzTo6ePointer"). No owner is claimed: no tile is drawn, unlike
- * `applyWrites` in interpret.ts, which claims every buffer write.
+ * `applyWrites` in interpret.ts, which claims every buffer write. Placed like `writeTile`.
  */
 export function clearPageKeepLow(cur: Cursor): void {
-  if (cur.row < 0 || cur.row >= cur.grid.length) return
-  if (cur.col < 0 || cur.col >= 0x200) return
+  const at = placeCell(cur)
+  if (!at) return
   const low = peekExistingLow(cur)
-  const row = cur.grid[cur.row]
-  while (row.length < cur.col) row.push(0x25)
-  row[cur.col] = low
+  const row = cur.grid[at.row]
+  while (row.length < at.col) row.push(0x25)
+  row[at.col] = low
 }
 
 /** Sta1To6ePointer (bank_0D line 2107) -- next tile is on page 1 ($100-$1FF). */
@@ -365,11 +428,9 @@ export function stepDiag(cur: Cursor, dcol: number, drow: number): void {
  * Returns the empty-tile sentinel ($25) if the cursor is outside the grid.
  */
 export function peekExistingLow(cur: Cursor): number {
-  const row = cur.grid[cur.row]
-  if (!row) return 0x25
-  const v = row[cur.col]
-  if (v === undefined) return 0x25
-  return v & 0xff
+  const at = bufferCell(cur.row, cur.col, cur.vertical)
+  const v = at ? cur.grid[at.row]?.[at.col] : undefined
+  return v === undefined ? 0x25 : v & 0xff
 }
 
 /**

@@ -135,9 +135,9 @@ describe.skipIf(!corpusReady)('L1 data gate: the 143-map roster', () => {
   it(
     'N30/N31: the report cap (a small maxReported) limits mismatches, but never totals',
     () => {
-      const capped = runGate(romPath(VANILLA), CAPTURE_DIR, [0x021], undefined, 1) // $021 has 7 known grid mismatches (#587)
+      const capped = runGate(romPath(VANILLA), CAPTURE_DIR, [0x0c3], undefined, 1) // $0C3 has 6 known grid mismatches (#570)
       expect(capped[0]!.mismatches.length).toBe(1)
-      expect(capped[0]!.totals.grid).toBe(7)
+      expect(capped[0]!.totals.grid).toBe(6)
     },
     TIMEOUT,
   )
@@ -197,13 +197,13 @@ describe.skipIf(!corpusReady)('L1 data gate: the 143-map roster', () => {
     TIMEOUT,
   )
 
-  it('#570 and #587 are the only issues, each with a citable example', () => {
+  it('#570 is the only issue, with a citable example (#587, map $021, was fixed by #1034)', () => {
     // #571 (the vanilla pipe-color bug) is no longer a known failure: the
     // gate's own `checkPipes` now allows exactly that bug (ALLOWED_PIPE_BUG),
     // so it never reaches this fixture. #567 (switch-palace blocks) is fixed:
     // `expandMap`'s switchFlags default (uncleared) now matches the captures.
-    expect(new Set(KNOWN.entries.map(e => e.issue))).toEqual(new Set([570, 587]))
-    expect(new Set(KNOWN.examples.map(e => e.issue))).toEqual(new Set([570, 587]))
+    expect(new Set(KNOWN.entries.map(e => e.issue))).toEqual(new Set([570]))
+    expect(new Set(KNOWN.examples.map(e => e.issue))).toEqual(new Set([570]))
     for (const ex of KNOWN.examples) {
       const r = results.find(x => idToHex(x.id) === ex.map)!
       expect(r.mismatches).toContainEqual({ table: ex.table, cell: ex.cell, expected: ex.expected, actual: ex.actual }) // prettier-ignore

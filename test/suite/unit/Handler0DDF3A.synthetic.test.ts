@@ -128,9 +128,12 @@ function run(
   size: number,
   screens = 4,
   vertical = false,
+  rows27 = false,
 ): TileGrid {
   const grid = vertical ? createGrid(screens, true) : prefilled(screens)
-  const cur = makeCursor(grid, rom, 11, x, y, 0x37, size)
+  // A one-screen vertical map a wrapped write grew to 27 rows: only the cursor's flag tells it from a horizontal map (#1034).
+  while (rows27 && grid.length < 27) grid.push(new Array<number>(32).fill(TILE_EMPTY))
+  const cur = makeCursor(grid, rom, 11, x, y, 0x37, size, null, -1, undefined, vertical)
   cur.handlerAddr = HANDLER
   handle_0DDF3A(cur)
   return grid
@@ -256,5 +259,11 @@ describe('CODE_0DDF3A castle wall (synthetic cart)', () => {
 
   it('declines to draw on a vertical level, whose Map16 layout it does not model', () => {
     expect(run(cart(), 0, 0, 0x02, 2, true)).toEqual(createGrid(2, true))
+  })
+
+  it('declines on a vertical level grown to 27 rows, which only the cursor flag tells from a horizontal one', () => {
+    const grown = createGrid(1, true)
+    while (grown.length < 27) grown.push(new Array<number>(32).fill(TILE_EMPTY))
+    expect(run(cart(), 0, 0, 0x02, 1, true, true)).toEqual(grown)
   })
 })
