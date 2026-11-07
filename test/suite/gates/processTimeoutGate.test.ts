@@ -58,6 +58,9 @@ describe('processTimeoutGate planted sources', () => {
   ])('refuses %s with no budget', (_n, imp) => {
     expect(offences(...imp, TEST)).toEqual(['p.test.ts'])
   })
+  it('accepts a budget in a file with no top-level registration', () => {
+    expect(offences(SPAWN, BUDGET)).toEqual([])
+  })
   it('refuses a budget inside a describe', () => {
     expect(offences(SPAWN, "describe('d', () => {", `  ${BUDGET}`, `  ${TEST}`, '})')).toEqual([
       'p.test.ts',
@@ -65,7 +68,12 @@ describe('processTimeoutGate planted sources', () => {
   })
   it.each([
     ['the first test', TEST],
-    ['a top-level hook', 'beforeAll(() => {})'],
+    ['a top-level beforeAll', 'beforeAll(() => {})'],
+    ['a top-level beforeEach', 'beforeEach(() => {})'],
+    ['a top-level afterEach', 'afterEach(() => {})'],
+    ['a top-level afterAll', 'afterAll(() => {})'],
+    ['a top-level test', "test('x', () => {})"],
+    ['a top-level describe', "describe('d', () => {})"],
   ])('refuses a budget placed after %s', (_n, first) => {
     expect(offences(SPAWN, first, BUDGET)).toEqual(['p.test.ts'])
   })
@@ -75,7 +83,9 @@ describe('processTimeoutGate planted sources', () => {
     ['a different value', BUDGET.replace('(30_000), h', '(1), h')],
     ['a different hook value', BUDGET.replace('(30_000) })', '(1) })')],
     ['an indented line', `  ${BUDGET}`],
-    ['a trailing comment line', `// ${BUDGET}`],
+    ['a commented-out line', `// ${BUDGET}`],
+    ['a trailing comment', `${BUDGET} // note`],
+    ['a trailing semicolon', `${BUDGET};`],
   ])('refuses %s in place of the budget', (_n, line) => {
     expect(offences(SPAWN, line, TEST)).toEqual(['p.test.ts'])
   })

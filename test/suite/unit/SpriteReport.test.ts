@@ -79,7 +79,7 @@ const git = (cwd: string, ...a: string[]): string => {
 }
 
 // Git-heavy tests (30 to 45 git spawns each). Measured worst case: 31258 ms for the
-// clone-spellings test, run alone after other batches on one Windows machine (#1209 review);
+// clone-spellings test, in a seven-file, one-worker batch with other runs active, one Windows machine (#1209 review);
 // earlier, 12 copies at once gave 8479 ms. 60 s is local-load headroom, and it is also CI's floor.
 const GIT_HEAVY = slow(60_000)
 

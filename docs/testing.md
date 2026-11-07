@@ -415,8 +415,8 @@ A test file that starts a process (a value import of `spawn`, `exec`, `execFile`
 or `fork` families from `child_process`, or of `support/isolatedGit` or
 `support/gitBash`) carries, at module scope before its first test or hook,
 `vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })`.
-Under a build-like load the 5 s default failed 4 such tests per full run, in 3
-runs on one machine at develop a9de2145 (#485). On CI the budget line keeps the
+Under a build-like load the 5 s default failed 10 process-starting tests across 3
+full runs (4, 3, 3), one machine, develop a9de2145 (#485). On CI the budget line keeps the
 60 s floor of `loadTimeout`. A per-test `slow()` or number wins over the file
 budget whether it is larger or smaller, so a per-test value under 30 s undercuts
 it. `processTimeoutGate.test.ts` walks the directory, skips `*.timing.test.ts`
