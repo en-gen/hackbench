@@ -72,6 +72,8 @@ export const KNOWN_DISAGREEMENTS: Known[] = [
   // Port bugs, one issue each.
   // The port draws this only as the interpreter's refusal fallback; production draws it from the interpreter (#342).
   row(0x0dadeb, all, 440, [450, 480, 'cfbc58f35e', 'f058aa4925']),
+  // #300 is fixed by #1034: the port wraps the 257 rows into the next screen, so this absorbs 0 of 240. Kept as the offScreenOnly mechanism's row.
+  row(0x0db49e, r => hi(r) === 0, 300, [0, 240, '', ''], true),
   // #369: a zero nibble wraps a DEC/BNE counter to 256.
   ...([
     [0x0daa26, [195, 240, 'd73c1e0be0', '19148e7d53']],
