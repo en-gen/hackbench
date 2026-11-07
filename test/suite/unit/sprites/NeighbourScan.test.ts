@@ -369,7 +369,7 @@ describe('a sprite its parent drew, through the real drawer (#1049)', () => {
       const stock = Array.from({ length: n }, (_, i) => sp(2 + i, QUIET, 1 + i, 9))
       const list = [
         sp(0, SCANNER, 8, 8),
-        { ...sp(1, QUIET, 9, 7), raw: [0x08] } as LevelSprite,
+        { ...sp(1, QUIET, 15, 15), raw: [0x08] } as LevelSprite, // the farthest in range, so the cap would cut it
         ...stock,
       ]
       expect(drawn(list)[0]!.unverified).toContain(NEIGHBOUR_EXTRA_BIT_REASON)
