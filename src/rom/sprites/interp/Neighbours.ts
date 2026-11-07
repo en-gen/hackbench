@@ -5,6 +5,9 @@
 import type { LevelSprite } from '../../LevelParser'
 import type { SpriteSeed } from './SpriteSeed'
 
+/** Bit 3 of a list entry's first byte (YYYYEEsy, bank_02.asm:5253): the entry may be a custom sprite, not the stock id. */
+export const EXTRA_BITS = 0x08
+
 /** The scan covers slots 0-9; the sprite under test takes one of them. */
 const MAX_NEIGHBOURS = 10
 
@@ -19,6 +22,8 @@ function isSlotSprite(id: number): boolean {
 
 /**
  * Entries of `list` on the sprite's screen or either side of it, nearest first, up to the free slots; not itself.
+ * An entry with the extra bit is left out (fail-closed): its id may be a custom sprite, and seeding it as the stock
+ * one would let a scanner draw a companion that is not there (#1173).
  */
 export function neighboursOf(
   list: readonly LevelSprite[],
@@ -28,7 +33,11 @@ export function neighboursOf(
   const at = px(s)
   return list
     .filter(
-      e => e.index !== s.index && isSlotSprite(e.spriteId) && Math.abs(e.screen - s.screen) <= 1,
+      e =>
+        e.index !== s.index &&
+        isSlotSprite(e.spriteId) &&
+        !((e.raw[0] ?? 0) & EXTRA_BITS) &&
+        Math.abs(e.screen - s.screen) <= 1,
     )
     .map(e => ({ id: e.spriteId, ...px(e), index: e.index }))
     .sort(

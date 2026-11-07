@@ -248,6 +248,8 @@ export function offMapSpritePixels(
   let out: Uint8ClampedArray | null = null
   const order = [...sprites].sort((a, b) => (vertical ? a.y - b.y : a.x - b.x) || a.index - b.index)
   for (const s of order) {
+    // A sprite its parent drew is in the parent's bitmap already, as in the map's own layer (#1049, #1173).
+    if (s.drawnBy !== undefined) continue
     const { x0, y0, x1, y1 } = s.box
     let bmp = decoded.get(s)
     if (!bmp)
