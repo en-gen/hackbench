@@ -1,6 +1,13 @@
 # Map rendering engines: a design under consideration
 
-Status: proposal under review, not a plan. Drafted 2026-09-18 against
+Status (2026-11-07): the recommendations are partly done. Checked in the tree:
+- Gap 1, the shared game-frame clock: built (`src/webview/shared/frameClock.ts`).
+- Gap 2, OAM priority and the pass table: built (`src/rom/model/RenderPass.ts`; evidence moved to [../rom/obj-priority.md](../rom/obj-priority.md)).
+- Gap 3, per-index CGRAM provenance, and gap 4, the Layer 1 decline surfaced: not checked. [OPEN] resolve by grepping `src/rom/model/` for a palette contributor record and for `TILE_UNKNOWN` handling.
+- Section 3.4's interpreter cut is superseded for sprites: the map sprite layer runs the ROM's own sprite code ([sprite-gfx-interpreter.md](sprite-gfx-interpreter.md)).
+- The branch names and line numbers below are as of 2026-09-18.
+
+Original status: proposal under review, not a plan. Drafted 2026-09-18 against
 `origin/develop` at `a160b10`, plus three unmerged branches read but not
 edited: `feature/generic-sprite-renderer`, `docs/sprite-draw-path-census`,
 `docs/sprite-properties-panel`.
@@ -389,13 +396,7 @@ a level needs it.
 
 ### 5.4 Sequencing against open work
 
-`src/webview/mapEditor/main.ts` is touched by two open branches. The sprite
-properties panel's nearest hunk ends before the timer block (its `@@ -1795`
-hunk is 22 lines). The engine-wiring branch's `@@ -1959,6 +1969,31` hunk sits
-on `toggleAnim` and the `spriteAnimTimer.start()` site. A clock change should
-land after that PR or be rebased over it; the `animTimer.ts` change itself
-(accumulate rather than re-base) conflicts with neither. **verified** by
-diffing both branches against `origin/develop`.
+Obsolete. It sequenced the clock change after two unmerged branches (properties panel, engine wiring); the clock has since landed (status above). The hunk analysis was by diff against `origin/develop` on 2026-09-18. [EST]
 
 ## 6 What the proposal does not cover
 
@@ -480,12 +481,12 @@ buy nothing; do them when a boundary earns a name by having a test.
 
 ## 9 Corrections to existing documents, for follow-up
 
-- `docs/ideas/sprite-properties-panel.md`: INIT table stride is 2, not 3.
-- `docs/rom/level-rendering.md`: describes the retired atlas pipeline, a render
+- `docs/ideas/sprite-properties-panel.md`: INIT table stride is 2, not 3. Done 2026-11-07.
+- `docs/rom/level-rendering.md`: (not re-checked 2026-11-07) described the retired atlas pipeline, a render
   order with no Layer 3 and no priority passes, and "sprite markers";
   stale against `src/rom/model/`.
 - `project_layer_render_order` memory note: now traced, and incomplete on
   OBJ.1 and Layer 3.
 - `docs/ideas/overworld-scene-pipeline.md` open question 2 is answered
   above: the order was a written rule; it is now a traced pipeline with two
-  named exceptions.
+  named exceptions. Not yet edited there; the open question still reads as unanswered.

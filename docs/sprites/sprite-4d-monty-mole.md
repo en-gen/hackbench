@@ -201,32 +201,17 @@ be faithful to.
 
 ## Editor animation cadence
 
-`tickAnimation` advances a stand-in for `EffFrame` by
-`ROM_FRAMES_PER_TICK` game frames per editor tick.
+Corrected 2026-11-07: was a 7.5-frame nominal tick with a display-dependent `createRafTimer` (`src/webview/shared/animTimer.ts`), because that timer re-based on each frame it fired and the file is gone. Commit `dde3b49f` replaced it with the shared game-frame clock (`src/webview/shared/frameClock.ts`), and `SPRITE_ANIM_FRAME_STRIDE = 8` (`src/rom/timing.ts`) replaced 7.5. The table below describes the retired timer and is kept as the record. [EST]
 
-`SPRITE_ANIM_INTERVAL_MS = 125` is the **nominal** tick period, so the
-nominal conversion is `125 ms x 60 fps / 1000 = 7.5` game frames.
+`tickAnimation` advances a stand-in for `EffFrame` by `ROM_FRAMES_PER_TICK` (now 8) game frames per editor tick. The clock realizes that cadence independent of refresh rate, so the mound toggle matches the ROM's 16-frame pose at any display. [INF from `frameClock.ts` and `MontyMoleAppearance.ts`, not re-measured]
 
-The realized period is display-dependent. `createRafTimer`
-(`src/webview/shared/animTimer.ts`) fires when
-`now - lastTickMs >= interval` and then sets `lastTickMs = now`, so it
-re-bases on the frame it fires rather than accumulating. Its realized
-period is `ceil(interval / frameMs) * frameMs`:
+Retired timer, for the record: realized period `ceil(interval / frameMs) * frameMs` for a 125 ms interval.
 
 | Refresh | Frame ms | Frames per tick | Realized ms | Game frames per tick |
 |---------|----------|-----------------|-------------|----------------------|
 | 60 Hz | 16.667 | 8 | 133.33 | 8.0 |
 | 120 Hz | 8.333 | 15 | 125.0 | 7.5 |
 | 144 Hz | 6.944 | 18 | 125.0 | 7.5 |
-
-An appearance cannot see the refresh rate, so 7.5 is kept: it is the
-correct conversion of the interval the editor asks for, and it is exact
-on the high-refresh displays where the timer actually hits that interval.
-On a 60 Hz display the mound toggles every 284 ms against the ROM's
-267 ms, 6.7% slow. Hardcoding 8.0 would be exact at 60 Hz and 6.25% fast
-at 120/144 Hz. Neither is right everywhere; the fix is an accumulating
-timer (`lastTickMs += interval`), which is a shared change affecting
-every animated thing in the editor and is out of scope here.
 
 `RipVanFishAppearance.ts` carries the same nominal constant and the same
 display dependence.

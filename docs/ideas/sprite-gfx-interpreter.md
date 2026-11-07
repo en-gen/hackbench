@@ -5,6 +5,16 @@ Prototype, since moved: `src/rom/sprites/interp/` and the core in `src/rom/cpu/`
 (the spike path was `src/rom/spriteInterp/`).
 Measurement and pins: `test/suite/unit/sprites/` (the spike's `spike.test.ts` is gone).
 
+Status (2026-11-07): built. The Theia map sprite layer draws from this
+interpreter (`theia/extension/src/node/map-sprites.ts`, section 15; decision
+[2026-10-05-sprite-table-engine.md](../decisions/2026-10-05-sprite-table-engine.md)).
+Later per-sprite work lives in `docs/sprites/`. Numbers below are as measured on
+the dates shown, not re-run. The table engine (`src/rom/model/sprites/generic/`)
+is still in the tree for the reference extension, so section 7 phase B (delete
+the descriptors) is not done. [EST] from a grep of `src/` and `theia/`.
+Two sections are numbered 11 (Prior art, The runner); left as is so section
+links keep working.
+
 ## Evidence scope
 
 Everything below was RUN, not read, unless it says "read". One machine,
@@ -284,11 +294,6 @@ parts)`, so the owner's `$4F` half-tile error disappears with no table.
 
 The "no custom renderer" ruling holds: no sprite-specific code path exists.
 
-Expected size, estimates not measurements: hardened core 500 lines; service
-(seeding, settle policy, guards, 16-bit `$13/$14`) 250; mapping to `EnginePart`
-plus palette and dynamic-GFX notes and wiring 350; tests (synthetic per opcode
-and mode, planted defects, 197-id sweep pinned, descriptor comparison) 700;
-docs 200. About 2,000 lines, about a week, plus the phase B deletion.
 Open risks: 19 sprites draw nothing in 400 passes, unexplained; the level seed
 (Mario position, Map16 under the sprite) is a UI decision `SpriteRenderContext`
 already anticipates; HiROM and SA-1; no comparison to a live core, so "matches
@@ -392,29 +397,14 @@ address are already returned per run.
 Not built: I did not transpile any routine, so nothing below about a
 transpiler is measured; the interpreter numbers are.
 
-Shared either way: the opcode decoder and operand lengths, M/X flag tracking
-(needed to size immediates; the interpreter uses live flags, a transpiler needs
-them per basic block and must fork or version a block that is reached with
-both widths), and resolving `ExecutePtr`-style jump tables (a transpiler needs
-the table at translate time; vanilla's dispatch is `JSL ExecutePtr` plus an
-inline word table, which is the recognizable shape `interpret.ts` already
-hashes).
-
-What transpiling adds: code generation per basic block; a sandbox, because a
-hack ROM is untrusted and generated JS is code execution (the interpreter's
-loop is bounded by a step budget and cannot escape its WRAM array; generated JS
-needs `Function` isolation or a worker plus a budget check at every back edge);
-and a policy for unresolved indirect jumps (`JMP (abs,X)`, `JML [dp]`), which
-the interpreter simply executes and a transpiler must either trap or
-translate lazily. It also needs self-modifying-code detection: RAM-resident
-code cannot be translated once.
-
-What it buys: speed and readable output. Speed is not a need here: the full
-201-id vanilla sweep (setup + INIT + MAIN, 942,748 instructions) took 82 ms on
-one machine including allocating 201 cores, so the interpreter already runs
-about 11 million instructions per second against a median of 609 per sprite.
-Debuggable output is real value, but a per-instruction trace
-(`Cpu.trace`) already gives a readable listing.
+A transpiler would share the opcode decoder, M/X flag tracking and
+`ExecutePtr` table resolution, and add per-block code generation, a sandbox
+for untrusted hack code, handling of indirect jumps (`JMP (abs,X)`,
+`JML [dp]`) and of self-modifying code. It would buy speed and readable
+output. Speed is not needed: the full 201-id vanilla sweep (setup + INIT +
+MAIN, 942,748 instructions) took 82 ms on one machine, about 11 million
+instructions per second against a median of 609 per sprite, and `Cpu.trace`
+already gives a readable listing.
 
 Recommendation: interpret, and keep the decoder and flag tracking in shared
 modules so a transpiler can be added later behind the same entry if a use
