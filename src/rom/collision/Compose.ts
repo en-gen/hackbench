@@ -96,6 +96,8 @@ export function compose(
     for (let c = 0; c < cols; c++) {
       const m = at(c, r)
       if (m === null) {
+        // A short row has no cell here (a write that wrapped grows another row): not an unknown one.
+        if (grid[r]![c] === undefined) continue
         const [x, y] = [c * TILE, r * TILE]
         const known = get(grid[r]![c]!)
         if (!known || known.unknown) {

@@ -54,6 +54,16 @@ describe('compose (synthetic tiles)', () => {
     expect(of(l, 'unknown')).toEqual([])
   })
 
+  it('a cell the grid does not hold (a short row) is no cell, not an unknown one (#1034)', () => {
+    const l = compose([[2, 2], [2]], get)
+    expect(of(l, 'unknown')).toEqual([])
+    expect(of(l, 'wall')).toEqual([
+      [0, 0, 0, 32],
+      [32, 0, 32, 16],
+      [16, 16, 16, 32],
+    ])
+  })
+
   it('an L of blocks draws its outer corners, and its inner corner where wall meets floor', () => {
     //  # .
     //  # #
