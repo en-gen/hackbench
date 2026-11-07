@@ -5,12 +5,15 @@
  * stub, so nothing here type-checks anything.
  */
 
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { createRequire } from 'module'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const script = path.resolve(__dirname, '../../../tools/scripts/typecheck-theia.cjs')
 const dirs: string[] = []

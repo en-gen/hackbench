@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { buildL2Inputs, fallbackReadable } from '../../../src/rom/model/L2Model'
+import { GRAPH_UNAVAILABLE } from '../../../src/rom/model/L3Model'
 import type { L1Inputs } from '../../../src/rom/model/L1Model'
 import { readInitialLayer1YPos } from '../../../src/rom/L3Loader'
 import { readInitialLayer2YPos } from '../../../src/rom/L2Loader'
@@ -27,6 +28,11 @@ const FALLBACK_ADDRS = [0x05f400 + MAP, 0x05d70b, 0x05d70e, 0x05f600 + MAP, 0x05
 const CASES = [
   { name: 'with entrances', via: VIA as MapEntrances | null, addrs: TABLE_ADDRS },
   { name: 'without entrances (exit graph unavailable)', via: null, addrs: FALLBACK_ADDRS },
+  {
+    name: 'with GRAPH_UNAVAILABLE (what production passes)',
+    via: GRAPH_UNAVAILABLE,
+    addrs: FALLBACK_ADDRS,
+  },
 ]
 const REFUSAL = /ROM ends before the entrance tables/
 
@@ -45,7 +51,7 @@ function build(): RomFile {
   return rom
 }
 
-function l2Of(rom: RomFile, via: MapEntrances | null = VIA) {
+function l2Of(rom: RomFile, via: MapEntrances | typeof GRAPH_UNAVAILABLE | null = VIA) {
   const smw = { rom, getVerticalTable: () => ({ ok: true, table: new Array(32).fill(0) }) }
   const l1 = { screenCount: 1, isVertical: false, header: { levelMode: 1, objectTileset: 0 }, map16: { tiles: [] } } as unknown as L1Inputs // prettier-ignore
   return buildL2Inputs(smw as unknown as SmwRom, MAP, l1, via ?? undefined, () => null)

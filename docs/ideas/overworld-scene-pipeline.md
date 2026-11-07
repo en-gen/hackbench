@@ -1,6 +1,6 @@
 # Reading the overworld by following the render pipeline
 
-Status: proposal. Drafted 2026-09-17.
+Status: partly built. Drafted 2026-09-17. Updated 2026-11-07: the Theia Overworld view now reads L1, L2 and area cameras at instruction operands (`src/rom/OverworldL1.ts`, `OverworldL2.ts`, `OverworldAreas.ts`, `OverworldWindow.ts`); the trace is in [../rom/overworld.md](../rom/overworld.md). The per-area mask table below still describes `OverworldLoader.ts`, which only the reference extension (`src/providers/OverworldViewerProvider.ts`) uses. Still open: the GFX/CGRAM trace and round-trip identity. [INF] from a grep of `src/rom/` and `theia/` on 2026-11-07
 
 How HackBench should read the overworld: by reproducing the scene the PPU
 composes, reading each table at the point the game reads it.
@@ -21,10 +21,10 @@ guesses disagree with each other and with the ROM:
 
 | Where                                    | Claims                                                   | ROM                                                        |
 | ---------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------- |
-| `l3MaskForArea` (OverworldLoader.ts:583) | top 4 or 5, bottom 2, left 2, right 2; `null` for area 0 | uniform top 6, bottom 3, left 3, right 3, including area 0 |
-| comment at OverworldLoader.ts:503        | 32x21 window                                             | 26x19                                                      |
-| `OW_SUBAREA_TILES_H` (line 550)          | 28                                                       | 19                                                         |
-| `heightTiles` (line 402)                 | 32                                                       | 19                                                         |
+| `l3MaskForArea` (OverworldLoader.ts) | top 4 or 5, bottom 2, left 2, right 2; `null` for area 0 | uniform top 6, bottom 3, left 3, right 3, including area 0 |
+| `OverworldLoader.ts` header comment       | 32x21 window                                             | 26x19                                                      |
+| `OW_SUBAREA_TILES_H`                     | 28                                                       | 19                                                         |
+| `heightTiles`                            | 32                                                       | 19                                                         |
 
 The `isTopRow` branch keyed on `cameraY < 0` has no basis in ROM data at all.
 
@@ -42,7 +42,7 @@ describes is reliable. What moves is where the data lives.
 Therefore: **hardcode the location of a pointer, never the value it resolves
 to.** Read each address from the instruction operand the game reads it from.
 
-We already violate this. `OW_ADDR.L2_STREAM_LO = 0x04A533` and
+`OverworldLoader.ts` violates this (the L1/L2/area readers listed in the status line follow it). `OW_ADDR.L2_STREAM_LO = 0x04A533` and
 `L2_STREAM_HI = 0x04C02B` are resolved values. All four hacked ROMs in the
 corpus repoint those streams by rewriting the immediate operands in
 `CODE_04DC6A`; the routine is structurally identical, the data moved. Our

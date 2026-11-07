@@ -529,7 +529,7 @@ code, and a hack may relocate or bypass them.
 
 ## Level names and ids
 
-- The ROM holds a level name table at `$04A0FC` (96 entries x 2 bytes); `src/rom/SmwLevelNames.ts` decodes it (`decodeLevelName`, `getAllLevelNames`, `getLevelNameByIndex`). `[EST]`
+- The ROM holds a level name table at `$04A0FC` (96 entries x 2 bytes); `src/rom/SmwLevelNames.ts` decodes it (`decodeLevelName`, `getAllLevelNames`, `levelNameForSlot`). `[EST]`
 - Three external lists (a forum post, two LLM tables) were refuted against the ROM in one session, each claiming 76 entries and disagreeing, with entries at `$019`, `$01E`, `$112` pointing at the shared filler L1 `$068000`. `[EST]`
 - Report ids as `$XXX` hex. Add a name only when it comes from the decoder or the owner said it that turn; leave unverified names off.
 - Confirmed by the owner 2026-09-13: Yoshi's House `$104`, Valley Fortress `$111`, Red Switch Palace `$11B`. `[EST]`

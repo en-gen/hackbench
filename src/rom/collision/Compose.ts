@@ -70,7 +70,7 @@ export function compose(
   get: (id: number) => TileProbe | undefined,
 ): CollisionLine[] {
   const rows = grid.length
-  const cols = grid[0]?.length ?? 0
+  const cols = Math.max(0, ...grid.map(row => row.length))
   const at = (c: number, r: number): TileProbe | null => {
     if (c < 0 || r < 0 || c >= cols || r >= rows) return null
     const m = get(grid[r]![c]!)
@@ -96,6 +96,8 @@ export function compose(
     for (let c = 0; c < cols; c++) {
       const m = at(c, r)
       if (m === null) {
+        // A short row has no cell here (a write that wrapped grows another row): not an unknown one.
+        if (grid[r]![c] === undefined) continue
         const [x, y] = [c * TILE, r * TILE]
         const known = get(grid[r]![c]!)
         if (!known || known.unknown) {

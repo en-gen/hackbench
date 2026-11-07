@@ -256,6 +256,37 @@ test('an animated sprite loops on the panel canvas; a one-pose sprite says it is
   expect(treeHash(projectDir)).toBe(hashBefore)
 })
 
+test('a sprite whose frames come back with a not-loaded reason says "Animation not shown", never "Not animated" (#1113)', async ({
+  page,
+}) => {
+  const map = await openMap(page, SLOT)
+  const s = map.stack.find(x => x.status === 'drawn' && x.parts && map.own(x))
+  expect(s, 'a clickable drawn sprite').toBeTruthy()
+  await page.evaluate(async () => {
+    await getSvc('CommandRegistry').executeCommand('hackbench.properties.toggle')
+  })
+  await expect(panel(page)).toBeVisible()
+  // No vanilla sprite draws charsNotLoaded, so the widget's service PROPERTY (not a page-side wrapper over the proxy) is a stub.
+  await page.evaluate(() => {
+    const w = getSvc('WidgetManager').getWidgets('hackbench.properties')[0]
+    window.__stubCalls = 0
+    w.projects = {
+      mapSpriteFrames: async () => {
+        window.__stubCalls++
+        return { status: 'ok', frames: [], reason: 'charsNotLoaded' }
+      },
+    }
+  })
+  const at = map.own(s)
+  await map.click(at.x, at.y)
+  const line = panel(page).locator('[data-field="animation"]')
+  await expect(line).toHaveText(
+    'Animation not shown: Some of its graphics are not loaded on this map.',
+  )
+  await expect(line).not.toContainText('Not animated')
+  expect(await page.evaluate(() => window.__stubCalls), 'the stub answered').toBeGreaterThan(0)
+})
+
 test('closing the map clears the panel; the toggle command reopens a closed panel', async ({
   page,
 }) => {
@@ -341,6 +372,55 @@ test('a sprite reload (an edit or refresh) clears the panel', async ({ page }) =
     getSvc('WidgetManager').tryGetWidget('hackbench.map-view', { index }).refresh()
   }, SLOT)
   await expect(panel(page).locator('[data-subject="none"]')).toHaveText('No sprite selected')
+})
+
+// Plant (spec not run by the author): shift the panel canvas draw by the frame index (travel per frame) and the left or bottom edge assertion goes red;
+// pin the player to frame 0 and the every-frame-painted assertion goes red.
+test('a chainsaw ($65) spins at one spot in the panel: the drawn left edge, bottom edge and canvas size hold across frames while the pose changes (#1128)', async ({
+  page,
+}) => {
+  const map = await openMap(page, 0x00f)
+  const saw = map.stack.find(s => s.id === 0x65 && s.status === 'drawn' && map.own(s))
+  expect(saw, 'a drawn, clickable chainsaw on map $00F').toBeTruthy()
+  const at = map.own(saw)
+  await map.click(at.x, at.y)
+  const canvas = panel(page).locator('[data-control="sprite-composite"]')
+  await expect(panel(page).locator('[data-field="id"]')).toHaveText('$65')
+  await expect(panel(page).locator('[data-field="animation"]')).toContainText('Animated')
+  // The frame count the node side computed, not just the panel's own text, so a truncated list cannot pass.
+  const count = (await framesOf(page, saw, 0x00f)).frames.length
+  expect(count, 'the saw has several frames').toBeGreaterThanOrEqual(2)
+  await expect(panel(page).locator('[data-field="animation"]')).toContainText(
+    `Animated: ${count} frames`,
+  )
+  // Each sample is one paint: which frame, the canvas size, and the first opaque column and last opaque row actually drawn.
+  const drawn = () =>
+    canvas.evaluate(async c => {
+      // data-frame commits before the paint: let two animation frames pass so the pixels are the ones for it.
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+      const { data } = c.getContext('2d').getImageData(0, 0, c.width, c.height)
+      let [left, bottom] = [c.width, -1]
+      for (let y = 0; y < c.height; y++)
+        for (let x = 0; x < c.width; x++)
+          if (data[(y * c.width + x) * 4 + 3])
+            [left, bottom] = [Math.min(left, x), Math.max(bottom, y)]
+      return { frame: c.dataset.frame, w: c.width, h: c.height, left, bottom, url: c.toDataURL() }
+    })
+  // Sample (bounded, 40 x 100 ms against a ~133 ms step) until every frame the panel announces has been painted.
+  const samples = []
+  for (let i = 0; i < 40; i++) {
+    samples.push(await drawn())
+    if (new Set(samples.map(q => q.frame)).size >= count) break
+    await page.waitForTimeout(100)
+  }
+  const distinct = k => new Set(samples.map(q => q[k])).size
+  expect(distinct('frame'), 'every announced frame was painted').toBe(count)
+  expect(distinct('url'), 'the pose changed').toBeGreaterThanOrEqual(2)
+  expect([distinct('w'), distinct('h')], 'one canvas for the loop').toEqual([1, 1])
+  // For the $65 saw the reference point is its left edge and bottom edge (its pose bobs the top by 2 px, true of
+  // this sprite only). Travel along the track would move the saw across the canvas and change them.
+  expect(distinct('left'), 'left edge of the drawn saw').toBe(1)
+  expect(distinct('bottom'), 'bottom edge of the drawn saw').toBe(1)
 })
 
 // D156: a chainsaw is drawn where the game first has it ON ITS LINE (the pass after the line step's lock), the tile the map

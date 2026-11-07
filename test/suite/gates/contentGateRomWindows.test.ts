@@ -15,7 +15,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { checkRomWindows, evaluateEntry } from '../../../tools/scripts/check-content.mjs'
 import {
   isCandidate,
@@ -23,6 +23,9 @@ import {
   // @ts-expect-error plain ESM without types
 } from '../../../tools/scripts/lib/rom-windows.mjs'
 import { hasRom, romPath, VANILLA } from '../support/corpus'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const REPO = join(__dirname, '../../..')
 const tmp = mkdtempSync(join(tmpdir(), 'cg-romwin-'))

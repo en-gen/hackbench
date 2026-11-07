@@ -49,6 +49,10 @@ export interface ScreenInput {
  */
 export const WHOLE_DOOR = 1 << 20
 
+/** A sprite pixel of a part drawn in the door (the rope's extra length, #1230): bit 2 of the pixel's priority byte, and the door id its pixels get beside the sprite's own. */
+export const DOOR_PART_BIT = 4
+export const DOOR_PART_ID = 1 << 15
+
 const LAYER_BIT = { l1: 0x01, l2: 0x02, l3: 0x04 } as const
 const BACKDROP_BIT = 0x20
 const SUBTRACT = 0x80

@@ -241,6 +241,12 @@ describe.skipIf(!smwdisx)('0xC9..0xFF citations match the disassembly', () => {
   })
 })
 
+describe('$9C name (#1152)', () => {
+  it('is the Flying Hammer Bro platform', () => {
+    expect(getSpriteMetadata(0x9c)?.displayName).toBe('Flying Hammer Bro platform')
+  })
+})
+
 describe('SpriteBehavior serialize/rehydrate round-trip', () => {
   const placeholder = makeTransparentPlaceholderChar()
   const chars = new Map<number, Char>()

@@ -168,7 +168,8 @@ async function compute(
     }
     return {
       status: 'ok',
-      width: (m.grid[0]?.length ?? 0) * TILE,
+      // The map's own screens, not a row a wrapped write grew (#1034).
+      width: m.screenCount * 16 * TILE,
       height: m.grid.length * TILE,
       lines: r.lines,
     }

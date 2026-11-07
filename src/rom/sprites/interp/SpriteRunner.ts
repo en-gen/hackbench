@@ -130,7 +130,7 @@ export interface SpritePart {
   priority: number
   flipX: boolean
   flipY: boolean
-  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position when INIT's moves are kept, and the position at the end of the pass at rest (`PassResult.pos`; the picture is then drawn on the placed spot, `SpriteModel.anchor`), except for $67 on a vanilla-shaped handler. */
+  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position when INIT's moves are kept, and the position at the end of the pass at rest (`PassResult.pos`; the picture is then drawn on the placed spot, `SpriteModel.anchor`), or where the pass began when the sprite drew there and then moved (#1131), except for a line-guided id on a vanilla-shaped handler. */
   dx: number
   dy: number
   /** Raw attribute byte, for graders that compare it whole. */
@@ -138,6 +138,8 @@ export interface SpritePart {
   /** Raw OAM position: X is 9 bits (size-table bit 0 is bit 8), Y is the line. */
   ox: number
   oy: number
+  /** Drawn only in a case the slot decides (the rope's extra length, #1230): the view shows it in the screen door. */
+  door?: true
 }
 
 /** One CGRAM color a run set: index 0-255 (row * 16 + column) and its BGR555 value. */
@@ -156,7 +158,7 @@ export interface PassResult {
    * moves (DolphinMain, SMWDisX bank_02.asm:7896-7901). Absent when the pass wrote no OAM.
    */
   drawPos?: { x: number; y: number }
-  /** Where this pass's parts are measured from: `SpriteModel.anchor` when INIT's moves are kept; the end-of-pass `pos` at rest; the pass before's `pos` for $67 on a vanilla-shaped handler (where the pass before left it). */
+  /** Where this pass's parts are measured from: `SpriteModel.anchor` when INIT's moves are kept; the end-of-pass `pos` at rest, or the pass's starting position when the sprite's first OAM write was there (it drew before it moved, #1131); the pass before's `pos` for a line-guided id on a vanilla-shaped handler (where the pass before left it). */
   origin: { x: number; y: number }
   parts: SpritePart[]
   /** Plain run only: pieces written under any other `$15E9` (a sprite this run spawned, a cluster index), same origin. Not the grader's: the map view draws `drawnParts` (D52, #840). */
@@ -194,7 +196,7 @@ export interface SpriteModel {
   refusal?: string
   /** Why no part was drawn across all passes, when the run completed. */
   emptyReason?: string
-  /** Position after INIT (the placed spot at rest), and the raw placement it started from. For $67 on a vanilla-shaped handler: the position its drawn (chosen) pass drew at, after the line snap. */
+  /** Position after INIT (the placed spot at rest), and the raw placement it started from. For a line-guided id on a vanilla-shaped handler: the position its drawn (chosen) pass drew at, after the line snap. */
   anchor?: { x: number; y: number; rawX: number; rawY: number }
   /**
    * Where the level state came from: the ROM's own level loader, or a generic
@@ -218,14 +220,14 @@ export interface SpriteModel {
   passes: PassResult[]
   /**
    * The frame policy: index of the first pass at or after INIT that draws at
-   * least one tile (within the pass cap), absent when none does; for $67 on a vanilla-shaped
+   * least one tile (within the pass cap), absent when none does; for a line-guided id on a vanilla-shaped
    * handler, the pass on the line: two after it when each step moved the sprite and draws (#126). A policy, not a claim about which
    * frame a map should show.
    */
   chosen?: number
-  /** Why a $67 handler got the generic rule: the grinder gate ran it and it did not make the vanilla calls in order. */
+  /** Why a line-guided handler got the generic rule: the grinder gate ran it and it did not make the vanilla calls in order. */
   lineGateReason?: string
-  /** Why a $67 on a vanilla-shaped handler stayed on its first drawn pass although the next one draws. */
+  /** Why a line-guided id on a vanilla-shaped handler stayed on its first drawn pass although the next one draws. */
   lineStepReason?: string
   /** Why a $65-$68 sprite's INIT is not the stock InitLineGuidedSpr: its shift is unverified, though the interpreter ran it. */
   lineInitReason?: string
@@ -245,7 +247,7 @@ export interface SpriteModel {
   noLineReason?: string
   /** With `shifted`: where the sprite's INIT left it, before any step; `anchor` is where it was first drawn. */
   initAt?: { x: number; y: number }
-  /** True for $67 on a vanilla-shaped handler: each pass draws where the pass before left the sprite (`PassResult.origin`). */
+  /** True for a line-guided id on a vanilla-shaped handler: each pass draws where the pass before left the sprite (`PassResult.origin`). */
   snaps?: boolean
   dependsOn: DependsOn[]
   /** Instruction counts: INIT, then each MAIN pass. */
@@ -302,8 +304,10 @@ export const SPAWN_SHORT = 'the spawn made only '
 export interface RunOptions {
   spawn?: SpawnRun
   probe?: Probe
+  /** Watches the neighbor rerun only, so the run alone and the rerun never share one probe's record (#1169). */
+  neighbourProbe?: Probe
   trackInputs?: boolean
-  /** The dispatch shape the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
+  /** The dispatch shape the line-guided gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   grinderDispatch?: DispatchShape
   /** The InitLineGuidedSpr fingerprint to hold the INIT of $65-$68 to; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   stockInits?: readonly Routine[]
@@ -311,9 +315,11 @@ export interface RunOptions {
   loader?: LoaderDigest
   /**
    * `true` is the map view's at-rest picture. D139 D, D138 A: INIT runs for the look only (tiles, flips,
-   * variants, status). D134, D91: the drawing is re-based onto the placed spot, so INIT's moves and the
-   * 320 px shift are not shown, and there is no $67 line-walk pick. Default false: INIT first and its moves
-   * kept, as the game and the graders do.
+   * variants, status). D134, D91: the drawing is re-based onto the placed spot, so INIT's moves are not shown.
+   * The exception is a line-guided id: D156 draws it where the game first has it on its line (the pass after the
+   * lock, `online + 1`), so that move is shown (320 px left for the vanilla chainsaws). The not-at-rest
+   * line-walk pick (third drawn pass) is absent. Default false: INIT first and its moves kept, as the game and
+   * the graders do.
    */
   atRest?: boolean
   /** End the run at the first pass that draws a tile: for a caller that only asks whether the sprite draws (RevealSearch.ts probes). */
@@ -695,6 +701,9 @@ export class Machine {
   }
 }
 
+/** True when two sprite positions agree on both x and y (the pass-start versus first-draw test, #1131). */
+const sameSpot = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+  a.x === b.x && a.y === b.y
 const s8 = (v: number) => (v > 127 ? v - 256 : v)
 
 /** Parts the pass wrote, relative to `anchor`, in screen terms (camera removed). */
@@ -813,7 +822,7 @@ function runCore(
   opts: RunOptions,
   neighbourRun: boolean,
 ): SpriteModel {
-  const probe = opts.probe
+  const probe = neighbourRun ? opts.neighbourProbe : opts.probe
   const model: SpriteModel = {
     id,
     passes: [],
@@ -994,6 +1003,7 @@ function runCore(
       m.clearOamWrites()
       n = m.steps
       const hw = new Map(m.bus.hwWrites)
+      const start = m.pos()
       m.frame()
       model.steps.push(m.steps - n)
       probe?.(p, w)
@@ -1008,21 +1018,26 @@ function runCore(
         lock: w[RAM.lineLock + m.seed.slot]!,
         timer: w[RAM.lineTimer + m.seed.slot]!,
       })
-      // The draw ran before this pass's own move, so for $67 it ran where the pass before left it.
+      // The draw ran before this pass's own move, so for a line-guided id it ran where the pass before left it.
       // At rest the parts are measured from where the pass ended, so MAIN's own few pixels of motion do not
-      // leak into the picture (the Podoboo's jump). A handler that draws and then moves is measured from its
-      // end too: measuring from the draw changed 12 vanilla rows ($05, $06) from same to differ against the table engine.
+      // leak into the picture (the Podoboo's jump). The one exception is a sprite whose first OAM write was at the
+      // spot the pass began at: it drew before it moved, so it is shown where it drew (#1131). A draw routine that
+      // displaces the sprite and restores it (SMWDisX bank_01.asm:1772-1784) draws off the start and keeps the end of
+      // the pass; so does a displaced draw followed by a move, which cannot be told from a move before the draw
+      // (vanilla, gate on, 512 slots: 0 rows, as the gate catches $62, the one vanilla case; hacks not tested).
+      const drawn = m.drawPos()
       const origin = snaps
         ? (model.passes[p - 1]?.pos ?? anchor)
         : atRest && !model.absolutePlacement
-          ? m.pos()
+          ? drawn && sameSpot(drawn, start)
+            ? start
+            : m.pos()
           : anchor
       const drew = neighbourRun ? m.drew(origin) : undefined
-      const drawPos = m.drawPos()
       model.passes.push({
         pass: p,
         pos: m.pos(),
-        ...(drawPos ? { drawPos } : {}),
+        ...(drawn ? { drawPos: drawn } : {}),
         origin: { x: origin.x, y: origin.y },
         parts: readParts(m, origin),
         companions: readParts(m, origin, m.companionOam()),
@@ -1130,7 +1145,7 @@ export function startsBehind(
   const screen = vert ? 224 : 256
   const at = vert ? placed.y : placed.x
   const spawn = (dir: Spawn['dir'], cam: number): Spawn => {
-    const m = runOnce(rom, id, withSeed({ camera: vert ? { y: cam } : { x: cam } }, seed), { ...opts, atRest: false, probe: undefined }) // prettier-ignore
+    const m = runOnce(rom, id, withSeed({ camera: vert ? { y: cam } : { x: cam } }, seed), { ...opts, atRest: false, probe: undefined, neighbourProbe: undefined }) // prettier-ignore
     const q = m.passes.find(p => drawnParts(p).length)
     if (!q) return { dir, extent: null }
     const sgn = (v: number) => (v << 16) >> 16
@@ -1176,8 +1191,8 @@ export function runSprite(
   const a = runOnce(rom, id, seed, opts)
   if (a.refusal) return a
   const other = seed.mario.x >= seed.sprite.x ? seed.sprite.x - 0x40 : seed.sprite.x + 0x40
-  // opts carry over, but not `probe`: a caller's probe watches the real run, not the mirrored one.
-  const b = runOnce(rom, id, withSeed({ mario: { x: other, y: seed.mario.y } }, seed), { ...opts, probe: undefined }) // prettier-ignore
+  // opts carry over, but not the probes: a caller's probes watch the real run, not the mirrored one.
+  const b = runOnce(rom, id, withSeed({ mario: { x: other, y: seed.mario.y } }, seed), { ...opts, probe: undefined, neighbourProbe: undefined }) // prettier-ignore
   if (!b.refusal && partsKey(a) !== partsKey(b)) a.dependsOn.push('marioX')
   return a
 }

@@ -233,7 +233,7 @@ describe('the wire: screens, math, layer 2 role (synthetic)', () => {
     it('a gate plus a dy note on L2 with the same gate on L3: the gate once, the dy note kept', () => {
       expect(notes(['gate', 'dy'], 'gate')).toEqual(['Background height and Layer 3 position unverified: gate', 'Background height unverified: dy']) // prettier-ignore
     })
-    it('the graph reason stays a Layer 3 line while the gate reason both layers give is merged (#910)', () => {
+    it('a reason only Layer 3 gives keeps its own line while the gate reason both layers give is merged (#910)', () => {
       const gate = 'the level-start code is not stock'
       const graph = EXIT_GRAPH_UNAVAILABLE
       const m = { ...l1Of(0, 0, false), l2: withL2([gate]), l3: drawn(gate, graph) }

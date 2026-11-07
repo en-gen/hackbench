@@ -20,15 +20,14 @@ that tree survives as a reference implementation. See
 
 ## Setup
 
-You need Node 22.12 or newer (Theia 1.75 pins Electron 42.8.1, whose
-engines field requires it), plus `npm` and `yarn` 1.x.
+You need Node 22.12 or newer (the Electron that Theia pins requires it),
+plus `npm` and `yarn` 1.x.
 
 ```bash
 git clone https://github.com/en-gen/hackbench
 cd hackbench
 npm install                     # root: the core, the tests, the tooling
 yarn --cwd theia install        # the desktop app's own workspace
-git config core.hooksPath .githooks   # the pre-push content check, once per clone
 ```
 
 Build and run the app:
@@ -41,6 +40,9 @@ yarn --cwd theia watch          # rebuild on save
 
 `start:browser` and `build:browser` target the browser instead, which is
 what the Playwright suite drives.
+
+`npm install` also points `core.hooksPath` at `.githooks` (the pre-push
+content check).
 
 Full walkthrough: [docs/guide/getting-started.md](docs/guide/getting-started.md).
 
@@ -88,7 +90,7 @@ Short version:
 
 - `src/rom/` - ROM parsing and decoding. **No shell imports**, so it is
   unit-testable without starting an app.
-- `src/project/` - projects, patch layers, the working copy, IPS export.
+- `src/project/` - projects, patch layers, the working copy, BPS or IPS export.
   Same no-shell rule.
 - `theia/extension/src/` - the application: `common/` holds the RPC
   contract, `node/` is the only side that touches the ROM, `browser/`
@@ -113,8 +115,8 @@ added.
    never `RomFile.load`; `test/suite/gates/workingCopyGate.test.ts`
    enforces that.
 4. `theia/extension/src/browser/<name>-view-widget.tsx`,
-   `<name>-frontend-module.ts`, and a `<name>-push-client.ts` if the view
-   must re-render on an edit. Styles in `browser/style/<name>.css`.
+   `<name>-frontend-module.ts`, and subscribe to `ProjectContext.onEdit`
+   (`project-push-client.ts`) if the view must re-render on an edit. Styles in `browser/style/<name>.css`.
 5. Register the frontend/backend pair in `theia/extension/package.json`
    under `theiaExtensions`.
 6. Add a Playwright spec under `theia/browser-app/test/`. Every feature

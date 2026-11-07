@@ -5,7 +5,7 @@
  * file's own --step mode, so the mapping is testable directly), and the
  * default worktree path follows CLAUDE.md's placement convention.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { join, resolve, sep } from 'node:path'
 import {
   existsSync,
@@ -29,6 +29,9 @@ import {
   argsToOptions,
   stepOptions,
 } from '../../../tools/perf/bisect.mjs'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 describe('exitCodeForStep: the git bisect run mapping', () => {
   it('maps compare.mjs exit 0 (ok) to bisect good (0)', () => {

@@ -426,8 +426,9 @@ function replyOf(
 }
 
 /**
- * The L2 and L3 planes of a screen past the map's last one, for the gutter (#1197). Same reply shape as a
- * screen with every L1 plane null and no notes: the view composes it with the map's own stacking and
+ * The L1, L2 and L3 planes of a screen past the map's last one, for the gutter (#1197, #1034). L1 is
+ * what the grid holds past the edge (a wrapped row, a column past the last screen), null where it
+ * holds none. Same reply shape as a screen with no notes: the view composes it with the map's own stacking and
  * color math. Its own bounds check; `screenResult`'s stays as it is. Vertical maps have no Layer 3
  * (L3Model), so only L2 can be present there.
  */
@@ -445,6 +446,7 @@ export function beyondResult(
   }
   const l2 = model.l2?.ok ? model.l2.l2 : null
   const drawn: Partial<Record<MapPlaneKey, Plane>> = {
+    ...drawL1Planes(model, screen, switches),
     ...(l2 && drawL2Beyond(model, l2, screen, vramFor(model, switches))),
     ...(model.l3?.l3 && drawL3Planes(model.l3.l3, screen)),
   }
@@ -529,7 +531,7 @@ export function buildMapInputs(
     ok: true,
     inputs: {
       ...built.inputs,
-      l2: buildL2Inputs(rom, index, built.inputs, via),
+      l2: buildL2Inputs(rom, index, built.inputs, graph ? via : GRAPH_UNAVAILABLE),
       l3: buildL3Verdict(rom.rom, index, built.inputs, bg, undefined, undefined, undefined, graph ? via : GRAPH_UNAVAILABLE), // prettier-ignore
       orderNote: bg.ok ? undefined : bg.reason,
       routeNote: chooseEntranceNoted(via).note,

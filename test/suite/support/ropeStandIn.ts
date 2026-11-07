@@ -13,7 +13,7 @@ export const drawer =
     seen.push(slot)
     const n = slot >= 6 && setting !== 0 ? 9 : 5
     const parts = Array.from({ length: n }, (_, i) => part(i * 16, i === 0 ? slot : 0x40))
-    return { chosen: 0, snaps, anchor: { x: anchorX(slot), y: 50 }, passes: [{ pass: 0, parts, companions: [], palette: [] }] } as unknown as SpriteModel // prettier-ignore
+    return { chosen: 0, snaps, anchor: { x: anchorX(slot), y: 50 }, passes: [0, 1].map(pass => ({ pass, parts, companions: [], palette: [] })) } as unknown as SpriteModel // prettier-ignore
   }
 
 /** A model whose first pass draws parts at these `dy`s (the first one carries the slot as its char). */

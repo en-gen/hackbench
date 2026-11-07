@@ -1,5 +1,7 @@
 # Sprite validation batches
 
+Status 2026-11-07: a historical work queue for the pre-interpreter sprite renderer (`SpriteMetadata.ts`, `SpriteTileLoader.ts`); map sprites are now drawn by running the ROM's own code (see `docs/sprites/sprite-engine-wiring.md`, Theia wiring), so the per-batch code-status columns are not current. The research notes are kept.
+
 Parallelizable agent work for validating and correcting the SMW sprite
 rendering across `SpriteMetadata.ts` and `SpriteTileLoader.ts`. Each batch
 covers 5 sprite IDs so multiple agent sessions can work in parallel.
@@ -8,28 +10,7 @@ Legend:
 - `~~$XX~~` - already handled (custom appearance or composite); skip.
 - `⚠$XX` - batch-2-researched but code change not yet applied; needs edit.
 
-## Per-agent prompt template
-
-```
-Working directory: C:\Projects\hackbench (feature/phase1-rendering branch)
-ROM: C:\Users\engenb\Super Mario World (USA).vanilla.sfc
-SMW disassembly: C:\Projects\SMWDisX
-
-For each sprite ID in your batch:
-1. Read the draw routine in SMWDisX (search for main handler, TileDisp tables,
-   and any custom OAM builds).
-2. Determine layout: SprTilemap default, TALL (2-tile stack), WIDE (2×2
-   quadrants), mixed 8×8+16×16, or custom appearance needed.
-3. Verify BASE_TILE / TALL / WIDE / parts entries in
-   src/rom/SpriteTileLoader.ts are correct. Cross-check charHigh and palette
-   against any ORA-style runtime attr override in the draw routine.
-4. Run a Python scan on the ROM to find the first vanilla level containing
-   the sprite (use snes-to-offset conversion + parse sprite stream at
-   $05EC00 + levelId*2).
-5. Report: sprite ID, displayName, layout type, correct BASE_TILE/WIDE/TALL
-   entry, needed code changes, test level ID. No code changes yet - batch
-   the findings for review.
-```
+The per-agent prompt template that lived here was a VS Code-era work order with machine-local paths and a retired branch name; removed 2026-11-07. The steps it gave: read the draw routine in SMWDisX, decide the layout, check the `SPRITE_BASE_TILE_OVERRIDES` / TALL / WIDE entries in `src/rom/SpriteTileLoader.ts`, find a sample level with `tools/scripts/find_sprite_levels.py`, report without changing code. [EST: both files exist]
 
 ## Batches
 
