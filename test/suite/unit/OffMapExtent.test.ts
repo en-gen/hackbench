@@ -7,12 +7,17 @@ import {
   fadeMask,
   cellRect,
   centerScroll,
+  contentRects,
+  placementRect,
   insideMap,
   offMapPad,
   offMapSpritePixels,
   screensInView,
+  NO_PAD,
+  type Pad,
   type Rect,
 } from '../../../theia/extension/src/browser/off-map-extent'
+import { spriteAt } from '../../../theia/extension/src/browser/map-view-model'
 import { GUTTER_PX, MAX_SCREENS, farGutter } from '../../../src/rom/model/MapGutter'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 
@@ -299,5 +304,98 @@ describe('offMapSpritePixels', () => {
     const clear = sprite(0, { x0: -8, y0: 0, x1: 0, y1: 8 }, 10, 0)
     expect(offMapSpritePixels([inside], 256, 432, pad, false)).toBeNull()
     expect(offMapSpritePixels([clear], 256, 432, pad, false)).toBeNull()
+  })
+})
+
+describe('what grows the canvas: placement, never art (#1325)', () => {
+  const SIZES = [
+    { w: 256 * 5, h: 432, vertical: false },
+    { w: 512, h: 256 * 5, vertical: true },
+  ]
+  /** A drawn sprite anchored at (x, y) whose art is `box` (4 bytes of pixels per box pixel are not needed here). */
+  const sp = (x: number, y: number, box: Rect, stored?: { x: number; y: number }): MapSpriteDto =>
+    ({ index: 0, id: 1, x, y, box, stored, rgba: '', status: 'drawn' }) as MapSpriteDto
+  const padOf = (
+    m: (typeof SIZES)[number],
+    sprites: MapSpriteDto[],
+    refused: { x: number; y: number }[] = [],
+  ) =>
+    // prettier-ignore
+    offMapPad(m.w, m.h, contentRects(refused, sprites), m.vertical, 5)
+  /** The pad with the far-end gutter taken out, so the long side compares like the short ones. */
+  const bare = (m: (typeof SIZES)[number], p: Pad): Pad => ({
+    ...p,
+    right: p.right - (m.vertical ? 0 : G),
+    bottom: p.bottom - (m.vertical ? G : 0),
+  })
+
+  it('art past each of the 4 sides, from a placement on the map, pads nothing', () => {
+    for (const m of SIZES) {
+      const arts: Rect[] = [
+        { x0: -8, y0: 40, x1: 24, y1: 72 },
+        { x0: 40, y0: -8, x1: 72, y1: 24 },
+        { x0: m.w - 24, y0: 40, x1: m.w + 40, y1: 72 },
+        { x0: 40, y0: m.h - 24, x1: 72, y1: m.h + 40 },
+      ]
+      for (const art of arts) {
+        const s = sp(Math.max(art.x0, 0), Math.max(art.y0, 0), art)
+        expect(bare(m, padOf(m, [s]))).toEqual(NO_PAD)
+      }
+    }
+  })
+
+  it('a sprite placed off the map pads that side, on both shapes, and a refused cell off the map too', () => {
+    for (const m of SIZES) {
+      const at = (x: number, y: number) => bare(m, padOf(m, [sp(x, y, { x0: x, y0: y, x1: x + 16, y1: y + 16 })])) // prettier-ignore
+      expect(at(-16, 40)).toEqual({ ...NO_PAD, left: 16 })
+      expect(at(40, -32)).toEqual({ ...NO_PAD, top: 32 })
+      expect(at(m.w, 40)).toEqual({ ...NO_PAD, right: 16 })
+      expect(at(40, m.h + 16)).toEqual({ ...NO_PAD, bottom: 32 })
+      expect(bare(m, padOf(m, [], [{ x: -1, y: 5 }]))).toEqual({ ...NO_PAD, left: 16 })
+      expect(bare(m, padOf(m, [], [{ x: 5, y: m.h / 16 }]))).toEqual({ ...NO_PAD, bottom: 16 })
+    }
+  })
+
+  it('a sprite placed off the map still draws there, while its art past the edge from a placed-on-map sprite is not in the pad', () => {
+    const m = SIZES[0]!
+    const off = { x0: -16, y0: 40, x1: 0, y1: 56 }
+    const onMap = { x0: 40, y0: m.h - 16, x1: 56, y1: m.h + 8 }
+    const sprites = [sp(-16, 40, off), sp(40, m.h - 16, onMap)]
+    const pad = padOf(m, sprites)
+    expect(pad.bottom).toBe(0)
+    const out = offMapSpritePixels(sprites.map(s => ({ ...s, rgba: Buffer.alloc(256 * 4, 255).toString('base64') })), m.w, m.h, pad, false) // prettier-ignore
+    expect(out).not.toBeNull()
+    const i = (40 + pad.top) * (m.w + pad.left + pad.right) * 4 + (-8 + pad.left) * 4 + 3
+    expect(out![i]).toBe(255)
+  })
+
+  it('`stored` wins over the anchor, in either direction', () => {
+    const art = { x0: 0, y0: 0, x1: 16, y1: 16 }
+    expect(placementRect(sp(0, 0, art, { x: -32, y: 8 }))).toEqual({
+      x0: -32,
+      y0: 8,
+      x1: -16,
+      y1: 24,
+    })
+    const m = SIZES[0]!
+    expect(padOf(m, [sp(-48, 8, art, { x: 8, y: 8 })]).left).toBe(0)
+    expect(padOf(m, [sp(8, 8, art, { x: -32, y: 8 })]).left).toBe(32)
+  })
+
+  it('a sprite whose art is cut at the bottom still hits from the part left on the map', () => {
+    const art = { x0: 64, y0: 416, x1: 96, y1: 448 }
+    const s = { ...sp(64, 416, art), rgba: Buffer.alloc(32 * 32 * 4, 255).toString('base64') }
+    const g = { orientation: 'horizontal' as const, width: 256, height: 432 }
+    expect(padOf(SIZES[0]!, [s]).bottom).toBe(0)
+    expect(spriteAt([s], g, 80, 424)).toBe(s)
+  })
+
+  it('the far-end gutter is unchanged, with or without art past the far edge', () => {
+    for (const m of SIZES) {
+      const art = m.vertical ? { x0: 40, y0: m.h - 8, x1: 56, y1: m.h + 40 } : { x0: m.w - 8, y0: 40, x1: m.w + 40, y1: 56 } // prettier-ignore
+      const p = padOf(m, [sp(m.vertical ? 32 : m.w - 16, m.vertical ? m.h - 16 : 32, art)])
+      expect(m.vertical ? [p.bottom, p.right] : [p.right, p.bottom]).toEqual([G, 0])
+      expect(padOf(m, [])).toEqual(p)
+    }
   })
 })
