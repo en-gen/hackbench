@@ -451,15 +451,25 @@ export function cameraFor(x: number, y: number, vertical: boolean, screens: numb
 /** A run that also kept, per pass, the player-buffer slots the sprite pointed at (`runWithUploads`). */
 export type RunModel = BaseModel & { uploads?: SlotUpload[][] }
 
-/** `runOnce`, plus the DynGfxTilePtr slots a sprite that uploads from the player buffer wrote (#980). */
+/**
+ * `runOnce`, plus the DynGfxTilePtr slots a sprite that uploads from the player buffer wrote (#980), from the
+ * run the model came from.
+ */
 export function runWithUploads(
   rom: RomFile,
   id: number,
   seed: SpriteSeed,
   opts: Pick<RunOptions, 'stopAtDraw' | 'trackInputs'> = {},
 ): RunModel {
-  const p = uploadProbe()
-  return Object.assign(runOnce(rom, id, seed, { atRest: true, probe: p.probe, ...opts }), { uploads: p.byPass }) // prettier-ignore
+  const [alone, rerun] = [uploadProbe(), uploadProbe()]
+  const m = runOnce(rom, id, seed, {
+    atRest: true,
+    probe: alone.probe,
+    neighbourProbe: rerun.probe,
+    ...opts,
+  })
+  // Only an adopted rerun is the picture, so only then are its uploads the model's (#1169).
+  return Object.assign(m, { uploads: m.neighbourRun === 'adopted' ? rerun.byPass : alone.byPass })
 }
 
 /** The marker's reason code when the search found no condition that draws the sprite (`WHY_NOT_DRAWN`). */

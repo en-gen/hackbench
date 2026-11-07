@@ -304,6 +304,8 @@ export const SPAWN_SHORT = 'the spawn made only '
 export interface RunOptions {
   spawn?: SpawnRun
   probe?: Probe
+  /** Watches the neighbor rerun only, so the run alone and the rerun never share one probe's record (#1169). */
+  neighbourProbe?: Probe
   trackInputs?: boolean
   /** The dispatch shape the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   grinderDispatch?: DispatchShape
@@ -815,7 +817,7 @@ function runCore(
   opts: RunOptions,
   neighbourRun: boolean,
 ): SpriteModel {
-  const probe = opts.probe
+  const probe = neighbourRun ? opts.neighbourProbe : opts.probe
   const model: SpriteModel = {
     id,
     passes: [],
@@ -1132,7 +1134,7 @@ export function startsBehind(
   const screen = vert ? 224 : 256
   const at = vert ? placed.y : placed.x
   const spawn = (dir: Spawn['dir'], cam: number): Spawn => {
-    const m = runOnce(rom, id, withSeed({ camera: vert ? { y: cam } : { x: cam } }, seed), { ...opts, atRest: false, probe: undefined }) // prettier-ignore
+    const m = runOnce(rom, id, withSeed({ camera: vert ? { y: cam } : { x: cam } }, seed), { ...opts, atRest: false, probe: undefined, neighbourProbe: undefined }) // prettier-ignore
     const q = m.passes.find(p => drawnParts(p).length)
     if (!q) return { dir, extent: null }
     const sgn = (v: number) => (v << 16) >> 16
@@ -1178,8 +1180,8 @@ export function runSprite(
   const a = runOnce(rom, id, seed, opts)
   if (a.refusal) return a
   const other = seed.mario.x >= seed.sprite.x ? seed.sprite.x - 0x40 : seed.sprite.x + 0x40
-  // opts carry over, but not `probe`: a caller's probe watches the real run, not the mirrored one.
-  const b = runOnce(rom, id, withSeed({ mario: { x: other, y: seed.mario.y } }, seed), { ...opts, probe: undefined }) // prettier-ignore
+  // opts carry over, but not the probes: a caller's probes watch the real run, not the mirrored one.
+  const b = runOnce(rom, id, withSeed({ mario: { x: other, y: seed.mario.y } }, seed), { ...opts, probe: undefined, neighbourProbe: undefined }) // prettier-ignore
   if (!b.refusal && partsKey(a) !== partsKey(b)) a.dependsOn.push('marioX')
   return a
 }
