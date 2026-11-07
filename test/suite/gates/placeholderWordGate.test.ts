@@ -21,9 +21,10 @@ const BANNED = /\bplace[\s-]*holders?\b|\btest[\s-]*levels?\b/i
 
 /**
  * The sprite renderer's `status: 'drawn' | 'placeholder'` is a code, never shown:
- * the bare word, in the three files that carry it. Anything else there still fails.
+ * the bare word, in the four files that carry it. Anything else there still fails.
  */
 const SPRITE_STATUS_FILES = new Set([
+  'theia/extension/src/browser/map-view-model.ts',
   'theia/extension/src/browser/sprite-props.ts',
   'theia/extension/src/common/project-protocol.ts',
   'theia/extension/src/node/map-sprites.ts',

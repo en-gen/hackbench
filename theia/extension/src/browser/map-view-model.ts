@@ -22,6 +22,7 @@ import {
 import { SPRITE_KEYS, type FlameKey, type SpriteKey } from '../../../../src/rom/model/ScreenPlanes'
 import { decodeBase64Bytes, decodeRgba } from './map16-pixels'
 import { SWITCH_ORDER } from './map16-view-model'
+import { notDrawnText, spriteLabel } from './sprite-props'
 
 export const PALACES: readonly (keyof SwitchFlagsDto)[] = ['yellow', 'green', 'red', 'blue']
 
@@ -103,8 +104,12 @@ export function spriteAt(
 export const hoverPlacementKey = (zoom: number, rect: { left: number; top: number }): string =>
   `${zoom}:${Math.round(rect.left)}:${Math.round(rect.top)}`
 
-/** What the hover shows for a sprite (#981): its plain name, with what makes it appear after a colon for a revealed one (#1132); nothing when it has neither. */
-export function spriteName(s: Pick<MapSpriteDto, 'name' | 'reveal' | 'id'>): string | undefined {
+/** What the hover shows for a sprite (#981): its plain name, with what makes it appear after a colon for a revealed one (#1132), or the reason a marker stands in for it (#1083); nothing when it has neither. */
+export function spriteName(
+  s: Pick<MapSpriteDto, 'name' | 'reveal' | 'id'> &
+    Partial<Pick<MapSpriteDto, 'status' | 'reason'>>,
+): string | undefined {
+  if (!s.reveal && s.status === 'placeholder') return `${spriteLabel(s)}: ${notDrawnText(s.reason)}`
   if (!s.reveal) return s.name || undefined
   return `${s.name || `Sprite $${s.id.toString(16).toUpperCase().padStart(2, '0')}`}: ${s.reveal}`
 }
