@@ -96,6 +96,46 @@ describe('framesOf', () => {
     expect(f.map(x => x.parts![0]!.dy)).toEqual([0, 0])
   })
 
+  // #1128: the anchor a frame is drawn on is its box corner minus the part offset; it must be the chosen pass's for every frame.
+  const anchorOf = (f: MapSpriteDto) => ({ x: f.box.x0 - Math.min(...f.parts!.map(p => p.dx)), y: f.box.y0 - Math.min(...f.parts!.map(p => p.dy)) }) // prettier-ignore
+  /** A track: each pass the sprite moves `step` (a stationary one has step 0); `snaps` draws from the pass before's spot (origin), so the parts carry no travel. */
+  const track = (n: number, step: [number, number], snaps: boolean): SpriteModel => ({
+    ...run([]),
+    snaps,
+    passes: Array.from({ length: n }, (_, i) => {
+      const t = (k: number) => (k * (k + 1)) / 2 // uneven steps: the pos/origin gap grows each pass, so a wrong baseline does not cancel
+      const [tx, ty, nx, ny] = [step[0] * t(i), step[1] * t(i), step[0] * (t(i + 1) - t(i)), step[1] * (t(i + 1) - t(i))] // prettier-ignore
+      const local = [0, 2, 0, -2][i % 4]! // a pose's own art: this must survive
+      return {
+        pass: i,
+        pos: { x: 80 + tx + (snaps ? nx : 0), y: 48 + ty + (snaps ? ny : 0) },
+        origin: snaps ? { x: 80 + tx, y: 48 + ty } : { x: 80, y: 48 },
+        parts: [part(1 + (i % 3), snaps ? 0 : tx, false, (snaps ? 0 : ty) + local)],
+        uploads: [],
+        palette: [],
+      }
+    }),
+  })
+  it.each([false, true])(
+    'a sprite moving along a track keeps one anchor, only the pose changes (snaps %s)',
+    snaps => {
+      for (const n of [2, 3, 5, 9, 14])
+        for (const step of [
+          [0, 0],
+          [3, 0],
+          [-5, 2],
+          [7, -4],
+        ] as [number, number][]) {
+          const f = framesOf({ m: track(n, step, snaps), fixed: false }, spr, LEVEL).frames
+          const tag = `n=${n} step=${step}`
+          expect(f.length, tag).toBe(Math.min(n, 3))
+          for (const q of f) expect(anchorOf(q), tag).toEqual({ x: 80, y: 48 })
+          expect(new Set(f.map(q => q.parts![0]!.dx)), tag).toEqual(new Set([0]))
+          expect(new Set(f.map(q => q.parts![0]!.char)).size, tag).toBe(f.length)
+        }
+    },
+  )
+
   it('parts that move against each other are a new pose though the chars are the same', () => {
     const two = (gap: number, drift: number): SpritePart[] => [part(1, drift), part(2, drift + gap)]
     const m = run([

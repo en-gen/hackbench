@@ -380,6 +380,41 @@ test('a sprite reload (an edit or refresh) clears the panel', async ({ page }) =
 // and the panel says it never appears in play.
 // Plant: delete the `stored-tile` element from the map view and the count assertion goes red; drop the note's "on its line"
 // wording and the first test goes red; stop setting `note` and the second goes red.
+test('a chainsaw ($65) spins at one spot in the panel: the drawn left edge, bottom edge and canvas size hold across frames while the pose changes (#1128)', async ({
+  page,
+}) => {
+  const map = await openMap(page, 0x00f)
+  const saw = map.stack.find(s => s.id === 0x65 && s.status === 'drawn' && map.own(s))
+  expect(saw, 'a drawn, clickable chainsaw on map $00F').toBeTruthy()
+  const at = map.own(saw)
+  await map.click(at.x, at.y)
+  const canvas = panel(page).locator('[data-control="sprite-composite"]')
+  await expect(panel(page).locator('[data-field="animation"]')).toContainText('Animated')
+  // Each sample is one paint: which frame, the canvas size, and the first opaque column and last opaque row actually drawn.
+  const drawn = () =>
+    canvas.evaluate(c => {
+      const { data } = c.getContext('2d').getImageData(0, 0, c.width, c.height)
+      let [left, bottom] = [c.width, -1]
+      for (let y = 0; y < c.height; y++)
+        for (let x = 0; x < c.width; x++)
+          if (data[(y * c.width + x) * 4 + 3])
+            [left, bottom] = [Math.min(left, x), Math.max(bottom, y)]
+      return { frame: c.dataset.frame, w: c.width, h: c.height, left, bottom, url: c.toDataURL() }
+    })
+  const samples = []
+  for (let i = 0; i < 16; i++) {
+    samples.push(await drawn())
+    await page.waitForTimeout(100)
+  }
+  const distinct = k => new Set(samples.map(q => q[k])).size
+  expect(distinct('frame'), 'several frames were painted').toBeGreaterThanOrEqual(2)
+  expect(distinct('url'), 'the pose changed').toBeGreaterThanOrEqual(2)
+  expect([distinct('w'), distinct('h')], 'one canvas for the loop').toEqual([1, 1])
+  // Travel along the track would move the saw across the canvas; its pose only changes the top edge.
+  expect(distinct('left'), 'left edge of the drawn saw').toBe(1)
+  expect(distinct('bottom'), 'bottom edge of the drawn saw').toBe(1)
+})
+
 test('a chainsaw drawn away from its stored tile outlines that tile while selected, and the panel says it is drawn where it first sits on its line', async ({
   page,
 }) => {
