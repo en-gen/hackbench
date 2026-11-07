@@ -4110,14 +4110,14 @@ test('open(options, from) on a tab that already shows a map ignores from', async
     const from = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { probe: 1 })
     await from.open(pinned.options)
     from.showSprites = false
-    from.showGrid = true
+    from.showGrid = false
     await pinned.open(pinned.options, from)
     from.dispose()
   })
   await expect.poll(() => page.evaluate(() => getSvc('ApplicationShell').getWidgetById('hackbench.map-view:262').startSeq)).toBeGreaterThan(before) // prettier-ignore
   expect(await pressedOf(page, 0x106)).toEqual(PRESSES.map(c => String(c === 'palace-red')))
   await expect(control(page, 0x106, 'layer-sprites')).toHaveAttribute('aria-pressed', 'true')
-  await expect(control(page, 0x106, 'grid-toggle')).toHaveAttribute('aria-pressed', 'false')
+  await expect(control(page, 0x106, 'grid-toggle')).toHaveAttribute('aria-pressed', 'true')
 })
 
 test('with $105 open, a single click on $106 then on $105 leaves $105 in one active tab and the preview on $106', async ({
