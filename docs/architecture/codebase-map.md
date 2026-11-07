@@ -87,7 +87,8 @@ pull request.
 ### CI has no ROM
 
 This is the single most important thing to understand about testing here.
-`test/roms/` is gitignored, so **CI is permanently the corpus-absent case**.
+The ROM corpus lives outside the repo (`hackbench-tools/roms`, see
+[../testing.md](../testing.md)), so **CI is permanently the corpus-absent case**.
 A safeguard proven only by ROM-backed tests is unproven where it
 actually runs.
 
@@ -114,36 +115,12 @@ gate has a test that plants a defect per rule and proves both halves fail.
 
 ## Commit gates
 
-`npm install` sets `core.hooksPath` to `.githooks` automatically
-(`tools/scripts/set-hooks-path.cjs`); nothing to do per clone. There is no
-pre-commit hook (#1183; refinement in #1163); `.githooks/pre-push` is the only
-hook.
-
-- CI `static` job runs `npm run lint` (ESLint over `src test tools theia`
-  and root `*.js *.mjs *.ts`, `--max-warnings 0`; the root `vitest*.config.ts`
-  files are covered, #1185) and `npm run format:check` (Prettier over JS/TS/CSS).
-  `tools/scripts/check-staged-style.sh` is called by nothing now.
-- `tools/scripts/check-content.mjs` (issue #678) blocks ROM-derived bytes on
-  pre-push and in CI (`range`, `history`), and em-dashes in added lines in CI
-  `range` (and `staged` mode, which no hook runs).
-
-## Everyday commands
-
-```bash
-npm run lint
-```
-
-```bash
-npm run format
-```
-
-```bash
-npm run test:unit
-```
-
-```bash
-npm run typecheck:theia
-```
+`npm install` points `core.hooksPath` at `.githooks`. The only hook is
+`.githooks/pre-push`; there is no pre-commit hook. The rest is CI's `static`
+job (`npm run lint`, `npm run format:check`) and
+`tools/scripts/check-content.mjs`, which blocks ROM-derived bytes on pre-push
+and in CI. Details: [CLAUDE.md](../../CLAUDE.md), commands:
+[CONTRIBUTING.md](../../CONTRIBUTING.md#commands).
 
 ## Related reading
 
