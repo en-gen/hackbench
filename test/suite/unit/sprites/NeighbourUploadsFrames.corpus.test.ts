@@ -33,6 +33,7 @@ const MAPS = [0x11c, 0x1c4, 0x1c5]
 const CHANGED = ['11c:1:1f:same']
 /** The changed sprites whose frames differ; a frame change is a neighbor's art going away. */
 const FRAMES_CHANGED: string[] = []
+/** A short SHA-256 of a frame, so the table and the comparison hold hashes and never ROM-derived pixels. */
 const sha = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 12)
 
 /** The run as it was before #1337: one probe watches the run alone and the neighbor rerun. */
