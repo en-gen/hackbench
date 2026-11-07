@@ -70,7 +70,7 @@ export function compose(
   get: (id: number) => TileProbe | undefined,
 ): CollisionLine[] {
   const rows = grid.length
-  const cols = grid[0]?.length ?? 0
+  const cols = Math.max(0, ...grid.map(row => row.length))
   const at = (c: number, r: number): TileProbe | null => {
     if (c < 0 || r < 0 || c >= cols || r >= rows) return null
     const m = get(grid[r]![c]!)

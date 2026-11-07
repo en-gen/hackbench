@@ -64,6 +64,13 @@ describe('compose (synthetic tiles)', () => {
     ])
   })
 
+  it('a lower row longer than row 0 is composed, and its cell blocks the wall beside it (#1034)', () => {
+    const l = compose([[2], [2, 2]], get)
+    expect(of(l, 'wall')).not.toContainEqual([16, 16, 16, 32])
+    expect(of(l, 'wall')).toContainEqual([32, 16, 32, 32])
+    expect(of(l, 'unknown')).toEqual([])
+  })
+
   it('an L of blocks draws its outer corners, and its inner corner where wall meets floor', () => {
     //  # .
     //  # #
