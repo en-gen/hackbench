@@ -71,6 +71,8 @@ that cites them does so by that path.
   GFX arena, measured across 6 ROMs
 - [layer-previews.md](layer-previews.md) - what a layer preview is for;
   inherits the UI conventions above
+- [capture-viewer.md](capture-viewer.md) - the derivations and measurements
+  behind the Mesen capture viewer's checks
 
 ## ROM reference
 
@@ -131,7 +133,7 @@ Designs agreed before implementation, dated and kept as written.
 ## Designs and mockups
 
 [design/](design/) holds UI designs the owner has picked, before the build
-issue; [mockups/](mockups/) holds HTML wireframes.
+issue (now [map-facts-properties.md](design/map-facts-properties.md)); [mockups/](mockups/) holds HTML wireframes.
 
 ## House rules for documentation
 
