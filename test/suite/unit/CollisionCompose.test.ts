@@ -66,8 +66,17 @@ describe('compose (synthetic tiles)', () => {
 
   it('a lower row longer than row 0 is composed, and its cell blocks the wall beside it (#1034)', () => {
     const l = compose([[2], [2, 2]], get)
-    expect(of(l, 'wall')).not.toContainEqual([16, 16, 16, 32])
-    expect(of(l, 'wall')).toContainEqual([32, 16, 32, 32])
+    // Row 1's second cell is a neighbour of row 0's only cell, so no wall stands at x = 16 on row 1.
+    expect(of(l, 'wall')).toEqual([
+      [0, 0, 0, 32],
+      [16, 0, 16, 16],
+      [32, 16, 32, 32],
+    ])
+    expect(of(l, 'floor')).toEqual([
+      [0, 0, 16, 0],
+      [16, 16, 32, 16],
+    ])
+    expect(of(l, 'ceiling')).toEqual([[0, 32, 32, 32]])
     expect(of(l, 'unknown')).toEqual([])
   })
 
