@@ -261,6 +261,20 @@ describe('CODE_0DDF3A castle wall (synthetic cart)', () => {
     expect(run(cart(), 0, 0, 0x02, 2, true)).toEqual(createGrid(2, true))
   })
 
+  it('says so when it declines a vertical level, so the object is marked and not lost silently', () => {
+    const cur = makeCursor(createGrid(1, true), cart(), 11, 0, 0, 0x37, 2, null, 3, undefined, true)
+    cur.handlerAddr = HANDLER
+    cur.refusals = []
+    handle_0DDF3A(cur)
+    expect(cur.refusals).toEqual([
+      {
+        objectIndex: 3,
+        handler: HANDLER,
+        reason: 'HackBench cannot draw this object on a vertical map yet.',
+      },
+    ])
+  })
+
   it('declines on a vertical level grown to 27 rows, which only the cursor flag tells from a horizontal one', () => {
     const grown = createGrid(1, true)
     while (grown.length < 27) grown.push(new Array<number>(32).fill(TILE_EMPTY))
