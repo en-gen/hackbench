@@ -12,7 +12,8 @@ Proposed 2026-11-07 (lima, #1242)
 4. Do the Layer 2 and camera runs go on the interpreter (D143)?
 5. For a routine that waits for Mario (a touch-driven sink, $1EF), what does Play do?
 6. What does Play do on a vertical map, or when Layer 2 moves sideways against the screen?
-7. What does Play do on a map whose motion depends on where Mario is?
+7. What does Play do on a map whose motion depends on where Mario is, or whose camera follows him?
+8. Should the maps whose camera follows Mario be opened to Play?
 
 D143 is cited in the issue as the interpreter ruling. Its record was not found in `docs/decisions/`; it appears only as a one-line report in the team registry (`.overwatch/team-registry.md`, 08:40Z entry: "whole-map simulation engine (#1094, #1116 simulate, #192, #1133) = the interpreter"). D148 B, in the same registry, dropped map-editor simulation (cursor-as-Mario and the like) and kept playing as the emulator panel at the map entrance. This run is neither: it steps two screen routines, with Mario as no input but the stated ones.
 
@@ -26,7 +27,8 @@ D143 is cited in the issue as the interpreter ruling. Its record was not found i
 4. (a) Run the ROM's two per-frame routines on the interpreter from the level loader's image, with step budgets, byte-checked call sites and a refusal with a reason. (b) A hand port of the routines (the reference extension's `scrollSim.ts`). (c) No Play.
 5. (a) Run it with the Mario inputs it reads stated and fixed (Layer2Touched = 1, the camera a screen in with Mario 128 px into it), say so in the tooltip ("Shown as if Mario is standing on Layer 2."), and give no control for the inputs. (b) A toggle for "Mario on Layer 2". (c) Refuse.
 6. (a) Refuse both in plain words and move nothing. (b) Build horizontal shift tonight. (c) Draw anyway.
-7. (a) Refuse in plain words ("depends on where Mario is"). (b) Play the idle run. (c) Offer a Mario position control.
+7. (a) Refuse in plain words: "depends on where Mario is" when Layer 2 against the camera differs with Mario moved or the placed camera alone moves it, "The camera follows Mario here, and Play has no Mario to follow." when only the camera differs. (b) Play the idle run. (c) Offer a Mario position control.
+8. (a) Not yet. (b) Draw them with the offsets of the idle run and hide the camera frame. (c) Add a Mario control.
 
 ## Ruling
 
@@ -38,7 +40,8 @@ wording not recorded. All seven were taken as [PROP] by the implementer on Overw
 4. Option a, pending this file. Entry call sites are the two JSLs inside `CODE_00A28A` (`bank_00.asm:4505-4506`), byte-checked with their destinations; nothing is hardcoded about paths or tables. Evidence: $009 matches a Mesen capture on 7,999 of 7,999 frames; one machine.
 5. Option a. The inputs are stated in `docs/rom/map-layer2-motion.md` and in the tooltip; a camera-only run must move nothing, else call 7.
 6. Option a. No horizontal shift is built; a vertical map or a run whose relative X changes refuses.
-7. Option a. The run is repeated with Mario's X and Y moved; any difference in the four positions refuses. In vanilla that refuses 11 of the 22 slots with a scroll command ($01A, $0D4, $0DC, $111, $115, $122, $1CE, $1CF, $1D1, $1E3, $1F3), including 6 that loop on their own because the camera tracks Mario.
+7. Option a. The idle run is repeated with Mario's X and Y moved. In vanilla that refuses 11 of the 22 slots with a scroll command: `mario-dependent` for $01A and $111 (the camera alone moves them), $122 and $1D1 (the offsets or relative X differ); `camera-follows-mario` for $0D4, $0DC, $115, $1CE, $1CF, $1E3, $1F3, 6 of which loop on their own.
+8. Option a, for the owner. Opening those seven is an owner call. The likely fix is option b: draw the idle run's offsets and hide the camera frame, since the offsets and relative X are equal with Mario moved and only the camera differs; their runs reach the 20,000-frame cap, so the loop would need an end rule of its own.
 
 ## Why
 
@@ -48,8 +51,9 @@ wording not recorded. All seven were taken as [PROP] by the implementer on Overw
 4. The routine's values must come from the ROM; a hand port is the modelling the rules rule out, and the interpreter already runs the level loader.
 5. The sink is the ROM's; only the touch and the camera are not, and they are shown as stated, never as a path.
 6. The strip and the shift are built for rows only; guessing beyond that would draw confidently wrong.
-7. A loop that strobes at 20 Hz because the idle Mario sits still is not the map's motion.
+7. A loop that strobes at 20 Hz because the idle Mario sits still is not the map's motion, and a camera Play cannot move honestly is not drawn.
+8. Drawing them is possible but shows a camera frame that does not follow anything, so it is not done without a ruling.
 
 ## Applies to
 
-docs/rom/map-layer2-motion.md, `src/rom/MapMotion.ts`, the map view's Play (#1242). Calls 5 to 7 and call 4 are the ones to rule first.
+docs/rom/map-layer2-motion.md, `src/rom/MapMotion.ts`, the map view's Play (#1242). Calls 4 to 8 are the ones to rule first.

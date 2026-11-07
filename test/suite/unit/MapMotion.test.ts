@@ -10,6 +10,7 @@ import {
   runMapMotion,
   type MotionResult,
 } from '../../../src/rom/MapMotion'
+import { buildScrollSimulator } from '../../../src/rom/scrollSim'
 import { freshRom, hasRom, VANILLA } from '../support/corpus'
 import {
   motionCart,
@@ -239,6 +240,35 @@ describe.skipIf(!hasRom(VANILLA))('vanilla corpus', () => {
     expect(r.frames.l1x.every((x, i) => x === r.frames.l2x[i])).toBe(true)
     expect(r.frames.l2y.length).toBeGreaterThan(1000)
     expect(r.end).toBe('settled')
+  })
+
+  it('$009 agrees with the hand port in scrollSim.ts on every frame', () => {
+    const r = ok(runMapMotion(rom(), 0x009))
+    // The port is seeded with $009's load state and sprite setup, as its own capture test does; no capture is read.
+    const sim = buildScrollSimulator(rom(), {
+      layer1XPos: 0,
+      layer1YPos: 0xc0,
+      layer2XPos: 0,
+      layer2YPos: 0xc0,
+      layer1ScrollCmd: 1,
+      layer2ScrollCmd: 1,
+      layer1ScrollBits: 1,
+      layer2ScrollBits: 0,
+      horizLayer2Setting: 0,
+      vertLayer2Setting: 0,
+      marioSpawnX: 16,
+      marioSpawnY: 224,
+      screenMode: 0,
+    })
+    const bad: string[] = []
+    r.frames.l1x.forEach((_, f) => {
+      const st = sim.stateAtFrame(f)
+      const want = [st.layer1XPos, st.layer1YPos, st.layer2XPos, st.layer2YPos]
+      const got = [r.frames.l1x[f], r.frames.l1y[f], r.frames.l2x[f], r.frames.l2y[f]]
+      if (want.some((v, i) => v !== got[i])) bad.push(`${f}: ${got} vs ${want}`)
+    })
+    expect(bad.slice(0, 3)).toEqual([])
+    expect(r.frames.l1x.length).toBeGreaterThan(7000)
   })
 
   it('$1EF needs Mario, sinks to the floor, and the camera frame is not shown', () => {

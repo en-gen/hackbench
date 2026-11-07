@@ -187,45 +187,50 @@ it; the probe uses what the level loader loads.
 
 ## Sweep (what the run says for every slot)
 
-`runMapMotion` on the vanilla ROM over all 512 slots, one run, one machine, 2026-11-07, after the camera-only
-run and the Mario-dependence run were added. 490 slots have no scroll command (`none`, no button). Of the 22
-with one: 4 play ($009 own-motion; $1E2, $1EC, $1EF needs-mario), 7 are refused `sideways` and 11 are refused
-`mario-dependent`. None is refused by the loader, the entries or the interpreter. Layer 2 offset range is the
-change in (camera minus Layer 2) from the load frame, in rows; the frame count is the run's length, load state
-included.
+`runMapMotion` on the vanilla ROM over all 512 slots, one run, one machine, 2026-11-07, with the camera-only run
+and the Mario run in. 490 slots have no scroll command (`none`, no button). Of the 22 with one: 4 play ($009
+own-motion; $1E2, $1EC, $1EF needs-mario), 7 are refused `sideways`, 4 `mario-dependent` ($01A and $111, which
+the placed camera alone moves; $122 and $1D1, whose offsets or relative X differ with Mario moved) and 7
+`camera-follows-mario` (the offsets and relative X are equal with Mario moved, only the camera differs: $0D4,
+$0DC, $115, $1CE, $1CF, $1E3, $1F3). None is refused by the loader, the entries or the interpreter.
 
-| Slot | Scroll commands (L1 / L2) | Result | Frames | Layer 2 offset range |
-| --- | --- | --- | --- | --- |
-| $009 | $01 / $01 | own-motion, camera moves | 7,785 | -101 to 66 |
-| $00C | $01 / $00 | refused: sideways | - | - |
-| $01A | $00 / $02 | refused: mario-dependent | - | - |
-| $01F | $0C / $00 | refused: sideways | - | - |
-| $0C8 | $01 / $09 | refused: sideways | - | - |
-| $0D4 | $00 / $03 | refused: mario-dependent | - | - |
-| $0DC | $00 / $0B | refused: mario-dependent | - | - |
-| $0E7 | $00 / $08 | refused: sideways | - | - |
-| $111 | $00 / $02 | refused: mario-dependent | - | - |
-| $115 | $00 / $03 | refused: mario-dependent | - | - |
-| $122 | $00 / $0D | refused: mario-dependent | - | - |
-| $1C8 | $0C / $00 | refused: sideways | - | - |
-| $1CE | $00 / $08 | refused: mario-dependent | - | - |
-| $1CF | $00 / $02 | refused: mario-dependent | - | - |
-| $1D1 | $00 / $03 | refused: mario-dependent | - | - |
-| $1D4 | $0C / $00 | refused: sideways | - | - |
-| $1E2 | $00 / $0E | needs-mario | 333 | -176 to 0 |
-| $1E3 | $00 / $03 | refused: mario-dependent | - | - |
-| $1EC | $00 / $0E | needs-mario | 448 | 0 to 192 |
-| $1EF | $00 / $0E | needs-mario | 448 | 0 to 192 |
-| $1F3 | $00 / $03 | refused: mario-dependent | - | - |
-| $1FC | $0C / $00 | refused: sideways | - | - |
+"Idle offset range" is the range of Layer 2's offset (change in camera minus Layer 2 from the load frame, rows)
+over the idle run, with no inputs, for every one of the 22 maps, refused ones included, so the table shows what
+was refused as well as what plays; "Idle frames" is that run's length (frame cap 20,000). Source: the round-2
+probe of the idle pass (the review's r2.json), vanilla, one machine, 2026-11-07. A refused map's range is not what
+Play would show. For the three needs-mario maps the idle range is 0 to 0; the forced run's range is -176 to 0 on
+$1E2 and 0 to 192 on $1EC and $1EF.
 
-Before the dependence run, 8 slots ran to the frame cap of 20,000 frames ($01A, $0D4, $111, $115, $1CF, $1D1,
-$1E3, $1F3: their motion cycles and never settles). Every one is now refused `mario-dependent`: $01A and $111
-because the placed camera alone moves them, the rest because moving Mario changes some position (the camera
-tracks Mario on those maps; which cell differs was not traced per map). The cap stays for any slot that would
-otherwise run on; a run that reaches it is returned as it is, with `end: 'cap'`. No vanilla slot ends
-`no-motion`: the switch and timer maps ($0DC among them) end `mario-dependent`. Not covered: anything past the
-cap, and motion a trigger or a timer starts that no stated input reaches.
+| Slot | Scroll commands (L1 / L2) | Result | Frames played | Idle offset range | Idle frames |
+| --- | --- | --- | --- | --- | --- |
+| $009 | $01 / $01 | own-motion, camera moves | 7,785 | -101 to 66 | 7,785 |
+| $00C | $01 / $00 | refused: sideways | - | -93 to 0 | 6,122 |
+| $01A | $00 / $02 | refused: mario-dependent | - | 0 to 0 | 1 |
+| $01F | $0C / $00 | refused: sideways | - | 0 to 0 | 2,626 |
+| $0C8 | $01 / $09 | refused: sideways | - | -92 to 0 | 20,001 (cap) |
+| $0D4 | $00 / $03 | refused: camera-follows-mario | - | -176 to 1 | 20,001 (cap) |
+| $0DC | $00 / $0B | refused: camera-follows-mario | - | 0 to 160 | 670 |
+| $0E7 | $00 / $08 | refused: sideways | - | 0 to 0 | 20,001 (cap) |
+| $111 | $00 / $02 | refused: mario-dependent | - | 0 to 0 | 1 |
+| $115 | $00 / $03 | refused: camera-follows-mario | - | -15 to 64 | 20,001 (cap) |
+| $122 | $00 / $0D | refused: mario-dependent | - | -2 to 0 | 3 |
+| $1C8 | $0C / $00 | refused: sideways | - | 0 to 0 | 1,154 |
+| $1CE | $00 / $08 | refused: camera-follows-mario | - | 0 to 0 | 20,001 (cap) |
+| $1CF | $00 / $02 | refused: camera-follows-mario | - | -1 to 177 | 20,001 (cap) |
+| $1D1 | $00 / $03 | refused: mario-dependent | - | -15 to 64 | 20,001 (cap) |
+| $1D4 | $0C / $00 | refused: sideways | - | 0 to 0 | 1,090 |
+| $1E2 | $00 / $0E | needs-mario | 333 | 0 to 0 | 1 |
+| $1E3 | $00 / $03 | refused: camera-follows-mario | - | -2 to 127 | 20,001 (cap) |
+| $1EC | $00 / $0E | needs-mario | 448 | 0 to 0 | 1 |
+| $1EF | $00 / $0E | needs-mario | 448 | 0 to 0 | 1 |
+| $1F3 | $00 / $03 | refused: camera-follows-mario | - | -2 to 95 | 20,001 (cap) |
+| $1FC | $0C / $00 | refused: sideways | - | 0 to 0 | 1,602 |
+
+Before the dependence run, 8 slots ran to the frame cap ($01A, $0D4, $111, $115, $1CF, $1D1, $1E3, $1F3: their
+motion cycles and never settles). All are now refused. The cap stays for any slot that would otherwise run on; a
+run that reaches it is returned as it is, with `end: 'cap'`. No vanilla slot ends `no-motion`: the switch and
+timer maps ($0DC among them) end `camera-follows-mario`. Not covered: anything past the cap, and motion a trigger
+or a timer starts that no stated input reaches.
 
 ## What the reference extension holds
 
@@ -269,8 +274,9 @@ every frame of both runs (checked on every frame, not assumed); a run whose rela
 
 Rows sampled from the Mesen run `r009` (headless, `rampoweronstate=AllZeros`, Mario held in place by a Lua write
 of his position each frame and the death animation undone, 8,000 records from the first level frame, one
-machine, 2026-11-07); every 500th record, and the last. The shipped run matches this capture on 7,999 of
-7,999 frames (all four positions and the four `NextLayer` words). The path ends at record 7,785; after it the
+machine, 2026-11-07); every 500th record, and the last. The phase 1 probe matched this capture on 7,999 of
+7,999 frames (all four positions and the four `NextLayer` words); the shipped run (positions only) is
+compared with the hand port below. The path ends at record 7,785; after it the
 positions are constant.
 
 | Record | L1 X | L1 Y | L2 Y | L1 Y - L2 Y |
@@ -307,17 +313,24 @@ camera alone (`NextLayer1XPos` $1462 and `NextLayer2XPos` $1466 = 256, Mario's X
 Layer 2 against the camera not at all; then the same with `Layer2Touched` ($140E) = 1 every frame, which is the
 run shown. Mario's X moves with the camera because the camera code pulls the camera back to him otherwise.
 `FORCED_CAMERA_X` = 256 is an input chosen here, not read from the ROM: one screen in, outside vanilla's rest
-window (the first 8 px). A routine that the camera alone moves ($01A, $111, Layer 2 Smash: `CODE_05C955` never
+window (the first 8 px). On a hack whose window covers 256 the camera-only run could move nothing where the real
+camera would, and a blip of the routine that depends on the camera (a window edge at exactly 256) is possible;
+the check cannot tell. A routine that the camera alone moves ($01A, $111, Layer 2 Smash: `CODE_05C955` never
 reads `Layer2Touched`) is refused `mario-dependent`, not labeled as Mario standing on Layer 2. Probe, vanilla,
 one machine: this constant camera gives the same sink as the capture's fed camera X on $1EF, 109 of 109 frames
 aligned at the first row at or below 185, and the sink reaches its floor (0). The camera frame is not shown for
 this kind.
 
-**The dependence run (kind own-motion).** The idle run is repeated for the same number of frames with Mario's
-X +160 and Y -48 from where the loader put him; any difference in any of the four positions at any frame
-refuses `mario-dependent`. $009 is unaffected (same positions, 7,785 frames). It also refuses $122, which Mario's
-Y drives (the review's probe: a 3-frame loop at 20 Hz when played idle). It compares positions, not only the offsets Play draws:
-maps whose camera tracks Mario are refused even when Layer 2 alone would loop on its own (see the sweep).
+**The dependence run (kind own-motion).** The idle run is repeated for the same number of frames with Mario
+moved once, to X +160 and Y -48 from where the loader put him and held there every frame. What Play draws is
+compared first: the offsets and the relative X, frame by frame. If they differ, `mario-dependent` ($122, which
+Mario's Y drives: a 3-frame loop at 20 Hz when played idle, per the review's probe; $1D1, whose parallax makes
+relative X differ). If they are equal and only the camera differs, `camera-follows-mario` ("The camera follows
+Mario here, and Play has no Mario to follow."). $009 is unaffected (same positions, 7,785 frames).
+What this check can miss, because it is one placement: a routine with a threshold on Mario above where he
+started (or between his two placements), one that reads his speed ($7B) and the loader leaves it 0, one that
+reads his Y only when touched (Pass 2 forces no Y). On a hack, a sideways map can report `mario-dependent`
+instead of `sideways`, since relative X is compared before the idle run's own sideways test.
 
 **Run size and stall.** Measured on the shipped `mapMotion` in node, one machine, 2026-11-07: $009: 7,785
 frames, 151,526 bytes of JSON, 1.3 s on the backend thread (the run is 2.2 s cold in the sweep, with the
@@ -340,11 +353,15 @@ frames (`end: 'cap'`, about 5.5 minutes). A routine that starts later than 180 f
   end when the offset is not zero.
 - The strip is per screen and wraps within the screen's own column: Layer 2 content from a neighboring screen
   does not scroll in sideways (relative X is 0, so nothing needs to).
-- The indicator cells (block contents) are hidden while Play runs and return at Stop.
+- The indicator cells (block contents) stay visible while Play runs (D52): they sit on Layer 1, which does not
+  move, and each display is rebuilt over every new frame's picture.
 - Hack ROMs beyond the refusal path; the $1EF camera X from Mario's position alone; a natural Layer 2 touch.
 
-**Cross-check against `scrollSim.ts`.** Not done: the hand port's fixtures (`MESEN_FIXTURES_DIR`) are absent
-here, and the interpreter run already matches the Mesen capture frame for frame.
+**Cross-check against `scrollSim.ts`.** `MapMotion.test.ts` seeds the hand port with $009's load state (the same
+seed its own capture test uses, no fixtures) and compares all four positions on every one of the shipped run's
+7,785 frames: equal on all of them. That is the shipped run; the 7,999-of-7,999 figure quoted above is an earlier
+probe against the Mesen capture (positions and the four `NextLayer` words, 8,000 frames), not the shipped run,
+which returns no `NextLayer` words.
 
 **The interpreter rule.** `.claude/rules/rom-interpretation.md`, third bounded use (block collision): "Do not
 extend it to other routines without a decision of the same kind." Running `UpdateScreenPosition` and
