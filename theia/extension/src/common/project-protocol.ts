@@ -393,6 +393,30 @@ export type MapSpritesResult =
   | { status: 'unavailable'; reason: string; detail?: string }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
+/**
+ * What a map's own scroll routines do, run from the ROM (#1242). `l1x`..`l2y` are the positions at each frame
+ * (frame 0 is the load state); `shiftY` is Layer 2's draw offset against Layer 1 in rows. `strips` hold, per
+ * screen, the Layer 2 rows below the screen up to its 512 px period (base64 RGBA, null when nothing draws), so
+ * the view can shift Layer 2 with wrap.
+ */
+export type MapMotionResult =
+  | {
+      status: 'ok'
+      kind: 'own-motion' | 'needs-mario'
+      note?: string
+      cameraMoved: boolean
+      l1x: number[]
+      l1y: number[]
+      l2x: number[]
+      l2y: number[]
+      shiftY: number[]
+      stripRows: number
+      strips: { low: string | null; high: string | null }[]
+    }
+  | { status: 'none' }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+
 /** One line of the collision overlay (#435), in map pixels: `points` is x0,y0,x1,y1,..., an unknown cell its closed outline. */
 export interface MapCollisionLineDto {
   kind: 'floor' | 'ceiling' | 'wall' | 'unknown'
@@ -642,6 +666,8 @@ export interface ProjectService {
     index: number,
     spriteIndex: number,
   ): Promise<SpriteFramesResult>
+  /** What the map's own scroll routines move, run from the working copy (#1242). */
+  mapMotion(manifestPath: string, index: number): Promise<MapMotionResult>
   /** Where each item block of a map shows its contents, from the working copy (#566). */
   mapBlockContents(manifestPath: string, index: number): Promise<MapBlockContentsResult>
   /** Where the player first enters a map, read from the working copy (#339). */

@@ -26,6 +26,7 @@ import {
 import { buildMapDetails } from './map-details'
 import { L1ModelCache, mapBeyond, mapScreen, startResult, toolbarArtOf } from './map-screen'
 import { mapCollision, mapCollisionCheck, probeStateOf } from './map-collision'
+import { mapMotion } from './map-motion'
 import { mapSpriteFrames, mapSprites } from './map-sprites'
 import { mapBlockContents } from './map-block-contents'
 import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
@@ -56,6 +57,7 @@ import {
   MapDetailsNotLocated,
   MapScreenResult,
   MapBlockContentsResult,
+  MapMotionResult,
   MapSpritesResult,
   SpriteFramesResult,
   MapStartResult,
@@ -148,6 +150,12 @@ export class ProjectServiceImpl implements ProjectService {
     const r = this.located(manifestPath)
     if (r.status !== 'ok') return r
     return mapSprites(this.screens, r.working.bytes(), r.romPath, index)
+  }
+
+  async mapMotion(manifestPath: string, index: number): Promise<MapMotionResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    return mapMotion(this.screens, r.working.bytes(), r.romPath, index)
   }
 
   async mapSpriteFrames(

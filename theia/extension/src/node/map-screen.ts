@@ -116,14 +116,15 @@ function drawPlanes(
   isVertical: boolean,
   screen: number,
   rows: number,
-  { dy, period = Infinity }: { dy: number; period?: number },
+  { dy, period = Infinity, outRows }: { dy: number; period?: number; outRows?: number },
   cellAt: (x: number, y: number) => DrawnCell | undefined,
 ): [Plane, Plane] {
   const { w, h } = screenTiles(isVertical)
   const x0 = isVertical ? 0 : screen * w
   const top = isVertical ? screen * h * 16 : 0
   const width = w * 16
-  const height = h * 16
+  // `outRows` draws more rows than the screen has (Play's strip over the whole period).
+  const height = outRows ?? h * 16
   const planes = [0, 1].map(() => new Uint8ClampedArray(width * height * 4))
   const drew = [false, false]
   for (let y = 0; y < rows; y++) {
@@ -207,6 +208,7 @@ function drawL2(
   vram: L1Inputs['vram'],
   rows: number,
   idAt: (x: number, y: number) => number | null | undefined,
+  outRows?: number,
 ): L2Planes {
   const palette = { colors: model.colors }
   const drawn = new Map<number, Uint8ClampedArray>()
@@ -218,7 +220,7 @@ function drawL2(
     model.isVertical,
     screen,
     rows,
-    { dy: l2.dy, period },
+    { dy: l2.dy, period, outRows },
     (x, y) => {
       const id = idAt(x, y)
       const def = id == null ? undefined : l2.tiles[id]
@@ -229,6 +231,31 @@ function drawL2(
     },
   )
   return { l2Low, l2High }
+}
+
+/**
+ * The rows of a horizontal map's Layer 2 below one screen, up to its 512 px period (Play's strip, #1242): the same
+ * picture as `drawL2Planes` drawn taller, cut to the rows it adds. Null when the plane does not wrap.
+ */
+export function drawL2Strip(
+  model: L1Inputs,
+  l2: L2Inputs,
+  screen: number,
+): { rows: number; planes: L2Planes } | null {
+  if (model.isVertical && l2.kind !== 'image') return null
+  const { w, h } = screenTiles(model.isVertical)
+  const period = 512
+  const tall = drawL2(
+    model,
+    l2,
+    screen,
+    vramFor(model, SWITCHES_OFF),
+    l2.grid.length,
+    (x, y) => l2.grid[y]?.[x],
+    period,
+  )
+  const cut = (p: Plane): Plane => p && p.slice(w * 16 * h * 16 * 4)
+  return { rows: period - h * 16, planes: { l2Low: cut(tall.l2Low), l2High: cut(tall.l2High) } }
 }
 
 /** L2 (background) of one screen, from the same chars and palette as L1. */
