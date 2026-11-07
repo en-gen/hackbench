@@ -52,6 +52,9 @@ export class PreviewTabs {
     rowKey: object,
     key: object = {},
   ): Promise<W> {
+    // Needs the tab ATTACHED: a click while a double click's pin still loads
+    // can start a preview that `pin` then closes, and a slower preview of
+    // another row finishing after this click is revealed over the focused tab.
     const open = this.widgets.tryGetWidget<W>(viewId, rowKey)
     if (open && !open.isDisposed && open.isAttached) {
       void this.shell.activateWidget(open.id)
