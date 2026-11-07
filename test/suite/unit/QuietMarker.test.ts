@@ -330,6 +330,8 @@ const ENTRY = 0x028ab1
 /** The cell the stretch seeds (PlayerSparkleTimer), which the fixture routine reads to decide on its stub call. */
 const SPARKLE = 0x18d3
 const ABOVE = 0x029500
+/** GivePlayerLives and InvinsibilityTimer (rammap.asm:1908, :1635), and the stubs the fixture calls when they are set. */
+const [LIVES_CELL, STAR_CELL, LIVES_HOOK, STAR_HOOK] = [0x18e4, 0x1490, 0x029510, 0x029520]
 const ROUTINE = 0x029000
 const TABLE = 0x029100
 const TABLE_BIT3 = 0x029200
@@ -546,12 +548,28 @@ function cart(
     0x20,
     ABOVE & 0xff,
     ABOVE >> 8,
+    // the lives and the star branches: a call to a stub only when the run seeds the cell (the game's own tests differ)
+    ...[
+      [LIVES_CELL, 0xf0, 0x03, LIVES_HOOK],
+      [STAR_CELL, 0xf0, 0x03, STAR_HOOK],
+    ].flatMap(([cell, beq, skip, hook]) => [
+      0xad,
+      cell! & 0xff,
+      cell! >> 8,
+      beq!,
+      skip!,
+      0x20,
+      hook! & 0xff,
+      hook! >> 8,
+    ]),
     0xa5,
     0x14,
     0xf0,
-    0x45,
+    0x45 - 16,
   ])
   put(ABOVE, [RTS])
+  put(LIVES_HOOK, [RTS])
+  put(STAR_HOOK, [RTS])
   put(ROUTINE, new Array(0x100).fill(0x4b)) // filler after the code, never run
   put(ROUTINE, code)
   put(
@@ -790,6 +808,15 @@ describe('LoadClass runs the stretch before the call', () => {
     ],
   ])('unavailable when %s', (_title, rom) => {
     expect(reasonOf(rom)).toMatch(unreached)
+  })
+
+  it.each([
+    ['the lives branch loops', LIVES_HOOK, [0x80, 0xfe]],
+    ['the lives branch pops its return and leaves', LIVES_HOOK, [0x68, 0x68, RTS]],
+    ['the star branch loops', STAR_HOOK, [0x80, 0xfe]],
+    ['the star branch pops its return and leaves', STAR_HOOK, [0x68, 0x68, RTS]],
+  ])('unavailable when a hook in %s', (_title, at, bytes) => {
+    expect(reasonOf(cart({}, put => put(at, bytes)))).toMatch(unreached)
   })
 
   it('a hook at the seeded call that returns normally still reads ok', () => {
