@@ -1,8 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 // Every temp directory a test makes is removed afterwards, like lintGate.test.ts.
 // Windows can refuse a removal while a just-exited child process lets go, so

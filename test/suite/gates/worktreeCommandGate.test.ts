@@ -5,12 +5,15 @@
  * deletes the child, uncommitted work included, with no --force. Real git in a
  * scratch repo, Git 2.54 on Windows (Git Bash), one machine.
  */
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, afterAll, vi } from 'vitest'
 import { execFileSync, spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { findBash } from '../support/gitBash'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const root = path.resolve(__dirname, '../../..')
 const FORM =

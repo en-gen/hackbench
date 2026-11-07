@@ -452,15 +452,25 @@ export function cameraFor(x: number, y: number, vertical: boolean, screens: numb
 /** A run that also kept, per pass, the player-buffer slots the sprite pointed at (`runWithUploads`). */
 export type RunModel = BaseModel & { uploads?: SlotUpload[][] }
 
-/** `runOnce`, plus the DynGfxTilePtr slots a sprite that uploads from the player buffer wrote (#980). */
+/**
+ * `runOnce`, plus the DynGfxTilePtr slots a sprite that uploads from the player buffer wrote (#980), from the
+ * run the model came from.
+ */
 export function runWithUploads(
   rom: RomFile,
   id: number,
   seed: SpriteSeed,
   opts: Pick<RunOptions, 'stopAtDraw' | 'trackInputs'> = {},
 ): RunModel {
-  const p = uploadProbe()
-  return Object.assign(runOnce(rom, id, seed, { atRest: true, probe: p.probe, ...opts }), { uploads: p.byPass }) // prettier-ignore
+  const [alone, rerun] = [uploadProbe(), uploadProbe()]
+  const m = runOnce(rom, id, seed, {
+    atRest: true,
+    probe: alone.probe,
+    neighbourProbe: rerun.probe,
+    ...opts,
+  })
+  // Only an adopted rerun is the picture, so only then are its uploads the model's (#1169).
+  return Object.assign(m, { uploads: m.neighbourRun === 'adopted' ? rerun.byPass : alone.byPass })
 }
 
 /** The marker's reason code when the search found no condition that draws the sprite (`WHY_NOT_DRAWN`). */
@@ -1230,8 +1240,8 @@ export const MAX_FRAMES = 16
  * to the later passes. A pose is its parts' chars, flips and offsets from one another (sorted: OAM order is
  * not a pose), after the sprite's own movement is subtracted, so only the art changes between frames.
  * Where a part is measured from differs by sprite: usually the one anchor (the placed spot at rest), with the sprite drawing
- * where it stood at the end of the pass (`pos`); for $67 on a vanilla-shaped handler the pass before's
- * `pos` (`origin`, when `m.snaps`), the draw running before the move. `drawAt` is where the sprite
+ * where it stood at the end of the pass (`pos`); for a line-guided id ($62, $64-$68) on a vanilla-shaped
+ * handler the pass before's `pos` (`origin`, when `m.snaps`), the draw running before the move. `drawAt` is where the sprite
  * stood when it drew. A sprite with screen-fixed parts (`fixOffsets`) is not animated here: their map
  * position comes from the loader's camera for the chosen pass only, so another pass has no honest place.
  * When the chosen pass is not drawn (unloaded chars: the map shows a marker), the later poses that do draw are still kept and `reason` is the chosen pass's, so the panel never calls it "one pose" (#1113).

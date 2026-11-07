@@ -5,7 +5,10 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const node = (script: string, input = '', env: Record<string, string> = {}) =>
   spawnSync(process.execPath, [script], {

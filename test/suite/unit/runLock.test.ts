@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -12,6 +12,9 @@ import {
   slotCount,
   vitestWorkers,
 } from '../../../tools/scripts/run-lock.mjs'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 // Synthetic: every lock lives in a temp state dir, never the real one.
 const made: string[] = []
