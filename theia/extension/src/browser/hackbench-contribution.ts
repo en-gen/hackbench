@@ -424,7 +424,7 @@ export class HackBenchContribution implements CommandContribution, MenuContribut
           {},
         )
       } else {
-        await this.previews.preview<MapViewWidget>(MAP_VIEW_ID, apply)
+        await this.previews.preview<MapViewWidget>(MAP_VIEW_ID, apply, { index })
       }
     })
   }

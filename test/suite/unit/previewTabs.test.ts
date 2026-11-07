@@ -88,3 +88,50 @@ describe.skipIf(!theiaInstalled)(
     })
   },
 )
+
+describe.skipIf(!theiaInstalled)(
+  'PreviewTabs.preview focuses a row that already has a tab (#1324)',
+  () => {
+    const setup = async (open: object | undefined) => {
+      const { PreviewTabs } = await import('../../../theia/extension/src/browser/preview-tabs')
+      const previewWidget = {
+        id: 'x',
+        isDisposed: false,
+        isAttached: false,
+        title: { className: '' },
+      }
+      const tabs = new PreviewTabs() as any
+      const shell = { addWidget: vi.fn(), activateWidget: vi.fn(), revealWidget: vi.fn() }
+      const getOrCreateWidget = vi.fn(async () => previewWidget)
+      const tryGetWidget = vi.fn(() => open)
+      Object.assign(tabs, { shell, context: {}, widgets: { getOrCreateWidget, tryGetWidget } })
+      return { tabs, shell, getOrCreateWidget, tryGetWidget, previewWidget }
+    }
+    const row = { index: 7 }
+
+    it('activates the open tab, asks for it by the row key, and opens no preview', async () => {
+      const tab = { id: 'v:7', isDisposed: false, isAttached: true }
+      const s = await setup(tab)
+      const apply = vi.fn(async () => {})
+      expect(await s.tabs.preview('v', apply, row)).toBe(tab)
+      expect(s.tryGetWidget).toHaveBeenCalledWith('v', row)
+      expect(s.shell.activateWidget).toHaveBeenCalledWith('v:7')
+      expect(s.getOrCreateWidget).not.toHaveBeenCalled()
+      expect(apply).not.toHaveBeenCalled()
+      expect(s.shell.addWidget).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['no tab', undefined],
+      ['a tab that was never attached', { id: 'v:7', isDisposed: false, isAttached: false }],
+      ['a disposed tab', { id: 'v:7', isDisposed: true, isAttached: true }],
+    ])('still previews the row with %s', async (_, open) => {
+      const s = await setup(open)
+      const apply = vi.fn(async () => {})
+      expect(await s.tabs.preview('v', apply, row)).toBe(s.previewWidget)
+      expect(apply).toHaveBeenCalledWith(s.previewWidget)
+      expect(s.shell.addWidget).toHaveBeenCalledTimes(1)
+      expect(s.shell.activateWidget).not.toHaveBeenCalled()
+    })
+  },
+)

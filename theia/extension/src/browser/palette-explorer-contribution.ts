@@ -64,6 +64,9 @@ export class PaletteExplorerContribution extends AbstractViewContribution<Palett
         {},
       )
     }
-    return this.previews.preview<PaletteGroupViewWidget>(PALETTE_GROUP_VIEW_ID, apply)
+    return this.previews.preview<PaletteGroupViewWidget>(PALETTE_GROUP_VIEW_ID, apply, {
+      groupId: req.groupId,
+      variant: req.variant ?? null,
+    })
   }
 }

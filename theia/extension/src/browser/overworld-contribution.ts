@@ -39,7 +39,8 @@ export class OverworldContribution implements CommandContribution, MenuContribut
   /** Area `area` (0 is the hub), previewed or, when `pinned`, as its own tab. */
   async show(area: number, pinned: boolean): Promise<OverworldViewWidget> {
     const apply = (w: OverworldViewWidget): Promise<void> => w.open(area)
-    if (!pinned) return this.previews.preview<OverworldViewWidget>(OVERWORLD_VIEW_ID, apply)
+    if (!pinned)
+      return this.previews.preview<OverworldViewWidget>(OVERWORLD_VIEW_ID, apply, { area })
     const pin = (w: OverworldViewWidget): Promise<void> => {
       w.id = overworldTabId(area)
       return apply(w)
