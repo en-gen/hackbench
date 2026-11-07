@@ -4,7 +4,6 @@ import { ADDR, LEVEL_COUNT } from '../../../src/rom/SmwRom'
 import {
   LM_ENTRY_HOOK,
   MIDWAY_HOOK_SITE,
-  ENTRY_SITE_DIGEST,
   OVERWORLD_ENTRY,
   OVERWORLD_INDEX_BODY,
   SCREEN_EXIT,
@@ -56,22 +55,22 @@ function syntheticCall(): Buffer {
 }
 
 /** The cart's three branch displacements, each invented (none is vanilla's) and planted at a literal address:
- *  the guard's BNE, the bias BCC and the high-byte BEQ. The digests of OVERWORLD_INDEX_BODY and ENTRY_SITE_DIGEST
+ *  the guard's BNE, the bias BCC and the high-byte BEQ. The digests of OVERWORLD_INDEX_BODY
  *  hold them (D191 187B); SYNTHETIC_FINGERPRINTS.entry carries the cart's own. */
 export const SYNTHETIC_DISP = Object.freeze({ bne: 0x2e, bcc: 0x1b, beq: 0x4d })
 
 /**
  * The digest bytes of OVERWORLD_INDEX_BODY as planted, in digest order: NOPs with the BNE displacement at
- * offset 8, then the BCC displacement; with `site` the BEQ displacement too (ENTRY_SITE_DIGEST). On a hooked
+ * offset 8, then the BCC displacement; then the BEQ displacement unless `lm` (the LM site hook overwrites it, so it is omitted). On a hooked
  * cart the head MIDWAY_HOOK_SITE reads. All four are in SYNTHETIC_FINGERPRINTS.entry.
  */
-export function syntheticIndexSpan(hooked = false, site = false): Buffer {
+export function syntheticIndexSpan(hooked = false, lm = false): Buffer {
   const span = nops(93)
   span[8] = SYNTHETIC_DISP.bne
   if (hooked) span.set(MIDWAY_HOOK_SITE.slice(0, 4), 0)
   return Buffer.concat([
     span,
-    Buffer.from(site ? [SYNTHETIC_DISP.bcc, SYNTHETIC_DISP.beq] : [SYNTHETIC_DISP.bcc]),
+    Buffer.from(lm ? [SYNTHETIC_DISP.bcc] : [SYNTHETIC_DISP.bcc, SYNTHETIC_DISP.beq]),
   ])
 }
 
@@ -115,9 +114,9 @@ export const SYNTHETIC_RAM: RamTable = Object.freeze({
 export const SYNTHETIC_FINGERPRINTS: OverworldFingerprints = Object.freeze({
   entry: Object.freeze(
     Object.assign(
-      [false, true].flatMap(site =>
+      [false, true].flatMap(lm =>
         [false, true].map(h =>
-          spanFingerprint(syntheticIndexSpan(h, site), OVERWORLD_INDEX_BODY.mask)!,
+          spanFingerprint(syntheticIndexSpan(h, lm), OVERWORLD_INDEX_BODY.mask)!,
         ),
       ),
       { ram: SYNTHETIC_RAM },
@@ -203,9 +202,7 @@ export function plantStockSubmapCode(rom: RomFile): void {
     if ('fingerprints' in c)
       rom.writeAt(
         c.addr,
-        c === OVERWORLD_INDEX_BODY || c === ENTRY_SITE_DIGEST
-          ? syntheticIndexSpan().subarray(0, 93)
-          : nops(c.length),
+        c === OVERWORLD_INDEX_BODY ? syntheticIndexSpan().subarray(0, 93) : nops(c.length),
       )
   }
   rom.writeAt(0x05d8a5, [SYNTHETIC_DISP.bcc])

@@ -111,7 +111,6 @@ import type { SmwRom, OverworldRoots } from './SmwRom'
 import { buildLevelCatalog, type LevelCatalog } from './LevelCatalog'
 import { loadOverworldEvents } from './OverworldEvents'
 import {
-  ENTRY_SITE_DIGEST,
   OVERWORLD_INDEX_BODY,
   readTranslevelBias,
   type EntryFingerprints,
@@ -160,7 +159,7 @@ export interface OverworldFingerprints {
   wings?: WingsSeams
 }
 export const STOCK_OVERWORLD_FINGERPRINTS: OverworldFingerprints = Object.freeze({
-  entry: Object.freeze([...OVERWORLD_INDEX_BODY.fingerprints, ...ENTRY_SITE_DIGEST.fingerprints]),
+  entry: OVERWORLD_INDEX_BODY.fingerprints,
   walk: Object.freeze(['8a2e57ea61a4f9e4e33c7fc744d91212eed592270a2e12c257b636745abb748e']),
 })
 

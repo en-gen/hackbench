@@ -40,6 +40,8 @@ export interface StockSpan {
   /** Offsets zeroed before hashing: operands the caller reads and checks itself. Offsets run over `addr`'s
    *  bytes and then `also`'s, in order. */
   mask?: readonly number[]
+  /** Offset (over `addr`'s bytes then `also`'s) dropped from the hash when the LM site hook is recognized. */
+  lmSiteOmit?: number
   /** Further [address, length] runs hashed after the first, in the same digest (FINGERPRINT MINIMUM rule 6). */
   also?: readonly (readonly [number, number])[]
   what: string
@@ -86,7 +88,7 @@ export type RamTable = Readonly<Record<RamKey, number>>
 export type EntryFingerprints = readonly string[] & { readonly ram?: RamTable }
 
 /** One instruction's opcode and, for a RAM operand, its key in the RAM table (never the value). A branch's
- *  displacement is not named: it sits in a digest (OVERWORLD_INDEX_BODY, ENTRY_SITE_DIGEST). */
+ *  displacement is not named: it sits in a digest (OVERWORLD_INDEX_BODY). */
 export interface StockOp {
   addr: number
   op: number
@@ -121,21 +123,35 @@ export const OVERWORLD_INDEX_GUARD: readonly StockOp[] = Object.freeze([
 
 /**
  * CODE_05D83E from its first instruction through the index computation, to the table load, with the
- * displacements of the two branches the ops do not name. Vanilla only, measured. ONE digest over two
- * spans (#1061, FINGERPRINT MINIMUM rule 6, D191 187B): the 93 bytes $05D83E-$05D89A (bank_05.asm:7164-7213,
- * which hold the guard's BNE displacement at $05D846) and the BCC displacement at $05D8A5 (:7218). 4 masked
- * (the guard's LDA and BNE opcode, which the midway hook replaces; the ops check them), 4 already stated
- * (MIDWAY_HOOK_SITE), so 94 - 4 - 4 = 86 unknown, at least 26. The BNE displacement is unmasked: the hooked
- * corpus ROMs keep it (Invictus and Grand Poo World 2, the corpus ROMs with the midway hook, one machine).
+ * displacements of the three branches the ops do not name. Vanilla only, measured. ONE StockSpan, one
+ * digest per path (#1061, FINGERPRINT MINIMUM rule 6, D191 187B). Spans: the 93 bytes $05D83E-$05D89A
+ * (bank_05.asm:7164-7213, holding the guard's BNE displacement at $05D846), the BCC displacement at $05D8A5
+ * (:7218) and the BEQ displacement at $05D8B2 (:7224). 4 masked (the guard's LDA and BNE opcode, which the
+ * midway hook replaces; the ops check them), 4 already stated (MIDWAY_HOOK_SITE). The BNE displacement is
+ * unmasked: Invictus and Grand Poo World 2, the corpus ROMs with the midway hook, keep it (one machine).
+ * fingerprints[0], stock: 95 bytes - 4 masked - 4 stated = 87 unknown, at least 27. fingerprints[1], LM
+ * site: Lunar Magic's site hook overwrites $05D8B2 with its JSL address, so that byte is omitted
+ * (`lmSiteOmit`), 94 - 4 - 4 = 86 unknown, at least 26. Omitted, not zeroed, so a stock-site ROM whose
+ * $05D8B2 happens to be 0 cannot hash to the LM value; the LM digest is tried only once the site hook is
+ * recognized (entryPathMismatches).
  */
 export const OVERWORLD_INDEX_BODY: StockSpan = Object.freeze({
   addr: 0x05d83e,
   length: 93,
   mask: Object.freeze([4, 5, 6, 7]),
-  also: Object.freeze([Object.freeze([0x05d8a5, 1] as const)]),
-  fingerprints: Object.freeze(['00a2f9f9d0fd33630c6a24dcfc7f3721246e9baba88ea0136b39fb79d9e85f0f']),
-  what: 'CODE_05D83E, the OWLayer1Translevel index and two branch displacements',
-  cite: 'bank_05.asm:7164-7213, 7218',
+  also: Object.freeze([
+    Object.freeze([0x05d8a5, 1] as const),
+    Object.freeze([0x05d8b2, 1] as const),
+  ]),
+  lmSiteOmit: 94,
+  fingerprints: Object.freeze([
+    // stock
+    '8325c1cad42dd3525170a655b526c6d51c7da7e3a454aaf97381911241d6ee5d',
+    // LM site hook ($05D8B2 omitted)
+    '00a2f9f9d0fd33630c6a24dcfc7f3721246e9baba88ea0136b39fb79d9e85f0f',
+  ]),
+  what: 'CODE_05D83E, the OWLayer1Translevel index and three branch displacements',
+  cite: 'bank_05.asm:7164-7213, 7218, 7224',
 })
 
 /** LDA.L OWLayer1Translevel,X / STA TranslevelNo; a JSL replaces the first (the second stays). */
@@ -170,32 +186,13 @@ export const ENTRY_SITE_OPS: readonly StockOp[] = Object.freeze([
   op(0x05d8b5, OP.STA_DP, `${A2}'s store to _F`, 'bank_05.asm:7226', { ram: '_F' }),
 ])
 
-/**
- * The same digest plus the BEQ displacement at $05D8B2 (:7224), which Lunar Magic's site hook overwrites,
- * so it is checked with the stock site only (readEntrySite) and OVERWORLD_INDEX_BODY serves the hooked
- * path. 95 - 4 - 4 = 87 unknown, at least 27.
- */
-export const ENTRY_SITE_DIGEST: StockSpan = Object.freeze({
-  ...OVERWORLD_INDEX_BODY,
-  also: Object.freeze([...OVERWORLD_INDEX_BODY.also!, Object.freeze([0x05d8b2, 1] as const)]),
-  fingerprints: Object.freeze(['8325c1cad42dd3525170a655b526c6d51c7da7e3a454aaf97381911241d6ee5d']),
-  what: 'CODE_05D83E, the OWLayer1Translevel index and three branch displacements',
-  cite: 'bank_05.asm:7164-7213, 7218, 7224',
-})
-
-/** CODE_05D8A2 as the game has it: its opcodes and, last, the digest that holds the displacements. */
-const STOCK_SITE: readonly (StockSpan | StockOp)[] = Object.freeze([
-  ...ENTRY_SITE_OPS,
-  ENTRY_SITE_DIGEST,
-])
-
 export const OVERWORLD_ENTRY: readonly (StockCode | StockSpan | StockOp)[] = [
   REACH,
   { addr: 0x05d7b0, bytes: [0x4c, 0x3e, 0xd8], what: 'JMP CODE_05D83E', cite: 'bank_05.asm:7093' },
   ...OVERWORLD_INDEX_GUARD,
   OVERWORLD_INDEX_BODY,
   ...OVERWORLD_INDEX_LOAD,
-  ...STOCK_SITE,
+  ...ENTRY_SITE_OPS,
 ]
 
 /** The screen-exit path's own `LDA #imm` submap high byte (bank_05.asm:7109). */
@@ -284,7 +281,7 @@ export function readSubmapHigh(rom: RomFile, at: number): number | string {
   )
 }
 
-const ENTRY_PATH = OVERWORLD_ENTRY.slice(0, -STOCK_SITE.length)
+const ENTRY_PATH = OVERWORLD_ENTRY.slice(0, -ENTRY_SITE_OPS.length)
 /** The stock site's `LDA OWPlayerSubmap,Y` is its seventh instruction; the hook's JSL follows. */
 const SITE_KEPT = 7
 const JSL_AT = 0x05d8b1
@@ -353,7 +350,7 @@ export function readEntrySite(
   rom: RomFile,
   spanFingerprints?: EntryFingerprints,
 ): TranslevelBiasSite {
-  const stock = stockCodeMismatch(rom, STOCK_SITE, spanFingerprints)
+  const stock = stockCodeMismatch(rom, ENTRY_SITE_OPS, spanFingerprints)
   if (stock) {
     const hook = lmEntryHook(rom, spanFingerprints)
     if (typeof hook === 'string') {
@@ -473,7 +470,13 @@ export function entryPathMismatches(
   ...hooks: Hooks
 ): (string | null)[] {
   return ENTRY_PATH.map(c => {
-    const stock = stockCodeMismatch(rom, [c], spanFingerprints)
+    let stock = stockCodeMismatch(rom, [c], spanFingerprints)
+    // The LM site hook overwrites the BEQ displacement in the body digest: try its variant only then.
+    if (stock && 'lmSiteOmit' in c) {
+      const lm = lmEntryHook(rom, spanFingerprints)
+      if (typeof lm === 'string') stock += ` Nor is it Lunar Magic's hook: ${lm}`
+      else stock = stockCodeMismatch(rom, [c], spanFingerprints, true)
+    }
     const hook = HOOKS.get(c)
     const why = stock && hook ? hook[1](rom, hooks) : null
     return hook ? why && `${stock} Nor is it ${hook[0]}: ${why}` : stock
@@ -514,9 +517,11 @@ export function spanFingerprint(
 }
 
 /** A span's bytes as hashed: its own run, then each `also` run; null if any is unreadable. */
-export function spanBytes(rom: RomFile, c: StockSpan): Uint8Array | null {
+export function spanBytes(rom: RomFile, c: StockSpan, lmSite = false): Uint8Array | null {
   const runs = [[c.addr, c.length] as const, ...(c.also ?? [])].map(([a, n]) => rom.readAt(a, n))
-  return runs.every(r => r !== null) ? Uint8Array.from(runs.flatMap(r => [...r!])) : null
+  if (!runs.every(r => r !== null)) return null
+  const all = runs.flatMap(r => [...r!])
+  return Uint8Array.from(lmSite ? all.filter((_, i) => i !== c.lmSiteOmit) : all)
 }
 
 const hex = (bytes: Iterable<number>): string =>
@@ -569,6 +574,7 @@ export function stockCodeMismatch(
   rom: RomFile,
   checks: readonly (StockCode | StockSpan | StockOp)[],
   spanFingerprints?: EntryFingerprints,
+  lmSite = false,
 ): string | null {
   for (const c of new Set(checks)) {
     if ('op' in c) {
@@ -577,7 +583,7 @@ export function stockCodeMismatch(
       continue
     }
     if ('fingerprints' in c) {
-      const fp = spanFingerprint(spanBytes(rom, c), c.mask)
+      const fp = spanFingerprint(spanBytes(rom, c, lmSite), c.mask)
       if (fp !== null && (spanFingerprints ?? c.fingerprints).includes(fp)) continue
       return (
         `${formatAddr(c.addr)} (${c.what}, ${c.cite}) is ` +

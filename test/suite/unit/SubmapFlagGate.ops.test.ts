@@ -13,7 +13,6 @@ import { loadVanillaBytes, vanillaHits, windowSet } from '../support/vanillaWind
 import {
   LEVEL_START_Y,
   ENTRY_RAM,
-  ENTRY_SITE_DIGEST,
   LM_ENTRY_SITE_OPS,
   OVERWORLD_ENTRY,
   OVERWORLD_INDEX_BODY,
@@ -83,16 +82,11 @@ describe('named-opcode checks on the overworld entry path', () => {
       addr: 0x05d83e,
       length: 93,
       mask: [4, 5, 6, 7],
-      also: [[0x05d8a5, 1]],
-    })
-    expect(ENTRY_SITE_DIGEST).toMatchObject({
-      addr: 0x05d83e,
-      length: 93,
-      mask: [4, 5, 6, 7],
       also: [
         [0x05d8a5, 1],
         [0x05d8b2, 1],
       ],
+      lmSiteOmit: 94,
     })
   })
 

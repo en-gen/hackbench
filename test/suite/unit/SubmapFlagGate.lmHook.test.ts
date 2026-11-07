@@ -39,6 +39,22 @@ describe('readTranslevelBias: Lunar Magic entry hook', () => {
     })
   })
 
+  it('refuses a stock-site ROM whose $05D8B2 changed, even to 0: the LM digest is only tried on the LM path', () => {
+    for (const v of [0, 0x4d ^ 0xff, 0xff]) {
+      const rom = blankStockRom()
+      rom.writeAt(0x05d8b2, [v])
+      const r = read(rom)
+      expect(r.ok, `value ${v}`).toBe(false)
+      if (!r.ok) expect(r.reason).toContain('not a recognized build of that code')
+    }
+  })
+
+  it('still checks the BCC displacement at $05D8A5 on the LM path', () => {
+    const rom = hooked()
+    flip(rom, 0x05d8a5)
+    expect(read(rom).ok).toBe(false)
+  })
+
   it.each([0x05e900, 0x85dcd0])('follows the JSL to $%s', at => {
     expect(read(hooked({ at })).ok).toBe(true)
   })
