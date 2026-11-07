@@ -19,7 +19,9 @@ function check(map: number, side: Side): { reach: number; pad: number } {
   const sp = mapSprites(new L1ModelCache(), bytes, romPath(VANILLA), map)
   if (sp.status !== 'ok') throw new Error(`map $${map.toString(16)}: sprites ${sp.status}`)
   const vertical = sp.orientation === 'vertical'
-  const [w, h] = vertical ? [sp.width, sp.height * sp.screenCount] : [sp.width * sp.screenCount, sp.height] // prettier-ignore
+  const [w, h] = vertical
+    ? [sp.width, sp.height * sp.screenCount]
+    : [sp.width * sp.screenCount, sp.height]
   const reach = Math.max(
     ...sp.sprites.map(s =>
       side === 'left' ? -s.box.x0 : side === 'top' ? -s.box.y0 : s.box.y1 - h,

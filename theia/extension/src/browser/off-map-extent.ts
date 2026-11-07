@@ -5,11 +5,11 @@
  * Each side's pad is the content the data PLACES off the map there (a refused-object cell, a sprite's
  * placement cell), rounded up to whole 16 px tiles. Art that spills past an edge from a placement on the
  * map is cut there and grows nothing, on every side (owner ruling on #1325, 2026-11-07, narrowing D76
- * call 2); art that lands in the far-end gutter still draws there. The FAR end only (right of a horizontal map, bottom of a vertical one)
- * adds a 256 px gutter BEYOND that content, even for a map with nothing off it, unless the map is at the
- * 32-screen ceiling. There is no gutter before position 0 (growing that way would move (0,0)), and the
- * short sides get the content alone. This is the single place the canvas grows: every pointer and
- * overlay consumer reads the resulting `Pad` as one origin.
+ * call 2); art that lands in the far-end gutter still draws there. The FAR end only (right of a
+ * horizontal map, bottom of a vertical one) adds a 256 px gutter BEYOND that content, even for a map
+ * with nothing off it, unless the map is at the 32-screen ceiling. There is no gutter before position 0
+ * (growing that way would move (0,0)), and the short sides get the content alone. This is the single place
+ * the canvas grows: every pointer and overlay consumer reads the resulting `Pad` as one origin.
  */
 import { MAP_PLANE_KEYS, type MapPlaneKey, type MapSpriteDto } from '../common/project-protocol'
 import {
