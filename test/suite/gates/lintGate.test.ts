@@ -12,11 +12,13 @@
  * `--max-warnings 0` fails these tests instead of silently defanging CI.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import { execFileSync, spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const fixtureRoot = path.join(repoRoot, 'test/suite/gates/__fixtures__')

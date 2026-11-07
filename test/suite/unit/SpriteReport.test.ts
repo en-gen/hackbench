@@ -26,7 +26,7 @@ import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import { CAPTURE_DIR, VANILLA, freshRom, hasCaptures, hasRom } from '../support/corpus'
 import { runnerId, timelineFor } from '../support/gradeTimeline'
 import { isolatedGit, isolateProcessGit } from '../support/isolatedGit'
-import { slow } from '../support/loadTimeout'
+import { slow, loadTimeout } from '../support/loadTimeout'
 import { grade } from '../support/spriteGrade'
 import { unzip } from '../../../tools/scripts/capture_render'
 import {
@@ -55,6 +55,8 @@ import {
   type Graded,
   type Io,
 } from '../../../tools/scripts/spriteReportRun'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 // Wraps cpSync so one test can make the copy throw partway; everything else is the real fs.
 vi.mock('fs', async orig => {

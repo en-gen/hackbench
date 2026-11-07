@@ -12,12 +12,12 @@
  *    that only make sense in their own mode.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { execFileSync, spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { slow } from '../support/loadTimeout'
+import { slow, loadTimeout } from '../support/loadTimeout'
 import {
   checkBlob,
   checkPath,
@@ -28,6 +28,8 @@ import {
   DEFAULT_MAX_TOTAL_BYTES,
   effectiveLimits,
 } from '../../../tools/scripts/check-content.mjs'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const realScript = path.join(repoRoot, 'tools/scripts/check-content.mjs')

@@ -7,12 +7,15 @@ import { execFileSync } from 'child_process'
 import { existsSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
 import { SPRITE_SEED, withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import { interpRunner } from '../../../theia/extension/src/node/map-sprites'
 import { revealRowsOf } from '../../../tools/scripts/spriteReportRun'
 import { buildSyntheticRom } from '../support/syntheticSpriteRom'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const rom = buildSyntheticRom()
 const model = { isVertical: false, screenCount: 0x20 }

@@ -8,7 +8,7 @@
  *    but unauthenticated (sentinel tokens, see noRealGh.test.ts). An env built
  *    without spreading process.env is outside the guard.
  */
-import { describe, it, expect, afterAll, beforeAll } from 'vitest'
+import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest'
 import { execFileSync, spawnSync } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
@@ -16,6 +16,9 @@ import * as os from 'node:os'
 import { assertGuardActive } from '../support/noRealGh'
 import { findBash, resolveGitBash } from '../support/gitBash'
 import { expectGhReachedOrAbsent } from '../support/ghSpawnReached'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const script = path.join(repoRoot, 'tools', 'perf', 'accept.sh')

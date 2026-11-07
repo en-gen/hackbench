@@ -2,13 +2,16 @@
  * Proof for the changelog combine script (#833): drives the real CLI against
  * a throwaway root per case. Synthetic fixtures only, no ROM, never this repo.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { pathToFileURL } from 'url'
 import { isolatedGit } from '../support/isolatedGit'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const script = path.resolve(__dirname, '../../../tools/scripts/changelog-combine.mjs')
 const BASE = '# Changelog\n\n## [Unreleased]\n\n## [0.1.0] - 2026-04-17\n\nInitial.\n'

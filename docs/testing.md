@@ -411,6 +411,15 @@ while other workers run, so any walker over `test/` must skip that directory
 `testFiles` in `testRegistrationGate.test.ts`, and `walk` in
 `perfConfigSeparation.test.ts`.
 
+A test file that starts a process (a value import of `spawn`, `exec`, `execFile`
+or `fork` families from `child_process`, or of `support/isolatedGit` or
+`support/gitBash`) carries, at module scope before its first test or hook,
+`vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })`.
+Under build-like load the 5 s default failed such files (#485); `loadTimeout`
+keeps CI's 60 s floor, and a larger per-test `slow()` still wins.
+`processTimeoutGate.test.ts` walks the directory and refuses a file without it
+(#1209). A file that mocks `child_process` is exempt, as is a type-only import.
+
 ## Proving an oracle can fail
 
 A test that cannot go red is worse than no test, because it reports

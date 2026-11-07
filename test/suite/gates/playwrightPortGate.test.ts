@@ -6,11 +6,14 @@
  * of its own misses the one the config picked: 122 of 653 tests were refused
  * a connection on gh01's first full run, 2026-11-05.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const CONFIG = path.resolve(__dirname, '../../../theia/browser-app/playwright.config.cjs')
 const SPECS = path.join(path.dirname(CONFIG), 'test')

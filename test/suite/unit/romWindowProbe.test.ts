@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 // @ts-expect-error plain ESM without types
 import {
   bytesHits,
@@ -16,6 +16,9 @@ import {
   windowSet,
 } from '../../../tools/scripts/lib/rom-windows.mjs'
 import { resolveRomDir, VANILLA } from '../support/corpus'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const REPO = join(__dirname, '../../..')
 const CLI = join(REPO, 'tools/scripts/rom-window-probe.mjs')
