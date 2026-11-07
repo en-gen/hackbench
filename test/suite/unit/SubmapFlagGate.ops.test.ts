@@ -1,9 +1,9 @@
 /**
  * #1061: the overworld entry path and the level-start gate state far less stock code (REACH and the JMP
  * literal remain, for #1109). Single opcodes are checked one at a time (rule 7), the rest by digests of
- * at least 24 unknown bytes. Synthetic ROMs only;
- * the digests are the cart's own (SYNTHETIC_FINGERPRINTS), so nothing here needs the corpus. Each case
- * sweeps its whole range: all 256 values of an opcode, every offset of a digest.
+ * at least 24 unknown bytes. Synthetic ROMs only; the digests are the cart's own
+ * (SYNTHETIC_FINGERPRINTS), so nothing here needs the corpus. Each case sweeps its whole range: all
+ * 256 values of an opcode, every offset of a digest.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'

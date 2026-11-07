@@ -8,10 +8,10 @@
  * not decode, so callers decline rather than assume the stock rule.
  *
  * The overworld entry path is checked as the JMP target's digest (CODE_05D83E through the index
- * computation and two branch displacements, with the two instructions a Lunar Magic hook replaces
+ * computation and three branch displacements, with the two instructions a Lunar Magic hook replaces
  * masked), then the guard's, the table load's and CODE_05D8A2's instructions one opcode at a time
- * (#1061): single named ISA constants, with the operands the model uses read from the ROM. The guard and the load each also
- * accept a recognized hook.
+ * (#1061): single named ISA constants, with the operands the model uses read from the ROM. The
+ * guard and the load each also accept a recognized hook.
  */
 import type { RomFile } from './RomFile'
 import { WILD, matchesBytes, type BytePattern } from './BytePattern'
@@ -37,10 +37,10 @@ export interface StockSpan {
   length: number
   /** The recognized builds; a caller may pass its own to `stockCodeMismatch`. */
   fingerprints: readonly string[]
-  /** Offsets zeroed before hashing: operands the caller reads and checks itself. Offsets run over `addr`'s
-   *  bytes and then `also`'s, in order. */
+  /** Offsets zeroed before hashing: operands the caller reads and checks itself. Offsets here and in
+   *  `lmSiteOmit` run over `addr`'s bytes, then `also`'s, in order. */
   mask?: readonly number[]
-  /** Offset (over `addr`'s bytes then `also`'s) dropped from the hash when the LM site hook is recognized. */
+  /** Offset dropped from the hash when the LM site hook is recognized. */
   lmSiteOmit?: number
   /** Further [address, length] runs hashed after the first, in the same digest (FINGERPRINT MINIMUM rule 6). */
   also?: readonly (readonly [number, number])[]
@@ -430,7 +430,8 @@ function midwayHookMismatch(
 }
 
 /** JSL loader / STA TranslevelNo: a hook in place of the table load. */
-const LOAD_HOOK_SITE: BytePattern = [OP.JSL, WILD, WILD, WILD, OP.STA_ABS] // the store's operand is checked as an op
+// The store's operand is checked as an op, so the pattern stops at its opcode.
+const LOAD_HOOK_SITE: BytePattern = [OP.JSL, WILD, WILD, WILD, OP.STA_ABS]
 
 /** Loaders that return OWLayer1Translevel,X. The second returns save byte $70035C for translevel
  *  1; first boot sets it to 1 at $A0F20F, the table's value, the runtime-state default. */
@@ -547,9 +548,9 @@ const SIZE: Readonly<Record<number, number>> = {
 /** Operand bytes of an instruction: its size less the opcode. */
 export const operandBytes = (code: number): number => SIZE[code]! - 1
 
-/** Why the instruction at `c.addr` is not the stock one, or null: its opcode, for a RAM operand the address
- *  against `ram`. The whole instruction must be readable: an operand past
- *  the end of the image is a refusal. */
+/** Why the instruction at `c.addr` is not the stock one, or null: its opcode and, for a RAM operand, its
+ *  address against `ram`. The whole instruction must be readable: an operand past the end of the image
+ *  is a refusal. */
 function opMismatch(rom: RomFile, c: StockOp, ram: RamTable): string | null {
   const at = rom.readAt(c.addr, SIZE[c.op]!)
   const name = `${formatAddr(c.addr)} (${c.what}, ${c.cite})`

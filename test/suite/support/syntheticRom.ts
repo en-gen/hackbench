@@ -199,11 +199,9 @@ export function plantStockSubmapCode(rom: RomFile): void {
   const stock = [...OVERWORLD_ENTRY, ...SCREEN_EXIT]
   // Spans first: the index span covers the guard's two opcodes, which go on top.
   for (const c of stock) {
-    if ('fingerprints' in c)
-      rom.writeAt(
-        c.addr,
-        c === OVERWORLD_INDEX_BODY ? syntheticIndexSpan().subarray(0, 93) : nops(c.length),
-      )
+    if (!('fingerprints' in c)) continue
+    const bytes = c === OVERWORLD_INDEX_BODY ? syntheticIndexSpan().subarray(0, 93) : nops(c.length)
+    rom.writeAt(c.addr, bytes)
   }
   rom.writeAt(0x05d8a5, [SYNTHETIC_DISP.bcc])
   rom.writeAt(0x05d8b2, [SYNTHETIC_DISP.beq])
@@ -211,14 +209,14 @@ export function plantStockSubmapCode(rom: RomFile): void {
     if ('op' in c) {
       rom.writeAt(c.addr, [c.op])
       // The invented RAM operand, little-endian, so the operand is never vanilla's.
-      if (c.ram !== undefined)
-        rom.writeAt(
-          c.addr + 1,
-          Array.from(
-            { length: operandBytes(c.op) },
-            (_, i) => (SYNTHETIC_RAM[c.ram!] >> (8 * i)) & 0xff,
-          ),
+      if (c.ram !== undefined) {
+        const value = SYNTHETIC_RAM[c.ram]
+        const operand = Array.from(
+          { length: operandBytes(c.op) },
+          (_, i) => (value >> (8 * i)) & 0xff,
         )
+        rom.writeAt(c.addr + 1, operand)
+      }
     } else if (!('fingerprints' in c)) rom.writeAt(c.addr, [...c.bytes])
   }
   plantScreenExitFiling(rom)
