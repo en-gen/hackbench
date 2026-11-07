@@ -7,10 +7,11 @@
  * path or a table is written here; the positions are what the ROM's code leaves in $1A-$20. See
  * docs/rom/map-layer2-motion.md.
  *
- * Pass 1 gives the routine nothing (kind 'own-motion', e.g. $009). Pass 2 runs only when pass 1 moved nothing,
- * with the inputs Mario would supply stated below (kind 'needs-mario', e.g. $1EF: the sink routine reads
- * Layer2Touched and a camera X outside its rest window, bank_05.asm:6034-6068). A map that moves in neither
- * pass is refused with a reason.
+ * Idle: the routine gets nothing (kind 'own-motion', e.g. $009), and the same run is repeated with Mario moved
+ * to prove the positions do not depend on him. When idle moves nothing, two runs state the inputs Mario would
+ * supply (below): the camera alone, which must still move nothing, then the camera and Layer2Touched (kind
+ * 'needs-mario', e.g. $1EF: the sink routine reads Layer2Touched and a camera X outside its rest window,
+ * bank_05.asm:6034-6068). A map whose motion needs where Mario is, or that moves in no run, is refused.
  *
  * Evidence scope: vanilla, one machine, 2026-11-07; $009 matched a Mesen capture on 7,999 of 7,999 frames.
  * Plain TypeScript, no shell.
@@ -25,12 +26,16 @@ import type { RomFile } from './RomFile'
 const SCROLL_CMDS = [0x143e, 0x143f]
 const POS = { l1x: 0x1a, l1y: 0x1c, l2x: 0x1e, l2y: 0x20 } as const
 const KEYS = Object.keys(POS) as (keyof typeof POS)[]
-/** The inputs pass 2 states (rammap.asm): Layer2Touched, the NextLayer1/2XPos words, and Mario's X. */
+/** The inputs the forced runs state (rammap.asm): Layer2Touched, the NextLayer1/2XPos words, and Mario's X and Y. */
 const TOUCHED = 0x140e
 const NEXT_L1X = 0x1462
 const NEXT_L2X = 0x1466
 const MARIO_X = 0x94
-/** One screen in: outside the rest windows of the sink routine; Mario stands 128 px into the screen. */
+const MARIO_Y = 0x96
+/**
+ * An input chosen here, not read from the ROM: one screen in, which is outside the rest windows of vanilla's sink
+ * routine (its first window is the first 8 px). Mario stands 128 px into the screen.
+ */
 const FORCED_CAMERA_X = 256
 const FORCED_MARIO_X = FORCED_CAMERA_X + 128
 
@@ -67,7 +72,13 @@ export type MotionResult =
   | { status: 'none'; kind: 'no-routine' }
   | {
       status: 'refused'
-      kind: 'unrecognized-code' | 'loader' | 'interpreter' | 'no-motion' | 'sideways'
+      kind:
+        | 'unrecognized-code'
+        | 'loader'
+        | 'interpreter'
+        | 'no-motion'
+        | 'sideways'
+        | 'mario-dependent'
       reason: string
     }
 
@@ -108,11 +119,19 @@ interface Pass {
   refused?: string
 }
 
+/** What a run is given: nothing, the camera placed, the camera placed and Layer2Touched, or Mario moved. */
+type Force = 'none' | 'camera' | 'camera+touch' | 'mario'
+
+/** Mario's offset in the dependence run: far from where the loader put him on both axes. */
+const MARIO_MOVE = { x: 160, y: -48 }
+
 function runPass(
   rom: RomFile,
   wram: Uint8Array,
   entries: { screen: number; scroll: number },
-  forced: boolean,
+  force: Force,
+  /** Run exactly this many frames, with no settle rule (the dependence run). */
+  exact?: number,
 ): Pass {
   const { bus, cpu } = smwMachine(rom, wram)
   const w = bus.wram
@@ -124,13 +143,17 @@ function runPass(
   const frames: MotionFrames = { l1x: [], l1y: [], l2x: [], l2y: [] }
   const record = () => KEYS.forEach(k => frames[k].push(word(POS[k])))
   record()
+  const mario0 = { x: word(MARIO_X), y: word(MARIO_Y) }
   let lastChange = 0
-  for (let f = 1; f <= FRAME_CAP; f++) {
-    if (forced) {
-      w[TOUCHED] = 1
+  for (let f = 1; f <= (exact ?? FRAME_CAP); f++) {
+    if (force === 'camera' || force === 'camera+touch') {
+      if (force === 'camera+touch') w[TOUCHED] = 1
       put(NEXT_L1X, FORCED_CAMERA_X)
       put(NEXT_L2X, FORCED_CAMERA_X)
       put(MARIO_X, FORCED_MARIO_X)
+    } else if (force === 'mario') {
+      put(MARIO_X, mario0.x + MARIO_MOVE.x)
+      put(MARIO_Y, mario0.y + MARIO_MOVE.y)
     }
     for (const entry of [entries.screen, entries.scroll]) {
       const why = describe(
@@ -140,13 +163,14 @@ function runPass(
       if (why) return { frames, end: 'settled', refused: why }
     }
     record()
+    if (exact !== undefined) continue
     if (KEYS.some(k => frames[k][f] !== frames[k][f - 1])) lastChange = f
     if (f - lastChange >= SETTLE) {
       for (const k of KEYS) frames[k].length = lastChange + 1
       return { frames, end: 'settled' }
     }
   }
-  return { frames, end: 'cap' }
+  return { frames, end: exact === undefined ? 'cap' : 'settled' }
 }
 
 const moved = (f: MotionFrames): boolean => KEYS.some(k => f[k].some(v => v !== f[k][0]))
@@ -171,27 +195,48 @@ export function runMapMotion(rom: RomFile, level: number): MotionResult {
   return motionFromWram(rom, load.wram)
 }
 
+/** Layer 2 against the camera moved at some frame: the only motion a forced run may claim. */
+const relMoved = (f: MotionFrames): boolean => {
+  const r = relativeShift(f)
+  return r.xMoves || r.y.some(v => v !== 0)
+}
+
+const MARIO_DEPENDENT =
+  'What this map moves depends on where Mario is, so Play cannot show it on its own.'
+
 /** The same from a loaded map's WRAM (the caller's copy is not touched). */
 export function motionFromWram(rom: RomFile, wram: Uint8Array): MotionResult {
+  // No scroll command: nothing to play, whatever the ROM's scroll code looks like.
+  if (SCROLL_CMDS.every(a => wram[a] === 0)) return { status: 'none', kind: 'no-routine' }
   const entries = motionEntries(rom)
   if (typeof entries === 'string')
     return refuse(
       'unrecognized-code',
       `This ROM's scroll code is not the vanilla shape (${entries}), so Play will not run it.`,
     )
-  if (SCROLL_CMDS.every(a => wram[a] === 0)) return { status: 'none', kind: 'no-routine' }
+  const run = (force: Force, n?: number) => runPass(rom, wram.slice(), entries, force, n)
+  const failed = (p: Pass) =>
+    p.refused && refuse('interpreter', `The game's scroll code could not be run: ${p.refused}`)
   let kind: 'own-motion' | 'needs-mario' = 'own-motion'
-  let pass = runPass(rom, wram.slice(), entries, false)
-  if (!pass.refused && !moved(pass.frames)) {
+  let pass = run('none')
+  if (failed(pass)) return failed(pass)!
+  if (moved(pass.frames)) {
+    // The same frames with Mario somewhere else: any difference means he drives the motion.
+    const other = run('mario', pass.frames.l1x.length - 1)
+    if (failed(other)) return failed(other)!
+    if (KEYS.some(k => other.frames[k].some((v, i) => v !== pass.frames[k][i])))
+      return refuse('mario-dependent', MARIO_DEPENDENT)
+  } else {
     kind = 'needs-mario'
-    pass = runPass(rom, wram.slice(), entries, true)
+    // The camera alone must move nothing: a routine the placed camera moves depends on where Mario is.
+    const camera = run('camera')
+    if (failed(camera)) return failed(camera)!
+    if (relMoved(camera.frames)) return refuse('mario-dependent', MARIO_DEPENDENT)
+    pass = run('camera+touch')
+    if (failed(pass)) return failed(pass)!
   }
-  if (pass.refused)
-    return refuse('interpreter', `The game's scroll code could not be run: ${pass.refused}`)
-  // Pass 2 puts the camera where it stands itself, so only Layer 2 against the camera counts as the routine's motion.
   const shift = relativeShift(pass.frames)
-  const still =
-    kind === 'needs-mario' ? !shift.xMoves && shift.y.every(v => v === 0) : !moved(pass.frames)
+  const still = kind === 'needs-mario' ? !relMoved(pass.frames) : !moved(pass.frames)
   if (still) return refuse('no-motion', NO_MOTION)
   if (shift.xMoves) return refuse('sideways', SIDEWAYS)
   const f = pass.frames
