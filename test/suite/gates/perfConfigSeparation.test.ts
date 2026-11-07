@@ -8,11 +8,14 @@
  * suite files on disk against each config's include globs with a small glob
  * matcher, so a widened glob is caught by what it would actually pick up.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const repoRoot = path.resolve(__dirname, '../../..')
 

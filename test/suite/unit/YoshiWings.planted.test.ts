@@ -12,7 +12,7 @@ import * as path from 'path'
 import { pathToFileURL } from 'url'
 import * as realTree from '../../../src/rom/MapTree'
 import { SmwRom } from '../../../src/rom/SmwRom'
-import { seamsFor, wingsRom, wingsTree, yoshiUnder } from '../support/wingsTree'
+import { seamsFor, wingsRom, wingsTree, yoshiNested, yoshiUnder } from '../support/wingsTree'
 
 const ROM_DIR = path.resolve(__dirname, '../../../src/rom').split(path.sep).join('/')
 const scratch: string[] = []
@@ -48,7 +48,7 @@ async function mutant(edits: Edit[]): Promise<typeof realTree> {
 
 const EXITS = { 0x001: [0x040], 0x040: [], 0x002: [], 0x101: [0x140], 0x140: [], 0x102: [] }
 
-/** Four checks, each named in its message: columns, halves, the screen-exit operand, a secondary exit. */
+/** Five checks, each named in its message: columns, halves, the screen-exit operand, a secondary exit, nesting (#1295). */
 function checks(build: typeof realTree.buildMapTree): void {
   for (let x = 0; x < 8; x++) {
     const r = wingsRom(EXITS)
@@ -57,7 +57,10 @@ function checks(build: typeof realTree.buildMapTree): void {
   }
   const halves = wingsRom(EXITS)
   const t = wingsTree(halves, seamsFor(halves, { 0x040: [9], 0x102: [13] }), build)
-  expect(JSON.stringify(yoshiUnder(t)), 'halves').toBe(JSON.stringify({ 1: [0xc8], 258: [0x1c8] }))
+  // $040 is a sub area of $001, so its row nests; $102 is a root and lists it directly.
+  expect(JSON.stringify([yoshiUnder(t), yoshiNested(t)]), 'halves').toBe(
+    JSON.stringify([{ 258: [0x1c8] }, { 1: { 64: [0xc8] } }]),
+  )
   const operand = wingsRom({ 0x101: [] })
   operand.writeAt(0x05d7d1, [0x00])
   const o = wingsTree(operand, seamsFor(operand, { 0x101: [1] }), build)
@@ -69,6 +72,13 @@ function checks(build: typeof realTree.buildMapTree): void {
   cut.writeAt(new SmwRom(cut).getLevelL1Pointer(0x002)! + 8, new Array(0x2100).fill(0x01)) // no $FF in reach
   const c = wingsTree(cut, seamsFor(cut, { 0x002: [1] }), build)
   expect(Object.keys(yoshiUnder(c)).length, 'unterminated').toBe(0)
+  // #1295: a sub area's block nests the row under that sub area only, never under the root or a sibling.
+  const nest = wingsRom({ 0x001: [0x040, 0x041], 0x040: [], 0x041: [] })
+  const n = wingsTree(nest, seamsFor(nest, { 0x041: [1] }), build)
+  expect(JSON.stringify(yoshiUnder(n)), 'nesting: direct').toBe('{}')
+  expect(JSON.stringify(yoshiNested(n)), 'nesting: nested').toBe(
+    JSON.stringify({ 1: { 65: [0xc8] } }),
+  )
 }
 
 describe('the wings checks can fail', () => {
@@ -110,6 +120,22 @@ describe('the wings checks can fail', () => {
       'a secondary exit is ignored',
       [{ file: 'MapTree', from: 'secondaryExit?.has(i)', to: 'false' }],
       /secondary/,
+    ],
+    [
+      'the link is keyed by root, so the root lists it for a sub area holder',
+      [
+        {
+          file: 'MapTree',
+          from: 'wings?.holders.includes(root) ?? false',
+          to: 'wings !== undefined',
+        },
+      ],
+      /halves|nesting: direct/,
+    ],
+    [
+      'every sub area of the root nests it, holder or not',
+      [{ file: 'MapTree', from: 'wings?.holders.includes(i) ?', to: 'wings !== undefined ?' }],
+      /nesting: nested/,
     ],
   ]
   it.each(PLANTS)('go red when %s', async (_what, edits, caught) => {

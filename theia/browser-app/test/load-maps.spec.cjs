@@ -13,7 +13,7 @@ const fs = require('fs')
 const path = require('path')
 const os = require('os')
 const { romPath, VANILLA, GPW2 } = require('../../../test/suite/support/corpus.cjs')
-const { maxDepth } = require('./tree-depth.cjs')
+const { maxDepth, rowsAtDepth } = require('./tree-depth.cjs')
 
 const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
@@ -122,11 +122,18 @@ async function loadMaps(page, dir, rom = ROM) {
         ),
       // Shape only, measured in Node by maxDepth.
       unassignedShape: (group('unassigned')?.children || []).map(function shape(n) {
-        return { children: (n.children || []).map(c => shape(c)) }
+        return { index: n.index, children: (n.children || []).map(c => shape(c)) }
       }),
     }
   }, created.manifestPath)
-  return result.error ? result : { ...result, deepest: maxDepth(result.unassignedShape) }
+  return result.error
+    ? result
+    : {
+        ...result,
+        deepest: maxDepth(result.unassignedShape),
+        // Every row two levels below a top-level map: the wings link's nest is the only one (#1295).
+        deep: rowsAtDepth(result.unassignedShape, 2),
+      }
 }
 
 test('a new project loads every map its cartridge holds', async ({ page }) => {
@@ -364,10 +371,11 @@ test('the maps are grouped, not dumped in a flat list', async ({ page }) => {
     'group:unassigned',
   ])
   expect(result.unassignedTop).toBeGreaterThan(0)
-  // Roots list their sub areas one level down and nothing nests further
-  // (#434). maxDepth scores a root with leaf children as 1; a tree with no
-  // hierarchy at all scores 0, which the count assertions cannot see.
-  expect(result.deepest).toBe(1)
+  // Roots list their sub areas one level down (#434); the one exception is the wings link's
+  // Yoshi Heaven row $1C8 under $1E3 under $115 (#1295), a leaf. maxDepth scores a root with leaf
+  // children as 1; a tree with no hierarchy at all scores 0, which the count assertions cannot see.
+  expect(result.deepest).toBe(2)
+  expect(result.deep).toEqual([{ path: [0x115, 0x1e3, 0x1c8], kids: 0 }])
 
   // Read from the ROM, not hardcoded: $0C7 and $0C5 on vanilla, which the
   // disassembly's own data files are named after (bank_06.asm:33, 35).

@@ -8,8 +8,12 @@ import type { LevelSprite } from '../../../src/rom/LevelParser'
 import { parseLevelSprites } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
-import type { SpriteModel, SpritePart } from '../../../src/rom/sprites/interp/SpriteRunner'
-import { withSeed, type SpriteSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
+import {
+  runOnce,
+  type SpriteModel,
+  type SpritePart,
+} from '../../../src/rom/sprites/interp/SpriteRunner'
+import { SPRITE_SEED, withSeed, type SpriteSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import {
   drawSprites,
   framesOf,
@@ -30,8 +34,11 @@ import type {
   MapSpriteDto,
   SpriteFramesResult,
 } from '../../../theia/extension/src/common/project-protocol'
+import { animationText, NOT_ANIMATED } from '../../../theia/extension/src/browser/sprite-props'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 import { COLORS } from '../support/mapInputs'
+import { grinderShape } from '../support/syntheticGrinder'
+import { buildSyntheticRom } from '../support/syntheticSpriteRom'
 import { slow } from '../support/loadTimeout'
 
 const SOLID = new Uint8Array(64).fill(1)
@@ -94,6 +101,94 @@ describe('framesOf', () => {
     expect(f.map(x => x.box.y0)).toEqual([48, 48])
     expect(f.map(x => x.parts![0]!.dy)).toEqual([0, 0])
   })
+
+  // #1128. HONEST SCOPE: this guards `framesOf`'s own re-anchor on a hand-built run only. Its snaps=false shape
+  // (origin fixed, parts carrying the travel) is one the runner never makes at rest, and the case it covers was
+  // never what #987 changed; the runner's side is the 'real runner' test below.
+  // Plant: ax = ay = 0 in framesOf turns the snaps=false cases red; swapping the `m.snaps` branch turns both red.
+  /** A track: each pass the sprite moves `step` more than the last (a stationary one has step 0); `snaps` draws from the pass before's spot. */
+  const local = [0, 2, 0, -2] // a pose's own bob: it must survive the re-anchor
+  const tri = (i: number) => (i * (i + 1)) / 2 // uneven steps: the pos/origin gap grows each pass, so a wrong baseline does not cancel
+  const track = (n: number, step: [number, number], snaps: boolean): SpriteModel => ({
+    ...run([]),
+    snaps,
+    passes: Array.from({ length: n }, (_, i) => {
+      const [tx, ty, nx, ny] = [
+        step[0] * tri(i),
+        step[1] * tri(i),
+        step[0] * (i + 1),
+        step[1] * (i + 1),
+      ]
+      return {
+        pass: i,
+        pos: { x: 80 + tx + (snaps ? nx : 0), y: 48 + ty + (snaps ? ny : 0) },
+        origin: snaps ? { x: 80 + tx, y: 48 + ty } : { x: 80, y: 48 },
+        parts: [part(1 + (i % 3), snaps ? 0 : tx, false, (snaps ? 0 : ty) + local[i % 4]!)],
+        uploads: [],
+        palette: [],
+      }
+    }),
+  })
+  it.each([false, true])(
+    'a sprite moving along a track keeps one anchor, only the pose changes (snaps %s)',
+    snaps => {
+      for (const n of [3, 5, 9, 14])
+        for (const chosen of [0, 1, 2])
+          for (const step of [
+            [0, 0],
+            [3, 0],
+            [-5, 2],
+            [7, -4],
+          ] as [number, number][]) {
+            const m = { ...track(n, step, snaps), chosen }
+            const f = framesOf({ m, fixed: false }, spr, LEVEL).frames
+            const tag = `n=${n} chosen=${chosen} step=${step}`
+            expect(f.length, tag).toBe(Math.min(n - chosen, 3))
+            f.forEach((q, k) => {
+              // Pass chosen+k's art on the chosen pass's spot: the travel since then is gone, its own bob is not.
+              const [kx, ky] = snaps
+                ? [0, 0]
+                : [step[0] * tri(chosen) || 0, step[1] * tri(chosen) || 0]
+              expect(q.parts![0]!.dx, `${tag} frame ${k} dx`).toBe(kx)
+              expect(q.parts![0]!.dy, `${tag} frame ${k} dy`).toBe(ky + local[(chosen + k) % 4]!)
+              expect([q.box.x0, q.box.y0], tag).toEqual([
+                80 + kx,
+                48 + ky + local[(chosen + k) % 4]!,
+              ])
+            })
+          }
+    },
+  )
+
+  // #987 widened the set of ids that get `snaps` (SpriteRunner DRAWS_BEFORE_LINE_SNAP) from $67 to LINE_GUIDED_IDS.
+  // The synthetic cart aliases ids 101, 102 and 104 ($65, $66, $68) to the grinder handler, so no ROM is needed.
+  // Plant: `snaps = gate?.ok === true && num === 0x67` leaves $67 green and turns $65, $66 and $68 red (dx is -4,
+  // the origin is the pass's own end spot). Reverting the `origin` rule for snaps turns all four red.
+  it.each([
+    ['$65', 101],
+    ['$66', 102],
+    ['$67', 103],
+    ['$68', 104],
+  ])(
+    'real runner: %s draws then moves, so it is measured from where the pass before left it',
+    (_name, id) => {
+      const seed = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
+      for (const lock of [undefined, 1, 2, 4]) {
+        const rom = buildSyntheticRom({ grinderAliases: true, grinderLocksOnPass: lock })
+        const m = runOnce(rom, id, seed, { grinderDispatch: grinderShape(rom), atRest: true })
+        const tag = `locks on ${lock}`
+        expect(m.snaps, tag).toBe(true)
+        expect(m.chosen, tag).toBe(lock ?? 0)
+        m.passes.slice(0, 6).forEach((q, i) => {
+          expect(q.origin, `${tag} pass ${i}`).toEqual(
+            i ? m.passes[i - 1]!.pos : { x: 0x80, y: 0x80 },
+          )
+          expect(q.pos.x - q.origin.x, `${tag} pass ${i} moved +4`).toBe(4)
+          expect(q.parts[0]!.dx, `${tag} pass ${i}`).toBe(0)
+        })
+      }
+    },
+  )
 
   it('parts that move against each other are a new pose though the chars are the same', () => {
     const two = (gap: number, drift: number): SpritePart[] => [part(1, drift), part(2, drift + gap)]
@@ -327,6 +422,45 @@ describe.skipIf(!hasRom(VANILLA))('mapSpriteFrames: line-guided chainsaws stay p
   )
 })
 
+describe.skipIf(!hasRom(VANILLA))(
+  'mapSpriteFrames: each line-guided id keeps one spot (#1128)',
+  () => {
+    // Plant: `drawAt = m.snaps && m.id !== 0x66 && m.id !== 0x68 ? q.origin : q.pos` in framesOf puts travel into $68.
+    // [name, id, maps, placements expected, allowed y0 spread, allowed y1 spread]: only $66 bobs (its y1 by 2 px).
+    it.each([
+      ['$66', 0x66, [0x0f], 1, 0, 2],
+      ['$68', 0x68, [0x05, 0x12c], 37, 0, 0],
+    ] as const)(
+      'every %s placement: one left edge and the pose bob only, never a track step',
+      slow(120_000),
+      (_name, id, maps, expected, y0Spread, y1Spread) => {
+        const bytes = new Uint8Array(readFileSync(romPath(VANILLA)))
+        const cache = new L1ModelCache()
+        let seen = 0
+        for (const map of maps) {
+          const drawn = mapSprites(cache, bytes, romPath(VANILLA), map)
+          if (drawn.status !== 'ok') throw new Error(`map $${map.toString(16)} unavailable`)
+          for (const d of drawn.sprites.filter(q => q.id === id && q.status === 'drawn')) {
+            const r = mapSpriteFrames(cache, bytes, romPath(VANILLA), map, d.index)
+            if (r.status !== 'ok') throw new Error('no frames')
+            const at = `$${map.toString(16)} #${d.index}`
+            expect(r.frames.length, at).toBeGreaterThan(1)
+            const spread = (k: 'x0' | 'x1' | 'y0' | 'y1') => {
+              const v = r.frames.map(f => f.box[k])
+              return Math.max(...v) - Math.min(...v)
+            }
+            expect([spread('x0'), spread('x1')], `${at} x`).toEqual([0, 0])
+            expect(spread('y0'), `${at} y0`).toBeLessThanOrEqual(y0Spread)
+            expect(spread('y1'), `${at} y1`).toBeLessThanOrEqual(y1Spread)
+            seen++
+          }
+        }
+        expect(seen, 'placements swept').toBe(expected)
+      },
+    )
+  },
+)
+
 describe('mapSpriteFrames without a cart', () => {
   it('a ROM that holds no such map answers unavailable with a reason, never throws', () => {
     const r = mapSpriteFrames(new L1ModelCache(), new Uint8Array(0x80000), 'blank.sfc', 0x105, 0)
@@ -462,6 +596,72 @@ describe('FramePlayer', () => {
     resolve(ok(2))
     await flush()
     expect(c.fn).toBeUndefined()
+  })
+})
+
+describe('framesOf: a sprite that never draws is not "one pose" (#1113)', () => {
+  const unloaded = { vram: { sp1: [] as Uint8Array[] }, colors: COLORS } // no chars loaded: every pass draws a marker
+  /** The line the panel shows for `r`, through the player. */
+  const said = async (r: ReturnType<typeof framesOf>) => {
+    const p = new FramePlayer(async () => ({ status: 'ok', ...r }), {
+      every: () => 1,
+      stop: () => {},
+    })
+    p.select({ manifestPath: 'm', index: 1, spriteIndex: 0 })
+    await new Promise(res => setTimeout(res, 0))
+    return animationText(p.state)
+  }
+
+  it('every pass drawing unloaded chars returns no frames and names why', async () => {
+    const r = framesOf({ m: run([[1, 0], [2, 0]]), fixed: false }, spr, unloaded) // prettier-ignore
+    expect(r).toEqual({ frames: [], reason: 'charsNotLoaded' })
+    expect(await said(r)).toBe(
+      'Animation not shown: Some of its graphics are not loaded on this map.',
+    )
+  })
+
+  // Only chars 5 and 6 are loaded; a pass of any other char draws a marker.
+  const some = { vram: { sp1: Array.from({ length: 24 }, (_, i) => ([5, 6].includes(i) ? SOLID : null)) as never }, colors: COLORS } // prettier-ignore
+  const through = (chars: number[]) => framesOf({ m: run(chars.map(c => [c, 0])), fixed: false }, spr, some) // prettier-ignore
+
+  const NOT_SHOWN = 'Animation not shown: Some of its graphics are not loaded on this map.'
+
+  it('an unloaded chosen pass keeps the reason, so one drawable later pose is not "one pose"', async () => {
+    const r = through([1, 1, 5])
+    expect(r.frames).toHaveLength(1)
+    expect(r.reason).toBe('charsNotLoaded')
+    expect(await said(r)).toBe(NOT_SHOWN)
+  })
+
+  it('an unloaded chosen pass still shows the drawable later poses, reason kept, and they play', async () => {
+    const r = through([1, 5, 6])
+    expect(r.frames).toHaveLength(2)
+    expect(r.reason).toBe('charsNotLoaded')
+    expect(await said(r)).toBe('Animated: 2 frames, looping.')
+  })
+
+  it('a later pass skipped beside a drawn chosen pass keeps the frame and no reason', async () => {
+    const r = through([5, 1])
+    expect(r.frames).toHaveLength(1)
+    expect(r.reason).toBeUndefined()
+    expect(await said(r)).toBe(NOT_ANIMATED)
+  })
+
+  it('a pass skipped between two drawn ones keeps both frames and no reason', () => {
+    const r = through([5, 1, 6])
+    expect(r.frames).toHaveLength(2)
+    expect(r.reason).toBeUndefined()
+  })
+
+  it('every pass unloaded gives the reason for 1, 2 and more than MAX_FRAMES passes', () => {
+    for (const n of [1, 2, MAX_FRAMES + 4])
+      expect(through(Array.from({ length: n }, (_, i) => i + 8)), String(n)).toEqual({ frames: [], reason: 'charsNotLoaded' }) // prettier-ignore
+  })
+
+  it('one real pose still says "one pose"', async () => {
+    const r = framesOf({ m: run([[1, 0], [1, 5]]), fixed: false }, spr, LEVEL) // prettier-ignore
+    expect(r.reason).toBeUndefined()
+    expect(await said(r)).toBe(NOT_ANIMATED)
   })
 })
 

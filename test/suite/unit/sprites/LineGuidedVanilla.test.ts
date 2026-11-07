@@ -1,7 +1,9 @@
 /**
  * Every vanilla placement of the line-guided sprites ($62, $64-$68) on the vanilla ROM, run two ways: INIT-on (play and
  * simulate, where the line-walk pick applies, #126/#792) and at rest (the map's picture, R16). The numbers are what the
- * runner gave on 2026-10-20 (one machine, vanilla US ROM); each table is a plant: a gate or pick that changes goes red.
+ * runner gave on 2026-10-20 (one machine, vanilla US ROM; the gate-off tally re-pinned 2026-11-07, #1131); the tables are plants for
+ * the gate and pick, except the gate-off tally, which cannot see the gates on $64, $66, $67 and $68 now that their gate-on and
+ * gate-off pictures match: the D156 count and 'at rest the picture' tests catch those.
  * Compared with the generic rule by running the same placement with the gate switched off (a shape that names no routine).
  */
 import { readFileSync } from 'node:fs'
@@ -145,8 +147,8 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla line-guided placement (#792)', 
     expect(apart[0]!.play.anchor).toMatchObject({ x: 3679, y: 288 })
   })
 
-  it('at rest (D156), compared with the generic rule (gate off): the origin change alone, apart from the shift. $67 is in the table but was already gated on develop', () => {
-    // The picture's top-left with the gate on, minus with it off, minus what INIT moved: the origin change alone.
+  it('at rest (D156), compared with the generic rule (gate off): origin and the chainsaw offset, apart from the shift. $67 is in the table but was already gated on develop', () => {
+    // The picture's top-left with the gate on, minus with it off, minus what INIT moved: the origin change, plus $65's constant 2 px Y (likely the chainsaw's EffFrame bit 1, bank_03.asm:7651-7653, 7665-7667; read, not traced).
     const tally = Object.fromEntries(
       IDS.map(id => {
         const c: Record<string, number> = {}
@@ -158,13 +160,19 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla line-guided placement (#792)', 
         return [id, c]
       }),
     )
+    // The generic rule (gate off) now measures a sprite that drew before it moved from where it drew (#1131), so the
+    // line-walk step its handler takes after the draw no longer shifts the gate-off picture: every key that was that
+    // step, (4,4) and (-4,4) and (4,6) and (-4,6), is now (0,0) or the 2 px Y that $65 had on top of its step. Per-id
+    // counts are unchanged ($65 32, $66 1, $67 20, $68 37). $62 and $64 are unchanged. $62 draws off the start (bank_01.asm:12324-12347), then steps (12358). $64 draws at the
+    // unmoved spot (12209-12210), then steps (12215), yet none of its 12 gate-off rows moved in the pass: likely INIT sets $1626
+    // (11784) and CODE_01D74D returns on it (11852-11854), not traced.
     expect(tally).toEqual({
       0x62: { '4,4': 6 },
       0x64: { '0,0': 12 },
-      0x65: { '4,6': 20, '4,4': 6, '0,0': 1, '-4,6': 5 },
-      0x66: { '4,4': 1 },
-      0x67: { '4,4': 12, '-4,4': 8 },
-      0x68: { '-4,4': 16, '4,4': 20, '0,0': 1 },
+      0x65: { '0,0': 7, '0,2': 25 },
+      0x66: { '0,0': 1 },
+      0x67: { '0,0': 20 },
+      0x68: { '0,0': 37 },
     })
   })
 })

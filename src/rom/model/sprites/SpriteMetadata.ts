@@ -208,7 +208,8 @@ export const SPRITE_METADATA: Readonly<Record<number, Readonly<SpriteMetadata>>>
   0x99: { displayName: 'Volcano Lotus' },
   0x9a: { displayName: 'Sumo Brother' },
   0x9b: { displayName: 'Hammer Brother' },
-  0x9c: { displayName: 'Hammer Brother Block' },
+  // MAIN FlyingPlatform bank_01.asm:1142, listed "9C - Flying blocks for Hammer Brother" at bank_01.asm:1054; it carries the Hammer Bro (PutHammerBroOnPlat, bank_02.asm:12115-12148).
+  0x9c: { displayName: 'Flying Hammer Bro platform' },
   0x9d: { displayName: 'Bubble (with sprite)' },
   0x9e: { displayName: 'Ball and Chain' },
   0x9f: { displayName: 'Banzai Bill' },

@@ -6,7 +6,7 @@ import { afterEach, describe, it, expect, vi } from 'vitest'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
-import { composeScreen } from '../../../src/rom/model/ColorMath'
+import { composeScreen, DOOR_PART_BIT, DOOR_PART_ID } from '../../../src/rom/model/ColorMath'
 import { FALLBACK_SCREENS } from '../../../src/rom/model/ScreenPlanes'
 import { loadClasses, type LoadClass } from '../../../src/rom/sprites/interp/LoadClass'
 import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
@@ -31,6 +31,7 @@ import {
 import {
   framesReasonText,
   noteTitle,
+  placeholderText,
   quietText,
   spriteProps,
   UNVERIFIED_NOTE,
@@ -204,6 +205,64 @@ describe('the marker', () => {
         } else expect(Array.from(out.subarray(at, at + 3))).toEqual([200, 0, 0]) // the tile shows through the clear part
       }
     expect(lit).toBeGreaterThan(40)
+  })
+})
+
+describe('with the failure-marker hover (#1083), the no-reason words (#1113) and the rope door part (#1230)', () => {
+  const empty = { ok: false, reason: 'drew no OAM tile in 64 passes', empty: true } as const
+  const unrevealed = { ok: false, reason: 'unrevealed', empty: true } as const
+  const refused = { ok: false, reason: 'refused: x' } as const
+
+  it('a quiet marker and a failure marker are different statuses: each hover is one text, never both', () => {
+    const results = {
+      1: empty,
+      2: refused,
+      0xc9: { ok: false, reason: 'r', routed: 'shooter' },
+      4: unrevealed,
+    }
+    const dtos = run([sprite(1, 0), sprite(2, 1), sprite(0xc9, 2), sprite(4, 3)], results as never)
+    expect(dtos.map(d => d.status)).toEqual(['quiet', 'placeholder', 'quiet', 'quiet'])
+    for (const d of dtos) {
+      const isQuiet = d.status === 'quiet'
+      expect(placeholderText(d) === undefined).toBe(isQuiet)
+      expect(spriteName(d)).toBe(isQuiet ? quietText(d) : placeholderText(d))
+      if (isQuiet) expect(spriteName(d)).not.toMatch(/could not/)
+    }
+  })
+
+  it('Properties shows a quiet sprite as its note, and the frames reason is a different sentence from the same family of words', () => {
+    const [q, e] = run([sprite(4, 0), sprite(1, 1)], { 4: unrevealed, 1: empty })
+    const words = 'It draws nothing at first, and the app could not tell what reveals it.'
+    expect(spriteProps(q!).notes[0]).toBe(words)
+    expect(framesReasonText('unrevealed')).toBe(words)
+    expect(spriteProps(e!).notes[0]).toBe(
+      'Nothing is drawn for it on the map; it may only show up in play.',
+    )
+    expect(framesReasonText(empty.reason)).toBe('Its code drew no tiles.')
+  })
+
+  it('a quiet marker keeps door 0 and has no door-part bit; a rope pixel under a door part gets its own door id', () => {
+    const [q] = run([sprite(1, 0)], { 1: empty })
+    expect([...Buffer.from(q!.priority!, 'base64')].every(p => (p & DOOR_PART_BIT) === 0)).toBe(
+      true,
+    )
+    const px = (n: number) => Buffer.from(new Uint8Array(n).fill(255)).toString('base64')
+    const rope = {
+      index: 1,
+      id: 0x64,
+      x: 100,
+      y: 100,
+      box: { x0: 100, y0: 100, x1: 102, y1: 102 },
+      status: 'drawn',
+      rgba: px(16),
+      priority: Buffer.from(new Uint8Array(4).fill(2 | DOOR_PART_BIT)).toString('base64'),
+      screenDoor: true,
+    } as MapSpriteDto
+    const g = { orientation: 'horizontal' as const, screenCount: 1, width: 256, height: 432 }
+    const doors = spriteDoors({ ...g, sprites: [q!, rope] }, 0)!
+    const at = (x: number, y: number) => doors[y * g.width + x]!
+    expect(at(q!.x + 7, q!.y + 7)).toBe(0)
+    expect(at(100, 100) & (DOOR_PART_ID << 1)).not.toBe(0)
   })
 })
 

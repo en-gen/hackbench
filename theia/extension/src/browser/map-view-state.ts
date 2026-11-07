@@ -27,6 +27,18 @@ export const initialSwitchState = (): SwitchState => ({
   switches: { blue: false, silver: false, onOff: false },
 })
 
+/**
+ * Whether opening `next` in a tab that showed `prev` is a move to another map (D181): a palace or
+ * switch press is a fact about the map it was made on, so only then does it reset. The same manifest
+ * and index (a reopen) is not, and a first open has nothing to reset.
+ */
+export function isDifferentMap(
+  prev: { manifestPath: string; index: number } | undefined,
+  next: { manifestPath: string; index: number },
+): boolean {
+  return !!prev && (prev.manifestPath !== next.manifestPath || prev.index !== next.index)
+}
+
 /** The next state and what flipped, or undefined when the action changes nothing (a key the state lacks). */
 export function reduce(s: SwitchState, a: MapViewAction): MapViewChange | undefined {
   if (a.type === 'togglePalace') {
