@@ -407,9 +407,23 @@ in it.
 
 `lintGate.test.ts` creates and deletes files under `test/suite/gates/__fixtures__`
 while other workers run, so any walker over `test/` must skip that directory
-(#754). The three walkers that do: `sourceFiles` in `controlBytesGate.test.ts`,
-`testFiles` in `testRegistrationGate.test.ts`, and `walk` in
-`perfConfigSeparation.test.ts`.
+(#754). The four walkers that do: `sourceFiles` in `controlBytesGate.test.ts`,
+`testFiles` in `testRegistrationGate.test.ts`, `walk` in
+`perfConfigSeparation.test.ts`, and `testFiles` in `processTimeoutGate.ts`.
+
+A test file that starts a process (a value import of `spawn`, `exec`, `execFile`
+or `fork` families from `child_process`, or of `support/isolatedGit` or
+`support/gitBash`) carries, at module scope before its first test or hook,
+`vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })`.
+Under a build-like load the 5 s default failed 10 process-starting tests across 3
+full runs (4, 3, 3), one machine, develop a9de2145 (#485). On CI the budget line keeps the
+60 s floor of `loadTimeout`. A per-test `slow()` or number wins over the file
+budget whether it is larger or smaller, so a per-test value under 30 s undercuts
+it. `processTimeoutGate.test.ts` walks the directory, skips `*.timing.test.ts`
+and `*.nightly.test.ts` (which `test:unit` does not collect) and `__fixtures__`,
+and refuses a file without the line (#1209). A file that mocks `child_process` is
+exempt, as is a type-only import. The gate reads text, exempts a partial mock,
+and does not see a starter reached through a helper other than those two.
 
 ## Proving an oracle can fail
 
