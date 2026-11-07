@@ -102,9 +102,9 @@ describe('framesOf', () => {
     expect(f.map(x => x.parts![0]!.dy)).toEqual([0, 0])
   })
 
-  // #1128. HONEST SCOPE: this guards `framesOf`'s own re-anchor on a hand-built run. The fixture's snaps=false
-  // shape (origin fixed, parts carrying the travel) is one the runner never makes at rest; the runner's own
-  // measurement (SpriteRunner `origin`, #987) is guarded by the 'real runner' test below.
+  // #1128. HONEST SCOPE: this guards `framesOf`'s own re-anchor on a hand-built run only. Its snaps=false shape
+  // (origin fixed, parts carrying the travel) is one the runner never makes at rest, and the case it covers was
+  // never what #987 changed; the runner's side is the 'real runner' test below.
   // Plant: ax = ay = 0 in framesOf turns the snaps=false cases red; swapping the `m.snaps` branch turns both red.
   /** A track: each pass the sprite moves `step` more than the last (a stationary one has step 0); `snaps` draws from the pass before's spot. */
   const local = [0, 2, 0, -2] // a pose's own bob: it must survive the re-anchor
@@ -160,24 +160,35 @@ describe('framesOf', () => {
     },
   )
 
-  // Plant: revert SpriteRunner `origin` for `snaps` to `atRest ? m.pos() : anchor` (the form before #987) and every dx is -4.
-  it('real runner: a grinder that draws then moves is measured from where the pass before left it (#987)', () => {
-    const seed = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
-    for (const lock of [undefined, 1, 2, 4]) {
-      const rom = buildSyntheticRom({ grinderLocksOnPass: lock })
-      const m = runOnce(rom, 103, seed, { grinderDispatch: grinderShape(rom), atRest: true })
-      const tag = `locks on ${lock}`
-      expect(m.snaps, tag).toBe(true)
-      expect(m.chosen, tag).toBe(lock ?? 0)
-      m.passes.slice(0, 6).forEach((q, i) => {
-        expect(q.origin, `${tag} pass ${i}`).toEqual(
-          i ? m.passes[i - 1]!.pos : { x: 0x80, y: 0x80 },
-        )
-        expect(q.pos.x - q.origin.x, `${tag} pass ${i} moved +4`).toBe(4)
-        expect(q.parts[0]!.dx, `${tag} pass ${i}`).toBe(0)
-      })
-    }
-  })
+  // #987 widened the set of ids that get `snaps` (SpriteRunner DRAWS_BEFORE_LINE_SNAP) from $67 to LINE_GUIDED_IDS.
+  // The synthetic cart aliases ids 101, 102 and 104 ($65, $66, $68) to the grinder handler, so no ROM is needed.
+  // Plant: `snaps = gate?.ok === true && num === 0x67` leaves $67 green and turns $65, $66 and $68 red (dx is -4,
+  // the origin is the pass's own end spot). Reverting the `origin` rule for snaps turns all four red.
+  it.each([
+    ['$65', 101],
+    ['$66', 102],
+    ['$67', 103],
+    ['$68', 104],
+  ])(
+    'real runner: %s draws then moves, so it is measured from where the pass before left it',
+    (_name, id) => {
+      const seed = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
+      for (const lock of [undefined, 1, 2, 4]) {
+        const rom = buildSyntheticRom({ grinderAliases: true, grinderLocksOnPass: lock })
+        const m = runOnce(rom, id, seed, { grinderDispatch: grinderShape(rom), atRest: true })
+        const tag = `locks on ${lock}`
+        expect(m.snaps, tag).toBe(true)
+        expect(m.chosen, tag).toBe(lock ?? 0)
+        m.passes.slice(0, 6).forEach((q, i) => {
+          expect(q.origin, `${tag} pass ${i}`).toEqual(
+            i ? m.passes[i - 1]!.pos : { x: 0x80, y: 0x80 },
+          )
+          expect(q.pos.x - q.origin.x, `${tag} pass ${i} moved +4`).toBe(4)
+          expect(q.parts[0]!.dx, `${tag} pass ${i}`).toBe(0)
+        })
+      }
+    },
+  )
 
   it('parts that move against each other are a new pose though the chars are the same', () => {
     const two = (gap: number, drift: number): SpritePart[] => [part(1, drift), part(2, drift + gap)]
@@ -415,31 +426,36 @@ describe.skipIf(!hasRom(VANILLA))(
   'mapSpriteFrames: each line-guided id keeps one spot (#1128)',
   () => {
     // Plant: `drawAt = m.snaps && m.id !== 0x66 && m.id !== 0x68 ? q.origin : q.pos` in framesOf puts travel into $68.
+    // [name, id, maps, placements expected, allowed y0 spread, allowed y1 spread]: only $66 bobs (its y1 by 2 px).
     it.each([
-      ['$66', 0x66, [0x0f]],
-      ['$68', 0x68, [0x05, 0x12c]],
+      ['$66', 0x66, [0x0f], 1, 0, 2],
+      ['$68', 0x68, [0x05, 0x12c], 37, 0, 0],
     ] as const)(
-      'every %s placement: one left edge, edges move 2 px at most (the pose bob), never a track step',
+      'every %s placement: one left edge and the pose bob only, never a track step',
       slow(120_000),
-      (_name, id, maps) => {
+      (_name, id, maps, expected, y0Spread, y1Spread) => {
         const bytes = new Uint8Array(readFileSync(romPath(VANILLA)))
         const cache = new L1ModelCache()
         let seen = 0
         for (const map of maps) {
           const drawn = mapSprites(cache, bytes, romPath(VANILLA), map)
-          if (drawn.status !== 'ok') continue
+          if (drawn.status !== 'ok') throw new Error(`map $${map.toString(16)} unavailable`)
           for (const d of drawn.sprites.filter(q => q.id === id && q.status === 'drawn')) {
             const r = mapSpriteFrames(cache, bytes, romPath(VANILLA), map, d.index)
             if (r.status !== 'ok') throw new Error('no frames')
-            expect(r.frames.length, `$${map.toString(16)} #${d.index}`).toBeGreaterThan(1)
-            for (const k of ['x0', 'x1', 'y0', 'y1'] as const) {
+            const at = `$${map.toString(16)} #${d.index}`
+            expect(r.frames.length, at).toBeGreaterThan(1)
+            const spread = (k: 'x0' | 'x1' | 'y0' | 'y1') => {
               const v = r.frames.map(f => f.box[k])
-              expect(Math.max(...v) - Math.min(...v), `$${map.toString(16)} #${d.index} ${k}`).toBeLessThanOrEqual(k[0] === 'x' ? 0 : 2) // prettier-ignore
+              return Math.max(...v) - Math.min(...v)
             }
+            expect([spread('x0'), spread('x1')], `${at} x`).toEqual([0, 0])
+            expect(spread('y0'), `${at} y0`).toBeLessThanOrEqual(y0Spread)
+            expect(spread('y1'), `${at} y1`).toBeLessThanOrEqual(y1Spread)
             seen++
           }
         }
-        expect(seen, `$${id.toString(16)} placements swept`).toBeGreaterThan(0)
+        expect(seen, 'placements swept').toBe(expected)
       },
     )
   },

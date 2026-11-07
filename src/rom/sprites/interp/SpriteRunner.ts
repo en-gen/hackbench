@@ -313,9 +313,11 @@ export interface RunOptions {
   loader?: LoaderDigest
   /**
    * `true` is the map view's at-rest picture. D139 D, D138 A: INIT runs for the look only (tiles, flips,
-   * variants, status). D134, D91: the drawing is re-based onto the placed spot, so INIT's moves and the
-   * 320 px shift are not shown, and there is no line-guided line-walk pick. Default false: INIT first and its moves
-   * kept, as the game and the graders do.
+   * variants, status). D134, D91: the drawing is re-based onto the placed spot, so INIT's moves are not shown.
+   * The exception is a line-guided id: D156 draws it where the game first has it on its line (the pass after the
+   * lock, `online + 1`), so that move is shown (320 px left for the vanilla chainsaws). The not-at-rest
+   * line-walk pick (third drawn pass) is absent. Default false: INIT first and its moves kept, as the game and
+   * the graders do.
    */
   atRest?: boolean
   /** End the run at the first pass that draws a tile: for a caller that only asks whether the sprite draws (RevealSearch.ts probes). */

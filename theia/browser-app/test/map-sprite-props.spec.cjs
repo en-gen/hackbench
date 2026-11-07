@@ -387,14 +387,17 @@ test('a chainsaw ($65) spins at one spot in the panel: the drawn left edge, bott
   const canvas = panel(page).locator('[data-control="sprite-composite"]')
   await expect(panel(page).locator('[data-field="id"]')).toHaveText('$65')
   await expect(panel(page).locator('[data-field="animation"]')).toContainText('Animated')
-  const count = Number(
-    /Animated: (\d+) frames/.exec(
-      await panel(page).locator('[data-field="animation"]').innerText(),
-    )[1],
+  // The frame count the node side computed, not just the panel's own text, so a truncated list cannot pass.
+  const count = (await framesOf(page, saw, 0x00f)).frames.length
+  expect(count, 'the saw has several frames').toBeGreaterThanOrEqual(2)
+  await expect(panel(page).locator('[data-field="animation"]')).toContainText(
+    `Animated: ${count} frames`,
   )
   // Each sample is one paint: which frame, the canvas size, and the first opaque column and last opaque row actually drawn.
   const drawn = () =>
-    canvas.evaluate(c => {
+    canvas.evaluate(async c => {
+      // data-frame commits before the paint: let two animation frames pass so the pixels are the ones for it.
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
       const { data } = c.getContext('2d').getImageData(0, 0, c.width, c.height)
       let [left, bottom] = [c.width, -1]
       for (let y = 0; y < c.height; y++)
