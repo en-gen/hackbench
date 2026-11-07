@@ -113,25 +113,26 @@ const REACH: StockCode = {
   cite: 'bank_00.asm:2644',
 }
 
-/** LDA OverworldOverride / BNE CODE_05D8A2; the STZ _F and LDY #0 before them, and the BNE's displacement, are in the digest below. */
+/** LDA OverworldOverride / BNE; the STZ _F and LDY #0 before them, and the BNE's displacement, are in the digest below. */
 export const OVERWORLD_INDEX_GUARD: readonly StockOp[] = Object.freeze([
   op(0x05d842, OP.LDA_ABS, "CODE_05D83E's OverworldOverride test", 'bank_05.asm:7167', {
     ram: 'OverworldOverride',
   }),
-  op(0x05d845, OP.BNE, "CODE_05D83E's OverworldOverride branch", 'bank_05.asm:7168'),
+  op(0x05d845, OP.BNE, "CODE_05D83E's BNE", 'bank_05.asm:7168'),
 ])
 
 /**
  * CODE_05D83E from its first instruction through the index computation, to the table load, with the
- * displacements of the three branches the ops do not name. Vanilla only, measured. ONE StockSpan, one
+ * displacements of the three branches the ops do not name (no distance is stated). Vanilla only, measured. ONE StockSpan, one
  * digest per path (#1061, FINGERPRINT MINIMUM rule 6, D191 187B). Spans: the 93 bytes $05D83E-$05D89A
  * (bank_05.asm:7164-7213, holding the guard's BNE displacement at $05D846), the BCC displacement at $05D8A5
  * (:7218) and the BEQ displacement at $05D8B2 (:7224). 4 masked (the guard's LDA and BNE opcode, which the
  * midway hook replaces; the ops check them), 4 already stated (MIDWAY_HOOK_SITE). The BNE displacement is
- * unmasked: Invictus and Grand Poo World 2, the corpus ROMs with the midway hook, keep it (one machine).
- * fingerprints[0], stock: 95 bytes - 4 masked - 4 stated = 87 unknown, at least 27. fingerprints[1], LM
- * site: Lunar Magic's site hook overwrites $05D8B2 with its JSL address, so that byte is omitted
- * (`lmSiteOmit`), 94 - 4 - 4 = 86 unknown, at least 26. Omitted, not zeroed, so a stock-site ROM whose
+ * unmasked: 23 of 23 SMW-based midway-hooked corpus ROMs keep it (one machine).
+ * Unknown-byte count, treating the 3 displacements as known because the op addresses let a reader derive
+ * them (D191, #1109): fingerprints[0], stock: 95 bytes - 4 masked - 4 stated - 3 derivable = 84 unknown.
+ * fingerprints[1], LM site: Lunar Magic's site hook overwrites $05D8B2 with its JSL address, so that byte
+ * is omitted (`lmSiteOmit`), 94 - 4 - 4 - 3 = 83 unknown. Omitted, not zeroed, so a stock-site ROM whose
  * $05D8B2 happens to be 0 cannot hash to the LM value; the LM digest is tried only once the site hook is
  * recognized (entryPathMismatches).
  */
@@ -171,7 +172,7 @@ export const OVERWORLD_INDEX_LOAD: readonly StockOp[] = Object.freeze([
 const A2 = 'CODE_05D8A2'
 export const ENTRY_SITE_OPS: readonly StockOp[] = Object.freeze([
   op(0x05d8a2, OP.CMP_IMM, `${A2}'s threshold compare`, 'bank_05.asm:7217'),
-  op(0x05d8a4, OP.BCC, `${A2}'s branch over the bias`, 'bank_05.asm:7218'),
+  op(0x05d8a4, OP.BCC, `${A2}'s BCC`, 'bank_05.asm:7218'),
   op(0x05d8a6, OP.SEC, `${A2}'s SEC`, 'bank_05.asm:7219'),
   op(0x05d8a7, OP.SBC_IMM, `${A2}'s bias subtract`, 'bank_05.asm:7220'),
   op(0x05d8a9, OP.STA_ABS, `${A2}'s store of the level number`, 'bank_05.asm:7221', {
@@ -181,7 +182,7 @@ export const ENTRY_SITE_OPS: readonly StockOp[] = Object.freeze([
   op(0x05d8ae, OP.LDA_ABS_Y, `${A2}'s read of the submap flag`, 'bank_05.asm:7223', {
     ram: 'OWPlayerSubmap',
   }),
-  op(0x05d8b1, OP.BEQ, `${A2}'s branch over the high byte`, 'bank_05.asm:7224'),
+  op(0x05d8b1, OP.BEQ, `${A2}'s BEQ`, 'bank_05.asm:7224'),
   op(0x05d8b3, OP.LDA_IMM, `${A2}'s high byte`, 'bank_05.asm:7225'),
   op(0x05d8b5, OP.STA_DP, `${A2}'s store to _F`, 'bank_05.asm:7226', { ram: '_F' }),
 ])
@@ -286,8 +287,7 @@ const ENTRY_PATH = OVERWORLD_ENTRY.slice(0, -ENTRY_SITE_OPS.length)
 const SITE_KEPT = 7
 const JSL_AT = 0x05d8b1
 
-/** CODE_05D8A2 as Lunar Magic leaves it: the first seven instructions, then a JSL, followed, in place
- *  of `BEQ + / LDA #submapHigh`, returning to the stock `STA _F`. */
+/** CODE_05D8A2 as Lunar Magic leaves it: the first seven instructions, then a JSL, then the last. */
 export const LM_ENTRY_SITE_OPS: readonly StockOp[] = Object.freeze([
   ...ENTRY_SITE_OPS.slice(0, SITE_KEPT),
   op(JSL_AT, OP.JSL, "CODE_05D8A2's high-byte JSL", 'bank_05.asm:7224'),

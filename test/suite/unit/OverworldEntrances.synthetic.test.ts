@@ -395,7 +395,7 @@ describe('deriveOverworldEntrances: constants read from ROM, not hardcoded', () 
     rom.rom.writeAt(at, [byte])
     const result = derive(rom)
     expect(result.roots).toBeNull()
-    expect(result.notes[0]).toMatch(/CODE_05D8A2|CODE_05D83E/)
+    expect(result.notes[0]).toMatch(/\$05D8[3-9AB][0-9A-F]/)
   })
 
   it.each([
