@@ -6,10 +6,11 @@
 import { describe, it, expect } from 'vitest'
 import type { EngineResult } from '../../../src/rom/model/sprites/generic/SpriteDrawEngine'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
-import { drawSprites } from '../../../theia/extension/src/node/map-sprites'
+import { drawSprites, framesAnswer } from '../../../theia/extension/src/node/map-sprites'
 import {
   animationText,
   framesReasonText,
+  notDrawnText,
   shiftNote,
   spriteProps,
   noteTitle,
@@ -17,7 +18,10 @@ import {
 import { followSubject } from '../../../theia/extension/src/browser/properties-follow'
 import { FramePlayer, type FramesState } from '../../../theia/extension/src/browser/sprite-frames'
 import { PropertiesModel } from '../../../theia/extension/src/browser/properties-model'
-import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
+import {
+  RIDES_WITH_REASON,
+  type MapSpriteDto,
+} from '../../../theia/extension/src/common/project-protocol'
 import { COLORS } from '../support/mapInputs'
 
 const SOLID = new Uint8Array(64).fill(1)
@@ -205,6 +209,21 @@ describe('animationText: reasons reach the screen in words', () => {
   })
   it('an object-prototype name is an unknown code, not a raw function', () => {
     expect(framesReasonText('constructor')).toBe('The frames could not be worked out.')
+  })
+  it('a sprite its parent drew says so, not that the frames failed (#1310)', () => {
+    expect(animationText(still(RIDES_WITH_REASON))).toBe('Animation not shown: Drawn as part of the sprite it rides with, not on its own.') // prettier-ignore
+  })
+  it('framesAnswer gives a drawnBy sprite the rides-with code at any index; one without keeps its own reason (#1310)', () => {
+    const none = { frames: [], reason: 'unrevealed' }
+    const rode = framesAnswer(none, { drawnBy: 3 })
+    expect(rode).toEqual({ status: 'ok', frames: [], reason: RIDES_WITH_REASON })
+    expect(rode.status === 'ok' && animationText(still(rode.reason))).toBe('Animation not shown: Drawn as part of the sprite it rides with, not on its own.') // prettier-ignore
+    for (const drawnBy of [0, 255]) expect(framesAnswer(none, { drawnBy })).toEqual(rode)
+    expect(framesAnswer(none, {})).toEqual({ status: 'ok', ...none })
+    expect(framesAnswer(none, undefined)).toEqual({ status: 'ok', ...none })
+  })
+  it('notDrawnText treats an object-prototype name as unknown, not a raw function (#1310)', () => {
+    expect(notDrawnText('constructor')).toBe('The app could not draw this sprite.')
   })
   it('puts the special-routine reason in words, not the generic fallback', () => {
     const t = framesReasonText('it is drawn by a special routine')

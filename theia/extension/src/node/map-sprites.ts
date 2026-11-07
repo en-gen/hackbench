@@ -121,6 +121,7 @@ import type {
   SpriteFramesResult,
   SwitchFlagsDto,
 } from '../common/project-protocol'
+import { RIDES_WITH_REASON } from '../common/project-protocol'
 import { screenTiles, unreadable, type L1ModelCache } from './map-screen'
 
 const TILE = 16
@@ -1297,6 +1298,15 @@ export function frameRun(
   return interpRunner(rom, index, model, undefined, () => base, undefined, undefined, undefined, list)(s)
 }
 
+/** The frames answer: a sprite its parent drew gets the rides-with code, anything else keeps what `framesOf` found. */
+export function framesAnswer(
+  frames: { frames: MapSpriteDto[]; reason?: string },
+  dto?: Pick<MapSpriteDto, 'drawnBy'>,
+): SpriteFramesResult {
+  if (dto?.drawnBy !== undefined) return { status: 'ok', frames: [], reason: RIDES_WITH_REASON }
+  return { status: 'ok', ...frames }
+}
+
 /** One sprite of a map as frames: the same seed, camera and drawer the map view used, run again for this sprite alone. */
 export function mapSpriteFrames(
   cache: L1ModelCache,
@@ -1327,8 +1337,7 @@ export function mapSpriteFrames(
     const frames = framesOf(frameRun(rom.rom, index, model, base, s, stream), s, withUploads, dynamicOf(rom.rom)) // prettier-ignore
     // Drawn by its parent on the map (the $9B a $9C carries): its tiles are the parent's, so say that, not "drew no tile".
     const dto = frames.frames.length ? undefined : drawSprites(stream, model, interpDrawer(rom.rom, index, model, undefined, () => base, undefined, undefined, undefined, stream)).find(d => d.index === s.index) // prettier-ignore
-    if (dto?.drawnBy !== undefined) return { status: 'ok', frames: [], reason: 'Drawn as part of the sprite it rides with, not on its own.' } // prettier-ignore
-    return { status: 'ok', ...frames }
+    return framesAnswer(frames, dto)
   } catch (err) {
     return { status: 'unavailable', reason: (err as Error).message }
   }
