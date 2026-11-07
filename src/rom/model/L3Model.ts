@@ -171,8 +171,7 @@ export function buildL3Verdict(
       none(reason, {
         cgadsub: effectiveCgadsub(layout.cgadsub, !kept),
       })
-    // Mode 0E ($018) has BG3 alone on the main screen and adds the sub screen's layers 1 and 2 to it (CGADSUB
-    // keeps BG3 here); the compositor takes that from the plane lists and the math, so it draws like the others (#805).
+    // Mode 0E ($018, BG3 alone on main) draws like the others: the plane lists and the math carry it (#805).
     if (!kept) return refuse()
     const start = readMarioStartPos(rom, index)
     if (!start) return refuse()
