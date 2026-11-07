@@ -39,8 +39,10 @@ export const MAP16_BYTES_PER_SCREEN_H = 0x1b0
 /** Plain words for an object with a tile outside the level's Map16 buffer; the "!" mark's text (#1034). */
 export const OFF_BUFFER_REASON =
   "Some of its tiles land outside the map's tile space, so they are not drawn."
+
 /** Plain words for the castle wall (0DDF3A) on a vertical map, whose layout it does not model; a "!" mark text (#1034). */
 export const VERTICAL_WALL_REASON = 'HackBench cannot draw this object on a vertical map yet.'
+
 /** Refusal reasons already in plain words: a mark shows them as they are, not as the generic unported line. */
 export const PLAIN_REASONS: ReadonlySet<string> = new Set([OFF_BUFFER_REASON, VERTICAL_WALL_REASON])
 
