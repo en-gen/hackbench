@@ -130,7 +130,7 @@ export interface SpritePart {
   priority: number
   flipX: boolean
   flipY: boolean
-  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position when INIT's moves are kept, and the position at the end of the pass at rest (`PassResult.pos`; the picture is then drawn on the placed spot, `SpriteModel.anchor`), except for $67 on a vanilla-shaped handler. */
+  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position when INIT's moves are kept, and the position at the end of the pass at rest (`PassResult.pos`; the picture is then drawn on the placed spot, `SpriteModel.anchor`), except for a line-guided id on a vanilla-shaped handler. */
   dx: number
   dy: number
   /** Raw attribute byte, for graders that compare it whole. */
@@ -158,7 +158,7 @@ export interface PassResult {
    * moves (DolphinMain, SMWDisX bank_02.asm:7896-7901). Absent when the pass wrote no OAM.
    */
   drawPos?: { x: number; y: number }
-  /** Where this pass's parts are measured from: `SpriteModel.anchor` when INIT's moves are kept; the end-of-pass `pos` at rest; the pass before's `pos` for $67 on a vanilla-shaped handler (where the pass before left it). */
+  /** Where this pass's parts are measured from: `SpriteModel.anchor` when INIT's moves are kept; the end-of-pass `pos` at rest; the pass before's `pos` for a line-guided id on a vanilla-shaped handler (where the pass before left it). */
   origin: { x: number; y: number }
   parts: SpritePart[]
   /** Plain run only: pieces written under any other `$15E9` (a sprite this run spawned, a cluster index), same origin. Not the grader's: the map view draws `drawnParts` (D52, #840). */
@@ -196,7 +196,7 @@ export interface SpriteModel {
   refusal?: string
   /** Why no part was drawn across all passes, when the run completed. */
   emptyReason?: string
-  /** Position after INIT (the placed spot at rest), and the raw placement it started from. For $67 on a vanilla-shaped handler: the position its drawn (chosen) pass drew at, after the line snap. */
+  /** Position after INIT (the placed spot at rest), and the raw placement it started from. For a line-guided id on a vanilla-shaped handler: the position its drawn (chosen) pass drew at, after the line snap. */
   anchor?: { x: number; y: number; rawX: number; rawY: number }
   /**
    * Where the level state came from: the ROM's own level loader, or a generic
@@ -220,14 +220,14 @@ export interface SpriteModel {
   passes: PassResult[]
   /**
    * The frame policy: index of the first pass at or after INIT that draws at
-   * least one tile (within the pass cap), absent when none does; for $67 on a vanilla-shaped
+   * least one tile (within the pass cap), absent when none does; for a line-guided id on a vanilla-shaped
    * handler, the pass on the line: two after it when each step moved the sprite and draws (#126). A policy, not a claim about which
    * frame a map should show.
    */
   chosen?: number
-  /** Why a $67 handler got the generic rule: the grinder gate ran it and it did not make the vanilla calls in order. */
+  /** Why a line-guided handler got the generic rule: the grinder gate ran it and it did not make the vanilla calls in order. */
   lineGateReason?: string
-  /** Why a $67 on a vanilla-shaped handler stayed on its first drawn pass although the next one draws. */
+  /** Why a line-guided id on a vanilla-shaped handler stayed on its first drawn pass although the next one draws. */
   lineStepReason?: string
   /** Why a $65-$68 sprite's INIT is not the stock InitLineGuidedSpr: its shift is unverified, though the interpreter ran it. */
   lineInitReason?: string
@@ -247,7 +247,7 @@ export interface SpriteModel {
   noLineReason?: string
   /** With `shifted`: where the sprite's INIT left it, before any step; `anchor` is where it was first drawn. */
   initAt?: { x: number; y: number }
-  /** True for $67 on a vanilla-shaped handler: each pass draws where the pass before left the sprite (`PassResult.origin`). */
+  /** True for a line-guided id on a vanilla-shaped handler: each pass draws where the pass before left the sprite (`PassResult.origin`). */
   snaps?: boolean
   dependsOn: DependsOn[]
   /** Instruction counts: INIT, then each MAIN pass. */
@@ -305,7 +305,7 @@ export interface RunOptions {
   spawn?: SpawnRun
   probe?: Probe
   trackInputs?: boolean
-  /** The dispatch shape the $67 gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
+  /** The dispatch shape the line-guided gate accepts; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   grinderDispatch?: DispatchShape
   /** The InitLineGuidedSpr fingerprint to hold the INIT of $65-$68 to; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   stockInits?: readonly Routine[]
@@ -313,9 +313,11 @@ export interface RunOptions {
   loader?: LoaderDigest
   /**
    * `true` is the map view's at-rest picture. D139 D, D138 A: INIT runs for the look only (tiles, flips,
-   * variants, status). D134, D91: the drawing is re-based onto the placed spot, so INIT's moves and the
-   * 320 px shift are not shown, and there is no $67 line-walk pick. Default false: INIT first and its moves
-   * kept, as the game and the graders do.
+   * variants, status). D134, D91: the drawing is re-based onto the placed spot, so INIT's moves are not shown.
+   * The exception is a line-guided id: D156 draws it where the game first has it on its line (the pass after the
+   * lock, `online + 1`), so that move is shown (320 px left for the vanilla chainsaws). The not-at-rest
+   * line-walk pick (third drawn pass) is absent. Default false: INIT first and its moves kept, as the game and
+   * the graders do.
    */
   atRest?: boolean
   /** End the run at the first pass that draws a tile: for a caller that only asks whether the sprite draws (RevealSearch.ts probes). */
@@ -1010,7 +1012,7 @@ function runCore(
         lock: w[RAM.lineLock + m.seed.slot]!,
         timer: w[RAM.lineTimer + m.seed.slot]!,
       })
-      // The draw ran before this pass's own move, so for $67 it ran where the pass before left it.
+      // The draw ran before this pass's own move, so for a line-guided id it ran where the pass before left it.
       // At rest the parts are measured from where the pass ended, so MAIN's own few pixels of motion do not
       // leak into the picture (the Podoboo's jump). A handler that draws and then moves is measured from its
       // end too: measuring from the draw changed 12 vanilla rows ($05, $06) from same to differ against the table engine.
