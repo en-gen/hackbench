@@ -25,4 +25,11 @@ export function putDrawPosProbes(put: (snes: number, bytes: number[]) => void): 
   put(0x019700, [OP.LDA_IMM, 0x0f, OP.STA_ABS, ...word(0x15e9), OP.STA_ABS, ...word(0x0380), OP.STX_ABS, ...word(0x15e9), ...MOVE4, ...DRAW]) // prettier-ignore
   // 36 writes $0400, in the gap the capture's filter excludes ($0400-$041F), with $15E9 = the slot.
   put(0x019740, [OP.STA_ABS, ...word(0x0400), ...MOVE4, ...DRAW])
+  // 37 draws, then moves X by +4 (#1131); 38 moves, then draws.
+  put(0x019800, [...DRAW.slice(0, -1), ...MOVE4, OP.RTS])
+  put(0x019840, [...MOVE4, ...DRAW])
+  // 39 lifts Y by 16, draws, and puts Y back, as a taller sprite's draw routine does.
+  const LIFT = Array.from({ length: 16 }, () => [0xd6, 0xd8]).flat()
+  const DROP = Array.from({ length: 16 }, () => [OP.INC_DPX, 0xd8]).flat()
+  put(0x019880, [...LIFT, ...DRAW.slice(0, -1), ...DROP, OP.RTS])
 }

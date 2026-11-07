@@ -130,7 +130,7 @@ export interface SpritePart {
   priority: number
   flipX: boolean
   flipY: boolean
-  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position when INIT's moves are kept, and the position at the end of the pass at rest (`PassResult.pos`; the picture is then drawn on the placed spot, `SpriteModel.anchor`), except for $67 on a vanilla-shaped handler. */
+  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position when INIT's moves are kept, and the position at the end of the pass at rest (`PassResult.pos`; the picture is then drawn on the placed spot, `SpriteModel.anchor`), or where the pass began when the sprite drew there and then moved (#1131), except for $67 on a vanilla-shaped handler. */
   dx: number
   dy: number
   /** Raw attribute byte, for graders that compare it whole. */
@@ -697,6 +697,8 @@ export class Machine {
   }
 }
 
+const sameSpot = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+  a.x === b.x && a.y === b.y
 const s8 = (v: number) => (v > 127 ? v - 256 : v)
 
 /** Parts the pass wrote, relative to `anchor`, in screen terms (camera removed). */
@@ -996,6 +998,7 @@ function runCore(
       m.clearOamWrites()
       n = m.steps
       const hw = new Map(m.bus.hwWrites)
+      const start = m.pos()
       m.frame()
       model.steps.push(m.steps - n)
       probe?.(p, w)
@@ -1012,19 +1015,24 @@ function runCore(
       })
       // The draw ran before this pass's own move, so for $67 it ran where the pass before left it.
       // At rest the parts are measured from where the pass ended, so MAIN's own few pixels of motion do not
-      // leak into the picture (the Podoboo's jump). A handler that draws and then moves is measured from its
-      // end too: measuring from the draw changed 12 vanilla rows ($05, $06) from same to differ against the table engine.
+      // leak into the picture (the Podoboo's jump). The one exception is a sprite whose first OAM write was at the
+      // spot the pass began at and which ended the pass elsewhere: it drew and then moved, so it is shown where it
+      // drew (#1131). A draw routine that displaces the sprite and restores it (SMWDisX bank_01.asm:1772-1783) is
+      // not that: its first write is off the start, and the end-of-pass position stands.
+      const drawn = m.drawPos()
+      const drewThenMoved = drawn && sameSpot(drawn, start) && !sameSpot(m.pos(), start)
       const origin = snaps
         ? (model.passes[p - 1]?.pos ?? anchor)
         : atRest && !model.absolutePlacement
-          ? m.pos()
+          ? drewThenMoved
+            ? start
+            : m.pos()
           : anchor
       const drew = neighbourRun ? m.drew(origin) : undefined
-      const drawPos = m.drawPos()
       model.passes.push({
         pass: p,
         pos: m.pos(),
-        ...(drawPos ? { drawPos } : {}),
+        ...(drawn ? { drawPos: drawn } : {}),
         origin: { x: origin.x, y: origin.y },
         parts: readParts(m, origin),
         companions: readParts(m, origin, m.companionOam()),

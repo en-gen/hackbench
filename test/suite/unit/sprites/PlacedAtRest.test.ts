@@ -346,3 +346,25 @@ describe('the D139 picture', () => {
     expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
   })
 })
+
+describe('at rest, a handler that moves in MAIN (#1131)', () => {
+  // Ids 37 and 38 move X by +4 in MAIN; 37 draws first, 38 moves first; 39 lifts Y by 16 around its draw.
+  it('draws before the move: the picture sits at the placed spot', () => {
+    const m = runOnce(rom, 37, SPRITE_SEED, { atRest: true })
+    expect(m.refusal).toBeUndefined()
+    expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
+  })
+  it('moves before the draw: the picture keeps the move (the Podoboo jump)', () => {
+    const m = runOnce(rom, 38, SPRITE_SEED, { atRest: true })
+    expect(m.refusal).toBeUndefined()
+    expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
+    expect(m.passes[0]!.origin.x).toBe(m.passes[0]!.pos.x)
+  })
+  it('lifts Y for the draw and restores it: the picture keeps the end-of-pass spot (id 39)', () => {
+    const m = runOnce(rom, 39, SPRITE_SEED, { atRest: true })
+    expect(m.refusal).toBeUndefined()
+    expect(m.passes[0]!.drawPos!.y).toBe(m.passes[0]!.pos.y - 16)
+    expect(m.passes[0]!.origin).toEqual(m.passes[0]!.pos)
+    expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: -16 })
+  })
+})
