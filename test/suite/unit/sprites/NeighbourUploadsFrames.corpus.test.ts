@@ -66,72 +66,70 @@ const plantedRun: typeof oldRun = (...a) => {
 
 /** Sweeps `maps`: the sprites whose uploads differ between today's runs and `before`'s, and whether their frames do. */
 function sweep(maps: number[], beforeRun: typeof oldRun) {
-  {
-    const path = romPath(VANILLA)
-    const bytes = new Uint8Array(readFileSync(path))
-    const rom = RomFile.fromBytes(path, Buffer.from(bytes))
-    const smw = new SmwRom(rom)
-    const cache = new L1ModelCache()
-    const none = { yellow: false, green: false, red: false, blue: false }
-    const changed: string[] = []
-    const framesDiff: string[] = []
-    const table: string[] = []
-    const t0 = Date.now()
-    for (const index of maps) {
-      const ptr = smw.getLevelSpritePointer(index)
-      const built = ptr === null ? undefined : cache.get(bytes, path, index, none)
-      if (!ptr || !built?.ok) continue
-      const model = { ...built.inputs, playerGraphics: () => readMarioGraphics(rom) }
-      const stream = parseLevelSprites(readStream(rom, ptr), model.isVertical)
-      const base = levelSeed(rom, index)
-      const [now, before] = [
-        interpRunner(
-          rom,
-          index,
-          model,
-          undefined,
-          () => base,
-          undefined,
-          undefined,
-          undefined,
-          stream,
-        ),
-        interpRunner(
-          rom,
-          index,
-          model,
-          beforeRun,
-          () => base,
-          undefined,
-          undefined,
-          undefined,
-          stream,
-          true,
-        ),
-      ]
-      for (const s of stream) {
-        const [a, b] = [now(s), before(s)]
-        if (
-          'direct' in a ||
-          'direct' in b ||
-          JSON.stringify(a.m.uploads) === JSON.stringify(b.m.uploads)
-        )
-          continue
-        const key = `${index.toString(16)}:${s.index}:${s.spriteId.toString(16)}`
-        const [fa, fb] = [a, b].map(r =>
-          framesOf(r, s, model, dynamicOf(rom)).frames.map(f => sha(JSON.stringify(f))),
-        ) as [string[], string[]]
-        const same = fa.join() === fb.join()
-        changed.push(`${key}:${a.m.neighbourRun}`)
-        if (!same) framesDiff.push(key)
-        table.push(
-          `${key} ${a.m.neighbourRun} frames old/new ${fb.length}/${fa.length} changed ${same ? 'no' : 'yes'}`,
-        )
-      }
+  const path = romPath(VANILLA)
+  const bytes = new Uint8Array(readFileSync(path))
+  const rom = RomFile.fromBytes(path, Buffer.from(bytes))
+  const smw = new SmwRom(rom)
+  const cache = new L1ModelCache()
+  const none = { yellow: false, green: false, red: false, blue: false }
+  const changed: string[] = []
+  const framesDiff: string[] = []
+  const table: string[] = []
+  const t0 = Date.now()
+  for (const index of maps) {
+    const ptr = smw.getLevelSpritePointer(index)
+    const built = ptr === null ? undefined : cache.get(bytes, path, index, none)
+    if (!ptr || !built?.ok) continue
+    const model = { ...built.inputs, playerGraphics: () => readMarioGraphics(rom) }
+    const stream = parseLevelSprites(readStream(rom, ptr), model.isVertical)
+    const base = levelSeed(rom, index)
+    const [now, before] = [
+      interpRunner(
+        rom,
+        index,
+        model,
+        undefined,
+        () => base,
+        undefined,
+        undefined,
+        undefined,
+        stream,
+      ),
+      interpRunner(
+        rom,
+        index,
+        model,
+        beforeRun,
+        () => base,
+        undefined,
+        undefined,
+        undefined,
+        stream,
+        true,
+      ),
+    ]
+    for (const s of stream) {
+      const [a, b] = [now(s), before(s)]
+      if (
+        'direct' in a ||
+        'direct' in b ||
+        JSON.stringify(a.m.uploads) === JSON.stringify(b.m.uploads)
+      )
+        continue
+      const key = `${index.toString(16)}:${s.index}:${s.spriteId.toString(16)}`
+      const [fa, fb] = [a, b].map(r =>
+        framesOf(r, s, model, dynamicOf(rom)).frames.map(f => sha(JSON.stringify(f))),
+      ) as [string[], string[]]
+      const same = fa.join() === fb.join()
+      changed.push(`${key}:${a.m.neighbourRun}`)
+      if (!same) framesDiff.push(key)
+      table.push(
+        `${key} ${a.m.neighbourRun} frames old/new ${fb.length}/${fa.length} changed ${same ? 'no' : 'yes'}`,
+      )
     }
-    console.log(`${table.join('\n')}\nsweep ${Date.now() - t0} ms`)
-    return { changed, framesDiff }
   }
+  console.log(`${table.join('\n')}\nsweep ${Date.now() - t0} ms`)
+  return { changed, framesDiff }
 }
 
 describe.skipIf(!hasRom(VANILLA))('neighbor rerun upload probe vs frames (#1169)', () => {
