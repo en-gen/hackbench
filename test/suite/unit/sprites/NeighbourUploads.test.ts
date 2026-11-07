@@ -107,7 +107,8 @@ function cart(grinder = false): RomFile {
     0x01c800,
     asm([LDA_ZP, 0x1a], [STA_ABS, ptr(0) & 0xff, ptr(0) >> 8], [JSR, 0x00, 0xa4], [RTL]),
   )
-  // The dispatch block's JSL operand (draw, then JSL interact) goes to that routine; the loader tables are our own values.
+  // The dispatch block's JSL operand (draw, then JSL interact) goes to that routine;
+  // the loader tables are our own values.
   if (grinder) {
     bytes.set([0x00, 0xc8], off(0x019224))
     bytes.set([0xd8, 0, 0x10, 0xff, 0, 1], off(TABLES))
