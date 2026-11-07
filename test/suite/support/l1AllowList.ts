@@ -72,14 +72,12 @@ export const KNOWN_DISAGREEMENTS: Known[] = [
   // Port bugs, one issue each.
   // The port draws this only as the interpreter's refusal fallback; production draws it from the interpreter (#342).
   row(0x0dadeb, all, 440, [450, 480, 'cfbc58f35e', 'f058aa4925']),
-  // #350 wraps the counter now; the 257 rows run past the 27-row screen, which is #300.
-  row(0x0db49e, r => hi(r) === 0, 300, [240, 240, '25441b371f', '52d73446ad'], true),
   // #369: a zero nibble wraps a DEC/BNE counter to 256.
   ...([
     [0x0daa26, [195, 240, 'd73c1e0be0', '19148e7d53']],
     [0x0db224, [240, 240, '47589a6414', 'ccccf59395']],
     [0x0db51f, [240, 240, 'e9f5ff5b18', '2bbf5ceee4']],
-    [0x0dc5d8, [48, 48, 'd99ec01f7d', '482f43160c']],
+    [0x0dc5d8, [48, 48, 'd99ec01f7d', '6f3eac215a']],
     [0x0dd1a5, [48, 48, 'e1b74da3b5', 'e8cbeb214b']],
     [0x0deec0, [48, 48, '7a53472354', '1b6d37e43a']],
   ] as [number, Known['expect']][]).map(([a, e]) => row(a, r => hi(r) === 0, UMBRELLA, e)),
@@ -103,16 +101,8 @@ export const KNOWN_DISAGREEMENTS: Known[] = [
   row(0x0dcef2, r => hi(r) >= 2, UMBRELLA, [672, 672, '5765de9705', '75beea9b45']),
   row(0x0dd1d9, r => lo(r) >= 4, UMBRELLA, [576, 576, 'a0bcf50c14', '3b0e71558e']),
   row(0x0ddac8, r => lo(r) >= 2, UMBRELLA, [666, 672, '641b5fed57', '145127fce7']),
-  // #369: too big to fit in 27 rows anywhere.
-  ...([
-    [0x0db7aa, [63, 64, '13fdb9f80c', '34d4b27801']],
-    [0x0db863, [63, 63, '9fc190c1da', '9166e26036']],
-    [0x0dc58a, [144, 144, '7420c3fd23', '9c51328c8c']],
-    [0x0dd080, [9, 9, '3b0af2388b', 'c917dbd79c']],
-    [0x0dd0c3, [9, 9, 'eea529b43c', '0c0c332503']],
-    [0x0ddd99, [96, 96, 'dd096c8150', 'bbbc8e15e9']],
-    [0x0dde3c, [96, 96, 'b22691c781', 'd3c86868d9']],
-  ] as [number, Known['expect']][]).map(([a, e]) => row(a, r => !r.fits, UMBRELLA, e)),
+  // #369: too big to fit in 27 rows. Since #1034 the port wraps rows into the next screen as the interpreter does, so only these 2 of 64 still differ.
+  row(0x0db7aa, r => !r.fits, UMBRELLA, [2, 64, 'a741a45a13', '88c46277a1']),
   // Game quirks: the port draws the intent. bank_0D/MEMO.md has the traces.
   row(0x0dc4c9, r => r.col + lo(r) >= 15, `${DRIFT} (U only; E1 adds it, bank_0D.asm:5079-5090)`, [336, 336, 'c16790ce2b', '60cddfc005']),
   row(0x0dec33, r => r.col !== 0, `${DRIFT} (bank_0D.asm:7857-7872)`, [2, 2, '6556ac72bc', '6b947cd2c8']),

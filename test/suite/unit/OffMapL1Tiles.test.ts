@@ -77,6 +77,16 @@ describe('a write past the bottom row of a horizontal map', () => {
   })
 })
 
+describe('a step left off column 0 lands on the row above (DEY has no screen test)', () => {
+  it.each([false, true])('vertical %s', vertical => {
+    const grid = vertical ? vGrid(2) : hGrid(2)
+    const cur = at(grid, 3, -1, vertical)
+    writeTile(cur, 0x41)
+    expect(grid[2]![15]).toBe(0x41)
+    expect(cur.refusals).toEqual([])
+  })
+})
+
 describe('a write past the bottom row of a vertical map', () => {
   it('grows the grid and the owners by whole rows, 32 wide, and draws there', () => {
     const grid = vGrid(2)

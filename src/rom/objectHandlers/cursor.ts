@@ -265,17 +265,22 @@ export function cellOfOffset(offset: number): { row: number; col: number } | nul
  * Where the game's buffer puts a write at the cursor's (row, col). A horizontal map's rows wrap into
  * the next screen (`cellOfOffset`). A vertical map's rows simply continue, one 16-row screen after
  * another; its column wrap (`CODE_0DA95D` adds $1B0, bank_0D.asm:2003-2011) is not modelled. Null when
- * the write falls outside the buffer: before its start, past 32 screens, or off a vertical map's side.
+ * the write falls outside the buffer: before its start, past 32 screens, or past a vertical map's side.
  */
 export function bufferCell(
   row: number,
   col: number,
   vertical: boolean,
 ): { row: number; col: number } | null {
-  if (!vertical)
-    return cellOfOffset((col >> 4) * MAP16_BYTES_PER_SCREEN_H + row * 16 + (col & 0x0f))
-  const full = row < 0 || col < 0 || col >= 0x200 || row >= MAX_SCREENS * 16
-  return full ? null : { row, col }
+  // A step left off column 0 (DEY) has no screen test, so it lands on the row above in screen 0.
+  const behind = row * 16 + col
+  if (!vertical) {
+    return cellOfOffset(
+      col < 0 ? behind : (col >> 4) * MAP16_BYTES_PER_SCREEN_H + row * 16 + (col & 0x0f),
+    )
+  }
+  if (col < 0) return behind < 0 ? null : { row: behind >> 4, col: behind & 0x0f }
+  return row < 0 || col >= 0x200 || row >= MAX_SCREENS * 16 ? null : { row, col }
 }
 
 /**
