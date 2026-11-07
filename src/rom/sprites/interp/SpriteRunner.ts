@@ -158,7 +158,7 @@ export interface PassResult {
    * moves (DolphinMain, SMWDisX bank_02.asm:7896-7901). Absent when the pass wrote no OAM.
    */
   drawPos?: { x: number; y: number }
-  /** Where this pass's parts are measured from: `SpriteModel.anchor` when INIT's moves are kept; the end-of-pass `pos` at rest; the pass before's `pos` for $67 on a vanilla-shaped handler (where the pass before left it). */
+  /** Where this pass's parts are measured from: `SpriteModel.anchor` when INIT's moves are kept; the end-of-pass `pos` at rest, or the pass's starting position when the sprite's first OAM write was there (it drew before it moved, #1131); the pass before's `pos` for $67 on a vanilla-shaped handler (where the pass before left it). */
   origin: { x: number; y: number }
   parts: SpritePart[]
   /** Plain run only: pieces written under any other `$15E9` (a sprite this run spawned, a cluster index), same origin. Not the grader's: the map view draws `drawnParts` (D52, #840). */
@@ -1016,15 +1016,15 @@ function runCore(
       // The draw ran before this pass's own move, so for $67 it ran where the pass before left it.
       // At rest the parts are measured from where the pass ended, so MAIN's own few pixels of motion do not
       // leak into the picture (the Podoboo's jump). The one exception is a sprite whose first OAM write was at the
-      // spot the pass began at and which ended the pass elsewhere: it drew and then moved, so it is shown where it
-      // drew (#1131). A draw routine that displaces the sprite and restores it (SMWDisX bank_01.asm:1772-1783) is
-      // not that: its first write is off the start, and the end-of-pass position stands.
+      // spot the pass began at: it drew before it moved, so it is shown where it drew (#1131). A draw routine that
+      // displaces the sprite and restores it (SMWDisX bank_01.asm:1772-1784) draws off the start and keeps the end of
+      // the pass; so does a displaced draw followed by a move, which cannot be told from a move before the draw
+      // (no vanilla row, 512 vanilla level numbers; hacks only).
       const drawn = m.drawPos()
-      const drewThenMoved = drawn && sameSpot(drawn, start) && !sameSpot(m.pos(), start)
       const origin = snaps
         ? (model.passes[p - 1]?.pos ?? anchor)
         : atRest && !model.absolutePlacement
-          ? drewThenMoved
+          ? drawn && sameSpot(drawn, start)
             ? start
             : m.pos()
           : anchor
