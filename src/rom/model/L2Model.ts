@@ -182,11 +182,8 @@ export function buildL2Inputs(
   // VerticalTable, which the header parse applies later (:552-553). With no known entrance
   // (so none is chosen), the primary entrance's F400/F600.
   const entryVertical = ((rom.rom.readByte(0x05f600 + index) ?? 0) & 0x20) !== 0
-  const known = dyFromEntrances(
-    rom.rom,
-    index,
-    entrances === GRAPH_UNAVAILABLE ? undefined : entrances,
-  )
+  const unavailable = entrances === GRAPH_UNAVAILABLE
+  const known = dyFromEntrances(rom.rom, index, unavailable ? undefined : entrances)
   if (known && 'cut' in known) return refuse(TABLES_CUT)
   if (!known && !fallbackReadable(rom.rom, index)) return refuse(TABLES_CUT)
   const dy = (): number => known?.dy ?? readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore
@@ -195,7 +192,7 @@ export function buildL2Inputs(
   const gate = startGate(rom.rom)
   const why = [
     gate,
-    entrances === GRAPH_UNAVAILABLE ? EXIT_GRAPH_UNAVAILABLE : null,
+    unavailable ? EXIT_GRAPH_UNAVAILABLE : null,
     known?.note && gate ? `${known.note[0]!.toUpperCase()}${known.note.slice(1)}` : known?.note,
   ].filter((r): r is string => !!r)
   const note = why.length ? `Background height unverified: ${why.join(' ')}` : undefined
