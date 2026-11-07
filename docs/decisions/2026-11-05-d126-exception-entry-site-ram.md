@@ -1,10 +1,10 @@
-Ruled 2026-11-05 (Brian)
+Ruled 2026-11-05 and 2026-11-07 (Brian)
 
 # A named exception to D126 for the overworld entry path's RAM addresses
 
 ## Question
 
-#1061 PR 2 replaced the overworld entry path's literals with per-instruction opcode checks, which compare opcodes and branch targets but not the RAM addresses the literals compared. A hack that keeps the opcodes and repoints a store passed where the old check refused it (13 operand bytes, 3,315 single-byte alternatives, 7 addresses; the adversarial reviewer's count, one machine). Closing the gap means the source names those addresses, which D126 (no hardcoded ROM bytes, needed operands read from the ROM) does not allow without a ruling. May this block name them? (Decisions D178 option B, then D179; recorded as D185.)
+#1061 PR 2 replaced the overworld entry path's literals with per-instruction opcode checks, which then compared opcodes and branch targets but not the RAM addresses the literals compared. A hack that keeps the opcodes and repoints a store passed where the old check refused it (13 operand bytes, 3,315 single-byte alternatives, 7 addresses; the adversarial reviewer's count, one machine). Closing the gap means the source names those addresses, which D126 (no hardcoded ROM bytes, needed operands read from the ROM) does not allow without a ruling. May this block name them? (Decisions D178 option B, then D179; recorded as D185.)
 
 ## Ruling
 
@@ -17,7 +17,7 @@ Ruled 2026-11-05 (Brian): "D178 B" and "D179 A". The exception, "for this block 
 
 ## Why
 
-The opcode and the branch landing read as stock while a store went elsewhere. Seven named addresses, each cited to SMWDisX, are the smallest statement that refuses it; the alternatives left the gap or ran the ROM. Evidence, one machine: `test/suite/unit/SubmapFlagGate.ram.test.ts`.
+The opcode and the branch landing then read as stock while a store went elsewhere. Seven named addresses, each cited to SMWDisX, are the smallest statement that refuses it; the alternatives left the gap or ran the ROM. Evidence, one machine: `test/suite/unit/SubmapFlagGate.ram.test.ts`.
 
 ## Applies to
 
