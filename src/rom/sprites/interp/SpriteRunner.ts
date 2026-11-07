@@ -701,6 +701,7 @@ export class Machine {
   }
 }
 
+/** True when two sprite positions agree on both x and y (the pass-start versus first-draw test, #1131). */
 const sameSpot = (a: { x: number; y: number }, b: { x: number; y: number }) =>
   a.x === b.x && a.y === b.y
 const s8 = (v: number) => (v > 127 ? v - 256 : v)
