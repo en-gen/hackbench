@@ -14,13 +14,14 @@ const SPAWN = "import { spawnSync } from 'child_process'"
 const TEST = "it('x', () => {})"
 const dirs: string[] = []
 
-/** Writes one planted test file into a fresh temp dir and returns the gate's verdict. */
-function offences(...lines: string[]): string[] {
+/** Writes planted files (name to source) into a fresh temp dir and returns the gate's verdict. */
+function plant(files: Record<string, string>): string[] {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptg-'))
   dirs.push(dir)
-  fs.writeFileSync(path.join(dir, 'p.test.ts'), lines.join('\n'))
+  for (const [n, src] of Object.entries(files)) fs.writeFileSync(path.join(dir, n), src)
   return processTimeoutOffences(dir)
 }
+const offences = (...lines: string[]) => plant({ 'p.test.ts': lines.join('\n') })
 afterEach(() => dirs.splice(0).forEach(d => fs.rmSync(d, { recursive: true, force: true })))
 
 describe('processTimeoutGate planted sources', () => {
@@ -61,11 +62,11 @@ describe('processTimeoutGate planted sources', () => {
     expect(offences("import { ChildProcess } from 'child_process'", TEST)).toEqual([])
   })
   it('lists an untracked planted file and skips timing and nightly files', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptg-'))
-    dirs.push(dir)
-    for (const n of ['a.test.ts', 'b.timing.test.ts', 'c.nightly.test.ts'])
-      fs.writeFileSync(path.join(dir, n), `${SPAWN}\n${TEST}\n`)
-    expect(processTimeoutOffences(dir)).toEqual(['a.test.ts'])
+    const src = `${SPAWN}
+${TEST}
+`
+    const files = { 'a.test.ts': src, 'b.timing.test.ts': src, 'c.nightly.test.ts': src }
+    expect(plant(files)).toEqual(['a.test.ts'])
   })
 })
 
