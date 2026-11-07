@@ -7,8 +7,23 @@
  * silently stopped three of them retiring their preview tab. Double-clicking
  * a row left two tabs of one thing. Nothing failed, because nothing looked.
  */
-import { describe, it, expect } from 'vitest'
+import fs from 'node:fs'
+import { describe, it, expect, vi } from 'vitest'
 import { previewId } from '../../../theia/extension/src/browser/preview-id'
+
+// `pin` runs against fakes, since Theia's modules need a DOM; the mock names the resolved file because a bare specifier does not match it.
+const browser = vi.hoisted(
+  () => `${__dirname}/../../../theia/node_modules/@theia/core/lib/browser/index.js`,
+)
+const theiaInstalled = fs.existsSync(browser)
+it('Theia is installed wherever HB_REQUIRE_THEIA says it must be', () => {
+  if (process.env.HB_REQUIRE_THEIA) expect(theiaInstalled).toBe(true)
+})
+vi.mock(browser, () => ({ ApplicationShell: class {}, WidgetManager: class {}, Widget: class {} }))
+vi.mock('../../../theia/extension/src/browser/project-context', () => ({
+  ProjectContext: class {},
+}))
+vi.mock('../../../theia/extension/src/browser/project-bound', () => ({ boundToOther: () => [] }))
 
 const GFX = 'hackbench.gfx-view'
 const MAP16 = 'hackbench.map16-view'
@@ -51,3 +66,25 @@ describe('previewId', () => {
     expect(previewId(GFX, { index: 8 })).not.toBe(rowKeyed)
   })
 })
+
+describe.skipIf(!theiaInstalled)(
+  'PreviewTabs.pin hands apply the preview to carry from (#1299)',
+  () => {
+    const fake = () => ({ id: previewId('v', {}), title: { className: '' }, close: vi.fn() })
+    it.each([
+      ['the same row', true, true],
+      ['another row', true, false],
+      ['no preview', false, true],
+    ])('%s', async (_, hasPreview, sameRow) => {
+      const { PreviewTabs } = await import('../../../theia/extension/src/browser/preview-tabs')
+      const [preview, pinned] = [fake(), { ...fake(), id: 'row' }]
+      const tabs = new PreviewTabs() as any
+      tabs.shell = { widgets: hasPreview ? [preview] : [], addWidget() {}, activateWidget() {} }
+      tabs.widgets = { getOrCreateWidget: async () => pinned }
+      tabs.context = {}
+      const apply = vi.fn(async () => {})
+      await tabs.pin('v', {}, apply, () => sameRow, {})
+      expect(apply).toHaveBeenCalledWith(pinned, hasPreview && sameRow ? preview : undefined)
+    })
+  },
+)
