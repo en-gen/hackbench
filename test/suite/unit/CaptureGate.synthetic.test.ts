@@ -74,6 +74,14 @@ describe('checkGrid', () => {
     expect(mismatches).toEqual([{ table: 'grid', cell: 'dimensions', expected: '16x1', actual: '16x2' }]) // prettier-ignore
   })
 
+  it('rows a vertical map grew past its last screen (#1034) are overflow notes, not a dimension mismatch', () => {
+    const rom = [romRow(0x25), romRow(0x25)]
+    const { mismatches, overflow } = checkGrid(rom, gridRow(0x25), META, 1, true)
+    expect(mismatches).toEqual([])
+    expect(overflow).toEqual(["row 1 writes past the level's own end"])
+    expect(checkGrid(rom, gridRow(0x25), META, 16, false).mismatches).not.toEqual([]) // horizontal still refuses
+  })
+
   it("reports a dimension mismatch when the capture's own screen axis disagrees with extent, never silently truncating", () => {
     // prettier-ignore
     // The capture states 2 screens (32 cols); the ROM's own header/boss-arena

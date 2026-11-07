@@ -6,7 +6,7 @@
  * [PROP] marking the anchor alone, not a guessed rectangle.
  */
 import type { LevelObject } from '../LevelParser'
-import type { Refusal } from '../objectHandlers/cursor'
+import { OFF_BUFFER_REASON, type Refusal } from '../objectHandlers/cursor'
 import { parseRefusedLine } from '../objectHandlers/interpretedGate'
 
 export const WHY_UNPORTED = 'HackBench cannot draw this object type yet.'
@@ -87,7 +87,11 @@ export function refusedCellsOf(
     }
     const gate = parseRefusedLine(r.reason) !== null
     if (gate && e.gate.length === 0) e.cell.handler = r.handler
-    const text = gate ? gateReason(r.reason) : WHY_UNPORTED
+    const text = gate
+      ? gateReason(r.reason)
+      : r.reason === OFF_BUFFER_REASON
+        ? r.reason
+        : WHY_UNPORTED
     const list = gate ? e.gate : e.other
     if (!list.includes(text)) list.push(text)
   }
