@@ -540,6 +540,8 @@ function cart(
   put(ENTRY, new Array(0x54).fill(0x4b))
   put(ENTRY, [
     0x48,
+    // A, X and Y must be zero when a run starts: a stale one loops (compared before any of them is loaded)
+    ...[0xc9, 0xe0, 0xc0].flatMap(op => [op, 0x00, BNE_OP, 0xfe]),
     0xad,
     SPARKLE & 0xff,
     SPARKLE >> 8,
@@ -579,7 +581,7 @@ function cart(
     0xa5,
     0x14,
     0xf0,
-    0x45 - 30,
+    0x45 - 42,
   ])
   put(ABOVE, [RTS])
   put(LIVES_HOOK, [RTS])
@@ -834,6 +836,14 @@ describe('LoadClass runs the stretch before the call', () => {
     ['the star branch pops its return and leaves', STAR_HOOK, [0x68, 0x68, RTS]],
   ])('unavailable when a hook in %s', (_title, at, bytes) => {
     expect(reasonOf(cart({}, put => put(at, bytes)))).toMatch(unreached)
+  })
+
+  it.each([
+    ['A', [0xa9, 0x05]],
+    ['X', [0xa2, 0x05]],
+    ['Y', [0xa0, 0x05]],
+  ])('a run starts with %s zero, whatever the run before left in it', (_r, load) => {
+    expect(reasonOf(cart({}, put => put(ABOVE, [...load, RTS])))).toBe('ok')
   })
 
   it('a hook at the seeded call that returns normally still reads ok', () => {
