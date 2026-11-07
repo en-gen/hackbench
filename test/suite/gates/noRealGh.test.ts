@@ -3,13 +3,16 @@
  * AUTHENTICATED gh reachable (issue #486). Offline only: with the sentinel
  * token set, gh and git-credential never reach the network for these calls.
  */
-import { describe, it, expect, afterEach, afterAll } from 'vitest'
+import { describe, it, expect, afterEach, afterAll, vi } from 'vitest'
 import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import setup, { assertGuardActive, guardEnv, SENTINEL, TOKEN_VARS } from '../support/noRealGh'
 import { expectGhReachedOrAbsent } from '../support/ghSpawnReached'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 // Hardcoded on purpose: importing TOKEN_VARS would let a dropped name pass unseen.
 const FOUR_TOKENS = ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN']

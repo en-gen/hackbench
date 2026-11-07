@@ -15,6 +15,12 @@ export function spriteLabel(s: Pick<MapSpriteDto, 'id' | 'name'>): string {
   return s.name ? `${s.name} (sprite ${id})` : `Sprite ${id}`
 }
 
+/** The hover text of a marker, "Name (sprite $XX): why", or undefined for a sprite that is drawn (#1083). */
+export const placeholderText = (
+  s: Pick<MapSpriteDto, 'id' | 'name'> & Partial<Pick<MapSpriteDto, 'status' | 'reason'>>,
+): string | undefined =>
+  s.status === 'placeholder' ? `${spriteLabel(s)}: ${notDrawnText(s.reason)}` : undefined
+
 /** What the pane says for a sprite with one pose; when frames could not be had it says `Animation not shown` instead. */
 export const NOT_ANIMATED = 'Not animated: this sprite shows one pose.'
 export const LOADING_FRAMES = 'Checking for animation frames...'

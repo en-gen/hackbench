@@ -3969,3 +3969,147 @@ test('refreshing or single-clicking the same map keeps presses; a pinned tab kee
   expect(await pressedOf(page, 0x106)).toEqual(want(['palace-red', 'switch-onOff']))
   await expect(page.locator(root(0x106))).toHaveCount(1)
 })
+
+// #1299: a double click pins what the preview shows. The explorer's click selects first, so a pin for another row comes from Enter in a filtered search or a double click that has moved the preview.
+const planeOn = (page, tab, p) =>
+  page
+    .locator(`${root(tab)} canvas[data-plane="${p}"]`)
+    .first()
+    .evaluate(el => getComputedStyle(el).visibility !== 'hidden')
+const shown = async (page, tab, screen) => {
+  await page
+    .locator(`${root(tab)} canvas[data-screen="${screen}"][data-plane="l1Low"]`)
+    .evaluate(el => el.scrollIntoView({ inline: 'start' }))
+  return (await viewSettledOf(page, tab), (await readScreen(page, tab, screen)).checksum)
+}
+
+for (const [m, screen] of [
+  [0x014, 0],
+  [0x105, 9],
+]) {
+  test(`pinning $${m.toString(16)}'s preview keeps every press and draws the map pressed`, async ({
+    page,
+  }) => {
+    await loadTree(page)
+    await clickRow(page, m)
+    const fresh = await shown(page, 'preview', screen)
+    await pressAll(page, 'preview')
+    await expect.poll(() => shown(page, 'preview', screen)).not.toBe(fresh)
+    const pressed = await shown(page, 'preview', screen)
+    await clickRow(page, m, true)
+    await expect.poll(() => pressedOf(page, m)).toEqual(all('true'))
+    await expect.poll(() => shown(page, m, screen)).toBe(pressed)
+    await expect(page.locator(root('preview'))).toHaveCount(0)
+  })
+}
+
+test('pinning the preview keeps the layer, sprite, grid and collision toggles, drawn so', async ({
+  page,
+}) => {
+  await loadTree(page)
+  const toggles = [
+    'layer-l1',
+    'layer-l2',
+    'layer-l3',
+    'layer-sprites',
+    'collision-toggle',
+    'grid-toggle',
+  ]
+  const shape = async tab => ({
+    pressed: await Promise.all(
+      toggles.map(c => control(page, tab, c).getAttribute('aria-pressed')),
+    ),
+    planes: await Promise.all(['l1Low', 'l2Low', 'l3Low'].map(p => planeOn(page, tab, p))),
+    lines: await page.evaluate(
+      s =>
+        [...document.querySelectorAll(`${s} [data-control="collision-overlay"] polyline`)]
+          .map(p => p.getAttribute('points'))
+          .join('|'),
+      root(tab),
+    ),
+    grid: (await readGrid(page, root(tab))) !== null,
+    pixels: await shown(page, tab, 0),
+  })
+  await clickRow(page, 0x111)
+  await expect(control(page, 'preview', 'collision-toggle')).toHaveAttribute(
+    'data-collision-state',
+    'ready',
+    { timeout: 30000 },
+  )
+  const fresh = await shape('preview')
+  for (const c of toggles) await control(page, 'preview', c).click()
+  await expect.poll(async () => (await shape('preview')).lines, { timeout: 60000 }).not.toBe('')
+  const want = await shape('preview')
+  expect(want.pressed).toEqual(['false', 'false', 'false', 'false', 'true', 'false'])
+  expect([want.planes, want.grid]).toEqual([[false, false, false], false])
+  expect(want.pixels, 'the toggles move the drawing, so the check can fail').not.toBe(fresh.pixels)
+  await clickRow(page, 0x111, true)
+  await expect.poll(() => shape(0x111), { timeout: 60000 }).toEqual(want)
+})
+
+test('a pin keeps its own presses over the preview of the same map', async ({ page }) => {
+  await loadTree(page)
+  const want = on => PRESSES.map(c => String(on.includes(c)))
+  await clickRow(page, 0x106, true)
+  await control(page, 0x106, 'palace-red').click()
+  await clickRow(page, 0x106) // a preview of a map that is already pinned
+  await control(page, 'preview', 'palace-blue').click()
+  await clickRow(page, 0x106, true)
+  expect(await pressedOf(page, 0x106)).toEqual(want(['palace-red']))
+  await expect(page.locator(root('preview'))).toHaveCount(0)
+})
+
+// Presses and one toggle set in a preview of 0x105, so a pin for another row has something to (not) carry.
+async function dirtyPreview(page) {
+  await clickRow(page, 0x105)
+  await control(page, 'preview', 'layer-l1').click()
+  await pressAll(page, 'preview')
+}
+
+test('Enter on a filtered row pins it at defaults and leaves the preview of the other map as it was', async ({
+  page,
+}) => {
+  await loadTree(page)
+  await dirtyPreview(page)
+  await page.evaluate(() =>
+    getSvc('WidgetManager')
+      .getOrCreateWidget('hackbench.map-explorer')
+      .then(w => w.node.focus()),
+  )
+  await page.keyboard.type('$109')
+  // The filter selects after a debounce; an earlier Enter would open the row still selected.
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        getSvc('WidgetManager')
+          .getOrCreateWidget('hackbench.map-explorer')
+          .then(w => w.model.selectedNodes[0]?.index),
+      ),
+    )
+    .toBe(0x109)
+  await page.keyboard.press('Enter')
+  opened.push('hackbench.map-view:265')
+  await expect.poll(() => pressedOf(page, 0x109)).toEqual(all('false'))
+  await expect(control(page, 0x109, 'layer-l1')).toHaveAttribute('aria-pressed', 'true')
+  expect(await pressedOf(page, 'preview')).toEqual(all('true'))
+  await expect(control(page, 'preview', 'layer-l1')).toHaveAttribute('aria-pressed', 'false')
+  expect(
+    await page.evaluate(() =>
+      getSvc('ApplicationShell').getWidgetById('hackbench.map-view:preview').shows(0x105),
+    ),
+  ).toBe(true)
+})
+
+test('a double click on another row pins it at default presses with the toggle carried, then the next preview still resets', async ({
+  page,
+}) => {
+  await loadTree(page)
+  await dirtyPreview(page)
+  await clickRow(page, 0x014, true)
+  expect(await pressedOf(page, 0x014)).toEqual(all('false'))
+  await expect(control(page, 0x014, 'layer-l1')).toHaveAttribute('aria-pressed', 'false')
+  await clickRow(page, 0x105)
+  await pressAll(page, 'preview')
+  await clickRow(page, 0x111)
+  expect(await pressedOf(page, 'preview')).toEqual(all('false'))
+})

@@ -531,7 +531,7 @@ export function buildMapInputs(
     ok: true,
     inputs: {
       ...built.inputs,
-      l2: buildL2Inputs(rom, index, built.inputs, via),
+      l2: buildL2Inputs(rom, index, built.inputs, graph ? via : GRAPH_UNAVAILABLE),
       l3: buildL3Verdict(rom.rom, index, built.inputs, bg, undefined, undefined, undefined, graph ? via : GRAPH_UNAVAILABLE), // prettier-ignore
       orderNote: bg.ok ? undefined : bg.reason,
       routeNote: chooseEntranceNoted(via).note,
