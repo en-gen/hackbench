@@ -374,12 +374,6 @@ test('a sprite reload (an edit or refresh) clears the panel', async ({ page }) =
   await expect(panel(page).locator('[data-subject="none"]')).toHaveText('No sprite selected')
 })
 
-// D156: a chainsaw is drawn where the game first has it ON ITS LINE (the pass after the line step's lock), the tile the map
-// stores it on is outlined while it is selected, and the panel says it is drawn where it first sits on its line. An
-// even-column chainsaw starts behind the scroll in every spawn the loader allows, so it stays on its stored tile (no outline)
-// and the panel says it never appears in play.
-// Plant: delete the `stored-tile` element from the map view and the count assertion goes red; drop the note's "on its line"
-// wording and the first test goes red; stop setting `note` and the second goes red.
 test('a chainsaw ($65) spins at one spot in the panel: the drawn left edge, bottom edge and canvas size hold across frames while the pose changes (#1128)', async ({
   page,
 }) => {
@@ -415,6 +409,12 @@ test('a chainsaw ($65) spins at one spot in the panel: the drawn left edge, bott
   expect(distinct('bottom'), 'bottom edge of the drawn saw').toBe(1)
 })
 
+// D156: a chainsaw is drawn where the game first has it ON ITS LINE (the pass after the line step's lock), the tile the map
+// stores it on is outlined while it is selected, and the panel says it is drawn where it first sits on its line. An
+// even-column chainsaw starts behind the scroll in every spawn the loader allows, so it stays on its stored tile (no outline)
+// and the panel says it never appears in play.
+// Plant: delete the `stored-tile` element from the map view and the count assertion goes red; drop the note's "on its line"
+// wording and the first test goes red; stop setting `note` and the second goes red.
 test('a chainsaw drawn away from its stored tile outlines that tile while selected, and the panel says it is drawn where it first sits on its line', async ({
   page,
 }) => {

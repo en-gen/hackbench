@@ -97,14 +97,17 @@ describe('framesOf', () => {
   })
 
   // #1128: the anchor a frame is drawn on is its box corner minus the part offset; it must be the chosen pass's for every frame.
-  const anchorOf = (f: MapSpriteDto) => ({ x: f.box.x0 - Math.min(...f.parts!.map(p => p.dx)), y: f.box.y0 - Math.min(...f.parts!.map(p => p.dy)) }) // prettier-ignore
+  const anchorOf = (f: MapSpriteDto) => ({
+    x: f.box.x0 - Math.min(...f.parts!.map(p => p.dx)),
+    y: f.box.y0 - Math.min(...f.parts!.map(p => p.dy)),
+  })
   /** A track: each pass the sprite moves `step` (a stationary one has step 0); `snaps` draws from the pass before's spot (origin), so the parts carry no travel. */
   const track = (n: number, step: [number, number], snaps: boolean): SpriteModel => ({
     ...run([]),
     snaps,
     passes: Array.from({ length: n }, (_, i) => {
-      const t = (k: number) => (k * (k + 1)) / 2 // uneven steps: the pos/origin gap grows each pass, so a wrong baseline does not cancel
-      const [tx, ty, nx, ny] = [step[0] * t(i), step[1] * t(i), step[0] * (t(i + 1) - t(i)), step[1] * (t(i + 1) - t(i))] // prettier-ignore
+      const tri = (i * (i + 1)) / 2 // uneven steps: the pos/origin gap grows each pass (i + 1), so a wrong baseline does not cancel
+      const [tx, ty, nx, ny] = [step[0] * tri, step[1] * tri, step[0] * (i + 1), step[1] * (i + 1)]
       const local = [0, 2, 0, -2][i % 4]! // a pose's own art: this must survive
       return {
         pass: i,
