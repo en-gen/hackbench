@@ -50,7 +50,8 @@ const oldRun = (
 
 describe.skipIf(!hasRom(VANILLA))('neighbor rerun upload probe vs frames (#1169)', () => {
   it('lists the sprites whose uploads changed and compares their frames', slow(120_000), () => {
-    const [path, bytes] = [romPath(VANILLA), new Uint8Array(readFileSync(romPath(VANILLA)))]
+    const path = romPath(VANILLA)
+    const bytes = new Uint8Array(readFileSync(path))
     const rom = RomFile.fromBytes(path, Buffer.from(bytes))
     const smw = new SmwRom(rom)
     const cache = new L1ModelCache()
@@ -100,9 +101,9 @@ describe.skipIf(!hasRom(VANILLA))('neighbor rerun upload probe vs frames (#1169)
         )
           continue
         const key = `${index.toString(16)}:${s.index}:${s.spriteId.toString(16)}`
-        const hash = (r: typeof a) =>
-          framesOf(r, s, model, dynamicOf(rom)).frames.map(f => sha(JSON.stringify(f)))
-        const [fa, fb] = [hash(a), hash(b)]
+        const [fa, fb] = [a, b].map(r =>
+          framesOf(r, s, model, dynamicOf(rom)).frames.map(f => sha(JSON.stringify(f))),
+        ) as [string[], string[]]
         const same = fa.join() === fb.join()
         changed.push(`${key}:${a.m.neighbourRun}`)
         if (!same) framesDiff.push(key)
