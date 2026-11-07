@@ -3963,7 +3963,7 @@ test('the preview tab carries the layer, sprite and collision toggles to the nex
   expect(await lines()).not.toBe(aLines)
 })
 
-test('refreshing or single-clicking the same map keeps presses; a pinned tab keeps its own on its row', async ({
+test('refreshing or single-clicking the same map keeps presses; a double click on a pinned map keeps its own presses', async ({
   page,
 }) => {
   await loadTree(page)
@@ -4063,25 +4063,61 @@ test('pinning the preview keeps the layer, sprite, grid and collision toggles, d
 })
 
 // #1324 replaced #1299's acceptance-4 case, which pressed in a SECOND, preview tab of an open map; a single click on an open map no longer opens one.
-test('a single click on an open map focuses its tab, which keeps its presses and tiles', async ({
+test('a single click on an open map focuses its tab, which keeps its presses, toggles and tiles', async ({
   page,
 }) => {
   await loadTree(page)
   const want = on => PRESSES.map(c => String(on.includes(c)))
   await clickRow(page, 0x105, true)
+  const fresh = await shown(page, 0x105, 9)
   await pressAll(page, 0x105)
+  await control(page, 0x105, 'layer-sprites').click()
+  await expect(control(page, 0x105, 'layer-sprites')).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(() => shown(page, 0x105, 9)).not.toBe(fresh) // the presses move the drawing, so the check below can fail
   const pressedTiles = await shown(page, 0x105, 9)
   await clickRow(page, 0x106) // another tab takes focus, so the click below has something to win back
   await clickOpenRow(page, 0x105)
   expect(await activeTab(page)).toBe('hackbench.map-view:261')
   await expect(page.locator(root(0x105))).toHaveCount(1)
   expect(await pressedOf(page, 0x105)).toEqual(all('true'))
+  await expect(control(page, 0x105, 'layer-sprites')).toHaveAttribute('aria-pressed', 'false')
   expect(await shown(page, 0x105, 9)).toBe(pressedTiles)
   expect(await page.evaluate(() => getSvc('ApplicationShell').getWidgetById('hackbench.map-view:preview').shows(0x106))).toBe(true) // prettier-ignore
   await control(page, 0x105, 'palace-red').click()
   await clickRow(page, 0x105, true) // a double click on an open map is still one tab
   await expect(page.locator(root(0x105))).toHaveCount(1)
   expect(await pressedOf(page, 0x105)).toEqual(want(PRESSES.filter(c => c !== 'palace-red')))
+  await expect(control(page, 0x105, 'layer-sprites')).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('double-click a map, then single-click it: one active tab, no preview', async ({ page }) => {
+  await loadTree(page)
+  await clickRow(page, 0x105, true)
+  await clickOpenRow(page, 0x105)
+  expect(await activeTab(page)).toBe('hackbench.map-view:261')
+  await expect(page.locator(root(0x105))).toHaveCount(1)
+  await expect(page.locator(root('preview'))).toHaveCount(0)
+})
+
+// #1299: a tab already showing a map keeps its own presses and toggles when open() is handed a preview to carry from.
+test('open(options, from) on a tab that already shows a map ignores from', async ({ page }) => {
+  await loadTree(page)
+  await clickRow(page, 0x106, true)
+  await control(page, 0x106, 'palace-red').click()
+  const before = await page.evaluate(() => getSvc('ApplicationShell').getWidgetById('hackbench.map-view:262').startSeq) // prettier-ignore
+  await page.evaluate(async () => {
+    const pinned = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:262')
+    const from = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { probe: 1 })
+    await from.open(pinned.options)
+    from.showSprites = false
+    from.showGrid = true
+    await pinned.open(pinned.options, from)
+    from.dispose()
+  })
+  await expect.poll(() => page.evaluate(() => getSvc('ApplicationShell').getWidgetById('hackbench.map-view:262').startSeq)).toBeGreaterThan(before) // prettier-ignore
+  expect(await pressedOf(page, 0x106)).toEqual(PRESSES.map(c => String(c === 'palace-red')))
+  await expect(control(page, 0x106, 'layer-sprites')).toHaveAttribute('aria-pressed', 'true')
+  await expect(control(page, 0x106, 'grid-toggle')).toHaveAttribute('aria-pressed', 'false')
 })
 
 test('with $105 open, a single click on $106 then on $105 leaves $105 in one active tab and the preview on $106', async ({

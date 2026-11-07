@@ -115,6 +115,17 @@ function suite(name, view) {
     expect(await previewOf(page, re)).toEqual([])
   })
 
+  test(`${name}: double-click a row, then single-click it: one active tab, no preview (1, 3)`, async ({
+    page,
+  }) => {
+    const a = await pinA(page)
+    await rowA(page).click()
+    await expect.poll(() => activeId(page)).toBe(a)
+    await noSecondTab(page)
+    expect((await pinnedOf(page, re)).map(t => t.id)).toEqual([a])
+    expect(await previewOf(page, re)).toEqual([])
+  })
+
   test(`${name}: clicking an open row leaves another row's preview open (4, 4a)`, async ({
     page,
   }) => {

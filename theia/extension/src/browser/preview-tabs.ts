@@ -10,6 +10,8 @@
  * clicking row after row swaps the content of a single italic tab. Double
  * click opens the row's own widget under its real key, which is an ordinary
  * tab, and releases the preview so the next single click starts a fresh one.
+ * A click (or an arrow key walking onto the row) on a row that already has a
+ * tab focuses that tab instead (#1324), so arrow walking stops there.
  */
 import { injectable, inject } from '@theia/core/shared/inversify'
 import { ApplicationShell, WidgetManager, Widget } from '@theia/core/lib/browser'
@@ -39,15 +41,10 @@ export class PreviewTabs {
    * persistent path makes, so a preview and a pinned tab of the same row are
    * identical apart from the italic and the key.
    *
-   * `rowKey` is the key the view passes to `pin` for this row. Required, for
-   * the reason `pin`'s `previewKey` is: two call sites that must agree on a
-   * key shape drifted apart once already.
-   *
-   * A row that already has a tab is brought to the front instead (#1324): a
-   * second, preview tab of it would be a fresh widget at defaults, which can
-   * disagree with the open one (presses, toggles), and a row is open in at
-   * most one tab. The preview tab is left alone, so a preview of ANOTHER row
-   * stays where it is.
+   * `rowKey` is the key `pin` gets for this row, required so the two cannot
+   * drift. A row that already has a tab is focused instead (#1324): a second
+   * tab would start at defaults and disagree with the open one. A preview of
+   * ANOTHER row is left alone.
    */
   async preview<W extends Widget>(
     viewId: string,
@@ -130,8 +127,8 @@ export class PreviewTabs {
   /**
    * `focus` false reveals the tab without taking focus, so a single click
    * leaves the caret in the tree and the arrow keys keep walking the list,
-   * previewing each row as it goes. Pinning is an explicit "I want this
-   * one", so it focuses.
+   * previewing each row as it goes (a row with an open tab focuses that tab
+   * instead, #1324). Pinning is an explicit "I want this one", so it focuses.
    */
   protected attach(widget: Widget, focus: boolean): void {
     // A view of the previous project that was still loading when another
