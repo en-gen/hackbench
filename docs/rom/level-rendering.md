@@ -39,7 +39,7 @@ ROM
 │                                  │             L2UploaderTable.ts); bank byte
 │                         ┌────────┴──────┐      is cross-checked against it
 │                    objects mode        image mode (bank = $FF)
-│                  parseL2Objects()      LC_RLE1 tilemap ⚠ not yet impl.
+│                  parseL2Objects()      LC_RLE1 tilemap (L2Loader.ts)
 │                         │
 │                    expandLevel()
 │                         │
@@ -82,10 +82,8 @@ ROM
 │     Row  2: FG tile colors           ←── $B190 (variant 0; variants 1–n from $B1C0 ⚠)
 │     Row  3: FG tile colors           ←── $B1A8
 │     Rows 4–8: Sprite palettes        ←── $B348 + spriteSet × 120
-│     Row  9–12: (berry/Yoshi/misc)    ←── not yet loaded
-│     Row 13: Player palette           ←── $B2C8 + marioVariant × 20
-│     Row 14: Sprite palette E         ←── $B318
-│     Row 15: Sprite palette F         ←── $B330
+│     Rows 9–13: standard colors, player variant overlaid on row 8 (see PaletteLoader.ts header)
+│     Rows 14–15: level sprite colors ←── $B318 (variant-selected)
 │
 │   Back area color: $B0A0 + backAreaVariant × 2 (single BGR555 word)
 │   Custom per-level palette: $0EF600 + levelIndex × 3 → 514-byte block
@@ -303,14 +301,11 @@ digest (follow-up #751).
 
 | Gap | File | Status |
 |---|---|---|
-| L2 bank=$FF tilemap (LC_RLE1) | LevelParser.ts, MapEditorProvider.ts | ❌ Not implemented |
 | BG/FG palette variant addresses for variants ≥ 1 | PaletteLoader.ts | ⚠ Unverified ($B0E0 region) |
-| CGRAM rows 9–12 (berry/Yoshi/misc) | PaletteLoader.ts | ❌ Not loaded |
 | Colors 13–15 per palette row | PaletteLoader.ts | ❌ Not read (only indices 1–12) |
 | Sprite GFX rendering (sp1–sp4) | TileRenderer.ts | ❌ OBJ space not in atlas |
 | GFX33 (decimal 33) VRAM slot | GfxLoader.ts | ⚠ Loaded into bg1 ($280–$2FF) - unverified |
 | L2 object type meanings | ObjectExpander.ts | ❌ All expand to TILE_UNKNOWN |
-| Screen exits (level folder links) | SmwRom.ts, RomExplorerProvider.ts | ❌ Not implemented |
 
 ---
 
