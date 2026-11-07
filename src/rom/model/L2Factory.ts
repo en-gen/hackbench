@@ -74,8 +74,8 @@ export function buildL2(
   /**
    * `Layer1ScrollCmd` from `findLevelScrollSprite` (or null when no scroll
    * sprite). Recorded on the scroll-range descriptor for diagnostic / label
-   * purposes. Note: this is L1's cmd, not L2's - gameplay never sets
-   * `Layer2ScrollCmd`. See `findLevelScrollSprite` JSDoc.
+   * purposes. Note: this is L1's cmd; the setups also store the L2 cmd in the
+   * adjacent byte. See `findLevelScrollSprite` JSDoc.
    */
   layer1ScrollCmd: number | null,
   /** Initial Layer1YPos at level start - needed for scroll-range pixel math. */

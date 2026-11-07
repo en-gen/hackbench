@@ -439,12 +439,11 @@ export function enumerateL2Presets(
  * byte = `spriteId - $E7` is written to **`Layer1ScrollCmd`** at bank_02.asm
  * lines 5290-5300 and dispatched to the L1 setup table at bank_05.asm:4583+.
  *
- * Note: this is the L1 cmd, not the L2 cmd. `Layer2ScrollCmd` is never set
- * during gameplay levels (every CPU write to it lives in bank_0C cutscene/
- * credits code), so the L2 per-frame dispatch at bank_05.asm:4544 never fires.
- * L2 motion in normal gameplay comes from parallax (HorizLayer2Setting /
- * VertLayer2Setting tables) and event-driven sources (screen shake, sink/rise
- * timers set up by L1 cmds like $0E).
+ * Note: this is the L1 cmd. The setups store 16 bits into `Layer1ScrollCmd`, so the
+ * high byte lands in the adjacent `Layer2ScrollCmd` (bank_05.asm:4628-4632, 4938-4940),
+ * and the L2 per-frame dispatch at bank_05.asm:4542-4565 fires on maps with a scroll
+ * sprite. The literal writes outside bank_0C are only the clear at bank_02.asm:5834,
+ * which is why a text search finds none. docs/rom/map-layer2-motion.md.
  */
 export const SCROLL_SPRITE_BASE = 0xe7
 
@@ -577,8 +576,8 @@ function findGridDataRows(grid: readonly (readonly (number | null)[])[]): [numbe
  * visualize. Mirrors the shape of `computeL3ScrollRange`.
  *
  * Returns `kind: 'fixed'` whenever the grid has any data - gameplay-L2 has
- * no per-frame Y animation we've decoded yet (Layer2ScrollCmd is always 0
- * in vanilla play; cmd-$0E sink-rise needs separate verification). The
+ * no per-frame Y animation decoded here (the per-frame motion is run from the ROM
+ * by MapMotion.ts, docs/rom/map-layer2-motion.md). The
  * rect is at `firstRow*16 + dy` to `(lastRow+1)*16 + dy` where `dy =
  * initialCameraYPx - initialLayer2YPx`, matching the L2ObjectStream.render
  * formula.
