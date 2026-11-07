@@ -51,7 +51,7 @@ export interface L2Inputs {
   beyond?: (number | null)[][]
   /** Dispatch-path notes from the object build (#493), deduped by the caller; absent for an image. */
   unverified?: string[]
-  /** Why `dy` is unverified: the entrances that reach the map start L2 at different heights (#505). */
+  /** Why `dy` is unverified: the entrances disagree on the height (#505), the exit graph is unavailable (#1039), or the entrance-position gate fails (#909). */
   note?: string
   /** The reasons `note` joins, so the map note can merge one a sibling part also gives (#926). */
   reasons?: string[]

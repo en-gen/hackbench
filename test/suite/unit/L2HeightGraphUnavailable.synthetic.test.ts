@@ -3,7 +3,8 @@
  * (#910 did the same for Layer 3). It must say so, in the one sentence both layers share. Synthetic
  * bytes only; the corpus block proves vanilla (whose graph builds) gains no note.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+import * as Map16Mod from '../../../src/rom/Map16'
 import { SmwRom, type MapEntrances } from '../../../src/rom/SmwRom'
 import type { RomFile } from '../../../src/rom/RomFile'
 import type { L1Inputs } from '../../../src/rom/model/L1Model'
@@ -25,11 +26,24 @@ import { modeTablesRom, STANDARD, withLayer3 } from '../support/l3Rom'
 import { plantUploaderTable } from '../support/l2UploaderRom'
 import { writeStockSkipChain } from '../support/skipChain'
 
+vi.mock('../../../src/rom/Map16', async importOriginal => {
+  const real = await importOriginal<typeof Map16Mod>()
+  return {
+    ...real,
+    readL2Map16Table: vi.fn(real.readL2Map16Table),
+    loadMap16Tiles: vi.fn(real.loadMap16Tiles),
+  }
+})
+
 const MAP = 5
 const GATE = 'the level-start code is not stock.'
 const flags = { green: false, yellow: false, blue: false, red: false }
 
-function build(vertical: boolean): RomFile {
+type Kind = 'objects' | 'image'
+const KINDS: Kind[] = ['objects', 'image']
+
+/** `kind` image: a $FF preset pointer in an image level mode (mode 0), as 462 of 488 buildable vanilla maps are. */
+function build(vertical: boolean, kind: Kind = 'objects'): RomFile {
   const rom = modeTablesRom([STANDARD, ...Array(31).fill(STANDARD)])
   rom.writeAt(0x05d708, [0x10, 0x60, 0xc0, 0x30])
   rom.writeAt(0x05d70c, [0x08, 0x28, 0x48, 0x68])
@@ -37,16 +51,20 @@ function build(vertical: boolean): RomFile {
   rom.writeAt(0x05f600 + MAP, [vertical ? 0x22 : 0x02])
   rom.writeAt(0x05e600 + MAP * 3, [0x00, 0xe9, 0x05])
   rom.writeAt(0x05803b, [0xc9])
+  if (kind === 'image') {
+    rom.writeAt(0x05e600 + MAP * 3, [0x00, 0x80, 0xff])
+    rom.writeAt(0x0c8000, [0x84, 0x07, 0xff, 0xff])
+  }
   plantUploaderTable(rom)
   writeStockSkipChain(rom)
   return rom
 }
 
-const l1Of = (vertical: boolean) =>
+const l1Of = (vertical: boolean, kind: Kind = 'objects') =>
   ({
     screenCount: 1,
     isVertical: vertical,
-    header: { levelMode: 1, objectTileset: 0 },
+    header: { levelMode: kind === 'image' ? 0 : 1, objectTileset: 0 },
     map16: { tiles: [] },
   }) as unknown as L1Inputs
 
@@ -54,23 +72,34 @@ function l2Of(
   vertical: boolean,
   gate: string | null,
   entrances?: MapEntrances | typeof GRAPH_UNAVAILABLE,
+  kind: Kind = 'objects',
 ) {
+  // The synthetic cart holds no Map16 table, which only the image branch reads.
+  vi.mocked(Map16Mod.readL2Map16Table).mockReturnValueOnce({ ok: true, value: [0] })
+  vi.mocked(Map16Mod.loadMap16Tiles).mockReturnValueOnce([])
   const smw = {
-    rom: build(vertical),
+    rom: build(vertical, kind),
     getVerticalTable: () => ({ ok: true, table: new Array(32).fill(vertical ? 2 : 0) }),
   }
-  const r = buildL2Inputs(smw as unknown as SmwRom, MAP, l1Of(vertical), entrances, () => gate)
+  const r = buildL2Inputs(
+    smw as unknown as SmwRom,
+    MAP,
+    l1Of(vertical, kind),
+    entrances,
+    () => gate,
+  )
   if (!r.ok) throw new Error(r.reason)
   return r.l2
 }
 
-describe.each([false, true])(
-  'the background height when the exit graph is unavailable, vertical=%s (#1039)',
-  vertical => {
+describe.each(KINDS.flatMap(k => [[false, k] as const, [true, k] as const]))(
+  'the background height when the exit graph is unavailable, vertical=%s, L2 %s (#1039)',
+  (vertical, kind) => {
     it.each([null, GATE])(
       'says the height is unverified and why, gate=%s, and still draws it',
       gate => {
-        const l2 = l2Of(vertical, gate, GRAPH_UNAVAILABLE)
+        const l2 = l2Of(vertical, gate, GRAPH_UNAVAILABLE, kind)
+        expect(l2.kind).toBe(kind)
         expect(l2.note).toBe(
           `Background height unverified: ${[gate, EXIT_GRAPH_UNAVAILABLE].filter(Boolean).join(' ')}`,
         )
@@ -79,17 +108,24 @@ describe.each([false, true])(
     )
 
     it('reads the same height as the call that does not say, and stays silent when it does not say', () => {
-      const silent = l2Of(vertical, null)
+      const silent = l2Of(vertical, null, undefined, kind)
       expect(silent.note).toBeUndefined()
-      expect(l2Of(vertical, null, GRAPH_UNAVAILABLE).dy).toBe(silent.dy)
+      expect(l2Of(vertical, null, GRAPH_UNAVAILABLE, kind).dy).toBe(silent.dy)
     })
 
     it('stays silent when the graph is available, even for a map it never reached', () => {
       const empty = { overworld: false, primary: false, secondary: [] } as MapEntrances
-      expect(l2Of(vertical, null, empty).note).toBeUndefined()
+      expect(l2Of(vertical, null, empty, kind).note).toBeUndefined()
     })
   },
 )
+
+describe('the shared sentence', () => {
+  it('reads true for one layer or both, so it never says "this layer"', () => {
+    expect(EXIT_GRAPH_UNAVAILABLE).not.toMatch(/this layer/)
+    expect(EXIT_GRAPH_UNAVAILABLE).toMatch(/the map is shown as if it were entered/)
+  })
+})
 
 describe('the Theia build (#1039)', () => {
   const build1 = (graph: ReturnType<typeof readMapEntrances> | Map<number, MapEntrances>) => {
@@ -123,12 +159,34 @@ describe('the notes the user sees, through the real merge (#1039, #926)', () => 
   const sheets = () => [[]] as never
   // Real L2 and L3 builders on one cart, the graph unavailable; the model goes through screenResult.
   const layerNotes = (gateOn: boolean) => {
-    const raw = withLayer3(build(false), { level: MAP, tileset: 0, setting: 2, settingsByte: 0x02, word: 2 }) // prettier-ignore
+    const raw = withLayer3(build(false), {
+      level: MAP,
+      tileset: 0,
+      setting: 2,
+      settingsByte: 0x02,
+      word: 2,
+    })
     const smw = { rom: raw, getVerticalTable: () => ({ ok: true, table: new Array(32).fill(0) }) }
     const l1 = { ...inputs(hGrid(1), false, 1, 0), header }
-    const l2 = buildL2Inputs(smw as unknown as SmwRom, MAP, l1, GRAPH_UNAVAILABLE, gateOn ? undefined : () => null) // prettier-ignore
+    const l2 = buildL2Inputs(
+      smw as unknown as SmwRom,
+      MAP,
+      l1,
+      GRAPH_UNAVAILABLE,
+      gateOn ? undefined : () => null,
+    )
     // `[]` spans leave the L3 side with no gate reason of its own; gate-on leaves both on the real gate, which words the same reason for each.
-    const l3 = buildL3Verdict(raw, MAP, l1, { ok: true, mode: 1 }, sheets, { ok: true }, undefined, GRAPH_UNAVAILABLE, gateOn ? undefined : []) // prettier-ignore
+    const l3 = buildL3Verdict(
+      raw,
+      MAP,
+      l1,
+      { ok: true, mode: 1 },
+      sheets,
+      { ok: true },
+      undefined,
+      GRAPH_UNAVAILABLE,
+      gateOn ? undefined : [],
+    )
     const w = screenResult({ ...l1, l2, l3 }, 0)
     if (w.status !== 'ok') throw new Error(w.status)
     return w.layerNotes
@@ -158,6 +216,9 @@ describe.skipIf(!hasRom(VANILLA))(
         const built = buildMapInputs(rom, i, flags, undefined, undefined, () => graph)
         if (!built.ok || !built.inputs.l2?.ok) continue
         drawn++
+        // Height unchanged is not asserted here: with the graph available the height comes from the
+        // entrances, and no second oracle for it exists in this test. The synthetic cases above pin the
+        // sentinel's height to the omitted-argument height instead.
         expect(built.inputs.l2.l2.note ?? '', `map ${i}`).not.toContain(EXIT_GRAPH_UNAVAILABLE)
       }
       expect(drawn).toBeGreaterThan(0)

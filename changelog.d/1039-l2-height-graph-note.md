@@ -1,3 +1,3 @@
 ### Changed
 
-- The map view's "Background height unverified" note now also appears when HackBench could not work out which entrance starts the map (a hooked hack), as Layer 3's position already did (#1039). When both layers have the same reason they share one note. The height drawn is unchanged.
+- Maps view (#1039): when the map exit graph cannot be built, the background height now says "Background height unverified" (HackBench could not work out which entrance starts the map, so it is shown as if entered from the main entrance), as the Layer 3 position already did (#910). When both layers give the same reason they share one note. The height drawn is unchanged. Evidence: synthetic carts (background as an object stream and as an image, horizontal and vertical) plus vanilla (no map gains the note), one ROM revision, one machine. None of the 5 corpus hacks reaches the note, because they refuse the map at the Layer 1 build first.

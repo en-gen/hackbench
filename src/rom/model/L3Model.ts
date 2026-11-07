@@ -33,9 +33,11 @@ import { FALLBACK_SCREENS, screenPlanes, type ScreenPlanes } from './ScreenPlane
 export const GRAPH_UNAVAILABLE = 'graph-unavailable'
 
 /**
- * Said when the exit graph could not be built (a hooked hack, #910): which entrance starts the map
- * is then unknown, so `chooseEntrance` falls back to the primary row, a guess a secondary-only map
- * would contradict. Reads after "Layer 3 position unverified: ".
+ * Said when the exit graph could not be built (#910, #1039): which entrance starts the map is then
+ * unknown, so `chooseEntrance` falls back to the primary row, a guess a secondary-only map would
+ * contradict. Shared by the Layer 3 position and the background height; reads after either
+ * "Layer 3 position unverified: " or "Background height unverified: ", or after "Background height
+ * and Layer 3 position unverified: " when both give it.
  */
 export const EXIT_GRAPH_UNAVAILABLE =
   'HackBench could not work out which entrance starts this map, so the map is shown as if it were entered from its main entrance.' // prettier-ignore
