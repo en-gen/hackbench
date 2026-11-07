@@ -11,8 +11,11 @@
  * indicator and a layer toggle leave every screen moving.
  * Block indicators stay visible while it plays (D52); a refused map has a disabled button with the reason; a
  * hidden tab stops it.
- * Plant for the verifier: in `playTick` (map-view-widget.tsx) use `m.shiftY[f + 1]`; the offset assertion goes
- * red. In `playTick` drop `this.syncDisplays()`; the indicator assertions go red.
+ * Plants for the verifier. (1) In `playTick` (map-view-widget.tsx) use `m.shiftY[f + 1]`: the offset assertion goes
+ * red. (2) In `playTick` drop `this.syncDisplays()`: a screen with indicators keeps the display built before Play
+ * (width > 0 over a hidden composite) while the offset moves, so its visible hash does not change and the
+ * 'visible hash changes on every screen with a display' assertions in the stop test and the hover/toggle test go
+ * red (`frozenScreens` lists the screens).
  * NOT covered: the exact pixels of a shifted Layer 2 (unit tests cover the shift and the wrap).
  */
 const { test, expect } = require('@playwright/test')
@@ -133,6 +136,28 @@ const opsListing = () => {
   return fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true }).sort() : []
 }
 
+/**
+ * The screens in `ids` whose VISIBLE canvas did not change while the offset moved by at least 20 rows. A display
+ * that is not redrawn per frame (the plant in the header) shows here; a composite-key check would not.
+ */
+async function frozenScreens(page, slot, ids) {
+  const a = await snapshot(page, slot)
+  await expect
+    .poll(async () => Math.abs((await snapshot(page, slot)).shift - a.shift), {
+      timeout: 30000,
+      intervals: [100],
+    })
+    .toBeGreaterThanOrEqual(20)
+  const b = await snapshot(page, slot)
+  return ids.filter(s => !a.screens[s] || !b.screens[s] || a.screens[s].h === b.screens[s].h)
+}
+
+/** The screens that show a display (indicators) in `snap`. */
+const withDisplay = snap =>
+  Object.entries(snap.screens)
+    .filter(([, v]) => v.displayWidth > 0)
+    .map(([s]) => s)
+
 /** Waits until the run is at a frame whose offset is not zero; the wait comes from the run, not from a number here. */
 async function untilShifted(page, slot, run) {
   const first = run.shiftY.findIndex(v => v !== 0)
@@ -205,9 +230,9 @@ test('stop restores what is visible exactly, indicator screens included, and wri
     expect(during.screens[s]?.displayWidth).toBeGreaterThan(0)
     expect(during.screens[s]?.compositeHidden).toBe(true)
   }
-  expect(Object.keys(during.screens).some(s => during.screens[s].h !== before.screens[s]?.h)).toBe(
-    true,
-  )
+  const indicated = withDisplay(before)
+  expect(indicated.length).toBeGreaterThan(0)
+  expect(await frozenScreens(page, 0x9, indicated)).toEqual([])
   await page.locator(playOf(0x9)).click()
   await expect(page.locator(playOf(0x9))).toHaveAttribute('data-play-state', 'ready')
   await expect
@@ -249,15 +274,12 @@ test('while playing, a hover over an indicator and a layer toggle leave every sc
       },
     )
     .toBe(true)
+  const indicated = withDisplay(await snapshot(page, 0x9))
+  expect(indicated.length).toBeGreaterThan(0)
   await page.locator(playOf(0x9)).click()
   await untilShifted(page, 0x9, run)
-  const moving = async () => {
-    const a = await snapshot(page, 0x9)
-    await page.waitForTimeout(500)
-    const b = await snapshot(page, 0x9)
-    const ids = Object.keys(b.screens)
-    return ids.length > 0 && ids.every(s => b.screens[s].key !== a.screens[s]?.key)
-  }
+  // Moving: every screen that has indicators draws a different picture as the offset moves.
+  const moving = async () => (await frozenScreens(page, 0x9, indicated)).length === 0
   // Indicators stay up while Play runs (D52): a display canvas with width sits over a hidden composite.
   const shown = async () =>
     Object.values((await snapshot(page, 0x9)).screens).some(
@@ -335,9 +357,8 @@ test('a tab that is hidden stops Play, and shows the map at rest when it comes b
   await untilShifted(page, 0x9, run)
   await openMap(page, 0x105)
   await expect.poll(async () => (await snapshot(page, 0x9)).playing, { timeout: 15000 }).toBe(false)
-  await page.evaluate(() => {
-    const shell = getSvc('ApplicationShell')
-    return shell.activateWidget('hackbench.map-view:9')
+  await page.evaluate(async () => {
+    await getSvc('ApplicationShell').activateWidget('hackbench.map-view:9')
   })
   await expect(page.locator(playOf(0x9))).toHaveAttribute('data-play-state', 'ready')
   expect((await snapshot(page, 0x9)).shift).toBe(0)

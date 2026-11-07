@@ -19,6 +19,7 @@ export type MotionRoutine =
   | 'brkIfMario' // faults when Mario's Y is not 0
   | 'brkIfCam' // moves nothing, and faults when the camera X is not 0
   | 'brkCamOnly' // moves nothing, and faults when the camera is placed but Layer2Touched is clear
+  | 'camFollowX' // rises, and only the camera X copies Mario's X (Layer 2 X stays)
   | 'camFollow' // rises, and both camera X words copy Mario's X
   | 'idle'
   | 'brk'
@@ -83,6 +84,7 @@ const ROUTINES: Record<MotionRoutine, string> = {
   brkIfMario: `${OPEN} a5 96 f0 02 00 00 ${rise(0x1468)} ${CLOSE}`,
   brkIfCam: `${OPEN} ad 62 14 f0 02 00 00 ${CLOSE}`,
   brkCamOnly: `${OPEN} ad 0e 14 d0 07 ad 62 14 f0 02 00 00 ${CLOSE}`,
+  camFollowX: `${OPEN} ${rise(0x1468)} a5 94 8d 62 14 ${CLOSE}`,
   camFollow: `${OPEN} ${rise(0x1468)} a5 94 8d 62 14 8d 66 14 ${CLOSE}`,
   idle: '8b ab 6b',
   brk: '8b 00 00',

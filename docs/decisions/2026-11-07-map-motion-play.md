@@ -40,8 +40,8 @@ wording not recorded. All seven were taken as [PROP] by the implementer on Overw
 4. Option a, pending this file. Entry call sites are the two JSLs inside `CODE_00A28A` (`bank_00.asm:4505-4506`), byte-checked with their destinations; nothing is hardcoded about paths or tables. Evidence: $009 matches a Mesen capture on 7,999 of 7,999 frames; one machine.
 5. Option a. The inputs are stated in `docs/rom/map-layer2-motion.md` and in the tooltip; a camera-only run must move nothing, else call 7.
 6. Option a. No horizontal shift is built; a vertical map or a run whose relative X changes refuses.
-7. Option a. The idle run is repeated with Mario's X and Y moved. In vanilla that refuses 11 of the 22 slots with a scroll command: `mario-dependent` for $01A and $111 (the camera alone moves them), $122 and $1D1 (the offsets or relative X differ); `camera-follows-mario` for $0D4, $0DC, $115, $1CE, $1CF, $1E3, $1F3, 6 of which loop on their own.
-8. Option a, for the owner. Opening those seven is an owner call. The likely fix is option b: draw the idle run's offsets and hide the camera frame, since the offsets and relative X are equal with Mario moved and only the camera differs; their runs reach the 20,000-frame cap, so the loop would need an end rule of its own.
+7. Option a. The idle run is repeated with Mario's X and Y moved. In vanilla that refuses 11 of the 22 slots with a scroll command: `mario-dependent` for $01A and $111 (the camera alone moves them) and $122 (the offsets differ); `camera-follows-mario` for $0D4, $0DC, $115, $1CE, $1CF, $1D1, $1E3, $1F3, 7 of which loop on their own.
+8. Option a, for the owner. Opening those eight is an owner call. The likely fix is option b: draw the idle run's offsets and hide the camera frame, since the offsets and relative X are equal with Mario moved and only the camera differs; their runs reach the 20,000-frame cap, so the loop would need an end rule of its own.
 
 ## Why
 

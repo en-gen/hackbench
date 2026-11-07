@@ -145,6 +145,10 @@ describe('synthetic carts', () => {
     if (r.status === 'refused') expect(r.reason).toMatch(/camera follows Mario/)
   })
 
+  it('a camera that follows Mario and drags Layer 2 sideways with it is still down to the camera', () => {
+    expect(run('camFollowX')).toMatchObject({ status: 'refused', kind: 'camera-follows-mario' })
+  })
+
   it('code that faults only in the Mario run, or only in the camera run, is an interpreter refusal', () => {
     expect(run('brkIfMario')).toMatchObject({ status: 'refused', kind: 'interpreter' })
     expect(run('brkIfCam')).toMatchObject({ status: 'refused', kind: 'interpreter' })
@@ -223,9 +227,12 @@ const PINNED: Record<number, string> = {
   ...Object.fromEntries(
     [0x00c, 0x01f, 0x0c8, 0x0e7, 0x1c8, 0x1d4, 0x1fc].map(n => [n, 'refused:sideways']),
   ),
-  ...Object.fromEntries([0x01a, 0x111, 0x122, 0x1d1].map(n => [n, 'refused:mario-dependent'])),
+  ...Object.fromEntries([0x01a, 0x111, 0x122].map(n => [n, 'refused:mario-dependent'])),
   ...Object.fromEntries(
-    [0x0d4, 0x0dc, 0x115, 0x1ce, 0x1cf, 0x1e3, 0x1f3].map(n => [n, 'refused:camera-follows-mario']),
+    [0x0d4, 0x0dc, 0x115, 0x1ce, 0x1cf, 0x1d1, 0x1e3, 0x1f3].map(n => [
+      n,
+      'refused:camera-follows-mario',
+    ]),
   ),
 }
 
@@ -312,8 +319,8 @@ describe.skipIf(!hasRom(VANILLA))('vanilla corpus', () => {
       none: 490,
       ok: 4,
       'refused:sideways': 7,
-      'refused:mario-dependent': 4,
-      'refused:camera-follows-mario': 7,
+      'refused:mario-dependent': 3,
+      'refused:camera-follows-mario': 8,
     })
   }, 600_000)
 })

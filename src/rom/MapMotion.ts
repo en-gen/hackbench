@@ -230,9 +230,12 @@ export function motionFromWram(rom: RomFile, wram: Uint8Array): MotionResult {
     const other = run('mario', pass.frames.l1x.length - 1)
     if (failed(other)) return failed(other)!
     const [a, b] = [relativeShift(pass.frames), relativeShift(other.frames)]
-    if (!same(a.y, b.y) || !same(a.x, b.x)) return refuse('mario-dependent', MARIO_DEPENDENT)
-    if (!same(pass.frames.l1x, other.frames.l1x) || !same(pass.frames.l1y, other.frames.l1y))
-      return refuse('camera-follows-mario', CAMERA_FOLLOWS)
+    if (!same(a.y, b.y)) return refuse('mario-dependent', MARIO_DEPENDENT)
+    // The offsets match: a camera that differs is the cause, even where it also moves Layer 2 sideways (parallax).
+    const cameraSame =
+      same(pass.frames.l1x, other.frames.l1x) && same(pass.frames.l1y, other.frames.l1y)
+    if (!cameraSame) return refuse('camera-follows-mario', CAMERA_FOLLOWS)
+    if (!same(a.x, b.x)) return refuse('mario-dependent', MARIO_DEPENDENT)
   } else {
     kind = 'needs-mario'
     // The camera alone must move nothing: a routine the placed camera moves depends on where Mario is.
