@@ -3970,7 +3970,7 @@ test('refreshing or single-clicking the same map keeps presses; a pinned tab kee
   await expect(page.locator(root(0x106))).toHaveCount(1)
 })
 
-// #1299: a double click pins what the preview shows. The explorer's click selects first, so the other-row pin is driven through fireOpen, as Enter on a row does.
+// #1299: a double click pins what the preview shows. The explorer's click selects first, so a pin for another row comes from Enter in a filtered search or a double click that has moved the preview.
 const planeOn = (page, tab, p) =>
   page
     .locator(`${root(tab)} canvas[data-plane="${p}"]`)
@@ -4077,6 +4077,16 @@ test('Enter on a filtered row pins it at defaults and leaves the preview of the 
       .then(w => w.node.focus()),
   )
   await page.keyboard.type('$109')
+  // The filter selects after a debounce; an earlier Enter would open the row still selected.
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        getSvc('WidgetManager')
+          .getOrCreateWidget('hackbench.map-explorer')
+          .then(w => w.model.selectedNodes[0]?.index),
+      ),
+    )
+    .toBe(0x109)
   await page.keyboard.press('Enter')
   opened.push('hackbench.map-view:265')
   await expect.poll(() => pressedOf(page, 0x109)).toEqual(all('false'))
