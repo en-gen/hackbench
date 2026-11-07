@@ -5026,7 +5026,7 @@ function pokeMap16(cur: Cursor, addr: number, page: number, low: number): void {
  * when a JSR does not reach the stock subroutine the port models.
  */
 export function handle_0DDF3A(cur: Cursor): void {
-  if (cur.grid.length !== 27) return
+  if (cur.vertical) return
   const k = readWallSites(cur)
   if (!k) return
   const word = (addr: number): number => (readImmByte(cur, addr + 1) << 8) | readImmByte(cur, addr)
