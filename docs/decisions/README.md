@@ -6,6 +6,7 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 
 | File | State | Decides |
 | --- | --- | --- |
+| [2026-11-07-map-motion-play.md](2026-11-07-map-motion-play.md) | Proposed | Play on the map toolbar (#1242): shows what the routine moves, loops from the load state, runs the two per-frame scroll routines on the interpreter (needs the rule's decision), states the Mario inputs for touch-driven routines, refuses vertical maps, sideways runs and maps that depend on where Mario is |
 | [2026-11-06-rope-length-calls.md](2026-11-06-rope-length-calls.md) | Proposed | the rope's sprite-slot length: the dispatch role gate picks the sprites, setting 1's odd rope is long and solid (fixed-range spawners assumed away), no hover line for the door, the Properties preview draws door tiles solid |
 | [2026-11-06-map-notes-spawner-ratios-stay-collapsed.md](2026-11-06-map-notes-spawner-ratios-stay-collapsed.md) | Proposed | per-spawner ratio sentences ("Only N of 5 appear") stay collapsed in the map note, not summed; only "N did not draw" sums, per noun (#1281) |
 | [2026-11-06-map-notes-mixed-reasons-in-notedetail.md](2026-11-06-map-notes-mixed-reasons-in-notedetail.md) | Proposed | two spawners of one noun with different reasons give one total in the note and the reasons in `noteDetail`, as #1256 set (#1281) |
