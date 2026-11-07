@@ -8,6 +8,7 @@ import {
   OFF_BUFFER_REASON,
   OWNER_NONE,
   clearPageKeepLow,
+  peekExistingLow,
   makeCursor,
   writeTile,
   type Cursor,
@@ -85,6 +86,15 @@ describe('a step left off column 0 is before the buffer: marked, not drawn on th
     writeTile(cur, 0x41)
     expect(JSON.stringify(grid)).toBe(before)
     expect(cur.refusals).toHaveLength(1)
+  })
+})
+
+describe('a read past the bottom row sees the cell a write there would change', () => {
+  it('peekExistingLow reads the wrapped cell, and a cell outside the buffer reads as empty', () => {
+    const grid = hGrid(2)
+    grid[0]![19] = 0x177
+    expect(peekExistingLow(at(grid, 27, 3))).toBe(0x77)
+    expect(peekExistingLow(at(grid, 0, -1))).toBe(0x25)
   })
 })
 

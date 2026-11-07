@@ -82,6 +82,13 @@ describe('checkGrid', () => {
     expect(checkGrid(rom, gridRow(0x25), META, 16, false).mismatches).not.toEqual([]) // horizontal still refuses
   })
 
+  it('a grid with fewer rows than the capture is a dimension mismatch, vertical or not', () => {
+    for (const vertical of [false, true])
+      expect(checkGrid([], gridRow(0x25), META, vertical ? 1 : 16, vertical).mismatches).toEqual([
+        { table: 'grid', cell: 'dimensions', expected: '16x1', actual: '0x0' },
+      ])
+  })
+
   it("reports a dimension mismatch when the capture's own screen axis disagrees with extent, never silently truncating", () => {
     // prettier-ignore
     // The capture states 2 screens (32 cols); the ROM's own header/boss-arena
