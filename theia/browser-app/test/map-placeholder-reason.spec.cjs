@@ -23,6 +23,7 @@ const GET_SVC = `function getSvc(name) {
   return null
 }`
 const REFUSED = "The app could not run this sprite's code."
+const UNREVEALED = 'It draws nothing at first, and the app could not tell what reveals it.'
 const EXTRA =
   'It uses the extra-bits marker that custom sprites use, so vanilla art would be wrong.'
 const SYNTHETIC = 'synthetic.hbproj'
@@ -130,14 +131,14 @@ test('a named lone $9B and a nameless sprite say why they are markers; a drawn s
           id: 0x9b,
           name: 'Hammer Brother',
           status: 'placeholder',
-          reason: 'refused: INIT: planted',
+          reason: 'unrevealed',
         }),
         row(901, 60, { id: 0x77, status: 'placeholder', reason: 'extraBits' }),
         row(902, 100, { name: 'Test sprite' }),
       ],
     },
   })
-  expect(await hoverText(page, 28, 108)).toBe(`Hammer Brother (sprite $9B): ${REFUSED}`)
+  expect(await hoverText(page, 28, 108)).toBe(`Hammer Brother (sprite $9B): ${UNREVEALED}`)
   expect(await hoverText(page, 68, 108)).toBe(`Sprite $77: ${EXTRA}`)
   expect(await hoverText(page, 108, 108)).toBe('Test sprite')
 })

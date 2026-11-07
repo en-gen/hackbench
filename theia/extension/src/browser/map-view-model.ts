@@ -22,7 +22,7 @@ import {
 import { SPRITE_KEYS, type FlameKey, type SpriteKey } from '../../../../src/rom/model/ScreenPlanes'
 import { decodeBase64Bytes, decodeRgba } from './map16-pixels'
 import { SWITCH_ORDER } from './map16-view-model'
-import { notDrawnText, spriteLabel } from './sprite-props'
+import { placeholderText } from './sprite-props'
 
 export const PALACES: readonly (keyof SwitchFlagsDto)[] = ['yellow', 'green', 'red', 'blue']
 
@@ -109,7 +109,8 @@ export function spriteName(
   s: Pick<MapSpriteDto, 'name' | 'reveal' | 'id'> &
     Partial<Pick<MapSpriteDto, 'status' | 'reason'>>,
 ): string | undefined {
-  if (!s.reveal && s.status === 'placeholder') return `${spriteLabel(s)}: ${notDrawnText(s.reason)}`
+  const marker = placeholderText(s)
+  if (marker) return marker
   if (!s.reveal) return s.name || undefined
   return `${s.name || `Sprite $${s.id.toString(16).toUpperCase().padStart(2, '0')}`}: ${s.reveal}`
 }
