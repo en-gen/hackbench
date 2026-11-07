@@ -26,7 +26,7 @@ import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import { CAPTURE_DIR, VANILLA, freshRom, hasCaptures, hasRom } from '../support/corpus'
 import { runnerId, timelineFor } from '../support/gradeTimeline'
 import { isolatedGit, isolateProcessGit } from '../support/isolatedGit'
-import { slow } from '../support/loadTimeout'
+import { slow, loadTimeout } from '../support/loadTimeout'
 import { grade } from '../support/spriteGrade'
 import { unzip } from '../../../tools/scripts/capture_render'
 import {
@@ -56,6 +56,8 @@ import {
   type Io,
 } from '../../../tools/scripts/spriteReportRun'
 
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
+
 // Wraps cpSync so one test can make the copy throw partway; everything else is the real fs.
 vi.mock('fs', async orig => {
   const a = await orig<typeof import('fs')>()
@@ -76,11 +78,10 @@ const git = (cwd: string, ...a: string[]): string => {
   return r.stdout
 }
 
-// Git-heavy tests (30 to 45 git spawns each). Measured worst case: 12 copies of this file at once,
-// n=12, one 32-CPU machine shared with other work: 8479 ms for the clone-spellings test, 5.4 s for
-// the others (some were cut off by the 5 s default, so their true worst is higher). 20 s is local-load
-// headroom, not a CI number; slow() keeps CI's 60 s floor.
-const GIT_HEAVY = slow(20_000)
+// Git-heavy tests (30 to 45 git spawns each). Measured worst case: 31258 ms for the
+// clone-spellings test, in a seven-file, one-worker batch with other runs active, one Windows machine (#1209 review);
+// earlier, 12 copies at once gave 8479 ms. 60 s is local-load headroom, and it is also CI's floor.
+const GIT_HEAVY = slow(60_000)
 
 const COUNTS: Record<ReportVerdict, number> = {
   exact: 4,

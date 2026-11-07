@@ -8,7 +8,7 @@
  *    but unauthenticated (sentinel tokens, see noRealGh.test.ts). An env built
  *    without spreading process.env is outside the guard.
  */
-import { describe, it, expect, afterAll, beforeAll } from 'vitest'
+import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest'
 import { execFileSync, spawnSync } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
@@ -16,6 +16,9 @@ import * as os from 'node:os'
 import { assertGuardActive } from '../support/noRealGh'
 import { findBash, resolveGitBash } from '../support/gitBash'
 import { expectGhReachedOrAbsent } from '../support/ghSpawnReached'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const script = path.join(repoRoot, 'tools', 'perf', 'accept.sh')
@@ -198,8 +201,9 @@ describe('the suite-wide guard', { timeout: 90000 }, () => {
 
   it('a spawn with no shell is not authenticated (on win32 it reaches gh.exe)', () => {
     // The 20 s kill fired in 8 of 10 loaded runs (186 ms idle), and a killed spawn
-    // has status null, which passed the check below vacuously.
-    const r = spawnSync('gh', ['auth', 'status'], { encoding: 'utf8', timeout: 60_000 })
+    // has status null, which passed the check below vacuously. The 60 s kill then
+    // fired once at the 24-8-1 recipe (60111 ms, ETIMEDOUT); 120 s doubles it.
+    const r = spawnSync('gh', ['auth', 'status'], { encoding: 'utf8', timeout: 120_000 })
     expectGhReachedOrAbsent(r)
     expect(r.status).not.toBe(0)
     expect(`${r.stdout}${r.stderr}`).not.toMatch(/Logged in/)

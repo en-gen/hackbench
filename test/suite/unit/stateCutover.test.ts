@@ -1,6 +1,6 @@
 // #1202: the state folder moves from .hackbench-state to .overwatch. Every
 // fixture is a temp dir; the real folder is never touched.
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -13,6 +13,9 @@ import {
 } from '../../../tools/scripts/protocol.mjs'
 import { resolveStateDir } from '../../../tools/scripts/state-dir.mjs'
 import { acquire, defaultStateDir, release, status } from '../../../tools/scripts/run-lock.mjs'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const made: string[] = []
 function tempMain(): string {

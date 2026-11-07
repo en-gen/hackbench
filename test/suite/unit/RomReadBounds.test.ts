@@ -8,7 +8,7 @@ import * as path from 'path'
 import * as os from 'os'
 import { execFileSync, spawnSync } from 'child_process'
 import { buildSync } from 'esbuild'
-import { slow } from '../support/loadTimeout'
+import { slow, loadTimeout } from '../support/loadTimeout'
 import {
   readRomBounded,
   readManifestBounded,
@@ -20,6 +20,8 @@ import { RomRegistry } from '../../../src/project/RomRegistry'
 import { WorkingRomRegistry } from '../../../src/project/WorkingRomRegistry'
 import { exportPatch } from '../../../src/project/ExportPatch'
 import { WorkingRom } from '../../../src/project/WorkingRom'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 // Only so the wx test can hide a planted manifest from the occupancy check.
 vi.mock('fs', async importOriginal => {

@@ -12,12 +12,15 @@
  * the `ignore` rules it loads, not by running its indexer (see the last case).
  */
 
-import { describe, it, expect, afterAll, beforeAll } from 'vitest'
+import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest'
 import { execFileSync, spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 import { createRequire } from 'module'
 import { cleanupNested, holdsSessionsFile } from '../support/nestedFolders'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const FOLDERS = ['.worktrees', '.overwatch'] as const
