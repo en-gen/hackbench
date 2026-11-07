@@ -414,6 +414,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   async open(options: MapViewOptions): Promise<void> {
     // First, before `view.state` is read or the New early return: another map starts unpressed (D181).
     if (isDifferentMap(this.options, options)) this.view.reset()
+    this.resetMotion()
     this.options = options
     this.id = `${MAP_VIEW_ID}:${options.index}`
     this.title.label = options.label
@@ -612,14 +613,20 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   }
 
   /** Reads what the map's own scroll routines do. A map being replaced or edited stops a run in progress. */
-  protected async loadMotion(): Promise<void> {
-    const o = this.options
+  protected resetMotion(): void {
     this.stopPlay()
     this.motion = undefined
     this.motionStrips = []
     this.motionWhy = undefined
+    // A reply still on its way is for the map or the edit that has gone.
+    this.motionSeq++
+  }
+
+  protected async loadMotion(): Promise<void> {
+    const o = this.options
+    this.resetMotion()
     if (!o) return
-    const seq = ++this.motionSeq
+    const seq = this.motionSeq
     const r = await this.projects
       .mapMotion(o.manifestPath, o.index)
       .catch(readFailed(this.what('scroll motion')))
@@ -644,10 +651,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.playFrame = 0
     this.playShift = 0
     // The indicator cells are drawn at rest; they step aside while Layer 2 moves.
-    for (const [k, c] of this.canvases) {
-      if (k.startsWith(`${DISPLAY}:`))
-        this.showBare(c, this.composites.get(Number(k.split(':')[1])))
-    }
+    this.sync()
     this.playRaf = requestAnimationFrame(this.playTick)
     this.update()
   }
@@ -1295,7 +1299,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       this.displays.delete(s)
       this.showBare(canvas, comp)
     }
-    if (!comp?.dataset.drawn || !shot || !b) return hide()
+    // Playing: the composite alone is on screen, whatever asked for a display (hover, lift, a toggle, a late reply).
+    if (this.playing || !comp?.dataset.drawn || !shot || !b) return hide()
     const want = `${comp.dataset.drawn}:${this.blocksVersion}:${this.zoom}`
     // A screen found to hold no indicator stays that way for this key: skip the rebuild (#973).
     if (this.bare.get(s) === want) return this.showBare(canvas, comp)
@@ -1652,12 +1657,14 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** A hidden or detached tab gets no mouseleave, so its hover must be dropped here. */
   protected override onAfterHide(msg: Message): void {
     super.onAfterHide(msg)
+    this.stopPlay()
     this.pointer = undefined
     this.setHoverSprite(undefined)
     this.syncSelection()
   }
 
   protected override onBeforeDetach(msg: Message): void {
+    this.stopPlay()
     this.pointer = undefined
     this.setHoverSprite(undefined)
     super.onBeforeDetach(msg)

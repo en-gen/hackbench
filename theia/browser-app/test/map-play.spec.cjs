@@ -3,11 +3,14 @@
  *
  * Vanilla ROM. Map $009 moves by itself: Layer 2 shifts against the map by the run's offsets and the camera
  * frame follows the camera. Map $1EF waits for Mario on Layer 2: it plays as if he stands there, says so, and
- * shows no camera frame. A map with no routine has no button. Stop puts the composite pixels back exactly, and
- * nothing is written to the project.
- * Checked on the node reply (`mapMotion`) and the canvases the user sees: the offset the widget draws at each
- * sampled frame is the run's value for that frame, and the screen canvas is keyed to it.
- * Plant for the verifier: in `playTick` (map-view-widget.tsx) use `m.shiftY[f + 1]`; the offset assertion goes red.
+ * shows no camera frame. A map with no routine has no button. Stop puts what is VISIBLE back exactly (the
+ * display canvas where an indicator screen has one, else the composite), and nothing is written to the project.
+ * Waits are by the run's own data: the first frame with a nonzero offset comes from the `mapMotion` reply.
+ * Checked on that reply and on the canvases the user sees: the offset the widget draws at each sampled frame is
+ * the run's value for that frame, and each drawn screen canvas is keyed to it. During play a hover over an
+ * indicator and a layer toggle leave every screen moving.
+ * Plant for the verifier: in `playTick` (map-view-widget.tsx) use `m.shiftY[f + 1]`; the offset assertion goes
+ * red. In `syncDisplay` drop the `this.playing ||` test; the hover assertion goes red.
  * NOT covered: the exact pixels of a shifted Layer 2 (unit tests cover the shift and the wrap).
  */
 const { test, expect } = require('@playwright/test')
@@ -28,6 +31,7 @@ const GET_SVC = `function getSvc(name) {
   }
   return null
 }`
+const FRAME_MS = 1000 / 60
 const rootOf = slot => `[id="hackbench.map-view:${slot}"]`
 const playOf = slot => `${rootOf(slot)} [data-control="map-play"]`
 const opened = []
@@ -77,29 +81,41 @@ async function openMap(page, slot) {
   await page.locator(`${rootOf(slot)} .hb-map-view-strip`).waitFor({ timeout: 30000 })
 }
 
-/** The widget behind a map tab, its drawn composites and its play state, read in one synchronous step. */
+/**
+ * The widget behind a map tab and what is visible, read in one synchronous step. Per drawn screen: a hash of the
+ * canvas on top (the display canvas when it has width, else the composite), the composite's key, whether the
+ * composite is hidden under a display, and the display's width. A screen not drawn yet is left out.
+ */
 const snapshot = (page, slot) =>
   page.evaluate(slot => {
+    const root = document.querySelector(`[id="hackbench.map-view:${slot}"]`)
     const w = getSvc('ApplicationShell').widgets.find(x => x.id === `hackbench.map-view:${slot}`)
-    const sums = {}
-    for (const c of document.querySelectorAll(
-      `[id="hackbench.map-view:${slot}"] canvas[data-layer="screen"]`,
-    )) {
-      if (!c.width) continue
+    const hash = c => {
       const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
-      let h = 0
-      for (let i = 0; i < d.length; i += 4)
-        h = (h * 31 + d[i] + 3 * d[i + 1] + 7 * d[i + 2] + 13 * d[i + 3]) | 0
-      sums[c.dataset.screen] = { h, key: c.dataset.drawn }
+      let h = 2166136261
+      for (let i = 0; i < d.length; i++) h = Math.imul(h ^ d[i], 16777619)
+      return h >>> 0
     }
-    const f = document.querySelector(
-      `[id="hackbench.map-view:${slot}"] [data-control="camera-frame"]`,
-    )
+    const screens = {}
+    for (const c of root.querySelectorAll('canvas[data-layer="screen"]')) {
+      if (!c.width || !c.dataset.drawn) continue
+      const d = root.querySelector(
+        `canvas[data-layer="display"][data-screen="${c.dataset.screen}"]`,
+      )
+      const top = d && d.width > 0 ? d : c
+      screens[c.dataset.screen] = {
+        h: hash(top),
+        key: c.dataset.drawn,
+        displayWidth: d ? d.width : 0,
+        compositeHidden: c.style.visibility === 'hidden',
+      }
+    }
+    const f = root.querySelector('[data-control="camera-frame"]')
     return {
       playing: w.playing,
       frame: w.playFrame,
       shift: w.playShift,
-      sums,
+      screens,
       frameLeft: f ? parseFloat(f.style.left) : null,
     }
   }, slot)
@@ -115,6 +131,18 @@ const opsListing = () => {
   return fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true }).sort() : []
 }
 
+/** Waits until the run is at a frame whose offset is not zero; the wait comes from the run, not from a number here. */
+async function untilShifted(page, slot, run) {
+  const first = run.shiftY.findIndex(v => v !== 0)
+  expect(first).toBeGreaterThanOrEqual(0)
+  await expect
+    .poll(async () => (await snapshot(page, slot)).shift, {
+      timeout: first * FRAME_MS + 15000,
+      intervals: [200],
+    })
+    .not.toBe(0)
+}
+
 test('$009: Layer 2 is drawn at the run offset of the frame it is on, and the camera frame moves', async ({
   page,
 }) => {
@@ -127,15 +155,18 @@ test('$009: Layer 2 is drawn at the run offset of the frame it is on, and the ca
   await expect(page.locator(`${rootOf(0x9)} [data-control="camera-frame"]`)).toHaveCount(0)
   await page.locator(playOf(0x9)).click()
   await expect(page.locator(playOf(0x9))).toHaveAttribute('data-play-state', 'playing')
+  await untilShifted(page, 0x9, run)
   const lefts = new Set()
   const shifts = new Set()
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 10; i++) {
     await page.waitForTimeout(300)
     const s = await snapshot(page, 0x9)
     expect(s.playing).toBe(true)
-    // The offset in use is the run's value for the frame shown, and every screen canvas is keyed to it.
+    // The offset in use is the run's value for the frame shown, and every drawn screen canvas is keyed to it.
     expect(s.shift).toBe(run.shiftY[s.frame])
-    for (const { key } of Object.values(s.sums)) expect(key.endsWith(`:${s.shift}`)).toBe(true)
+    const keys = Object.values(s.screens).map(v => v.key)
+    expect(keys.length).toBeGreaterThan(0)
+    for (const key of keys) expect(key.endsWith(`:${s.shift}`)).toBe(true)
     lefts.add(s.frameLeft)
     shifts.add(s.shift)
   }
@@ -145,30 +176,107 @@ test('$009: Layer 2 is drawn at the run offset of the frame it is on, and the ca
   expect([...lefts].every(v => v !== null)).toBe(true)
 })
 
-test('stop restores the composite pixels exactly and writes nothing to the project', async ({
+test('stop restores what is visible exactly, indicator screens included, and writes nothing', async ({
   page,
 }) => {
   await openMap(page, 0x9)
+  const run = await motionOf(page, 0x9)
   await expect(page.locator(playOf(0x9))).toBeEnabled({ timeout: 30000 })
-  await page.waitForTimeout(1500)
+  // Let the indicators build: at least one screen shows a display canvas at rest.
+  await expect
+    .poll(
+      async () => Object.values((await snapshot(page, 0x9)).screens).some(v => v.displayWidth > 0),
+      {
+        timeout: 30000,
+      },
+    )
+    .toBe(true)
   const stack = () =>
     page.evaluate(mp => getSvc('Symbol(ProjectService)').editStack(mp), project.manifestPath)
   const [before, stackBefore, opsBefore] = [await snapshot(page, 0x9), await stack(), opsListing()]
   await page.locator(playOf(0x9)).click()
-  // Long enough for Layer 2 to have moved off its place on a screen.
-  await page.waitForTimeout(2500)
+  await untilShifted(page, 0x9, run)
   const during = await snapshot(page, 0x9)
-  expect(during.shift).not.toBe(0)
-  expect(Object.keys(during.sums).some(s => during.sums[s].h !== before.sums[s]?.h)).toBe(true)
+  // While playing no display is up and every drawn composite shows.
+  for (const v of Object.values(during.screens)) {
+    expect(v.displayWidth).toBe(0)
+    expect(v.compositeHidden).toBe(false)
+  }
+  expect(Object.keys(during.screens).some(s => during.screens[s].h !== before.screens[s]?.h)).toBe(
+    true,
+  )
   await page.locator(playOf(0x9)).click()
   await expect(page.locator(playOf(0x9))).toHaveAttribute('data-play-state', 'ready')
-  await page.waitForTimeout(500)
+  await expect
+    .poll(
+      async () => {
+        const a = await snapshot(page, 0x9)
+        return Object.entries(before.screens).every(([s, v]) => {
+          const x = a.screens[s]
+          return (
+            x &&
+            x.h === v.h &&
+            x.key === v.key &&
+            x.displayWidth === v.displayWidth &&
+            x.compositeHidden === v.compositeHidden
+          )
+        })
+      },
+      { timeout: 15000 },
+    )
+    .toBe(true)
   const after = await snapshot(page, 0x9)
   expect(after.playing).toBe(false)
-  for (const [s, v] of Object.entries(before.sums)) expect(after.sums[s]).toEqual(v)
   await expect(page.locator(`${rootOf(0x9)} [data-control="camera-frame"]`)).toHaveCount(0)
   expect(await stack()).toEqual(stackBefore)
   expect(opsListing()).toEqual(opsBefore)
+})
+
+test('while playing, a hover over an indicator and a layer toggle leave every screen moving', async ({
+  page,
+}) => {
+  await openMap(page, 0x9)
+  const run = await motionOf(page, 0x9)
+  await expect(page.locator(playOf(0x9))).toBeEnabled({ timeout: 30000 })
+  await expect
+    .poll(
+      async () => Object.values((await snapshot(page, 0x9)).screens).some(v => v.displayWidth > 0),
+      {
+        timeout: 30000,
+      },
+    )
+    .toBe(true)
+  await page.locator(playOf(0x9)).click()
+  await untilShifted(page, 0x9, run)
+  const moving = async () => {
+    const a = await snapshot(page, 0x9)
+    await page.waitForTimeout(500)
+    const b = await snapshot(page, 0x9)
+    const ids = Object.keys(b.screens)
+    return (
+      ids.length > 0 &&
+      ids.every(
+        s =>
+          b.screens[s].key !== a.screens[s]?.key &&
+          b.screens[s].displayWidth === 0 &&
+          !b.screens[s].compositeHidden,
+      )
+    )
+  }
+  // Hover across the strip so a block indicator is under the pointer at some point.
+  const box = await page.locator(`${rootOf(0x9)} [data-control="map-edge"]`).boundingBox()
+  for (let i = 1; i < 12; i++) {
+    await page.mouse.move(box.x + (box.width * i) / 12, box.y + box.height * 0.4)
+    await page.waitForTimeout(80)
+  }
+  await expect.poll(moving, { timeout: 20000 }).toBe(true)
+  // A layer toggle is honored and Play keeps going.
+  const l1 = page.locator(`${rootOf(0x9)} [data-control="layer-l1"]`)
+  await l1.click()
+  await expect.poll(moving, { timeout: 20000 }).toBe(true)
+  expect((await snapshot(page, 0x9)).playing).toBe(true)
+  await l1.click()
+  await expect.poll(moving, { timeout: 20000 }).toBe(true)
 })
 
 test('$1EF: plays as if Mario stands on Layer 2, says so, and shows no camera frame', async ({
@@ -183,7 +291,7 @@ test('$1EF: plays as if Mario stands on Layer 2, says so, and shows no camera fr
   await expect(play).toBeEnabled({ timeout: 30000 })
   await expect(play).toHaveAttribute('title', /Mario/)
   await play.click()
-  await page.waitForTimeout(1500)
+  await untilShifted(page, 0x1ef, run)
   const s = await snapshot(page, 0x1ef)
   expect(s.playing).toBe(true)
   expect(s.shift).toBe(run.shiftY[s.frame])
