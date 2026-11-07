@@ -158,13 +158,17 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla line-guided placement (#792)', 
         return [id, c]
       }),
     )
+    // The generic rule (gate off) now measures a sprite that drew before it moved from where it drew (#1131), so the
+    // line-walk step its handler takes after the draw no longer shifts the gate-off picture: every key that was that
+    // step, (4,4) and (-4,4) and (4,6) and (-4,6), is now (0,0) or the 2 px Y that $65 had on top of its step. Per-id
+    // counts are unchanged ($65 32, $66 1, $67 20, $68 37). $62 and $64 are unchanged: their first OAM write is not at the pass start.
     expect(tally).toEqual({
       0x62: { '4,4': 6 },
       0x64: { '0,0': 12 },
-      0x65: { '4,6': 20, '4,4': 6, '0,0': 1, '-4,6': 5 },
-      0x66: { '4,4': 1 },
-      0x67: { '4,4': 12, '-4,4': 8 },
-      0x68: { '-4,4': 16, '4,4': 20, '0,0': 1 },
+      0x65: { '0,0': 7, '0,2': 25 },
+      0x66: { '0,0': 1 },
+      0x67: { '0,0': 20 },
+      0x68: { '0,0': 37 },
     })
   })
 })
