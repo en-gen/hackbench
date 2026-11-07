@@ -295,7 +295,7 @@ export function refuseOffBuffer(cur: Cursor): void {
  */
 function placeCell(cur: Cursor): { row: number; col: number } | null {
   const at = bufferCell(cur.row, cur.col, cur.vertical)
-  if (!at || (!cur.vertical && at.row >= cur.grid.length)) {
+  if (!at) {
     refuseOffBuffer(cur)
     return null
   }
