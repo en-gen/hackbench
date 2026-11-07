@@ -1,1 +1,860 @@
-/** * L3Loader.ts -- Layer 3 tilemap loading for Super Mario World. * * Derived from SMWDisX disassembly (bank_00.asm, bank_05.asm): *   - CODE_009FB8: main L3 handler (bank_00.asm ~line 4135) *   - Layer3TilemapSettings: bank_00.asm line 4121 ($009F8D) *   - Layer3Ptr: bank_05.asm line 1720 ($059000) *   - LoadStripeImage: bank_00.asm line 886 *   - CODE_00A993: L3 GFX upload to VRAM $4000 (bank_00.asm ~line 5287) * * Layer 3 in SMW uses BG3 in 2BPP mode.  GFX28–GFX2B (file indices 40–43) * are uploaded as 2BPP chars to VRAM word $4000 (VRam_L3Tiles).  The tilemap * is a 64×64 word grid at VRAM word $5000 (VRam_L3Tilemap), written frame-0 * by LoadStripeImage from one of the fixed tilemap datasets. * * Stripe-image format (LoadStripeImage, bank_00.asm line 886): *   Repeat while first byte has bit 7 = 0: *     [VRAM_HI] [VRAM_LO] [FLAGS] tile-data × ((((FLAGS&0x3F)<<8)|COUNT)+1 bytes) *   FLAGS byte: bit 7 = vertical (0=horizontal), bit 6 = RLE (not used in vanilla) *   COUNT byte (byte 3): combined with upper 6 bits of FLAGS to give byte count *   Terminated by a byte with bit 7 = 1 (typically $FF) * * Tile word format (16-bit LE in the tilemap buffer): *   [15] Y-flip, [14] X-flip, [13] BG priority, [12:10] palette (0–7), [9:0] char index *   (char space: file = idx>>7, local = idx&0x7F) * * Layer3Setting (from readLayer3Setting in ObjectExpander.ts): *   0 = no L3; 1–3 = which entry in the per-tileset group to use. * * Layer3TilemapSettings (3 bytes per tileset × 16 tilesets at $009F8D): *   Each byte encodes the tide behaviour / initial Y position. *   If bit 7 = 0: $01 is !Tide_UpAndDown (Layer3YPos = $70, sweeps); $02-$7F are *     stationary tides (Layer3YPos = $40, static); $00 skips the tide handler *     (CODE_05C40C), so it is not a tide (Layer3YPos = $70 at load). *   If bit 7 = 1 and bit 6 = 0 ($80/$81): non-tide overlay. *     $80 / $C0: Layer3YPos = $D0 (fixed, scroll type incremented). *     $81 Castle1/Underground1: Layer3YPos = $C0 (fixed via CODE_009FFA). *     $81 other tilesets: Layer3YPos = Layer1YPos every frame (camera-tracked) *       → tiles sit at fixed level Y = row*8 (cage bars, windows, fish…). *   If bits 7:6 = 11: code takes another branch (BigCrusherColors, etc.) - no L3 bg. * * VRAM layout: *   $4000–$4FFF  L3 char graphics (GFX28–GFX2B, 2BPP) *   $5000–$5FFF  L3 tilemap (64×64 words; rows 0–7 = HUD area; rows 8+ = gameplay) */import type { RomFile } from './RomFile'import type { MapEntrances } from './SmwRom'import { readLayer3Setting } from './ObjectExpander'// ── VRAM / table addresses ────────────────────────────────────────────────────/** VRAM word address of the BG3 tilemap (VRam_L3Tilemap, SMW_E0.sym). */export const L3_TILEMAP_BASE = 0x5000/** ClearOutLayer3's fill, the word a cell holds until a stripe run writes it (the model keeps such a cell 0). */const CLEARED = 0x38fc/** Tilemap dimensions. BG3 is configured 64×64 (HW_BGSC_Size_64x64). */export const L3_TILEMAP_COLS = 64export const L3_TILEMAP_ROWS = 64/** First row index that belongs to gameplay (rows 0–7 = HUD / off-screen). */export const L3_HUD_ROW_CUTOFF = 8/** SNES address of Layer3TilemapSettings (bank_00.asm line 4122). Verified against ROM. */const L3_SETTINGS_ADDR = 0x009f88/** Number of entries per tileset in Layer3TilemapSettings. */const L3_SETTINGS_PER_TILESET = 3/** SNES address of Layer3Ptr long-pointer table (bank_05.asm line 1720). */const L3_PTR_TABLE = 0x059000/** Bytes per entry in Layer3Ptr (3-byte long address). */const L3_PTR_ENTRY_SIZE = 3/** SNES address of DATA_05F000 (per-level primary-entrance Y settings byte). */export const DATA_05F000_ADDR = 0x05f000/** SNES address of DATA_05F200 (per-level primary-entrance settings byte). */export const DATA_05F200_ADDR = 0x05f200/** * SNES address of DATA_05F400 - per-level Layer1/Layer2 startup Y-index byte. * Bits 3:2 index DATA_05D708 for primary-entrance Layer1YPos init. * Bits 1:0 index DATA_05D70C for primary-entrance Layer2YPos init. * Distinct from DATA_05F200 (which holds Layer3Setting + entrance type + * palettes) - confirmed via bank_05.asm:7323-7335 (LDA DATA_05F400,Y; STA _2; * AND #$0C; LSR; LSR; TAX; LDA DATA_05D708,X; STA Layer1YPos). */const DATA_05F400_ADDR = 0x05f400/** * Mario start Y lookup - low byte at $05D730, high byte at $05D740. * Indexed by low nibble of the entrance-Y byte (DATA_05F000 primary, DATA_05FA00 secondary). * bank_05.asm:7045-7049. */export const DATA_05D730_ADDR = 0x05d730export const DATA_05D740_ADDR = 0x05d740/** * Mario start X lookup - low byte at $05D750, high byte at $05D758. * Primary: indexed by low 3 bits of DATA_05F200 (bank_05.asm:7311). * Secondary: indexed by top 3 bits of DATA_05FC00 (bank_05.asm:7153). */export const DATA_05D750_ADDR = 0x05d750export const DATA_05D758_ADDR = 0x05d758/** SNES address of DATA_05F600 (first level-data byte per level - holds vertical page for vert levels). */export const DATA_05F600_ADDR = 0x05f600/** SNES address of DATA_05F800 - secondary-entrance target level LOW byte (indexed by entrance ID). */export const DATA_05F800_ADDR = 0x05f800/** SNES address of DATA_05FA00 - secondary-entrance settings (bits 5:4 index DATA_05D708 for camera Y). */export const DATA_05FA00_ADDR = 0x05fa00/** SNES address of DATA_05FC00 - secondary-entrance X index (bits 7:5) and entrance screen (bits 4:0); no level byte. Bits 4:0 are also the vertical high byte (bank_05.asm:7147-7148). */export const DATA_05FC00_ADDR = 0x05fc00/** * SNES address of DATA_05D708 - initial Layer1YPos (camera Y) low-byte table. * Contents: $00, $60, $C0, $00. */const DATA_05D708_ADDR = 0x05d708/** * The secondary entrance a map's initial camera is read from, or null for its primary entrance. * * The game reads the primary entrance (DATA_05F000.. by map) when the overworld or a screen exit * without UseSecondaryExit enters the map, and a secondary entrance's row only when the flag is * set (bank_05.asm:7111-7162 vs 7300-7337). A sub area uses the entrance the normal route reaches * it by (`MapEntrances.route`), not the lowest id (#945). `via` is the exit graph's `MapEntrances` * for the map. Undefined means the graph is unavailable (a hooked hack): primary, never the stock * destination formula applied to tables whose reader may not be stock. The destination of an * entrance is decided by the graph (bit 8 of the index, then DATA_05F800, :7103-7118), not here. */export function chooseEntrance(via?: MapEntrances): number | null {  return chooseEntranceNoted(via).entrance}/** * `chooseEntrance` plus a note when the route could not be found (D66 call 1, #945). An overworld * entry map is primary. For any other map the route decides, even when a primary exit also enters * it later: `via.route` is the entrance the exit-graph walk reached it by first (null: a primary * exit got there first). A graph that never reached the map gives an empty record with no route: * primary, with a note that the map opens at the first screen (screen 0, D78 call 2: only the scroll stays * at screen 0; the layer 2 and 3 heights still read the map's own primary entrance row), never silent. */export function chooseEntranceNoted(via?: MapEntrances): {  entrance: number | null  note?: string} {  if (!via || via.overworld) return { entrance: null }  if (via.route !== undefined) return { entrance: via.route }  // A hand-built record with entries but no `route` (the walk always sets one): the earlier  // lowest-id rule, no note, since the record does not show that no route exists.  const hasEntries = via.primary || via.secondary.length > 0  if (hasEntries) return { entrance: via.primary ? null : Math.min(...via.secondary) }  return {    entrance: null,    note: 'No route from the overworld reaches this map, so it opens at the first screen.',  }}/** DATA_05FA00 for an entrance, or null when the ROM ends before it (never a phantom 0). */export function secondaryRow(rom: RomFile, entrance: number | null): number | null {  return entrance === null ? null : rom.readByte(DATA_05FA00_ADDR + entrance)}/** * SNES addresses of the four static status-bar tilemap rows in bank 00. * Verified against SMW_U.sym. UploadStaticBar (bank_00.asm:1440) DMA-writes * each of these into BG3 VRAM at !VRAMAddrHUD1..4 ($502E, $5042, $5063, $508E). */const STATUS_BAR_ROW1_ADDR = 0x008c81 // 4 tiles → VRAM $502Econst STATUS_BAR_ROW2_ADDR = 0x008c89 // 28 tiles → VRAM $5042const STATUS_BAR_ROW3_ADDR = 0x008cc1 // 27 tiles → VRAM $5063const STATUS_BAR_ROW4_ADDR = 0x008cf7 // 4 tiles → VRAM $508E/** * TimerTable at $0584D7 (bank_05.asm:510). `db $00, $02, $03, $04` indexed * by header byte 3 bits 7:6 (timeLimit field).  At level load, CODE_05827C * (~line 607) loads TimerTable[timeLimit] into InGameTimerHundreds; * InGameTimerTens and InGameTimerOnes start at 0. UpdateTime (bank_00:1599) * then writes all three to StatusBar+!HUDTimerOffset each frame as the tile * char-index for the three timer digits. */const TIMER_TABLE_ADDR = 0x0584d7/** * Overlay the static status-bar tiles into the L3 tilemap buffer at the same * VRAM offsets the game uses at level load. This is what `UploadStaticBar` * writes before the stripe image runs; for tilesets whose stripe image writes * to the HUD area (e.g. Tilemap_L3Crusher), the stripe data will overwrite * these again - matching the game's actual ordering. */export function applyStaticStatusBar(rom: RomFile, tilemap: Uint16Array): void {  // BG3 in 64x64 mode uses four 32x32 sub-screens. The HUD writes all land in  // sub 0 ($5000-$53FF, 32-col stride). Our tilemap buffer indexes as a flat  // 64-col table, so translate each hw (row, col) pair into its 64-col offset.  //   hw $502E = sub 0 row 1 col 14 → flat row 1 col 14 → flat offset 1*64+14  //   hw $5042 = sub 0 row 2 col 2  → flat row 2 col 2  → flat offset 2*64+2  //   hw $5063 = sub 0 row 3 col 3  → flat row 3 col 3  → flat offset 3*64+3  //   hw $508E = sub 0 row 4 col 14 → flat row 4 col 14 → flat offset 4*64+14  const writes: Array<[number, number, number]> = [    [STATUS_BAR_ROW1_ADDR, 1 * L3_TILEMAP_COLS + 14, 4],    [STATUS_BAR_ROW2_ADDR, 2 * L3_TILEMAP_COLS + 2, 28],    [STATUS_BAR_ROW3_ADDR, 3 * L3_TILEMAP_COLS + 3, 27],    [STATUS_BAR_ROW4_ADDR, 4 * L3_TILEMAP_COLS + 14, 4],  ]  for (const [src, dst, count] of writes) {    for (let i = 0; i < count; i++) {      const lo = rom.readByte(src + i * 2) ?? 0      const hi = rom.readByte(src + i * 2 + 1) ?? 0      const word = (hi << 8) | lo      if (word !== 0 && dst + i >= 0 && dst + i < tilemap.length) {        tilemap[dst + i] = word      }    }  }}/** * Write the initial timer digits into the HUD tilemap. The game's UpdateTime * routine (bank_00.asm:1599) writes InGameTimerHundreds/Tens/Ones into * StatusBar+!HUDTimerOffset each frame; at level load these are set from * TimerTable[timeLimit] / 0 / 0. Simulating the first UpdateTime replaces * the static-bar placeholders ($FE/$FE/$00 at row 3 positions 16-18) with * the digits the player would see on frame 1. * * @param timeLimit 2-bit value from header byte 3 bits 7:6 (0 = no timer). */export function applyInitialTimer(rom: RomFile, tilemap: Uint16Array, timeLimit: number): void {  const idx = timeLimit & 0x03  const hundreds = rom.readByte(TIMER_TABLE_ADDR + idx) ?? 0  if (hundreds === 0) return // no timer on this level - leave placeholders  // StatusBarRow3 entries at these positions have attribute byte $3C  // (palette 7, priority set); UpdateTime's 1-byte DMA only overwrites the  // char-index, so attributes are inherited from UploadStaticBar.  const ATTR = 0x3c  // HUD3 base in flat layout = row 3 col 3 (from hw $5063 sub 0 row 3 col 3).  // Timer digits sit at HUD3 positions 16-18 = row 3 cols 19-21.  const base = 3 * L3_TILEMAP_COLS + (3 + 16)  tilemap[base] = (ATTR << 8) | hundreds  tilemap[base + 1] = (ATTR << 8) | 0 // tens = 0  tilemap[base + 2] = (ATTR << 8) | 0 // ones = 0}/** * Return the initial Layer1YPos (camera Y) in pixels for a map, from the entrance * `chooseEntrance(via)` picks: the primary entrance, or the route's secondary one for a * sub area (#945). * * Primary entrance (bank_05.asm:7323-7335): *   Layer1YPos = DATA_05D708[bits 3:2 of DATA_05F400[level]] * *   ↑ NOTE: bits come from DATA_05F400, NOT DATA_05F200. The ASM at lines *     7309-7322 first loads $05F200 into _2 to extract entrance-type bits, *     THEN at line 7324 reloads _2 from $05F400 before computing the camera *     Y index. Earlier versions of this code read from $05F200 by mistake, *     producing camera Y = $00 for levels that should start at $C0 - a *     192-pixel L3 misposition for ~all L3-using vanilla levels. * * Secondary entrance (bank_05.asm:7120-7136); a row the ROM is too short to hold falls * back to the primary entrance: *   Layer1YPos = DATA_05D708[bits 5:4 of DATA_05FA00[entranceId]] * * Vertical levels (bank_05.asm:7376-7388): same low byte, plus the high byte `_1 & $1F`, where *   `_1` is DATA_05F600[level] on the primary entrance and DATA_05FC00[entrance] on a secondary *   one (:7147-7148, 7336-7337). Written whenever the ScreenMode is vertical; unlike Layer 2's, it *   is not conditioned on VertLayer2Setting (:7390-7393). * * BG3 tile at VRAM row R ultimately appears at level Y = (R*8 - Layer3YPos) + Layer1YPos. */export function readInitialLayer1YPos(  rom: RomFile,  levelId: number,  isVertical = false,  via?: MapEntrances,): number {  const entrance = chooseEntrance(via)  const faByte = secondaryRow(rom, entrance)  let loByte: number  if (faByte !== null) {    loByte = rom.readByte(DATA_05D708_ADDR + ((faByte >> 4) & 0x03)) ?? 0  } else {    const settings = rom.readByte(DATA_05F400_ADDR + levelId) ?? 0    loByte = rom.readByte(DATA_05D708_ADDR + ((settings >> 2) & 0x03)) ?? 0  }  if (!isVertical) return loByte  return (secondaryHighByte(rom, levelId, faByte === null ? null : entrance) << 8) | loByte}/** The vertical high byte `_1 & $1F`: DATA_05FC00[entrance] on a secondary entrance, else DATA_05F600[map]. */export function secondaryHighByte(rom: RomFile, levelId: number, entrance: number | null): number {  const addr = entrance === null ? DATA_05F600_ADDR + levelId : DATA_05FC00_ADDR + entrance  return (rom.readByte(addr) ?? 0) & 0x1f}// ── Per-tileset settings ──────────────────────────────────────────────────────/** * Return the Layer3TilemapSettings byte for a specific (tileset, layer3Setting) pair. * Returns null if the read fails. */export function readL3SettingsByte(  rom: RomFile,  tileset: number,  layer3Setting: number,): number | null {  if (layer3Setting < 1 || layer3Setting > 3) return null  const offset = tileset * L3_SETTINGS_PER_TILESET + (layer3Setting - 1)  return rom.readByte(L3_SETTINGS_ADDR + offset)}/** * Derive the initial Layer3YPos (in pixels) from a Layer3TilemapSettings byte. * * Per CODE_009FB8 (bank_00.asm:4154-4161): *   LSR A; PHP; ...; LDA #$70; PLP; BEQ +; LDA #$40; + STA Layer3YPos * * The LSR-then-test-Z logic means: *   byte $00 → A=$00 after LSR → Z=1 → BEQ branches → init Y = $70 *   byte $01 → A=$00 after LSR → Z=1 → BEQ branches → init Y = $70 *   byte $02..$7F → A≠0 after LSR → Z=0 → BEQ doesn't branch → init Y = $40 *   byte $80..$BF → BMI branch (CODE_009FEA) → $D0 fixed *   byte $C0+ → no L3 background written → 0 */export function l3InitialYPx(settingsByte: number): number {  if (settingsByte >= 0xc0) return 0  if (settingsByte >= 0x80) return 0xd0 // cage bars, windows, crusher, fish  // Tide range: bytes $00 and $01 both keep init Y at $70 (BEQ branches when  // LSR result is zero). Bytes $02..$7F fall through to LDA #$40.  return settingsByte <= 0x01 ? 0x70 : 0x40}/** * Layer3YPos as CODE_009FB8 leaves it at level load, or null when it never * writes one (camera-locked: CODE_00A01F follows the camera every frame). * Walked branch by branch (bank_00.asm:4150-4182): bit 7 clear is a tide * ($70 for $01, else $40; $00 is the one tide byte with no tide, below); bit 7 set with bit 6 set is CODE_00A012 ($D0); * $80 alone is BigCrusherColors then $D0; $81-$BF is $C0 on Castle1 and * Underground1 (CODE_009FFA) and camera-locked on every other tileset. Not * `l3InitialYPx`, which answers $D0 for the first and 0 for $C0+, and not the * loader's `=== 0x81` test, which would draw $82-$BF at the camera. */export function l3LoadTimeY(settingsByte: number, tileset: number): number | null {  // $00 is Layer3TideSetting 0, CODE_05C40C's non-tide path: off Castle1/Underground1 it  // sets Layer3YPos = Layer1YPos every frame (CODE_05C428 -> CODE_05C48D), so camera-locked.  if (settingsByte === 0x00) return tileset === 1 || tileset === 3 ? 0x70 : null  if (settingsByte < 0x80) return settingsByte === 0x01 ? 0x70 : 0x40  if (settingsByte >= 0xc0 || settingsByte === 0x80) return 0xd0  return tileset === 1 || tileset === 3 ? 0xc0 : null}// ── Routine classification (editor metadata) ────────────────────────────────/** * Animation/static kind for a level's L3 routine. Mirrors the vocabulary used * by computeL3ScrollRange, plus a 'disabled' state that signals "Layer3Setting * is 0 - no L3 selected at all" (distinct from 'none' which means the table * entry exists but the byte is in the $C0+ no-L3 range). */export type L3RoutineKind = 'tide' | 'fixed' | 'camera-tracked' | 'none' | 'disabled'export interface L3RoutineSummary {  /** 0..3, from $05F200[levelId] bits 7:6. 0 means L3 disabled for this level. */  layer3Setting: number  /** Raw byte from $009F88[tileset*3 + (setting-1)], or null when layer3Setting is 0. */  settingsByte: number | null  /** Animation/static kind (see L3RoutineKind). */  kind: L3RoutineKind  /**   * Initial Layer3YPos in pixels, or null when there is no static initial Y   * (camera-tracked, none, or disabled). Tide and fixed routines have a   * concrete static initial value.   */  initialYPx: number | null  /** True only for byte $01 (Tide_UpAndDown), the one tide byte that sweeps Y. */  isTideUpAndDown: boolean}export interface ClassifyL3Input {  /** 0..3, bits 7:6 of $05F200[levelId]. */  layer3Setting: number  /** Raw byte from $009F88, or null when layer3Setting is 0. */  settingsByte: number | null  /** Object tileset (header byte 4 bits 3:0) - needed for the $81 special case. */  tileset: number}/** * Classify a Layer3Setting + $009F88 byte + tileset triple into a routine kind. * * Rules (verified against bank_00.asm:4139-4165 + bank_05.asm:5504-5630): *   - layer3Setting === 0 → 'disabled' (no L3 lookup performed) *   - byte === $01        → 'tide' (Tide_UpAndDown - only byte that animates Y; *                            CODE_05C494 falls through when TideSetting-1 == 0) *   - byte === $00        → 'fixed' (CODE_05C40C BEQ skips JMP CODE_05C494, so *                            no animation; init Y = $70 per ASM) *   - byte $02..$7F       → 'tide' (Tide_Stationary; CODE_05C494 BNE jumps to *                            CODE_05C4EC, the same X path as $01, but Y stays *                            static, so isTideUpAndDown is false; #808) *   - byte === $80        → 'fixed' (static at $D0) *   - byte === $81 + tileset 1 (Castle1) or 3 (Underground1) → 'fixed' (static at $C0) *   - byte === $81 + other tileset → 'camera-tracked' (Layer3YPos = Layer1YPos) *   - byte ≥ $C0          → 'none' * * isTideUpAndDown is true only for byte $01 - the canonical Tide_UpAndDown * value (rammap.asm:1511 `!Tide_UpAndDown = 1`). */export function classifyL3Routine(input: ClassifyL3Input): L3RoutineSummary {  const { layer3Setting, settingsByte, tileset } = input  if (layer3Setting === 0 || settingsByte === null) {    return {      layer3Setting: 0,      settingsByte: null,      kind: 'disabled',      initialYPx: null,      isTideUpAndDown: false,    }  }  // Only byte $01 reaches the Y-animating path. Byte $00 short-circuits at  // CODE_05C40C; byte $02..$7F takes CODE_05C4EC which only scrolls X (a tide  // too).  if (settingsByte === 0x01) {    return { layer3Setting, settingsByte, kind: 'tide', initialYPx: 0x70, isTideUpAndDown: true }  }  if (settingsByte >= 0x02 && settingsByte < 0x80) {    return {      layer3Setting,      settingsByte,      kind: 'tide',      initialYPx: l3InitialYPx(settingsByte),      isTideUpAndDown: false,    }  }  if (settingsByte < 0x80) {    // Byte $00: CODE_05C40C skips the tide handler. Treat as fixed.    return {      layer3Setting,      settingsByte,      kind: 'fixed',      initialYPx: l3InitialYPx(settingsByte),      isTideUpAndDown: false,    }  }  if (settingsByte >= 0xc0) {    return { layer3Setting, settingsByte, kind: 'none', initialYPx: 0, isTideUpAndDown: false }  }  // $80..$BF  if (settingsByte === 0x81 && tileset !== 1 && tileset !== 3) {    // CODE_00A01F path: Layer3YPos = Layer1YPos every frame; no static value.    return {      layer3Setting,      settingsByte,      kind: 'camera-tracked',      initialYPx: null,      isTideUpAndDown: false,    }  }  return {    layer3Setting,    settingsByte,    kind: 'fixed',    initialYPx: l3InitialYPx(settingsByte),    isTideUpAndDown: false,  }}/** * Read the L3 routine summary for a level. Pure metadata - does not parse * the stripe image (use loadL3Tilemap when you need the actual tilemap). * * @param tileset Object tileset (header byte 4 bits 3:0) for the level. */export function readL3RoutineSummary(  rom: RomFile,  levelId: number,  tileset: number,): L3RoutineSummary {  const layer3Setting = readLayer3Setting(rom, levelId)  const settingsByte = layer3Setting === 0 ? null : readL3SettingsByte(rom, tileset, layer3Setting)  return classifyL3Routine({ layer3Setting, settingsByte, tileset })}// ── Scroll-range derivation (editor overlay) ─────────────────────────────────/** Tide Layer3YPos sweep bounds (CODE_05C494, bank_05.asm:5576-5630). */export const L3_TIDE_YPOS_MIN = 0x30export const L3_TIDE_YPOS_MAX = 0xa0export interface L3ScrollRange {  /**   * Animation kind:   *   - tide:           byte $01 sweeps Layer3YPos L3_TIDE_YPOS_MIN..MAX every   *                     frame; bytes $02-$7F keep it at initialYPx (static Y).   *   - fixed:          byte $00, $80, or $81 on tileset 1/3: Layer3YPos stays   *                     at initialYPx (no animation).   *   - camera-tracked: Layer3YPos = Layer1YPos every frame; cells sit at   *                     fixed level Y = row*8.   *   - none:           no L3 background or no gameplay-area content.   */  kind: 'tide' | 'fixed' | 'camera-tracked' | 'none'  /** Level pixel coordinates of the rectangle the L3 band can occupy. */  xMin: number  xMax: number  yMin: number  yMax: number  /**   * For byte $01 (the sweeping tide) - Y-coordinate of the wave-surface row (top of band)   * at the extremes of the BG3VOFS sweep. Designers see the wave-surface   * position at high tide (Layer3YPos = L3_TIDE_YPOS_MAX) and low tide   * (Layer3YPos = L3_TIDE_YPOS_MIN). Equal to yMin / (yMin + sweep) when   * the band-detection works perfectly; surfaced separately so the overlay   * can always draw explicit "HIGH" / "LOW" reference lines.   */  yHighTide?: number  yLowTide?: number}export interface L3ScrollRangeInput {  tilemap: Uint16Array  /** Initial Layer3YPos used by L3TilemapLayer's static render. */  initialYPx: number  /** Initial Layer1YPos at level start. */  initialCameraYPx: number  /** Level pixel width (screens × 256). */  levelPixelW: number  /** Raw byte from Layer3TilemapSettings ($009F88). */  settingsByte: number  /** Object tileset (header byte 4 bits 3:0). */  tileset: number}/** * Find the first row >= L3_HUD_ROW_CUTOFF that contains any non-zero cell. * Returns -1 if no gameplay-area cells exist. */function findFirstDataRow(tilemap: Uint16Array): number {  for (let r = L3_HUD_ROW_CUTOFF; r < L3_TILEMAP_ROWS; r++) {    for (let c = 0; c < L3_TILEMAP_COLS; c++) {      if (tilemap[r * L3_TILEMAP_COLS + c] !== 0) return r    }  }  return -1}/** * Tide stripe images write two identical row patterns (e.g. rows 32-47 then * 48-63) for smooth animation. Detect the repeat boundary so the band-height * isn't doubled. Mirrors L3TilemapLayer's repeat-detection. */function findTideDataEndRow(tilemap: Uint16Array, firstDataRow: number): number {  for (let r = firstDataRow + 1; r < L3_TILEMAP_ROWS; r++) {    let match = true    for (let c = 0; c < L3_TILEMAP_COLS; c++) {      const a = tilemap[firstDataRow * L3_TILEMAP_COLS + c] ?? 0      const b = tilemap[r * L3_TILEMAP_COLS + c] ?? 0      const aChar = a & 0x3ff      const bChar = b & 0x3ff      const aEmpty = a === 0      const bEmpty = b === 0      if (aEmpty !== bEmpty || (!aEmpty && !bEmpty && aChar !== bChar)) {        match = false        break      }    }    if (match) return r  }  return L3_TILEMAP_ROWS}/** Find the last gameplay row <= dataEndRow-1 with any non-zero cell. */function findLastDataRow(tilemap: Uint16Array, dataEndRow: number): number {  for (let r = dataEndRow - 1; r >= L3_HUD_ROW_CUTOFF; r--) {    for (let c = 0; c < L3_TILEMAP_COLS; c++) {      if (tilemap[r * L3_TILEMAP_COLS + c] !== 0) return r    }  }  return -1}/** * Compute the rectangle (in level pixel coordinates) that the L3 band can * occupy as the game animates it. Used by the editor's scroll-range overlay * so the designer can see where BG3 will be visible during play. * * Animation rules (from CODE_05C40C / CODE_05C494, bank_05.asm:5504-5630): *   - Tide, byte $01: *       Layer3YPos oscillates [L3_TIDE_YPOS_MIN..MAX]. *       pixelY = row*8 - liveYPos + initialCamY for liveYPos ∈ [MIN..MAX]. *       So yMin = firstRow*8 - YPOS_MAX + initialCamY *          yMax = (lastRow+1)*8 - YPOS_MIN + initialCamY *   - Tide, bytes $02-$7F, and Fixed (byte $00, $80, or $81 with tileset 1/3): *       pixelY = row*8 - initialYPx + initialCamY (static Y; the tide kind *       draws no HIGH/LOW lines). *   - Camera-tracked (settings byte $81 with tileset != 1, 3): *       Layer3YPos = Layer1YPos every frame → pixelY = row*8 in level coords. *   - None (settings byte $C0+, or no gameplay content): no overlay. * * X is the full level width for every kind: a tide covers the whole map width, * and a tide's real BG3 X is a phase, see docs/rom/level-rendering.md "Tide X". */export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {  const { tilemap, initialYPx, initialCameraYPx, levelPixelW, settingsByte, tileset } = input  if (settingsByte >= 0xc0) {    return { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 }  }  const firstDataRow = findFirstDataRow(tilemap)  if (firstDataRow < 0) {    return { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 }  }  // Y animation only happens for byte $01 (Tide_UpAndDown). Byte $00 skips the  // tide handler; $02..$7F scroll X like a tide but never update Layer3YPos  // at runtime - see classifyL3Routine for the ASM trace.  const isAnimatedTide = settingsByte === 0x01  const dataEndRow = isAnimatedTide ? findTideDataEndRow(tilemap, firstDataRow) : L3_TILEMAP_ROWS  const lastDataRow = findLastDataRow(tilemap, dataEndRow)  if (lastDataRow < 0) {    return { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 }  }  const xMin = 0  const xMax = levelPixelW  if (isAnimatedTide) {    return {      kind: 'tide',      xMin,      xMax,      yMin: firstDataRow * 8 - L3_TIDE_YPOS_MAX + initialCameraYPx,      yMax: (lastDataRow + 1) * 8 - L3_TIDE_YPOS_MIN + initialCameraYPx,      // Wave-surface row position at the two BG3VOFS extremes. The renderer      // uses these for explicit "HIGH" / "LOW" tide reference lines.      yHighTide: firstDataRow * 8 - L3_TIDE_YPOS_MAX + initialCameraYPx,      yLowTide: firstDataRow * 8 - L3_TIDE_YPOS_MIN + initialCameraYPx,    }  }  // settingsByte in [$80, $C0), $00, or a stationary tide ($02..$7F)  const isCameraTracked = settingsByte === 0x81 && tileset !== 1 && tileset !== 3  if (isCameraTracked) {    return {      kind: 'camera-tracked',      xMin,      xMax,      yMin: firstDataRow * 8,      yMax: (lastDataRow + 1) * 8,    }  }  return {    kind: settingsByte !== 0 && settingsByte < 0x80 ? 'tide' : 'fixed',    xMin,    xMax,    yMin: firstDataRow * 8 - initialYPx + initialCameraYPx,    yMax: (lastDataRow + 1) * 8 - initialYPx + initialCameraYPx,  }}// ── Layer3Ptr table ───────────────────────────────────────────────────────────/** * Read the SNES address of the stripe-image tilemap for (tileset, layer3Setting). * * Index into Layer3Ptr = (layer3Setting-1 + tileset*3) * 3  (each entry is 3 bytes). * Returns null if layer3Setting is 0 or the ROM read fails. */export function readL3TilemapAddr(  rom: RomFile,  tileset: number,  layer3Setting: number,): number | null {  if (layer3Setting < 1 || layer3Setting > 3) return null  const idx = (layer3Setting - 1 + tileset * L3_SETTINGS_PER_TILESET) * L3_PTR_ENTRY_SIZE  const lo = rom.readByte(L3_PTR_TABLE + idx)  const hi = rom.readByte(L3_PTR_TABLE + idx + 1)  const bk = rom.readByte(L3_PTR_TABLE + idx + 2)  if (lo === null || hi === null || bk === null) return null  return (bk << 16) | (hi << 8) | lo}// ── Stripe-image parser ───────────────────────────────────────────────────────/** * Convert a VRAM word address in the BG3 64×64 tilemap to a flat row-major * index (row * L3_TILEMAP_COLS + col) usable in our 64×64 buffer. * * SNES 64×64 BG tilemap splits into four 32×32 sub-screens in VRAM: *   sub 0  $5000–$53FF  → rows  0-31, cols  0-31 *   sub 1  $5400–$57FF  → rows  0-31, cols 32-63 *   sub 2  $5800–$5BFF  → rows 32-63, cols  0-31 *   sub 3  $5C00–$5FFF  → rows 32-63, cols 32-63 * Within each sub, entry (r_sub, c_sub) lives at sub_base + r_sub*32 + c_sub. * * Returns -1 for addresses outside $5000–$5FFF. */function vramAddrToFlat(vramAddr: number): number {  const off = vramAddr - L3_TILEMAP_BASE  if (off < 0 || off >= L3_TILEMAP_COLS * L3_TILEMAP_ROWS) return -1  const sub = (off >> 10) & 3 // which sub-screen (0-3)  const within = off & 0x3ff // position within sub (0-1023)  const hwRow = (within >> 5) + (sub >= 2 ? 32 : 0)  const hwCol = (within & 0x1f) + (sub & 1 ? 32 : 0)  return hwRow * L3_TILEMAP_COLS + hwCol}/** * Parse a stripe-image byte stream into a 64×64 VRAM tilemap buffer. * * The returned Uint16Array has 4096 entries; index = hw_row*64 + hw_col, * where hw_row/hw_col are the hardware BG3 tile coordinates (0-63 each). * Entries outside $5000–$5FFF are silently ignored. * * Horizontal writes (FLAGS bit 7 = 0): VRAM address increments by 1 per tile * (SNES VMAINC mode 00 = +1 word). * Vertical writes (FLAGS bit 7 = 1): VRAM address increments by 32 per tile * (SNES VMAINC mode 01 = +32 words = one row within a 32-wide sub-screen). * * RLE format (FLAGS bit 6 = 1): 2 data bytes (one tile word) repeated * tileCount times. Stream advances by 2 (not countBytes) - per LoadStripeImage * ASM: LDX.W #2 / STX.B _3 / ADC.B _3 / TAY after the RLE DMA branch. */export function parseStripeImage(data: Uint8Array): Uint16Array {  const tilemap = new Uint16Array(L3_TILEMAP_COLS * L3_TILEMAP_ROWS)  parseStripeImageInto(tilemap, data)  return tilemap}/** * Like parseStripeImage but writes into an existing tilemap buffer, so a * static-status-bar pass can run before the stripe parser. */export function parseStripeImageInto(tilemap: Uint16Array, data: Uint8Array): void {  let i = 0  while (i < data.length) {    const b0 = data[i]!    if (b0 & 0x80) break // terminator (bit 7 set)    if (i + 3 >= data.length) break    const b1 = data[i + 1]!    const b2 = data[i + 2]!    const b3 = data[i + 3]!    const vramAddr = (b0 << 8) | b1    const vertical = (b2 & 0x80) !== 0    const rle = (b2 & 0x40) !== 0    const countBytes = (((b2 & 0x3f) << 8) | b3) + 1    i += 4    // Both kinds are N-byte DMAs of two-byte units to $2118/$2119; a partial last unit writes only its first register.    // Plain data: low byte to $2118, high to $2119 (VMAINC steps after the high write), the stream advances N. RLE: two    // DMAs from a fixed source, the first stepping after the LOW write, so its odd bytes land in the high byte of the    // next word (an even N leaves the run's low byte in the word past it); the second writes the high byte, once per    // unit. The stream advances 2 (bank_00.asm:906-955, #805; docs/rom/layer3-world-locked.md).    const stride = vertical ? 32 : 1    const put = (word: number, byte: number, high: boolean) => {      const pos = vramAddrToFlat(word)      if (pos < 0) return      const cur = tilemap[pos] || CLEARED // an untouched cell is ClearOutLayer3's blank, whose other byte stays      tilemap[pos] = high ? (cur & 0x00ff) | (byte << 8) : (cur & 0xff00) | byte    }    if (rle) {      if (i + 1 >= data.length) break      const [lo, hi] = [data[i]!, data[i + 1]!]      i += 2      for (let k = 0; k < countBytes; k++) put(vramAddr + ((k + 1) >> 1) * stride, lo, k % 2 === 1)      for (let k = 0; k < countBytes; k += 2) put(vramAddr + (k >> 1) * stride, hi, true)      continue    }    // Truncated data (a malformed set, not the ROM's) writes its whole tiles and stops.    const cut = i + countBytes > data.length    const n = cut ? (data.length - i) & ~1 : countBytes    for (let k = 0; k < n; k++) put(vramAddr + (k >> 1) * stride, data[i + k]!, k % 2 === 1)    if (cut) break    i += countBytes  }}// ── High-level loader ─────────────────────────────────────────────────────────export interface L3TilemapLoad {  /** 64×64 VRAM tilemap buffer (index = row*64+col). */  tilemap: Uint16Array  /** Initial Layer3YPos in pixels (used to position L3 relative to the level). */  initialYPx: number  /** Initial Layer1YPos (camera Y) in pixels, from DATA_05D708 via DATA_05F200 bits 3:2. */  initialCameraYPx: number  /** SNES address the stripe-image data was read from. */  dataAddr: number  /** Raw byte from Layer3TilemapSettings ($009F88). Drives scroll-range mode. */  settingsByte: number}/** * Load the L3 tilemap for a level, or null if the level has no L3. */export function loadL3Tilemap(  rom: RomFile,  levelId: number,  tileset: number,  timeLimit = 0,  via?: MapEntrances,): L3TilemapLoad | null {  const layer3Setting = readLayer3Setting(rom, levelId)  if (layer3Setting === 0) return null  const dataAddr = readL3TilemapAddr(rom, tileset, layer3Setting)  if (dataAddr === null) return null  // Read generously; stripe images terminate with $FF so a large cap is fine.  const raw = rom.readAt(dataAddr, 0x2000)  if (!raw) return null  const settingsByte = readL3SettingsByte(rom, tileset, layer3Setting) ?? 0  let initialYPx = l3InitialYPx(settingsByte)  const initialCameraYPx = readInitialLayer1YPos(rom, levelId, false, via)  // $81 with non-castle/non-underground tilesets: CODE_009FB8 takes the  // CODE_00A01F path (no Layer3YPos write, no Layer3ScrollType increment).  // The game loop (CODE_05C40C → CODE_05C428 → CODE_05C48D) then runs  //   Layer3YPos = Layer1YPos  every frame,  // so tiles sit at fixed level Y = row*8 regardless of camera position.  // Setting initialYPx = initialCameraYPx makes the render formula  //   pixelY = row*8 - initialYPx + initialCamY  collapse to  row*8.  // ObjTileset_Castle1 = 1, ObjTileset_Underground1 = 3 (constants.asm:229/231):  // those tilesets reach CODE_009FFA which sets Layer3YPos = $C0 instead.  if (settingsByte === 0x81 && tileset !== 1 && tileset !== 3) {    initialYPx = initialCameraYPx  }  // Game order: UploadStaticBar (HUD) runs first, then UpdateStatusBar writes  // the initial timer digits over the runtime-placeholder slots, then the  // stripe-image parse overlays for tilesets whose stripe writes into the  // HUD area (e.g. crusher).  const tilemap = new Uint16Array(L3_TILEMAP_COLS * L3_TILEMAP_ROWS)  applyStaticStatusBar(rom, tilemap)  applyInitialTimer(rom, tilemap, timeLimit)  parseStripeImageInto(tilemap, new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength))  return {    tilemap,    initialYPx,    initialCameraYPx,    dataAddr,    settingsByte,  }}
+/**
+ * L3Loader.ts -- Layer 3 tilemap loading for Super Mario World.
+ *
+ * Derived from SMWDisX disassembly (bank_00.asm, bank_05.asm):
+ *   - CODE_009FB8: main L3 handler (bank_00.asm ~line 4135)
+ *   - Layer3TilemapSettings: bank_00.asm line 4121 ($009F8D)
+ *   - Layer3Ptr: bank_05.asm line 1720 ($059000)
+ *   - LoadStripeImage: bank_00.asm line 886
+ *   - CODE_00A993: L3 GFX upload to VRAM $4000 (bank_00.asm ~line 5287)
+ *
+ * Layer 3 in SMW uses BG3 in 2BPP mode.  GFX28–GFX2B (file indices 40–43)
+ * are uploaded as 2BPP chars to VRAM word $4000 (VRam_L3Tiles).  The tilemap
+ * is a 64×64 word grid at VRAM word $5000 (VRam_L3Tilemap), written frame-0
+ * by LoadStripeImage from one of the fixed tilemap datasets.
+ *
+ * Stripe-image format (LoadStripeImage, bank_00.asm line 886):
+ *   Repeat while first byte has bit 7 = 0:
+ *     [VRAM_HI] [VRAM_LO] [FLAGS] tile-data × ((((FLAGS&0x3F)<<8)|COUNT)+1 bytes)
+ *   FLAGS byte: bit 7 = vertical (0=horizontal), bit 6 = RLE (not used in vanilla)
+ *   COUNT byte (byte 3): combined with upper 6 bits of FLAGS to give byte count
+ *   Terminated by a byte with bit 7 = 1 (typically $FF)
+ *
+ * Tile word format (16-bit LE in the tilemap buffer):
+ *   [15] Y-flip, [14] X-flip, [13] BG priority, [12:10] palette (0–7), [9:0] char index
+ *   (char space: file = idx>>7, local = idx&0x7F)
+ *
+ * Layer3Setting (from readLayer3Setting in ObjectExpander.ts):
+ *   0 = no L3; 1–3 = which entry in the per-tileset group to use.
+ *
+ * Layer3TilemapSettings (3 bytes per tileset × 16 tilesets at $009F8D):
+ *   Each byte encodes the tide behaviour / initial Y position.
+ *   If bit 7 = 0: $01 is !Tide_UpAndDown (Layer3YPos = $70, sweeps); $02-$7F are
+ *     stationary tides (Layer3YPos = $40, static); $00 skips the tide handler
+ *     (CODE_05C40C), so it is not a tide (Layer3YPos = $70 at load).
+ *   If bit 7 = 1 and bit 6 = 0 ($80/$81): non-tide overlay.
+ *     $80 / $C0: Layer3YPos = $D0 (fixed, scroll type incremented).
+ *     $81 Castle1/Underground1: Layer3YPos = $C0 (fixed via CODE_009FFA).
+ *     $81 other tilesets: Layer3YPos = Layer1YPos every frame (camera-tracked)
+ *       → tiles sit at fixed level Y = row*8 (cage bars, windows, fish…).
+ *   If bits 7:6 = 11: code takes another branch (BigCrusherColors, etc.) - no L3 bg.
+ *
+ * VRAM layout:
+ *   $4000–$4FFF  L3 char graphics (GFX28–GFX2B, 2BPP)
+ *   $5000–$5FFF  L3 tilemap (64×64 words; rows 0–7 = HUD area; rows 8+ = gameplay)
+ */
+
+import type { RomFile } from './RomFile'
+import type { MapEntrances } from './SmwRom'
+import { readLayer3Setting } from './ObjectExpander'
+
+// ── VRAM / table addresses ────────────────────────────────────────────────────
+
+/** VRAM word address of the BG3 tilemap (VRam_L3Tilemap, SMW_E0.sym). */
+export const L3_TILEMAP_BASE = 0x5000
+
+/**
+ * ClearOutLayer3's !EmptyTile (bank_00.asm:751, 764): what a VRAM cell holds until a run writes it. Vanilla value, not
+ * read from the ROM; it only decides the untouched half of a cell a run writes one byte of, which no vanilla set does.
+ */
+const CLEARED = 0x38fc
+
+/** Tilemap dimensions. BG3 is configured 64×64 (HW_BGSC_Size_64x64). */
+export const L3_TILEMAP_COLS = 64
+export const L3_TILEMAP_ROWS = 64
+
+/** First row index that belongs to gameplay (rows 0–7 = HUD / off-screen). */
+export const L3_HUD_ROW_CUTOFF = 8
+
+/** SNES address of Layer3TilemapSettings (bank_00.asm line 4122). Verified against ROM. */
+const L3_SETTINGS_ADDR = 0x009f88
+
+/** Number of entries per tileset in Layer3TilemapSettings. */
+const L3_SETTINGS_PER_TILESET = 3
+
+/** SNES address of Layer3Ptr long-pointer table (bank_05.asm line 1720). */
+const L3_PTR_TABLE = 0x059000
+
+/** Bytes per entry in Layer3Ptr (3-byte long address). */
+const L3_PTR_ENTRY_SIZE = 3
+
+/** SNES address of DATA_05F000 (per-level primary-entrance Y settings byte). */
+export const DATA_05F000_ADDR = 0x05f000
+
+/** SNES address of DATA_05F200 (per-level primary-entrance settings byte). */
+export const DATA_05F200_ADDR = 0x05f200
+
+/**
+ * SNES address of DATA_05F400 - per-level Layer1/Layer2 startup Y-index byte.
+ * Bits 3:2 index DATA_05D708 for primary-entrance Layer1YPos init.
+ * Bits 1:0 index DATA_05D70C for primary-entrance Layer2YPos init.
+ * Distinct from DATA_05F200 (which holds Layer3Setting + entrance type +
+ * palettes) - confirmed via bank_05.asm:7323-7335 (LDA DATA_05F400,Y; STA _2;
+ * AND #$0C; LSR; LSR; TAX; LDA DATA_05D708,X; STA Layer1YPos).
+ */
+const DATA_05F400_ADDR = 0x05f400
+
+/**
+ * Mario start Y lookup - low byte at $05D730, high byte at $05D740.
+ * Indexed by low nibble of the entrance-Y byte (DATA_05F000 primary, DATA_05FA00 secondary).
+ * bank_05.asm:7045-7049.
+ */
+export const DATA_05D730_ADDR = 0x05d730
+export const DATA_05D740_ADDR = 0x05d740
+
+/**
+ * Mario start X lookup - low byte at $05D750, high byte at $05D758.
+ * Primary: indexed by low 3 bits of DATA_05F200 (bank_05.asm:7311).
+ * Secondary: indexed by top 3 bits of DATA_05FC00 (bank_05.asm:7153).
+ */
+export const DATA_05D750_ADDR = 0x05d750
+export const DATA_05D758_ADDR = 0x05d758
+
+/** SNES address of DATA_05F600 (first level-data byte per level - holds vertical page for vert levels). */
+export const DATA_05F600_ADDR = 0x05f600
+
+/** SNES address of DATA_05F800 - secondary-entrance target level LOW byte (indexed by entrance ID). */
+export const DATA_05F800_ADDR = 0x05f800
+
+/** SNES address of DATA_05FA00 - secondary-entrance settings (bits 5:4 index DATA_05D708 for camera Y). */
+export const DATA_05FA00_ADDR = 0x05fa00
+
+/** SNES address of DATA_05FC00 - secondary-entrance X index (bits 7:5) and entrance screen (bits 4:0); no level byte. Bits 4:0 are also the vertical high byte (bank_05.asm:7147-7148). */
+export const DATA_05FC00_ADDR = 0x05fc00
+
+/**
+ * SNES address of DATA_05D708 - initial Layer1YPos (camera Y) low-byte table.
+ * Contents: $00, $60, $C0, $00.
+ */
+const DATA_05D708_ADDR = 0x05d708
+
+/**
+ * The secondary entrance a map's initial camera is read from, or null for its primary entrance.
+ *
+ * The game reads the primary entrance (DATA_05F000.. by map) when the overworld or a screen exit
+ * without UseSecondaryExit enters the map, and a secondary entrance's row only when the flag is
+ * set (bank_05.asm:7111-7162 vs 7300-7337). A sub area uses the entrance the normal route reaches
+ * it by (`MapEntrances.route`), not the lowest id (#945). `via` is the exit graph's `MapEntrances`
+ * for the map. Undefined means the graph is unavailable (a hooked hack): primary, never the stock
+ * destination formula applied to tables whose reader may not be stock. The destination of an
+ * entrance is decided by the graph (bit 8 of the index, then DATA_05F800, :7103-7118), not here.
+ */
+export function chooseEntrance(via?: MapEntrances): number | null {
+  return chooseEntranceNoted(via).entrance
+}
+
+/**
+ * `chooseEntrance` plus a note when the route could not be found (D66 call 1, #945). An overworld
+ * entry map is primary. For any other map the route decides, even when a primary exit also enters
+ * it later: `via.route` is the entrance the exit-graph walk reached it by first (null: a primary
+ * exit got there first). A graph that never reached the map gives an empty record with no route:
+ * primary, with a note that the map opens at the first screen (screen 0, D78 call 2: only the scroll stays
+ * at screen 0; the layer 2 and 3 heights still read the map's own primary entrance row), never silent.
+ */
+export function chooseEntranceNoted(via?: MapEntrances): {
+  entrance: number | null
+  note?: string
+} {
+  if (!via || via.overworld) return { entrance: null }
+  if (via.route !== undefined) return { entrance: via.route }
+  // A hand-built record with entries but no `route` (the walk always sets one): the earlier
+  // lowest-id rule, no note, since the record does not show that no route exists.
+  const hasEntries = via.primary || via.secondary.length > 0
+  if (hasEntries) return { entrance: via.primary ? null : Math.min(...via.secondary) }
+  return {
+    entrance: null,
+    note: 'No route from the overworld reaches this map, so it opens at the first screen.',
+  }
+}
+
+/** DATA_05FA00 for an entrance, or null when the ROM ends before it (never a phantom 0). */
+export function secondaryRow(rom: RomFile, entrance: number | null): number | null {
+  return entrance === null ? null : rom.readByte(DATA_05FA00_ADDR + entrance)
+}
+
+/**
+ * SNES addresses of the four static status-bar tilemap rows in bank 00.
+ * Verified against SMW_U.sym. UploadStaticBar (bank_00.asm:1440) DMA-writes
+ * each of these into BG3 VRAM at !VRAMAddrHUD1..4 ($502E, $5042, $5063, $508E).
+ */
+const STATUS_BAR_ROW1_ADDR = 0x008c81 // 4 tiles → VRAM $502E
+const STATUS_BAR_ROW2_ADDR = 0x008c89 // 28 tiles → VRAM $5042
+const STATUS_BAR_ROW3_ADDR = 0x008cc1 // 27 tiles → VRAM $5063
+const STATUS_BAR_ROW4_ADDR = 0x008cf7 // 4 tiles → VRAM $508E
+
+/**
+ * TimerTable at $0584D7 (bank_05.asm:510). `db $00, $02, $03, $04` indexed
+ * by header byte 3 bits 7:6 (timeLimit field).  At level load, CODE_05827C
+ * (~line 607) loads TimerTable[timeLimit] into InGameTimerHundreds;
+ * InGameTimerTens and InGameTimerOnes start at 0. UpdateTime (bank_00:1599)
+ * then writes all three to StatusBar+!HUDTimerOffset each frame as the tile
+ * char-index for the three timer digits.
+ */
+const TIMER_TABLE_ADDR = 0x0584d7
+
+/**
+ * Overlay the static status-bar tiles into the L3 tilemap buffer at the same
+ * VRAM offsets the game uses at level load. This is what `UploadStaticBar`
+ * writes before the stripe image runs; for tilesets whose stripe image writes
+ * to the HUD area (e.g. Tilemap_L3Crusher), the stripe data will overwrite
+ * these again - matching the game's actual ordering.
+ */
+export function applyStaticStatusBar(rom: RomFile, tilemap: Uint16Array): void {
+  // BG3 in 64x64 mode uses four 32x32 sub-screens. The HUD writes all land in
+  // sub 0 ($5000-$53FF, 32-col stride). Our tilemap buffer indexes as a flat
+  // 64-col table, so translate each hw (row, col) pair into its 64-col offset.
+  //   hw $502E = sub 0 row 1 col 14 → flat row 1 col 14 → flat offset 1*64+14
+  //   hw $5042 = sub 0 row 2 col 2  → flat row 2 col 2  → flat offset 2*64+2
+  //   hw $5063 = sub 0 row 3 col 3  → flat row 3 col 3  → flat offset 3*64+3
+  //   hw $508E = sub 0 row 4 col 14 → flat row 4 col 14 → flat offset 4*64+14
+  const writes: Array<[number, number, number]> = [
+    [STATUS_BAR_ROW1_ADDR, 1 * L3_TILEMAP_COLS + 14, 4],
+    [STATUS_BAR_ROW2_ADDR, 2 * L3_TILEMAP_COLS + 2, 28],
+    [STATUS_BAR_ROW3_ADDR, 3 * L3_TILEMAP_COLS + 3, 27],
+    [STATUS_BAR_ROW4_ADDR, 4 * L3_TILEMAP_COLS + 14, 4],
+  ]
+  for (const [src, dst, count] of writes) {
+    for (let i = 0; i < count; i++) {
+      const lo = rom.readByte(src + i * 2) ?? 0
+      const hi = rom.readByte(src + i * 2 + 1) ?? 0
+      const word = (hi << 8) | lo
+      if (word !== 0 && dst + i >= 0 && dst + i < tilemap.length) {
+        tilemap[dst + i] = word
+      }
+    }
+  }
+}
+
+/**
+ * Write the initial timer digits into the HUD tilemap. The game's UpdateTime
+ * routine (bank_00.asm:1599) writes InGameTimerHundreds/Tens/Ones into
+ * StatusBar+!HUDTimerOffset each frame; at level load these are set from
+ * TimerTable[timeLimit] / 0 / 0. Simulating the first UpdateTime replaces
+ * the static-bar placeholders ($FE/$FE/$00 at row 3 positions 16-18) with
+ * the digits the player would see on frame 1.
+ *
+ * @param timeLimit 2-bit value from header byte 3 bits 7:6 (0 = no timer).
+ */
+export function applyInitialTimer(rom: RomFile, tilemap: Uint16Array, timeLimit: number): void {
+  const idx = timeLimit & 0x03
+  const hundreds = rom.readByte(TIMER_TABLE_ADDR + idx) ?? 0
+  if (hundreds === 0) return // no timer on this level - leave placeholders
+  // StatusBarRow3 entries at these positions have attribute byte $3C
+  // (palette 7, priority set); UpdateTime's 1-byte DMA only overwrites the
+  // char-index, so attributes are inherited from UploadStaticBar.
+  const ATTR = 0x3c
+  // HUD3 base in flat layout = row 3 col 3 (from hw $5063 sub 0 row 3 col 3).
+  // Timer digits sit at HUD3 positions 16-18 = row 3 cols 19-21.
+  const base = 3 * L3_TILEMAP_COLS + (3 + 16)
+  tilemap[base] = (ATTR << 8) | hundreds
+  tilemap[base + 1] = (ATTR << 8) | 0 // tens = 0
+  tilemap[base + 2] = (ATTR << 8) | 0 // ones = 0
+}
+
+/**
+ * Return the initial Layer1YPos (camera Y) in pixels for a map, from the entrance
+ * `chooseEntrance(via)` picks: the primary entrance, or the route's secondary one for a
+ * sub area (#945).
+ *
+ * Primary entrance (bank_05.asm:7323-7335):
+ *   Layer1YPos = DATA_05D708[bits 3:2 of DATA_05F400[level]]
+ *
+ *   ↑ NOTE: bits come from DATA_05F400, NOT DATA_05F200. The ASM at lines
+ *     7309-7322 first loads $05F200 into _2 to extract entrance-type bits,
+ *     THEN at line 7324 reloads _2 from $05F400 before computing the camera
+ *     Y index. Earlier versions of this code read from $05F200 by mistake,
+ *     producing camera Y = $00 for levels that should start at $C0 - a
+ *     192-pixel L3 misposition for ~all L3-using vanilla levels.
+ *
+ * Secondary entrance (bank_05.asm:7120-7136); a row the ROM is too short to hold falls
+ * back to the primary entrance:
+ *   Layer1YPos = DATA_05D708[bits 5:4 of DATA_05FA00[entranceId]]
+ *
+ * Vertical levels (bank_05.asm:7376-7388): same low byte, plus the high byte `_1 & $1F`, where
+ *   `_1` is DATA_05F600[level] on the primary entrance and DATA_05FC00[entrance] on a secondary
+ *   one (:7147-7148, 7336-7337). Written whenever the ScreenMode is vertical; unlike Layer 2's, it
+ *   is not conditioned on VertLayer2Setting (:7390-7393).
+ *
+ * BG3 tile at VRAM row R ultimately appears at level Y = (R*8 - Layer3YPos) + Layer1YPos.
+ */
+export function readInitialLayer1YPos(
+  rom: RomFile,
+  levelId: number,
+  isVertical = false,
+  via?: MapEntrances,
+): number {
+  const entrance = chooseEntrance(via)
+  const faByte = secondaryRow(rom, entrance)
+  let loByte: number
+  if (faByte !== null) {
+    loByte = rom.readByte(DATA_05D708_ADDR + ((faByte >> 4) & 0x03)) ?? 0
+  } else {
+    const settings = rom.readByte(DATA_05F400_ADDR + levelId) ?? 0
+    loByte = rom.readByte(DATA_05D708_ADDR + ((settings >> 2) & 0x03)) ?? 0
+  }
+
+  if (!isVertical) return loByte
+  return (secondaryHighByte(rom, levelId, faByte === null ? null : entrance) << 8) | loByte
+}
+
+/** The vertical high byte `_1 & $1F`: DATA_05FC00[entrance] on a secondary entrance, else DATA_05F600[map]. */
+export function secondaryHighByte(rom: RomFile, levelId: number, entrance: number | null): number {
+  const addr = entrance === null ? DATA_05F600_ADDR + levelId : DATA_05FC00_ADDR + entrance
+  return (rom.readByte(addr) ?? 0) & 0x1f
+}
+
+// ── Per-tileset settings ──────────────────────────────────────────────────────
+
+/**
+ * Return the Layer3TilemapSettings byte for a specific (tileset, layer3Setting) pair.
+ * Returns null if the read fails.
+ */
+export function readL3SettingsByte(
+  rom: RomFile,
+  tileset: number,
+  layer3Setting: number,
+): number | null {
+  if (layer3Setting < 1 || layer3Setting > 3) return null
+  const offset = tileset * L3_SETTINGS_PER_TILESET + (layer3Setting - 1)
+  return rom.readByte(L3_SETTINGS_ADDR + offset)
+}
+
+/**
+ * Derive the initial Layer3YPos (in pixels) from a Layer3TilemapSettings byte.
+ *
+ * Per CODE_009FB8 (bank_00.asm:4154-4161):
+ *   LSR A; PHP; ...; LDA #$70; PLP; BEQ +; LDA #$40; + STA Layer3YPos
+ *
+ * The LSR-then-test-Z logic means:
+ *   byte $00 → A=$00 after LSR → Z=1 → BEQ branches → init Y = $70
+ *   byte $01 → A=$00 after LSR → Z=1 → BEQ branches → init Y = $70
+ *   byte $02..$7F → A≠0 after LSR → Z=0 → BEQ doesn't branch → init Y = $40
+ *   byte $80..$BF → BMI branch (CODE_009FEA) → $D0 fixed
+ *   byte $C0+ → no L3 background written → 0
+ */
+export function l3InitialYPx(settingsByte: number): number {
+  if (settingsByte >= 0xc0) return 0
+  if (settingsByte >= 0x80) return 0xd0 // cage bars, windows, crusher, fish
+  // Tide range: bytes $00 and $01 both keep init Y at $70 (BEQ branches when
+  // LSR result is zero). Bytes $02..$7F fall through to LDA #$40.
+  return settingsByte <= 0x01 ? 0x70 : 0x40
+}
+
+/**
+ * Layer3YPos as CODE_009FB8 leaves it at level load, or null when it never
+ * writes one (camera-locked: CODE_00A01F follows the camera every frame).
+ * Walked branch by branch (bank_00.asm:4150-4182): bit 7 clear is a tide
+ * ($70 for $01, else $40; $00 is the one tide byte with no tide, below); bit 7 set with bit 6 set is CODE_00A012 ($D0);
+ * $80 alone is BigCrusherColors then $D0; $81-$BF is $C0 on Castle1 and
+ * Underground1 (CODE_009FFA) and camera-locked on every other tileset. Not
+ * `l3InitialYPx`, which answers $D0 for the first and 0 for $C0+, and not the
+ * loader's `=== 0x81` test, which would draw $82-$BF at the camera.
+ */
+export function l3LoadTimeY(settingsByte: number, tileset: number): number | null {
+  // $00 is Layer3TideSetting 0, CODE_05C40C's non-tide path: off Castle1/Underground1 it
+  // sets Layer3YPos = Layer1YPos every frame (CODE_05C428 -> CODE_05C48D), so camera-locked.
+  if (settingsByte === 0x00) return tileset === 1 || tileset === 3 ? 0x70 : null
+  if (settingsByte < 0x80) return settingsByte === 0x01 ? 0x70 : 0x40
+  if (settingsByte >= 0xc0 || settingsByte === 0x80) return 0xd0
+  return tileset === 1 || tileset === 3 ? 0xc0 : null
+}
+
+// ── Routine classification (editor metadata) ────────────────────────────────
+
+/**
+ * Animation/static kind for a level's L3 routine. Mirrors the vocabulary used
+ * by computeL3ScrollRange, plus a 'disabled' state that signals "Layer3Setting
+ * is 0 - no L3 selected at all" (distinct from 'none' which means the table
+ * entry exists but the byte is in the $C0+ no-L3 range).
+ */
+export type L3RoutineKind = 'tide' | 'fixed' | 'camera-tracked' | 'none' | 'disabled'
+
+export interface L3RoutineSummary {
+  /** 0..3, from $05F200[levelId] bits 7:6. 0 means L3 disabled for this level. */
+  layer3Setting: number
+  /** Raw byte from $009F88[tileset*3 + (setting-1)], or null when layer3Setting is 0. */
+  settingsByte: number | null
+  /** Animation/static kind (see L3RoutineKind). */
+  kind: L3RoutineKind
+  /**
+   * Initial Layer3YPos in pixels, or null when there is no static initial Y
+   * (camera-tracked, none, or disabled). Tide and fixed routines have a
+   * concrete static initial value.
+   */
+  initialYPx: number | null
+  /** True only for byte $01 (Tide_UpAndDown), the one tide byte that sweeps Y. */
+  isTideUpAndDown: boolean
+}
+
+export interface ClassifyL3Input {
+  /** 0..3, bits 7:6 of $05F200[levelId]. */
+  layer3Setting: number
+  /** Raw byte from $009F88, or null when layer3Setting is 0. */
+  settingsByte: number | null
+  /** Object tileset (header byte 4 bits 3:0) - needed for the $81 special case. */
+  tileset: number
+}
+
+/**
+ * Classify a Layer3Setting + $009F88 byte + tileset triple into a routine kind.
+ *
+ * Rules (verified against bank_00.asm:4139-4165 + bank_05.asm:5504-5630):
+ *   - layer3Setting === 0 → 'disabled' (no L3 lookup performed)
+ *   - byte === $01        → 'tide' (Tide_UpAndDown - only byte that animates Y;
+ *                            CODE_05C494 falls through when TideSetting-1 == 0)
+ *   - byte === $00        → 'fixed' (CODE_05C40C BEQ skips JMP CODE_05C494, so
+ *                            no animation; init Y = $70 per ASM)
+ *   - byte $02..$7F       → 'tide' (Tide_Stationary; CODE_05C494 BNE jumps to
+ *                            CODE_05C4EC, the same X path as $01, but Y stays
+ *                            static, so isTideUpAndDown is false; #808)
+ *   - byte === $80        → 'fixed' (static at $D0)
+ *   - byte === $81 + tileset 1 (Castle1) or 3 (Underground1) → 'fixed' (static at $C0)
+ *   - byte === $81 + other tileset → 'camera-tracked' (Layer3YPos = Layer1YPos)
+ *   - byte ≥ $C0          → 'none'
+ *
+ * isTideUpAndDown is true only for byte $01 - the canonical Tide_UpAndDown
+ * value (rammap.asm:1511 `!Tide_UpAndDown = 1`).
+ */
+export function classifyL3Routine(input: ClassifyL3Input): L3RoutineSummary {
+  const { layer3Setting, settingsByte, tileset } = input
+  if (layer3Setting === 0 || settingsByte === null) {
+    return {
+      layer3Setting: 0,
+      settingsByte: null,
+      kind: 'disabled',
+      initialYPx: null,
+      isTideUpAndDown: false,
+    }
+  }
+  // Only byte $01 reaches the Y-animating path. Byte $00 short-circuits at
+  // CODE_05C40C; byte $02..$7F takes CODE_05C4EC which only scrolls X (a tide
+  // too).
+  if (settingsByte === 0x01) {
+    return { layer3Setting, settingsByte, kind: 'tide', initialYPx: 0x70, isTideUpAndDown: true }
+  }
+  if (settingsByte >= 0x02 && settingsByte < 0x80) {
+    return {
+      layer3Setting,
+      settingsByte,
+      kind: 'tide',
+      initialYPx: l3InitialYPx(settingsByte),
+      isTideUpAndDown: false,
+    }
+  }
+  if (settingsByte < 0x80) {
+    // Byte $00: CODE_05C40C skips the tide handler. Treat as fixed.
+    return {
+      layer3Setting,
+      settingsByte,
+      kind: 'fixed',
+      initialYPx: l3InitialYPx(settingsByte),
+      isTideUpAndDown: false,
+    }
+  }
+  if (settingsByte >= 0xc0) {
+    return { layer3Setting, settingsByte, kind: 'none', initialYPx: 0, isTideUpAndDown: false }
+  }
+  // $80..$BF
+  if (settingsByte === 0x81 && tileset !== 1 && tileset !== 3) {
+    // CODE_00A01F path: Layer3YPos = Layer1YPos every frame; no static value.
+    return {
+      layer3Setting,
+      settingsByte,
+      kind: 'camera-tracked',
+      initialYPx: null,
+      isTideUpAndDown: false,
+    }
+  }
+  return {
+    layer3Setting,
+    settingsByte,
+    kind: 'fixed',
+    initialYPx: l3InitialYPx(settingsByte),
+    isTideUpAndDown: false,
+  }
+}
+
+/**
+ * Read the L3 routine summary for a level. Pure metadata - does not parse
+ * the stripe image (use loadL3Tilemap when you need the actual tilemap).
+ *
+ * @param tileset Object tileset (header byte 4 bits 3:0) for the level.
+ */
+export function readL3RoutineSummary(
+  rom: RomFile,
+  levelId: number,
+  tileset: number,
+): L3RoutineSummary {
+  const layer3Setting = readLayer3Setting(rom, levelId)
+  const settingsByte = layer3Setting === 0 ? null : readL3SettingsByte(rom, tileset, layer3Setting)
+  return classifyL3Routine({ layer3Setting, settingsByte, tileset })
+}
+
+// ── Scroll-range derivation (editor overlay) ─────────────────────────────────
+
+/** Tide Layer3YPos sweep bounds (CODE_05C494, bank_05.asm:5576-5630). */
+export const L3_TIDE_YPOS_MIN = 0x30
+export const L3_TIDE_YPOS_MAX = 0xa0
+
+export interface L3ScrollRange {
+  /**
+   * Animation kind:
+   *   - tide:           byte $01 sweeps Layer3YPos L3_TIDE_YPOS_MIN..MAX every
+   *                     frame; bytes $02-$7F keep it at initialYPx (static Y).
+   *   - fixed:          byte $00, $80, or $81 on tileset 1/3: Layer3YPos stays
+   *                     at initialYPx (no animation).
+   *   - camera-tracked: Layer3YPos = Layer1YPos every frame; cells sit at
+   *                     fixed level Y = row*8.
+   *   - none:           no L3 background or no gameplay-area content.
+   */
+  kind: 'tide' | 'fixed' | 'camera-tracked' | 'none'
+  /** Level pixel coordinates of the rectangle the L3 band can occupy. */
+  xMin: number
+  xMax: number
+  yMin: number
+  yMax: number
+  /**
+   * For byte $01 (the sweeping tide) - Y-coordinate of the wave-surface row (top of band)
+   * at the extremes of the BG3VOFS sweep. Designers see the wave-surface
+   * position at high tide (Layer3YPos = L3_TIDE_YPOS_MAX) and low tide
+   * (Layer3YPos = L3_TIDE_YPOS_MIN). Equal to yMin / (yMin + sweep) when
+   * the band-detection works perfectly; surfaced separately so the overlay
+   * can always draw explicit "HIGH" / "LOW" reference lines.
+   */
+  yHighTide?: number
+  yLowTide?: number
+}
+
+export interface L3ScrollRangeInput {
+  tilemap: Uint16Array
+  /** Initial Layer3YPos used by L3TilemapLayer's static render. */
+  initialYPx: number
+  /** Initial Layer1YPos at level start. */
+  initialCameraYPx: number
+  /** Level pixel width (screens × 256). */
+  levelPixelW: number
+  /** Raw byte from Layer3TilemapSettings ($009F88). */
+  settingsByte: number
+  /** Object tileset (header byte 4 bits 3:0). */
+  tileset: number
+}
+
+/**
+ * Find the first row >= L3_HUD_ROW_CUTOFF that contains any non-zero cell.
+ * Returns -1 if no gameplay-area cells exist.
+ */
+function findFirstDataRow(tilemap: Uint16Array): number {
+  for (let r = L3_HUD_ROW_CUTOFF; r < L3_TILEMAP_ROWS; r++) {
+    for (let c = 0; c < L3_TILEMAP_COLS; c++) {
+      if (tilemap[r * L3_TILEMAP_COLS + c] !== 0) return r
+    }
+  }
+  return -1
+}
+
+/**
+ * Tide stripe images write two identical row patterns (e.g. rows 32-47 then
+ * 48-63) for smooth animation. Detect the repeat boundary so the band-height
+ * isn't doubled. Mirrors L3TilemapLayer's repeat-detection.
+ */
+function findTideDataEndRow(tilemap: Uint16Array, firstDataRow: number): number {
+  for (let r = firstDataRow + 1; r < L3_TILEMAP_ROWS; r++) {
+    let match = true
+    for (let c = 0; c < L3_TILEMAP_COLS; c++) {
+      const a = tilemap[firstDataRow * L3_TILEMAP_COLS + c] ?? 0
+      const b = tilemap[r * L3_TILEMAP_COLS + c] ?? 0
+      const aChar = a & 0x3ff
+      const bChar = b & 0x3ff
+      const aEmpty = a === 0
+      const bEmpty = b === 0
+      if (aEmpty !== bEmpty || (!aEmpty && !bEmpty && aChar !== bChar)) {
+        match = false
+        break
+      }
+    }
+    if (match) return r
+  }
+  return L3_TILEMAP_ROWS
+}
+
+/** Find the last gameplay row <= dataEndRow-1 with any non-zero cell. */
+function findLastDataRow(tilemap: Uint16Array, dataEndRow: number): number {
+  for (let r = dataEndRow - 1; r >= L3_HUD_ROW_CUTOFF; r--) {
+    for (let c = 0; c < L3_TILEMAP_COLS; c++) {
+      if (tilemap[r * L3_TILEMAP_COLS + c] !== 0) return r
+    }
+  }
+  return -1
+}
+
+/**
+ * Compute the rectangle (in level pixel coordinates) that the L3 band can
+ * occupy as the game animates it. Used by the editor's scroll-range overlay
+ * so the designer can see where BG3 will be visible during play.
+ *
+ * Animation rules (from CODE_05C40C / CODE_05C494, bank_05.asm:5504-5630):
+ *   - Tide, byte $01:
+ *       Layer3YPos oscillates [L3_TIDE_YPOS_MIN..MAX].
+ *       pixelY = row*8 - liveYPos + initialCamY for liveYPos ∈ [MIN..MAX].
+ *       So yMin = firstRow*8 - YPOS_MAX + initialCamY
+ *          yMax = (lastRow+1)*8 - YPOS_MIN + initialCamY
+ *   - Tide, bytes $02-$7F, and Fixed (byte $00, $80, or $81 with tileset 1/3):
+ *       pixelY = row*8 - initialYPx + initialCamY (static Y; the tide kind
+ *       draws no HIGH/LOW lines).
+ *   - Camera-tracked (settings byte $81 with tileset != 1, 3):
+ *       Layer3YPos = Layer1YPos every frame → pixelY = row*8 in level coords.
+ *   - None (settings byte $C0+, or no gameplay content): no overlay.
+ *
+ * X is the full level width for every kind: a tide covers the whole map width,
+ * and a tide's real BG3 X is a phase, see docs/rom/level-rendering.md "Tide X".
+ */
+export function computeL3ScrollRange(input: L3ScrollRangeInput): L3ScrollRange {
+  const { tilemap, initialYPx, initialCameraYPx, levelPixelW, settingsByte, tileset } = input
+
+  if (settingsByte >= 0xc0) {
+    return { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 }
+  }
+
+  const firstDataRow = findFirstDataRow(tilemap)
+  if (firstDataRow < 0) {
+    return { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 }
+  }
+
+  // Y animation only happens for byte $01 (Tide_UpAndDown). Byte $00 skips the
+  // tide handler; $02..$7F scroll X like a tide but never update Layer3YPos
+  // at runtime - see classifyL3Routine for the ASM trace.
+  const isAnimatedTide = settingsByte === 0x01
+  const dataEndRow = isAnimatedTide ? findTideDataEndRow(tilemap, firstDataRow) : L3_TILEMAP_ROWS
+  const lastDataRow = findLastDataRow(tilemap, dataEndRow)
+  if (lastDataRow < 0) {
+    return { kind: 'none', xMin: 0, xMax: 0, yMin: 0, yMax: 0 }
+  }
+
+  const xMin = 0
+  const xMax = levelPixelW
+
+  if (isAnimatedTide) {
+    return {
+      kind: 'tide',
+      xMin,
+      xMax,
+      yMin: firstDataRow * 8 - L3_TIDE_YPOS_MAX + initialCameraYPx,
+      yMax: (lastDataRow + 1) * 8 - L3_TIDE_YPOS_MIN + initialCameraYPx,
+      // Wave-surface row position at the two BG3VOFS extremes. The renderer
+      // uses these for explicit "HIGH" / "LOW" tide reference lines.
+      yHighTide: firstDataRow * 8 - L3_TIDE_YPOS_MAX + initialCameraYPx,
+      yLowTide: firstDataRow * 8 - L3_TIDE_YPOS_MIN + initialCameraYPx,
+    }
+  }
+
+  // settingsByte in [$80, $C0), $00, or a stationary tide ($02..$7F)
+  const isCameraTracked = settingsByte === 0x81 && tileset !== 1 && tileset !== 3
+  if (isCameraTracked) {
+    return {
+      kind: 'camera-tracked',
+      xMin,
+      xMax,
+      yMin: firstDataRow * 8,
+      yMax: (lastDataRow + 1) * 8,
+    }
+  }
+
+  return {
+    kind: settingsByte !== 0 && settingsByte < 0x80 ? 'tide' : 'fixed',
+    xMin,
+    xMax,
+    yMin: firstDataRow * 8 - initialYPx + initialCameraYPx,
+    yMax: (lastDataRow + 1) * 8 - initialYPx + initialCameraYPx,
+  }
+}
+
+// ── Layer3Ptr table ───────────────────────────────────────────────────────────
+
+/**
+ * Read the SNES address of the stripe-image tilemap for (tileset, layer3Setting).
+ *
+ * Index into Layer3Ptr = (layer3Setting-1 + tileset*3) * 3  (each entry is 3 bytes).
+ * Returns null if layer3Setting is 0 or the ROM read fails.
+ */
+export function readL3TilemapAddr(
+  rom: RomFile,
+  tileset: number,
+  layer3Setting: number,
+): number | null {
+  if (layer3Setting < 1 || layer3Setting > 3) return null
+  const idx = (layer3Setting - 1 + tileset * L3_SETTINGS_PER_TILESET) * L3_PTR_ENTRY_SIZE
+  const lo = rom.readByte(L3_PTR_TABLE + idx)
+  const hi = rom.readByte(L3_PTR_TABLE + idx + 1)
+  const bk = rom.readByte(L3_PTR_TABLE + idx + 2)
+  if (lo === null || hi === null || bk === null) return null
+  return (bk << 16) | (hi << 8) | lo
+}
+
+// ── Stripe-image parser ───────────────────────────────────────────────────────
+
+/**
+ * Convert a VRAM word address in the BG3 64×64 tilemap to a flat row-major
+ * index (row * L3_TILEMAP_COLS + col) usable in our 64×64 buffer.
+ *
+ * SNES 64×64 BG tilemap splits into four 32×32 sub-screens in VRAM:
+ *   sub 0  $5000–$53FF  → rows  0-31, cols  0-31
+ *   sub 1  $5400–$57FF  → rows  0-31, cols 32-63
+ *   sub 2  $5800–$5BFF  → rows 32-63, cols  0-31
+ *   sub 3  $5C00–$5FFF  → rows 32-63, cols 32-63
+ * Within each sub, entry (r_sub, c_sub) lives at sub_base + r_sub*32 + c_sub.
+ *
+ * Returns -1 for addresses outside $5000–$5FFF.
+ */
+function vramAddrToFlat(vramAddr: number): number {
+  const off = vramAddr - L3_TILEMAP_BASE
+  if (off < 0 || off >= L3_TILEMAP_COLS * L3_TILEMAP_ROWS) return -1
+  const sub = (off >> 10) & 3 // which sub-screen (0-3)
+  const within = off & 0x3ff // position within sub (0-1023)
+  const hwRow = (within >> 5) + (sub >= 2 ? 32 : 0)
+  const hwCol = (within & 0x1f) + (sub & 1 ? 32 : 0)
+  return hwRow * L3_TILEMAP_COLS + hwCol
+}
+
+/**
+ * Parse a stripe-image byte stream into a 64×64 VRAM tilemap buffer.
+ *
+ * The returned Uint16Array has 4096 entries; index = hw_row*64 + hw_col,
+ * where hw_row/hw_col are the hardware BG3 tile coordinates (0-63 each).
+ * Entries outside $5000–$5FFF are silently ignored.
+ *
+ * Horizontal writes (FLAGS bit 7 = 0): VRAM address increments by 1 per tile
+ * (SNES VMAINC mode 00 = +1 word).
+ * Vertical writes (FLAGS bit 7 = 1): VRAM address increments by 32 per tile
+ * (SNES VMAINC mode 01 = +32 words = one row within a 32-wide sub-screen).
+ *
+ * RLE format (FLAGS bit 6 = 1): 2 data bytes (one tile word) as the fixed source of two DMAs; the stream
+ * advances by 2, not by the byte count (bank_00.asm:906-955). Each run's bytes land as that routine's DMAs write them,
+ * see `parseStripeImageInto`.
+ */
+export function parseStripeImage(data: Uint8Array): Uint16Array {
+  const tilemap = new Uint16Array(L3_TILEMAP_COLS * L3_TILEMAP_ROWS)
+  parseStripeImageInto(tilemap, data)
+  return tilemap
+}
+
+/**
+ * Like parseStripeImage but writes into an existing tilemap buffer, so a
+ * static-status-bar pass can run before the stripe parser.
+ */
+export function parseStripeImageInto(tilemap: Uint16Array, data: Uint8Array): void {
+  const written = new Uint8Array(tilemap.length)
+  let i = 0
+  while (i < data.length) {
+    const b0 = data[i]!
+    if (b0 & 0x80) break // terminator (bit 7 set)
+    if (i + 3 >= data.length) break
+
+    const b1 = data[i + 1]!
+    const b2 = data[i + 2]!
+    const b3 = data[i + 3]!
+    const vramAddr = (b0 << 8) | b1
+    const vertical = (b2 & 0x80) !== 0
+    const rle = (b2 & 0x40) !== 0
+    const countBytes = (((b2 & 0x3f) << 8) | b3) + 1
+    i += 4
+
+    // Both kinds are N-byte DMAs of two-byte units to $2118/$2119; a partial last unit writes only its first register.
+    // Plain data: low byte to $2118, high to $2119 (VMAINC steps after the high write), the stream advances N. RLE: two
+    // DMAs from a fixed source, the first stepping after the LOW write, so its odd bytes land in the high byte of the
+    // next word (an even N leaves the run's low byte in the word past it); the second writes the high byte, once per
+    // unit. The stream advances 2 (bank_00.asm:906-955, #805; docs/rom/layer3-world-locked.md).
+    const stride = vertical ? 32 : 1
+    const put = (word: number, byte: number, high: boolean) => {
+      const pos = vramAddrToFlat(word)
+      if (pos < 0) return
+      // A cell nothing has written holds CLEARED, whose other byte stays (a written $0000 is not untouched).
+      const cur = written[pos] || tilemap[pos] ? tilemap[pos]! : CLEARED
+      tilemap[pos] = high ? (cur & 0x00ff) | (byte << 8) : (cur & 0xff00) | byte
+      written[pos] = 1
+    }
+    if (rle) {
+      if (i + 1 >= data.length) break
+      const [lo, hi] = [data[i]!, data[i + 1]!]
+      i += 2
+      for (let k = 0; k < countBytes; k++) put(vramAddr + ((k + 1) >> 1) * stride, lo, k % 2 === 1)
+      for (let k = 0; k < countBytes; k += 2) put(vramAddr + (k >> 1) * stride, hi, true)
+      continue
+    }
+    // Truncated data (a malformed set, not the ROM's) writes its whole tiles and stops.
+    const cut = i + countBytes > data.length
+    const n = cut ? (data.length - i) & ~1 : countBytes
+    for (let k = 0; k < n; k++) put(vramAddr + (k >> 1) * stride, data[i + k]!, k % 2 === 1)
+    if (cut) break
+    i += countBytes
+  }
+}
+
+// ── High-level loader ─────────────────────────────────────────────────────────
+
+export interface L3TilemapLoad {
+  /** 64×64 VRAM tilemap buffer (index = row*64+col). */
+  tilemap: Uint16Array
+  /** Initial Layer3YPos in pixels (used to position L3 relative to the level). */
+  initialYPx: number
+  /** Initial Layer1YPos (camera Y) in pixels, from DATA_05D708 via DATA_05F200 bits 3:2. */
+  initialCameraYPx: number
+  /** SNES address the stripe-image data was read from. */
+  dataAddr: number
+  /** Raw byte from Layer3TilemapSettings ($009F88). Drives scroll-range mode. */
+  settingsByte: number
+}
+
+/**
+ * Load the L3 tilemap for a level, or null if the level has no L3.
+ */
+export function loadL3Tilemap(
+  rom: RomFile,
+  levelId: number,
+  tileset: number,
+  timeLimit = 0,
+  via?: MapEntrances,
+): L3TilemapLoad | null {
+  const layer3Setting = readLayer3Setting(rom, levelId)
+  if (layer3Setting === 0) return null
+
+  const dataAddr = readL3TilemapAddr(rom, tileset, layer3Setting)
+  if (dataAddr === null) return null
+
+  // Read generously; stripe images terminate with $FF so a large cap is fine.
+  const raw = rom.readAt(dataAddr, 0x2000)
+  if (!raw) return null
+
+  const settingsByte = readL3SettingsByte(rom, tileset, layer3Setting) ?? 0
+  let initialYPx = l3InitialYPx(settingsByte)
+  const initialCameraYPx = readInitialLayer1YPos(rom, levelId, false, via)
+
+  // $81 with non-castle/non-underground tilesets: CODE_009FB8 takes the
+  // CODE_00A01F path (no Layer3YPos write, no Layer3ScrollType increment).
+  // The game loop (CODE_05C40C → CODE_05C428 → CODE_05C48D) then runs
+  //   Layer3YPos = Layer1YPos  every frame,
+  // so tiles sit at fixed level Y = row*8 regardless of camera position.
+  // Setting initialYPx = initialCameraYPx makes the render formula
+  //   pixelY = row*8 - initialYPx + initialCamY  collapse to  row*8.
+  // ObjTileset_Castle1 = 1, ObjTileset_Underground1 = 3 (constants.asm:229/231):
+  // those tilesets reach CODE_009FFA which sets Layer3YPos = $C0 instead.
+  if (settingsByte === 0x81 && tileset !== 1 && tileset !== 3) {
+    initialYPx = initialCameraYPx
+  }
+
+  // Game order: UploadStaticBar (HUD) runs first, then UpdateStatusBar writes
+  // the initial timer digits over the runtime-placeholder slots, then the
+  // stripe-image parse overlays for tilesets whose stripe writes into the
+  // HUD area (e.g. crusher).
+  const tilemap = new Uint16Array(L3_TILEMAP_COLS * L3_TILEMAP_ROWS)
+  applyStaticStatusBar(rom, tilemap)
+  applyInitialTimer(rom, tilemap, timeLimit)
+  parseStripeImageInto(tilemap, new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength))
+
+  return {
+    tilemap,
+    initialYPx,
+    initialCameraYPx,
+    dataAddr,
+    settingsByte,
+  }
+}

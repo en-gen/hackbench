@@ -207,6 +207,26 @@ describe('parseStripeImage', () => {
     }
   })
 
+  it('a written $0000 is not an untouched cell: a later one-byte write keeps its other byte (#805)', () => {
+    // Word $5800 = $0000 by a plain run, then a one-byte plain run on it: the high byte stays 0, not ClearOutLayer3's.
+    const buf = parseStripeImage(new Uint8Array([0x58, 0x00, 0x00, 0x01, 0x00, 0x00, 0x58, 0x00, 0x00, 0x00, 0x12, 0xff])) // prettier-ignore
+    expect(buf[base]).toBe(0x0012)
+    // An untouched cell takes the blank's other byte: the same one-byte write alone gives $3812.
+    expect(parseStripeImage(new Uint8Array([0x58, 0x00, 0x00, 0x00, 0x12, 0xff]))[base]).toBe(
+      0x3812,
+    )
+  })
+
+  it('a vertical RLE run steps 32 words, not 1 (N = 3: $5800 and $5820)', () => {
+    const buf = parseStripeImage(new Uint8Array([0x58, 0x00, 0xc0, 0x02, 0x34, 0x12, 0xff]))
+    expect([buf[base], buf[base + 64], buf[base + 1]]).toEqual([0x1234, 0x1234, 0])
+  })
+
+  it('truncated plain data writes its whole tiles only and stops, with no terminator', () => {
+    const buf = parseStripeImage(new Uint8Array([0x58, 0x00, 0x00, 0x05, 0x11, 0x22, 0x33]))
+    expect([buf[base], buf[base + 1]]).toEqual([0x2211, 0])
+  })
+
   it('RLE entry followed by normal entry parses both correctly', () => {
     // RLE at $5800 (2 tiles of $AABB), then normal at $5040 (1 tile of $0201)
     // $5800 → sub 2, within=0 → hw (row 32, col 0) → flat 2048

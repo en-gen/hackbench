@@ -2,8 +2,8 @@
 
 Scope: Layer 3 on a horizontal map whose Layer 3 settings byte is $81-$BF on a tileset other than
 Castle1 or Underground1 (vanilla: maps $011, $130, $1C1 on tileset 9, plus $018 on tileset 13).
-Evidence: static trace of SMWDisX plus the `layers_v5` captures of $011, $130 and $1C1 at frames 0, 1,
-9 and 17, and of $018 at frame 0 (#805); vanilla ROM, one machine, 2026-10-17. Code: `src/rom/model/L3Model.ts`, `entranceCameraX`
+Evidence: static trace of SMWDisX plus the `layers_v5` captures of $011, $130, $1C1 and $018 at frames 0, 1,
+9 and 17 (the tilemap comparison of #805 is at frame 0 only); vanilla ROM, one machine, 2026-10-17. Code: `src/rom/model/L3Model.ts`, `entranceCameraX`
 in `src/rom/L3Loader.ts`, `drawL3Planes` in `theia/extension/src/node/map-screen.ts`.
 
 ## Where Layer3YPos ($24) comes from at load
@@ -89,6 +89,8 @@ map properties panel.
 
 ## Not covered
 
+- A hack that changes ClearOutLayer3's blank tile (`!EmptyTile`, bank_00.asm:751, 764): the stripe parser assumes the
+  vanilla `$38FC` for the untouched half of a cell a run writes one byte of; it is not read from the ROM.
 - Vertical maps: refused as before (the entry's Layer1YPos high byte is not read).
 - Settings byte $00 off Castle1 and Underground1: refused (load Y is the tide's $70, then camera-locked).
 
@@ -123,7 +125,4 @@ the parser's (checked: both sides `$38FC` on 10 cells each, r45c7, r47c7, r50c13
 c+32). They are not the half-speed difference of #105.
 
 World-locked versus camera-locked rests on the static ASM trace above: the camera never moves in these captures (frames
-0/1/9/17: Layer1XPos 0, Layer3XPos drift 1, 2, 4, 6), so no capture shows Layer 3 following a moving camera.
-
-Merge order: #970 (vertical maps) also edits `buildL3Verdict`; whichever lands second keeps #970's vertical refusal and
-drops the mode 0E clause.
+0/1/9/17: Layer1XPos constant per map, 0 on $011, $130 and $018 and 652 on $1C1; Layer3XPos drift 1, 2, 4, 6), so no capture shows Layer 3 following a moving camera.
