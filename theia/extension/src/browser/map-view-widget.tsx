@@ -638,7 +638,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   /** The play/stop button: Layer 2 moves by the run's offsets, 60 frames a second, until stopped. */
   protected togglePlay(): void {
     if (this.playing) return this.stopPlay()
-    if (!this.motion || !this.canPlay) return
+    if (!this.canPlay) return
     this.playing = true
     this.playStart = performance.now()
     this.playFrame = 0

@@ -6,7 +6,7 @@
 import { runMapMotion } from '../../../../src/rom/MapMotion'
 import { RomFile } from '../../../../src/rom/RomFile'
 import type { MapMotionResult } from '../common/project-protocol'
-import { base64, drawL2Strip, screenTiles, type L1ModelCache } from './map-screen'
+import { base64, drawL2Strip, type L1ModelCache } from './map-screen'
 
 type Reply = Exclude<MapMotionResult, { status: 'rom-not-located' }>
 
@@ -30,10 +30,12 @@ function compute(cache: L1ModelCache, bytes: Uint8Array, romPath: string, index:
       "Layer 2's position when the map loads differs from the picture at rest, so Play will not shift it.",
     )
   const strips = []
+  let stripRows = 0
   for (let s = 0; s < built.inputs.screenCount; s++) {
     const strip = drawL2Strip(built.inputs, l2, s)
     if (!strip) return unavailable('Play draws horizontal maps only.')
     const { l2Low, l2High } = strip.planes
+    stripRows = strip.rows
     strips.push({ low: l2Low && base64(l2Low), high: l2High && base64(l2High) })
   }
   return {
@@ -43,7 +45,7 @@ function compute(cache: L1ModelCache, bytes: Uint8Array, romPath: string, index:
     cameraMoved: run.cameraMoved,
     ...run.frames,
     shiftY: run.shiftY,
-    stripRows: 512 - screenTiles(false).h * 16,
+    stripRows,
     strips,
   }
 }

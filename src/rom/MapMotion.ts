@@ -24,6 +24,7 @@ import type { RomFile } from './RomFile'
 /** Layer1ScrollCmd / Layer2ScrollCmd (rammap.asm:1566-1567): either nonzero after the load means a routine. */
 const SCROLL_CMDS = [0x143e, 0x143f]
 const POS = { l1x: 0x1a, l1y: 0x1c, l2x: 0x1e, l2y: 0x20 } as const
+const KEYS = Object.keys(POS) as (keyof typeof POS)[]
 /** The inputs pass 2 states (rammap.asm): Layer2Touched, the NextLayer1/2XPos words, and Mario's X. */
 const TOUCHED = 0x140e
 const NEXT_L1X = 0x1462
@@ -121,8 +122,7 @@ function runPass(
     w[a + 1] = v >> 8
   }
   const frames: MotionFrames = { l1x: [], l1y: [], l2x: [], l2y: [] }
-  const record = () =>
-    (Object.keys(POS) as (keyof typeof POS)[]).forEach(k => frames[k].push(word(POS[k])))
+  const record = () => KEYS.forEach(k => frames[k].push(word(POS[k])))
   record()
   let lastChange = 0
   for (let f = 1; f <= FRAME_CAP; f++) {
@@ -140,18 +140,16 @@ function runPass(
       if (why) return { frames, end: 'settled', refused: why }
     }
     record()
-    if ((Object.keys(POS) as (keyof typeof POS)[]).some(k => frames[k][f] !== frames[k][f - 1]))
-      lastChange = f
+    if (KEYS.some(k => frames[k][f] !== frames[k][f - 1])) lastChange = f
     if (f - lastChange >= SETTLE) {
-      for (const k of Object.keys(POS) as (keyof typeof POS)[]) frames[k].length = lastChange + 1
+      for (const k of KEYS) frames[k].length = lastChange + 1
       return { frames, end: 'settled' }
     }
   }
   return { frames, end: 'cap' }
 }
 
-const moved = (f: MotionFrames): boolean =>
-  (Object.keys(POS) as (keyof typeof POS)[]).some(k => f[k].some(v => v !== f[k][0]))
+const moved = (f: MotionFrames): boolean => KEYS.some(k => f[k].some(v => v !== f[k][0]))
 
 const NO_MOTION =
   'This map has a scroll routine, but it moves nothing on its own. It waits for something Play cannot supply (a switch, a trigger or a timer).'
