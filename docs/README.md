@@ -41,6 +41,8 @@ The BA first-turn instructions direct the coordinating session to read this page
   browser/common/node split, RPC wiring
 - [codebase-map.md](architecture/codebase-map.md) - where code lives, what
   tests run where, the commit gates
+- [screens.md](architecture/screens.md), [rom-layout.md](architecture/rom-layout.md)
+  (proposed) and the dated `design-review-*` files
 
 ## Project-wide
 
@@ -95,39 +97,22 @@ cited to the disassembly.
   are enterable pipes and doors, and which screen exit they use
 - [rom/block-contents.md](rom/block-contents.md) - what each item block
   ($111-$12D) holds, by X column and game state
+- Also in [rom/](rom/): `overworld`, `bg-mode`, `frame-zero`,
+  `gfx-decompressors`, `dynamic-sprite-gfx`, `level-table-gate`,
+  `pswitch-button-art`, `reveal-search`, `addmusick-detection`, `hack-corpus`
 
 ## Sprites
 
-Per-sprite derivations and the design of the table-driven draw engine. These
-are long because they show the trace, which is the point.
-
-- [sprites/sprite-gfx-routine-reading.md](sprites/sprite-gfx-routine-reading.md) -
-  reading a sprite's draw routine off the ROM
-- [sprites/sprite-dispatch-chains.md](sprites/sprite-dispatch-chains.md) -
-  reading through the shared handler stubs
-- [sprites/sprite-draw-path-census.md](sprites/sprite-draw-path-census.md) -
-  how far a table-driven engine can reach
-- [sprites/sprite-engine-divergence.md](sprites/sprite-engine-divergence.md) -
-  Phase 1 divergence report
-- [sprites/sprite-engine-wiring.md](sprites/sprite-engine-wiring.md) -
-  editor wiring
-- [sprites/sprite-overlay-removal.md](sprites/sprite-overlay-removal.md) -
-  removal of path and movement overlays
-- [sprites/sprite-validation-batches.md](sprites/sprite-validation-batches.md)
-- [sprites/sprite-1f-magikoopa.md](sprites/sprite-1f-magikoopa.md)
-- [sprites/sprite-4d-monty-mole.md](sprites/sprite-4d-monty-mole.md)
-- [sprites/sprite-ad-wooden-spike.md](sprites/sprite-ad-wooden-spike.md)
-- [sprites/smw-sprite-2c-yoshi-egg.md](sprites/smw-sprite-2c-yoshi-egg.md)
+[sprites/](sprites/) holds per-sprite derivations and the design of the
+table-driven draw engine. They are long because they show the trace. Start
+with [sprite-gfx-routine-reading.md](sprites/sprite-gfx-routine-reading.md)
+and [sprite-engine-wiring.md](sprites/sprite-engine-wiring.md).
 
 ## Spikes and investigations
 
-Findings from throwaway probes. Kept for the conclusions, not the code.
-
-- [spikes/cgram-oracle.md](spikes/cgram-oracle.md)
-- [spikes/palette-animation-detect.md](spikes/palette-animation-detect.md)
-- [spikes/music-bank-song-table.md](spikes/music-bank-song-table.md)
-- [spikes/per-pass-canvas-spike.md](spikes/per-pass-canvas-spike.md)
-- [spikes/vscode-ui-testing-spike.md](spikes/vscode-ui-testing-spike.md)
+Findings from throwaway probes, kept for the conclusions, not the code:
+[docs/spikes/](spikes/) (write-ups) and [../spikes/](../spikes/README.md)
+(probes with code).
 
 ## Ideas
 
@@ -143,13 +128,10 @@ Designs agreed before implementation, dated and kept as written.
 - [superpowers/specs/](superpowers/specs/) - accepted designs
 - [superpowers/plans/](superpowers/plans/) - the implementation plans from them
 
-## Designs
+## Designs and mockups
 
-- [design/](design/) - UI designs the owner has picked, before the build issue
-
-## Mockups
-
-- [mockups/](mockups/) - HTML wireframes
+[design/](design/) holds UI designs the owner has picked, before the build
+issue; [mockups/](mockups/) holds HTML wireframes.
 
 ## House rules for documentation
 

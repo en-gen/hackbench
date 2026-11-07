@@ -8,8 +8,8 @@ What you need, how to run HackBench, and how to get from a ROM to an
 
 ## What you need
 
-- **Node 22.12 or newer**, plus `npm` and `yarn` 1.x. Theia 1.75 pins
-  Electron 42.8.1, whose engines field requires it.
+- **Node 22.12 or newer** (the Electron that Theia pins requires it), plus
+  `npm` and `yarn` 1.x.
 - **A legally obtained Super Mario World ROM.** HackBench ships no ROM
   data and never will. See [Legal](../../README.md#legal).
 - Optionally, a **libretro SNES core** if you want the emulator view.
@@ -66,35 +66,26 @@ manifest carries defaults until you fill them in. The same dialog shows where
 this workstation keeps the ROM and the emulator core, and lets you point either
 at a new location (the ROM must be the same one the project was made from).
 
-What you get:
-
-```
-MyHack/
-  MyHack.hbproj
-  levels/
-  snapshots/
-```
-
-`ops/`, `export/` and `saves/` appear on first use.
+You get `MyHack.hbproj` plus empty `levels/` and `snapshots/`; `ops/`,
+`export/` and `saves/` appear on first use. Layout:
+[project-format.md](../architecture/project-format.md#layout).
 
 ## Look around
 
 Five views, all reachable from the **HackBench** command category. Maps,
 Graphics, Palettes and Audio dock in the left sidebar; the Emulator docks
-in the right:
+in the bottom panel:
 
 - **Maps** - every map in the ROM, grouped rather than dumped in a
-  flat list, with counts that mean what they say. Opening one shows its
-  decoded header beside the five raw header bytes; it is not a tile canvas
-  yet
+  flat list, with counts that mean what they say. Opening one draws its tiles
+  and sprites; it is read-only
 - **Palettes** - the palette groups, editable
 - **Graphics** - every GFX file, decoded, with a selectable bit depth and
-  palette row
+  palette row; the Map16 tile editor opens from here
 - **Audio** - every BGM track with bank details, and the sound effect
   explorer beside them
-- **Emulator** - a libretro core running the working copy, docked in the
-  bottom panel beside Problems so it sits below what you are editing; open
-  it from View > Emulator
+- **Emulator** - a libretro core running the working copy, beside Problems;
+  open it from View > Emulator
 
 If you open a project on a machine where the ROM is not registered,
 every view asks you to locate the ROM rather than showing you nothing.
