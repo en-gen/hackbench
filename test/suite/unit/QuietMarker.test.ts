@@ -332,6 +332,8 @@ const SPARKLE = 0x18d3
 const ABOVE = 0x029500
 /** GivePlayerLives and InvinsibilityTimer (rammap.asm:1908, :1635), and the stubs the fixture calls when they are set. */
 const [LIVES_CELL, STAR_CELL, LIVES_HOOK, STAR_HOOK] = [0x18e4, 0x1490, 0x029510, 0x029520]
+/** GiveLivesTimer (rammap.asm:1909): the countdown path at bank_02.asm:1363-1364. */
+const [TIMER_CELL, TIMER_HOOK] = [0x18e5, 0x029530]
 const ROUTINE = 0x029000
 const TABLE = 0x029100
 const TABLE_BIT3 = 0x029200
@@ -552,6 +554,7 @@ function cart(
     ...[
       [LIVES_CELL, 0xf0, 0x03, LIVES_HOOK],
       [STAR_CELL, 0xf0, 0x03, STAR_HOOK],
+      [TIMER_CELL, 0xf0, 0x03, TIMER_HOOK],
     ].flatMap(([cell, beq, skip, hook]) => [
       0xad,
       cell! & 0xff,
@@ -565,11 +568,12 @@ function cart(
     0xa5,
     0x14,
     0xf0,
-    0x45 - 16,
+    0x45 - 24,
   ])
   put(ABOVE, [RTS])
   put(LIVES_HOOK, [RTS])
   put(STAR_HOOK, [RTS])
+  put(TIMER_HOOK, [RTS])
   put(ROUTINE, new Array(0x100).fill(0x4b)) // filler after the code, never run
   put(ROUTINE, code)
   put(
@@ -813,6 +817,8 @@ describe('LoadClass runs the stretch before the call', () => {
   it.each([
     ['the lives branch loops', LIVES_HOOK, [0x80, 0xfe]],
     ['the lives branch pops its return and leaves', LIVES_HOOK, [0x68, 0x68, RTS]],
+    ['the lives countdown loops', TIMER_HOOK, [0x80, 0xfe]],
+    ['the lives countdown pops its return and leaves', TIMER_HOOK, [0x68, 0x68, RTS]],
     ['the star branch loops', STAR_HOOK, [0x80, 0xfe]],
     ['the star branch pops its return and leaves', STAR_HOOK, [0x68, 0x68, RTS]],
   ])('unavailable when a hook in %s', (_title, at, bytes) => {
