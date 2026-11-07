@@ -73,6 +73,8 @@ const tabsOf = (page, re) =>
     re.source,
   )
 const activeId = page => page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id)
+/** There is no event for a tab that never opens, so give a wrong second one time to appear before asserting its absence. */
+const noSecondTab = page => page.waitForTimeout(1500)
 const pinnedOf = async (page, re) =>
   (await tabsOf(page, re)).filter(t => !t.id.includes(':preview'))
 const previewOf = async (page, re) =>
@@ -108,7 +110,7 @@ function suite(name, view) {
     await expect.poll(async () => (await previewOf(page, re)).length).toBe(0)
     await rowA(page).click()
     await expect.poll(() => activeId(page)).toBe(a)
-    await page.waitForTimeout(1500) // a second tab would be opening by now
+    await noSecondTab(page)
     expect((await pinnedOf(page, re)).map(t => t.id)).toEqual([a])
     expect(await previewOf(page, re)).toEqual([])
   })
@@ -122,7 +124,7 @@ function suite(name, view) {
     const [before] = await previewOf(page, re)
     await rowA(page).click()
     await expect.poll(() => activeId(page)).toBe(a)
-    await page.waitForTimeout(1500)
+    await noSecondTab(page)
     expect((await pinnedOf(page, re)).map(t => t.id)).toEqual([a])
     expect(await previewOf(page, re)).toEqual([before]) // still B's, same tab
   })
@@ -152,7 +154,7 @@ function suite(name, view) {
   test(`${name}: a double click on an open row still leaves one tab (6)`, async ({ page }) => {
     const a = await pinA(page)
     await rowA(page).dblclick()
-    await page.waitForTimeout(1500)
+    await noSecondTab(page)
     expect((await pinnedOf(page, re)).map(t => t.id)).toEqual([a])
     expect(await previewOf(page, re)).toEqual([])
   })
