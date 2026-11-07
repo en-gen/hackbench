@@ -13,9 +13,10 @@
  * hidden tab stops it.
  * Plants for the verifier. (1) In `playTick` (map-view-widget.tsx) use `m.shiftY[f + 1]`: the offset assertion goes
  * red. (2) In `playTick` drop `this.syncDisplays()`: a screen with indicators keeps the display built before Play
- * (width > 0 over a hidden composite) while the offset moves, so its visible hash does not change and the
- * 'visible hash changes on every screen with a display' assertions in the stop test and the hover/toggle test go
- * red (`frozenScreens` lists the screens).
+ * (width > 0 over a hidden composite) while the offset moves. Screen 3 of $009 has indicators and Layer 2
+ * pixels, so its visible hash then stays equal across a 20-row move and `frozenScreens` lists it in the stop
+ * test and in the hover/toggle test; $009's screen 0 has indicators but no Layer 2 pixels, so only its display
+ * key is asserted. The Layer 2 screens are read from the widget's state, and the set must not be empty.
  * NOT covered: the exact pixels of a shifted Layer 2 (unit tests cover the shift and the wrap).
  */
 const { test, expect } = require('@playwright/test')
@@ -102,6 +103,12 @@ const snapshot = (page, slot) =>
       return h >>> 0
     }
     const screens = {}
+    // Layer 2 pixels, from the widget's own state: a screen whose Layer 2 planes are both empty cannot change
+    // its picture when Layer 2 shifts.
+    const hasL2 = n => {
+      const shot = w.screens.get(w.key(Number(n)))
+      return !!shot && (!!shot.planes.l2Low || !!shot.planes.l2High)
+    }
     for (const c of root.querySelectorAll('canvas[data-layer="screen"]')) {
       if (!c.width || !c.dataset.drawn) continue
       const d = root.querySelector(
@@ -111,6 +118,7 @@ const snapshot = (page, slot) =>
       screens[c.dataset.screen] = {
         h: hash(top),
         key: c.dataset.drawn,
+        hasL2: hasL2(c.dataset.screen),
         displayWidth: d ? d.width : 0,
         compositeHidden: c.style.visibility === 'hidden',
       }
@@ -137,10 +145,23 @@ const opsListing = () => {
 }
 
 /**
- * The screens in `ids` whose VISIBLE canvas did not change while the offset moved by at least 20 rows. A display
- * that is not redrawn per frame (the plant in the header) shows here; a composite-key check would not.
+ * The screens with indicators (a display), split by whether they have Layer 2 pixels. Only the first group can
+ * change its picture when the offset moves.
  */
-async function frozenScreens(page, slot, ids) {
+const indicatorScreens = snap => {
+  const shown = Object.entries(snap.screens).filter(([, v]) => v.displayWidth > 0)
+  return {
+    l2: shown.filter(([, v]) => v.hasL2).map(([s]) => s),
+    plain: shown.filter(([, v]) => !v.hasL2).map(([s]) => s),
+  }
+}
+
+/**
+ * Over a span in which the offset moves by at least 20 rows: the indicator screens with Layer 2 pixels whose
+ * VISIBLE canvas did not change, and the indicator screens without whose composite key did not advance. A display
+ * that is not redrawn per frame shows in the first list; a composite-key check alone would not catch it.
+ */
+async function frozenScreens(page, slot, groups) {
   const a = await snapshot(page, slot)
   await expect
     .poll(async () => Math.abs((await snapshot(page, slot)).shift - a.shift), {
@@ -149,14 +170,9 @@ async function frozenScreens(page, slot, ids) {
     })
     .toBeGreaterThanOrEqual(20)
   const b = await snapshot(page, slot)
-  return ids.filter(s => !a.screens[s] || !b.screens[s] || a.screens[s].h === b.screens[s].h)
+  const same = (s, f) => !a.screens[s] || !b.screens[s] || a.screens[s][f] === b.screens[s][f]
+  return [...groups.l2.filter(s => same(s, 'h')), ...groups.plain.filter(s => same(s, 'key'))]
 }
-
-/** The screens that show a display (indicators) in `snap`. */
-const withDisplay = snap =>
-  Object.entries(snap.screens)
-    .filter(([, v]) => v.displayWidth > 0)
-    .map(([s]) => s)
 
 /** Waits until the run is at a frame whose offset is not zero; the wait comes from the run, not from a number here. */
 async function untilShifted(page, slot, run) {
@@ -230,8 +246,8 @@ test('stop restores what is visible exactly, indicator screens included, and wri
     expect(during.screens[s]?.displayWidth).toBeGreaterThan(0)
     expect(during.screens[s]?.compositeHidden).toBe(true)
   }
-  const indicated = withDisplay(before)
-  expect(indicated.length).toBeGreaterThan(0)
+  const indicated = indicatorScreens(before)
+  expect(indicated.l2.length).toBeGreaterThan(0)
   expect(await frozenScreens(page, 0x9, indicated)).toEqual([])
   await page.locator(playOf(0x9)).click()
   await expect(page.locator(playOf(0x9))).toHaveAttribute('data-play-state', 'ready')
@@ -274,11 +290,11 @@ test('while playing, a hover over an indicator and a layer toggle leave every sc
       },
     )
     .toBe(true)
-  const indicated = withDisplay(await snapshot(page, 0x9))
-  expect(indicated.length).toBeGreaterThan(0)
+  const indicated = indicatorScreens(await snapshot(page, 0x9))
+  expect(indicated.l2.length).toBeGreaterThan(0)
   await page.locator(playOf(0x9)).click()
   await untilShifted(page, 0x9, run)
-  // Moving: every screen that has indicators draws a different picture as the offset moves.
+  // Moving, by the same span rule as the stop test: no indicator screen stands still while the offset moves.
   const moving = async () => (await frozenScreens(page, 0x9, indicated)).length === 0
   // Indicators stay up while Play runs (D52): a display canvas with width sits over a hidden composite.
   const shown = async () =>
