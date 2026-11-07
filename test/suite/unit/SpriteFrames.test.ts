@@ -8,8 +8,12 @@ import type { LevelSprite } from '../../../src/rom/LevelParser'
 import { parseLevelSprites } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
-import type { SpriteModel, SpritePart } from '../../../src/rom/sprites/interp/SpriteRunner'
-import { withSeed, type SpriteSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
+import {
+  runOnce,
+  type SpriteModel,
+  type SpritePart,
+} from '../../../src/rom/sprites/interp/SpriteRunner'
+import { SPRITE_SEED, withSeed, type SpriteSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import {
   drawSprites,
   framesOf,
@@ -33,6 +37,8 @@ import type {
 import { animationText, NOT_ANIMATED } from '../../../theia/extension/src/browser/sprite-props'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 import { COLORS } from '../support/mapInputs'
+import { grinderShape } from '../support/syntheticGrinder'
+import { buildSyntheticRom } from '../support/syntheticSpriteRom'
 import { slow } from '../support/loadTimeout'
 
 const SOLID = new Uint8Array(64).fill(1)
@@ -96,24 +102,28 @@ describe('framesOf', () => {
     expect(f.map(x => x.parts![0]!.dy)).toEqual([0, 0])
   })
 
-  // #1128: the anchor a frame is drawn on is its box corner minus the part offset; it must be the chosen pass's for every frame.
-  const anchorOf = (f: MapSpriteDto) => ({
-    x: f.box.x0 - Math.min(...f.parts!.map(p => p.dx)),
-    y: f.box.y0 - Math.min(...f.parts!.map(p => p.dy)),
-  })
-  /** A track: each pass the sprite moves `step` (a stationary one has step 0); `snaps` draws from the pass before's spot (origin), so the parts carry no travel. */
+  // #1128. HONEST SCOPE: this guards `framesOf`'s own re-anchor on a hand-built run. The fixture's snaps=false
+  // shape (origin fixed, parts carrying the travel) is one the runner never makes at rest; the runner's own
+  // measurement (SpriteRunner `origin`, #987) is guarded by the 'real runner' test below.
+  // Plant: ax = ay = 0 in framesOf turns the snaps=false cases red; swapping the `m.snaps` branch turns both red.
+  /** A track: each pass the sprite moves `step` more than the last (a stationary one has step 0); `snaps` draws from the pass before's spot. */
+  const local = [0, 2, 0, -2] // a pose's own bob: it must survive the re-anchor
+  const tri = (i: number) => (i * (i + 1)) / 2 // uneven steps: the pos/origin gap grows each pass, so a wrong baseline does not cancel
   const track = (n: number, step: [number, number], snaps: boolean): SpriteModel => ({
     ...run([]),
     snaps,
     passes: Array.from({ length: n }, (_, i) => {
-      const tri = (i * (i + 1)) / 2 // uneven steps: the pos/origin gap grows each pass (i + 1), so a wrong baseline does not cancel
-      const [tx, ty, nx, ny] = [step[0] * tri, step[1] * tri, step[0] * (i + 1), step[1] * (i + 1)]
-      const local = [0, 2, 0, -2][i % 4]! // a pose's own art: this must survive
+      const [tx, ty, nx, ny] = [
+        step[0] * tri(i),
+        step[1] * tri(i),
+        step[0] * (i + 1),
+        step[1] * (i + 1),
+      ]
       return {
         pass: i,
         pos: { x: 80 + tx + (snaps ? nx : 0), y: 48 + ty + (snaps ? ny : 0) },
         origin: snaps ? { x: 80 + tx, y: 48 + ty } : { x: 80, y: 48 },
-        parts: [part(1 + (i % 3), snaps ? 0 : tx, false, (snaps ? 0 : ty) + local)],
+        parts: [part(1 + (i % 3), snaps ? 0 : tx, false, (snaps ? 0 : ty) + local[i % 4]!)],
         uploads: [],
         palette: [],
       }
@@ -122,22 +132,52 @@ describe('framesOf', () => {
   it.each([false, true])(
     'a sprite moving along a track keeps one anchor, only the pose changes (snaps %s)',
     snaps => {
-      for (const n of [2, 3, 5, 9, 14])
-        for (const step of [
-          [0, 0],
-          [3, 0],
-          [-5, 2],
-          [7, -4],
-        ] as [number, number][]) {
-          const f = framesOf({ m: track(n, step, snaps), fixed: false }, spr, LEVEL).frames
-          const tag = `n=${n} step=${step}`
-          expect(f.length, tag).toBe(Math.min(n, 3))
-          for (const q of f) expect(anchorOf(q), tag).toEqual({ x: 80, y: 48 })
-          expect(new Set(f.map(q => q.parts![0]!.dx)), tag).toEqual(new Set([0]))
-          expect(new Set(f.map(q => q.parts![0]!.char)).size, tag).toBe(f.length)
-        }
+      for (const n of [3, 5, 9, 14])
+        for (const chosen of [0, 1, 2])
+          for (const step of [
+            [0, 0],
+            [3, 0],
+            [-5, 2],
+            [7, -4],
+          ] as [number, number][]) {
+            const m = { ...track(n, step, snaps), chosen }
+            const f = framesOf({ m, fixed: false }, spr, LEVEL).frames
+            const tag = `n=${n} chosen=${chosen} step=${step}`
+            expect(f.length, tag).toBe(Math.min(n - chosen, 3))
+            f.forEach((q, k) => {
+              // Pass chosen+k's art on the chosen pass's spot: the travel since then is gone, its own bob is not.
+              const [kx, ky] = snaps
+                ? [0, 0]
+                : [step[0] * tri(chosen) || 0, step[1] * tri(chosen) || 0]
+              expect(q.parts![0]!.dx, `${tag} frame ${k} dx`).toBe(kx)
+              expect(q.parts![0]!.dy, `${tag} frame ${k} dy`).toBe(ky + local[(chosen + k) % 4]!)
+              expect([q.box.x0, q.box.y0], tag).toEqual([
+                80 + kx,
+                48 + ky + local[(chosen + k) % 4]!,
+              ])
+            })
+          }
     },
   )
+
+  // Plant: revert SpriteRunner `origin` for `snaps` to `atRest ? m.pos() : anchor` (the form before #987) and every dx is -4.
+  it('real runner: a grinder that draws then moves is measured from where the pass before left it (#987)', () => {
+    const seed = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
+    for (const lock of [undefined, 1, 2, 4]) {
+      const rom = buildSyntheticRom({ grinderLocksOnPass: lock })
+      const m = runOnce(rom, 103, seed, { grinderDispatch: grinderShape(rom), atRest: true })
+      const tag = `locks on ${lock}`
+      expect(m.snaps, tag).toBe(true)
+      expect(m.chosen, tag).toBe(lock ?? 0)
+      m.passes.slice(0, 6).forEach((q, i) => {
+        expect(q.origin, `${tag} pass ${i}`).toEqual(
+          i ? m.passes[i - 1]!.pos : { x: 0x80, y: 0x80 },
+        )
+        expect(q.pos.x - q.origin.x, `${tag} pass ${i} moved +4`).toBe(4)
+        expect(q.parts[0]!.dx, `${tag} pass ${i}`).toBe(0)
+      })
+    }
+  })
 
   it('parts that move against each other are a new pose though the chars are the same', () => {
     const two = (gap: number, drift: number): SpritePart[] => [part(1, drift), part(2, drift + gap)]
@@ -370,6 +410,40 @@ describe.skipIf(!hasRom(VANILLA))('mapSpriteFrames: line-guided chainsaws stay p
     },
   )
 })
+
+describe.skipIf(!hasRom(VANILLA))(
+  'mapSpriteFrames: each line-guided id keeps one spot (#1128)',
+  () => {
+    // Plant: `drawAt = m.snaps && m.id !== 0x66 && m.id !== 0x68 ? q.origin : q.pos` in framesOf puts travel into $68.
+    it.each([
+      ['$66', 0x66, [0x0f]],
+      ['$68', 0x68, [0x05, 0x12c]],
+    ] as const)(
+      'every %s placement: one left edge, edges move 2 px at most (the pose bob), never a track step',
+      slow(120_000),
+      (_name, id, maps) => {
+        const bytes = new Uint8Array(readFileSync(romPath(VANILLA)))
+        const cache = new L1ModelCache()
+        let seen = 0
+        for (const map of maps) {
+          const drawn = mapSprites(cache, bytes, romPath(VANILLA), map)
+          if (drawn.status !== 'ok') continue
+          for (const d of drawn.sprites.filter(q => q.id === id && q.status === 'drawn')) {
+            const r = mapSpriteFrames(cache, bytes, romPath(VANILLA), map, d.index)
+            if (r.status !== 'ok') throw new Error('no frames')
+            expect(r.frames.length, `$${map.toString(16)} #${d.index}`).toBeGreaterThan(1)
+            for (const k of ['x0', 'x1', 'y0', 'y1'] as const) {
+              const v = r.frames.map(f => f.box[k])
+              expect(Math.max(...v) - Math.min(...v), `$${map.toString(16)} #${d.index} ${k}`).toBeLessThanOrEqual(k[0] === 'x' ? 0 : 2) // prettier-ignore
+            }
+            seen++
+          }
+        }
+        expect(seen, `$${id.toString(16)} placements swept`).toBeGreaterThan(0)
+      },
+    )
+  },
+)
 
 describe('mapSpriteFrames without a cart', () => {
   it('a ROM that holds no such map answers unavailable with a reason, never throws', () => {

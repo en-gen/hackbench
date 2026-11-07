@@ -374,6 +374,8 @@ test('a sprite reload (an edit or refresh) clears the panel', async ({ page }) =
   await expect(panel(page).locator('[data-subject="none"]')).toHaveText('No sprite selected')
 })
 
+// Plant (spec not run by the author): shift the panel canvas draw by the frame index (travel per frame) and the left or bottom edge assertion goes red;
+// pin the player to frame 0 and the every-frame-painted assertion goes red.
 test('a chainsaw ($65) spins at one spot in the panel: the drawn left edge, bottom edge and canvas size hold across frames while the pose changes (#1128)', async ({
   page,
 }) => {
@@ -383,7 +385,13 @@ test('a chainsaw ($65) spins at one spot in the panel: the drawn left edge, bott
   const at = map.own(saw)
   await map.click(at.x, at.y)
   const canvas = panel(page).locator('[data-control="sprite-composite"]')
+  await expect(panel(page).locator('[data-field="id"]')).toHaveText('$65')
   await expect(panel(page).locator('[data-field="animation"]')).toContainText('Animated')
+  const count = Number(
+    /Animated: (\d+) frames/.exec(
+      await panel(page).locator('[data-field="animation"]').innerText(),
+    )[1],
+  )
   // Each sample is one paint: which frame, the canvas size, and the first opaque column and last opaque row actually drawn.
   const drawn = () =>
     canvas.evaluate(c => {
@@ -395,16 +403,19 @@ test('a chainsaw ($65) spins at one spot in the panel: the drawn left edge, bott
             [left, bottom] = [Math.min(left, x), Math.max(bottom, y)]
       return { frame: c.dataset.frame, w: c.width, h: c.height, left, bottom, url: c.toDataURL() }
     })
+  // Sample (bounded, 40 x 100 ms against a ~133 ms step) until every frame the panel announces has been painted.
   const samples = []
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 40; i++) {
     samples.push(await drawn())
+    if (new Set(samples.map(q => q.frame)).size >= count) break
     await page.waitForTimeout(100)
   }
   const distinct = k => new Set(samples.map(q => q[k])).size
-  expect(distinct('frame'), 'several frames were painted').toBeGreaterThanOrEqual(2)
+  expect(distinct('frame'), 'every announced frame was painted').toBe(count)
   expect(distinct('url'), 'the pose changed').toBeGreaterThanOrEqual(2)
   expect([distinct('w'), distinct('h')], 'one canvas for the loop').toEqual([1, 1])
-  // Travel along the track would move the saw across the canvas; its pose only changes the top edge.
+  // For the $65 saw the reference point is its left edge and bottom edge (its pose bobs the top by 2 px, true of
+  // this sprite only). Travel along the track would move the saw across the canvas and change them.
   expect(distinct('left'), 'left edge of the drawn saw').toBe(1)
   expect(distinct('bottom'), 'bottom edge of the drawn saw').toBe(1)
 })
