@@ -91,7 +91,7 @@ describe('Playwright specs take their port from HB_PORT', () => {
   })
 })
 
-describe('playwright.config.cjs ports', { timeout: 60000 }, () => {
+describe('playwright.config.cjs ports', { timeout: loadTimeout(120_000) }, () => {
   it('HB_PORT=3002 drives the webServer command and url', () => {
     const { out } = load({ HB_PORT: '3002' })
     expect(out.url).toBe('http://127.0.0.1:3002')

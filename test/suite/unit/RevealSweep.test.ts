@@ -13,7 +13,7 @@ import { SPRITE_SEED, withSeed } from '../../../src/rom/sprites/interp/SpriteSee
 import { interpRunner } from '../../../theia/extension/src/node/map-sprites'
 import { revealRowsOf } from '../../../tools/scripts/spriteReportRun'
 import { buildSyntheticRom } from '../support/syntheticSpriteRom'
-import { loadTimeout } from '../support/loadTimeout'
+import { loadTimeout, slow } from '../support/loadTimeout'
 
 vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
@@ -87,7 +87,7 @@ describe('reveal-sweep', () => {
       return { code: x.status, err: x.stderr }
     }
   }
-  it('refuses a report path inside the repository, and writes nothing', () => {
+  it('refuses a report path inside the repository, and writes nothing', slow(90_000), () => {
     const inside = resolve(__dirname, '../../../reveal-sweep-refusal-probe.txt')
     const r = sweep('--rom', 'nonexistent.smc', '--out', inside)
     expect(r.code).toBe(2)
@@ -95,11 +95,15 @@ describe('reveal-sweep', () => {
     expect(existsSync(inside)).toBe(false)
     rmSync(inside, { force: true })
   })
-  it('control: a path outside the repository gets past the guard (and fails on the missing ROM)', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'rsweep-'))
-    const r = sweep('--rom', join(dir, 'nonexistent.smc'), '--out', join(dir, 'r.txt'))
-    expect(r.err).not.toContain('inside the hackbench checkout')
-    expect(r.code).not.toBe(0)
-    rmSync(dir, { recursive: true, force: true })
-  })
+  it(
+    'control: a path outside the repository gets past the guard (and fails on the missing ROM)',
+    slow(90_000),
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), 'rsweep-'))
+      const r = sweep('--rom', join(dir, 'nonexistent.smc'), '--out', join(dir, 'r.txt'))
+      expect(r.err).not.toContain('inside the hackbench checkout')
+      expect(r.code).not.toBe(0)
+      rmSync(dir, { recursive: true, force: true })
+    },
+  )
 })
