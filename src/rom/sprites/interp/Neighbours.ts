@@ -23,12 +23,13 @@ function isSlotSprite(id: number): boolean {
 /**
  * Entries of `list` on the sprite's screen or either side of it, nearest first, up to the free slots; not itself.
  * An entry with the extra bit is left out (fail-closed): its id may be a custom sprite, and seeding it as the stock
- * one would let a scanner draw a companion that is not there (#1173).
+ * one would let a scanner draw a companion that is not there (#1173). `withExtra` keeps them, to ask whether any were.
  */
 export function neighboursOf(
   list: readonly LevelSprite[],
   s: LevelSprite,
   px: (e: LevelSprite) => { x: number; y: number },
+  withExtra = false,
 ): NonNullable<SpriteSeed['neighbours']> {
   const at = px(s)
   return list
@@ -36,7 +37,7 @@ export function neighboursOf(
       e =>
         e.index !== s.index &&
         isSlotSprite(e.spriteId) &&
-        !((e.raw[0] ?? 0) & EXTRA_BITS) &&
+        (withExtra || !((e.raw[0] ?? 0) & EXTRA_BITS)) &&
         Math.abs(e.screen - s.screen) <= 1,
     )
     .map(e => ({ id: e.spriteId, ...px(e), index: e.index }))
@@ -46,3 +47,7 @@ export function neighboursOf(
     ) // prettier-ignore
     .slice(0, MAX_NEIGHBOURS - 1)
 }
+
+/** Why a scanning sprite beside an extra-bit list entry is drawn as if alone: that entry may be its companion (#1173). */
+export const NEIGHBOUR_EXTRA_BIT_REASON =
+  'a nearby sprite with the extra bit set was left out of this run, so a companion this sprite scans for may be missing'

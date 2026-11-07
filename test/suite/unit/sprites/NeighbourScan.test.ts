@@ -10,7 +10,10 @@ import { describe, expect, it } from 'vitest'
 import { freshRom, hasRom, VANILLA } from '../../support/corpus'
 import { romWindowHits } from '../../support/romWindows'
 import { RomFile } from '../../../../src/rom/RomFile'
-import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
+import {
+  NEIGHBOUR_EXTRA_BIT_REASON,
+  neighboursOf,
+} from '../../../../src/rom/sprites/interp/Neighbours'
 import { Refusal } from '../../../../src/rom/cpu/call'
 import { drawnParts, Machine, RAM, runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { shellLoad } from '../../../../src/rom/sprites/ShellSprites'
@@ -333,6 +336,40 @@ describe('a sprite its parent drew, through the real drawer (#1049)', () => {
     expect(parent!.parts).toEqual(alone!.parts)
     expect(child).toMatchObject({ index: 1, status: 'placeholder', reason: 'extraBits' })
     expect(child!.drawnBy).toBeUndefined()
+  })
+
+  it.each([
+    [
+      'only an extra-bit companion (none left to seed)',
+      [sp(0, SCANNER, 8, 8), { ...sp(1, QUIET, 9, 7), raw: [0x08] }],
+      true,
+    ],
+    [
+      'an extra-bit and a stock companion',
+      [sp(0, SCANNER, 8, 8), { ...sp(1, QUIET, 9, 7), raw: [0x08] }, sp(2, QUIET, 7, 7)],
+      true,
+    ],
+    ['a stock companion only', [sp(0, SCANNER, 8, 8), sp(1, QUIET, 9, 7)], false],
+    [
+      'an extra-bit entry beside a sprite that does not scan',
+      [sp(0, DRAWS, 8, 8), { ...sp(1, QUIET, 9, 7), raw: [0x08] }],
+      false,
+    ],
+  ] as [string, LevelSprite[], boolean][])(
+    '%# marked unverified = %s (#1173)',
+    (_n, list, marked) => {
+      const reason = drawn(list)[0]!.unverified ?? ''
+      expect(reason.includes(NEIGHBOUR_EXTRA_BIT_REASON)).toBe(marked)
+    },
+  )
+
+  it('the mark survives the reveal search, which swaps in its own model (#1173)', () => {
+    // A probe run (stopAtDraw) draws nothing, so the sprite counts as hidden and the search's rerun replaces the model.
+    const blind = ((r: RomFile, id: number, q: never, o?: { stopAtDraw?: boolean }) => o?.stopAtDraw ? { ...runOnce(r, id, q), passes: [] } : runOnce(r, id, q)) as typeof runOnce // prettier-ignore
+    const list = [sp(0, SCANNER, 8, 8), { ...sp(1, QUIET, 9, 7), raw: [0x08] } as LevelSprite]
+    const run = interpDrawer(rom, 0x104, { isVertical: false, screenCount: 2 }, blind, () => withSeed({ loaded: new Uint8Array(0x2000) }), undefined, undefined, undefined, list, true) // prettier-ignore
+    const [parent] = drawSprites(list, { vram, colors: COLORS } as never, run)
+    expect(parent!.unverified).toContain(NEIGHBOUR_EXTRA_BIT_REASON)
   })
 
   it('a parent that draws the companion before its own piece still gives the companion only its own tiles', () => {

@@ -81,7 +81,11 @@ import {
   type FlameRoutines,
 } from '../../../../src/rom/sprites/interp/CastleFlames'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
-import { EXTRA_BITS, neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
+import {
+  EXTRA_BITS,
+  NEIGHBOUR_EXTRA_BIT_REASON,
+  neighboursOf,
+} from '../../../../src/rom/sprites/interp/Neighbours'
 import { undrawnNote, type UndrawnChildren } from '../../../../src/rom/sprites/interp/SpawnedChildren' // prettier-ignore
 import {
   EERIES_COUNT,
@@ -865,12 +869,22 @@ export function interpRunner(
       earlierSpriteLoaded(list, s, i => w?.[SPRITE_LOAD_STATUS + i] ?? 0)
     )
       m = { ...m, unverifiedReason: EARLIER_SPRITE_REASON }
+    // An extra-bit entry is never seeded, so a scanner (known only by a run that has it) would draw without its companion: marked.
+    const all = neighboursOf(list, s, e => ({ x: pixelX(e), y: e.y * TILE }), true)
+    if (
+      !rope &&
+      !m.unverifiedReason &&
+      all.length > neighbours.length &&
+      run(rom, s.spriteId, seed(camera, { opening, neighbours: all })).scansSlots
+    )
+      // prettier-ignore
+      m = { ...m, unverifiedReason: NEIGHBOUR_EXTRA_BIT_REASON }
     // Hidden sprites take their picture from the search, whatever the at-rest run drew (a mole drawn from where Mario starts).
     if (reveal) {
       const rv = findReveal(seed(camera, { opening }), m, (q, probe) =>
         run(rom, s.spriteId, q, { stopAtDraw: probe }),
       )
-      if (rv.status === 'hidden') return { m: rv.model, fixed: false }
+      if (rv.status === 'hidden') return { m: { ...rv.model, unverifiedReason: rv.model.unverifiedReason ?? m.unverifiedReason }, fixed: false } // prettier-ignore
       if (rv.status === 'refused') return { m: { ...m, chosen: undefined, refusal: rv.reason }, fixed: false } // prettier-ignore
       // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.
       if (rv.status === 'unrevealed' && rv.drewAtRest)
