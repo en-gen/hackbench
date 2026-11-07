@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import type { EngineResult } from '../../../src/rom/model/sprites/generic/SpriteDrawEngine'
-import type { LevelSprite } from '../../../src/rom/LevelParser'
+import { parseLevelSprites, type LevelSprite } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import {
@@ -26,7 +26,11 @@ import {
   compositeSpriteScreen,
   paintSpriteCanvas,
 } from '../../../theia/extension/src/browser/map-view-model'
-import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
+import {
+  RIDES_WITH_REASON,
+  type MapSpriteDto,
+} from '../../../theia/extension/src/common/project-protocol'
+import { animationText, framesReasonText } from '../../../theia/extension/src/browser/sprite-props'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 import { COLORS, px } from '../support/mapInputs'
 import { slow } from '../support/loadTimeout'
@@ -504,7 +508,7 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
     expect(mushroom.reveal).toContain('Mario gets close to this spot')
   })
 
-  // Maps 006 and 126 hold every vanilla $9C beside its $9B (one machine, one run).
+  // Maps 006 and 126 hold seven of the fourteen vanilla $9B beside a $9C (the sweep below counts all).
   it('lists each $9B beside a $9C as drawn by it, on $006 and $126', slow(20_000), () => {
     const six = run(0x6).sprites
     expect(six.find(s => s.index === 11)).toMatchObject({ id: 0x9b, status: 'drawn', drawnBy: 10 })
@@ -517,7 +521,7 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
   })
 
   it(
-    'the Properties preview of a $9B its platform drew says so in plain words, not "drew no OAM tile" (#1049)',
+    'the Properties preview of a $9B its platform drew gives the rides-with code, which the panel words plainly (#1049, #1310)',
     slow(15_000),
     () => {
       const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
@@ -528,12 +532,45 @@ describe.skipIf(!hasRom(VANILLA))('mapSprites on the vanilla ROM', () => {
         const f = mapSpriteFrames(new L1ModelCache(), bytes, romPath(VANILLA), map, index)
         if (f.status !== 'ok') throw new Error(JSON.stringify(f))
         expect(f.frames).toEqual([])
-        expect(f.reason, `map ${map.toString(16)} index ${index}`).toMatch(/^Drawn as part of the sprite it rides with/) // prettier-ignore
-        expect(f.reason).not.toMatch(/OAM|\$/)
+        expect(f.reason, `map ${map.toString(16)} index ${index}`).toBe(RIDES_WITH_REASON)
+        const shown = animationText({ kind: 'still', reason: f.reason })
+        expect(shown).toBe('Animation not shown: Drawn as part of the sprite it rides with, not on its own.') // prettier-ignore
+        expect(shown).not.toMatch(/OAM|\$/)
       }
       // A sprite nobody drew keeps the engine's own reason.
       const lone = mapSpriteFrames(new L1ModelCache(), bytes, romPath(VANILLA), 0x6, 10)
       expect(lone.status === 'ok' && lone.frames.length).toBeGreaterThan(0)
+    },
+  )
+
+  // Full sweep of all 0x200 maps, 2026-11-06, one machine: 14 sprites with `drawnBy`, all $9B beside a $9C, on maps
+  // $006 (4), $11E (1), $126 (3), $127 (3), $1C0 (1), $1C4 (1) and $1C5 (1). This test reads only the maps whose stream
+  // holds a $9B (cheap parse, no engine), so a $9B on another map is not counted.
+  it(
+    'counts the 14 vanilla sprites a parent drew; each gives the rides-with sentence (#1310)',
+    slow(60_000),
+    () => {
+      const bytes = new Uint8Array(RomFile.load(romPath(VANILLA)).buffer)
+      const rom = new SmwRom(RomFile.fromBytes(romPath(VANILLA), Buffer.from(bytes)))
+      const cache = new L1ModelCache()
+      let rows = 0
+      for (let map = 0; map < 0x200; map++) {
+        const ptr = rom.getLevelSpritePointer(map)
+        if (
+          ptr === null ||
+          !parseLevelSprites(readStream(rom.rom, ptr), false).some(q => q.spriteId === 0x9b)
+        )
+          continue
+        const r = mapSprites(cache, bytes, romPath(VANILLA), map)
+        if (r.status !== 'ok') continue
+        for (const s of r.sprites.filter(q => q.drawnBy !== undefined)) {
+          const f = mapSpriteFrames(cache, bytes, romPath(VANILLA), map, s.index)
+          const why = f.status === 'ok' && f.reason ? framesReasonText(f.reason) : undefined
+          expect(why, `map ${map.toString(16)} index ${s.index}`).toBe('Drawn as part of the sprite it rides with, not on its own.') // prettier-ignore
+          rows++
+        }
+      }
+      expect(rows).toBe(14)
     },
   )
 

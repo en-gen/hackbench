@@ -365,6 +365,9 @@ export interface MapSpriteDto {
   reveal?: string
 }
 
+/** The frames `reason` code for a sprite its parent drew; the panel words it (`framesReasonText`), so neither side spells the sentence. */
+export const RIDES_WITH_REASON = 'ridesWith'
+
 /**
  * One sprite's distinct poses for the Properties preview (#984), each a `MapSpriteDto` bitmap measured from
  * the first drawn pass (the sprite's own movement removed), in pass order, at most 16. Fewer than 2 means not
