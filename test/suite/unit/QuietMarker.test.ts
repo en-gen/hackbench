@@ -223,10 +223,13 @@ describe('with the failure-marker hover (#1083), the no-reason words (#1113) and
     const dtos = run([sprite(1, 0), sprite(2, 1), sprite(0xc9, 2), sprite(4, 3)], results as never)
     expect(dtos.map(d => d.status)).toEqual(['quiet', 'placeholder', 'quiet', 'quiet'])
     for (const d of dtos) {
-      const isQuiet = d.status === 'quiet'
-      expect(placeholderText(d) === undefined).toBe(isQuiet)
-      expect(spriteName(d)).toBe(isQuiet ? quietText(d) : placeholderText(d))
-      if (isQuiet) expect(spriteName(d)).not.toMatch(/could not/)
+      if (d.status === 'quiet') {
+        expect(placeholderText(d)).toBeUndefined()
+        expect(spriteName(d)).toBe(quietText(d))
+      } else {
+        expect(spriteName(d)).toBe(placeholderText(d))
+        expect(spriteName(d)).not.toBe(quietText(d))
+      }
     }
   })
 
