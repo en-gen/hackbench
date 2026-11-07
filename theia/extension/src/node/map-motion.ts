@@ -3,7 +3,7 @@
  * `runMapMotion` (src/rom/MapMotion.ts), plus the Layer 2 rows the view needs to shift Layer 2 with wrap.
  * Pure, so it is unit tested; `ProjectServiceImpl` only resolves the working copy and delegates here.
  */
-import { runMapMotion } from '../../../../src/rom/MapMotion'
+import { runMapMotion, type MotionResult } from '../../../../src/rom/MapMotion'
 import { RomFile } from '../../../../src/rom/RomFile'
 import type { MapMotionResult } from '../common/project-protocol'
 import { base64, drawL2Strip, type L1ModelCache } from './map-screen'
@@ -16,8 +16,16 @@ const unavailable = (reason: string): Reply => ({ status: 'unavailable', reason 
 /** Replies per working-copy bytes: a run costs about a second on the longest map, and an edit hands out new bytes. */
 const replies = new WeakMap<Uint8Array, Map<number, Reply>>()
 
-function compute(cache: L1ModelCache, bytes: Uint8Array, romPath: string, index: number): Reply {
-  const run = runMapMotion(RomFile.fromBytes(romPath, Buffer.from(bytes)), index)
+export type Runner = (rom: RomFile, index: number) => MotionResult
+
+function compute(
+  cache: Pick<L1ModelCache, 'get'>,
+  bytes: Uint8Array,
+  romPath: string,
+  index: number,
+  runner: Runner,
+): Reply {
+  const run = runner(RomFile.fromBytes(romPath, Buffer.from(bytes)), index)
   if (run.status === 'none') return { status: 'none' }
   if (run.status === 'refused') return unavailable(run.reason)
   const built = cache.get(bytes, romPath, index, NO_FLAGS)
@@ -36,7 +44,10 @@ function compute(cache: L1ModelCache, bytes: Uint8Array, romPath: string, index:
     if (!strip) return unavailable('Play draws horizontal maps only.')
     const { l2Low, l2High } = strip.planes
     stripRows = strip.rows
-    strips.push({ low: l2Low && base64(l2Low), high: l2High && base64(l2High) })
+    // A screen with nothing below it sends nothing.
+    strips.push(
+      l2Low || l2High ? { low: l2Low && base64(l2Low), high: l2High && base64(l2High) } : null,
+    )
   }
   return {
     status: 'ok',
@@ -51,14 +62,15 @@ function compute(cache: L1ModelCache, bytes: Uint8Array, romPath: string, index:
 }
 
 export function mapMotion(
-  cache: L1ModelCache,
+  cache: Pick<L1ModelCache, 'get'>,
   bytes: Uint8Array,
   romPath: string,
   index: number,
+  runner: Runner = runMapMotion,
 ): Reply {
   let byMap = replies.get(bytes)
   if (!byMap) replies.set(bytes, (byMap = new Map()))
   let r = byMap.get(index)
-  if (!r) byMap.set(index, (r = compute(cache, bytes, romPath, index)))
+  if (!r) byMap.set(index, (r = compute(cache, bytes, romPath, index, runner)))
   return r
 }

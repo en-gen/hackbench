@@ -235,15 +235,15 @@ function drawL2(
 
 /**
  * The rows of a horizontal map's Layer 2 below one screen, up to its 512 px period (Play's strip, #1242): the same
- * picture as `drawL2Planes` drawn taller, cut to the rows it adds. Null when the plane does not wrap.
+ * picture as `drawL2Planes` drawn taller, cut to the rows it adds. Null on a vertical map, whose plane is not this period.
  */
 export function drawL2Strip(
   model: L1Inputs,
   l2: L2Inputs,
   screen: number,
 ): { rows: number; planes: L2Planes } | null {
-  if (model.isVertical && l2.kind !== 'image') return null
-  const { w, h } = screenTiles(model.isVertical)
+  if (model.isVertical) return null
+  const { w, h } = screenTiles(false)
   const period = 512
   const tall = drawL2(
     model,
@@ -254,7 +254,11 @@ export function drawL2Strip(
     (x, y) => l2.grid[y]?.[x],
     period,
   )
-  const cut = (p: Plane): Plane => p && p.slice(w * 16 * h * 16 * 4)
+  // A plane with nothing drawn below the screen is not sent: the 512 px plane's ink may all lie on the screen.
+  const cut = (p: Plane): Plane => {
+    const below = p && p.slice(w * 16 * h * 16 * 4)
+    return below && below.some((v, i) => i % 4 === 3 && v !== 0) ? below : null
+  }
   return { rows: period - h * 16, planes: { l2Low: cut(tall.l2Low), l2High: cut(tall.l2High) } }
 }
 

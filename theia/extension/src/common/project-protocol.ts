@@ -396,7 +396,7 @@ export type MapSpritesResult =
 /**
  * What a map's own scroll routines do, run from the ROM (#1242). `l1x`..`l2y` are the positions at each frame
  * (frame 0 is the load state); `shiftY` is Layer 2's draw offset against Layer 1 in rows. `strips` hold, per
- * screen, the Layer 2 rows below the screen up to its 512 px period (base64 RGBA, null when nothing draws), so
+ * screen, the Layer 2 rows below the screen up to its 512 px period (base64 RGBA; a screen with nothing there has none), so
  * the view can shift Layer 2 with wrap.
  */
 export type MapMotionResult =
@@ -411,7 +411,7 @@ export type MapMotionResult =
       l2y: number[]
       shiftY: number[]
       stripRows: number
-      strips: { low: string | null; high: string | null }[]
+      strips: ({ low: string | null; high: string | null } | null)[]
     }
   | { status: 'none' }
   | { status: 'unavailable'; reason: string }

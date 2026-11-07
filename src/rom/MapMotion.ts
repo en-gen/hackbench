@@ -204,7 +204,7 @@ const relMoved = (f: MotionFrames): boolean => {
 const MARIO_DEPENDENT =
   'What this map moves depends on where Mario is, so Play cannot show it on its own.'
 
-/** The same from a loaded map's WRAM (the caller's copy is not touched). */
+/** The same from a loaded map's WRAM (copied into each run's own machine, so the caller's array is not touched). */
 export function motionFromWram(rom: RomFile, wram: Uint8Array): MotionResult {
   // No scroll command: nothing to play, whatever the ROM's scroll code looks like.
   if (SCROLL_CMDS.every(a => wram[a] === 0)) return { status: 'none', kind: 'no-routine' }
@@ -214,9 +214,11 @@ export function motionFromWram(rom: RomFile, wram: Uint8Array): MotionResult {
       'unrecognized-code',
       `This ROM's scroll code is not the vanilla shape (${entries}), so Play will not run it.`,
     )
-  const run = (force: Force, n?: number) => runPass(rom, wram.slice(), entries, force, n)
-  const failed = (p: Pass) =>
-    p.refused && refuse('interpreter', `The game's scroll code could not be run: ${p.refused}`)
+  const run = (force: Force, n?: number) => runPass(rom, wram, entries, force, n)
+  const failed = (p: Pass): Refused | null =>
+    p.refused
+      ? refuse('interpreter', `The game's scroll code could not be run: ${p.refused}`)
+      : null
   let kind: 'own-motion' | 'needs-mario' = 'own-motion'
   let pass = run('none')
   if (failed(pass)) return failed(pass)!

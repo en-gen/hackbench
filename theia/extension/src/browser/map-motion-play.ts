@@ -21,8 +21,8 @@ export interface Strip {
 
 export const decodeStrips = (m: Motion): Strip[] =>
   m.strips.map(s => ({
-    low: s.low === null ? null : decodeRgba(s.low),
-    high: s.high === null ? null : decodeRgba(s.high),
+    low: s?.low ? decodeRgba(s.low) : null,
+    high: s?.high ? decodeRgba(s.high) : null,
   }))
 
 /**
