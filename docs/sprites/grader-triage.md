@@ -18,10 +18,10 @@ Investigation, no code changed. Per-case identifiers:
 
 ## Reproduced grade
 
-|                           | exact | shape | close | wrong | empty | graded |
-| ------------------------- | ----- | ----- | ----- | ----- | ----- | ------ |
-| #829 body, 2026-10-05     | 932   | 572   | 136   | 300   | 17    | 1,957  |
-| Today, develop `9f5956e8` | 936   | 572   | 136   | 300   | 13    | 1,957  |
+| | exact | shape | close | wrong | empty | graded |
+| --- | --- | --- | --- | --- | --- | --- |
+| #829 body, 2026-10-05 | 932 | 572 | 136 | 300 | 17 | 1,957 |
+| Today, develop `9f5956e8` | 936 | 572 | 136 | 300 | 13 | 1,957 |
 
 Wrong is the same 300; exact and empty improved by 4 each since 2026-10-05.
 
@@ -37,20 +37,20 @@ both lists: 336 distinct cases from 337 listed.
 
 ## Causes
 
-| Code | Cause                                                                           | Count   | Sample                  | Verdict                                 |
-| ---- | ------------------------------------------------------------------------------- | ------- | ----------------------- | --------------------------------------- |
-| G1   | Grader drops parts at OAM Y 224-255 that the capture keeps                      | 31      | $6C map 109 at 112,256  | grader wrong                            |
-| A    | Castle-flame cluster sprites counted as the sprite's parts                      | 30      | $22 map 101 at 1472,336 | runner and grader                       |
-| B    | Graded pass is the first drawing pass; no recorded frame shows that pose        | 161     | $3D map 00a at 192,368  | policy                                  |
-| K    | List ids $DA-$DD are stationary shells (status 9); we run a fresh walking Koopa | 35      | $05 map 135 at 3184,240 | runner wrong                            |
-| C    | Sprites spawned by INIT draw into the same run and are counted                  | 12      | $61 map 10a at 160,384  | runner and grader                       |
-| H    | A sprite that draws a companion found by a slot scan has none to find           | 14      | $9C map 006 at 1168,272 | runner wrong                            |
-| S    | Floating-platform INIT sinks the sprite 32 px further than the capture          | 9       | $A4 map 102 at 912,400  | runner wrong, mechanism open            |
-| U    | One-pose differences, not reached in 64 passes                                  | 8       | $37 map 1db at 864,336  | unexplained                             |
-| T1   | Tables and interpreter each match a different recorded frame of the same cycle  | 34      | $05 map 008 at 224,368  | interpreter right, no fix               |
-| T2   | $1F relocates itself in MAIN; the interpreter pose is the captured one          | 1       | $1F map 11c at 352,336  | interpreter right, tables wrong, no fix |
-| T3   | $4D draws no tile and no capture record exists                                  | 1       | $4D map 106 at 3760,368 | unexplained                             |
-|      | **Total distinct**                                                              | **336** |                         |                                         |
+| Code | Cause | Count | Sample | Verdict |
+| --- | --- | --- | --- | --- |
+| G1 | Grader drops parts at OAM Y 224-255 that the capture keeps | 31 | $6C map 109 at 112,256 | grader wrong |
+| A | Castle-flame cluster sprites counted as the sprite's parts | 30 | $22 map 101 at 1472,336 | runner and grader |
+| B | Graded pass is the first drawing pass; no recorded frame shows that pose | 161 | $3D map 00a at 192,368 | policy |
+| K | List ids $DA-$DD are stationary shells (status 9); we run a fresh walking Koopa | 35 | $05 map 135 at 3184,240 | runner wrong |
+| C | Sprites spawned by INIT draw into the same run and are counted | 12 | $61 map 10a at 160,384 | runner and grader |
+| H | A sprite that draws a companion found by a slot scan has none to find | 14 | $9C map 006 at 1168,272 | runner wrong |
+| S | Floating-platform INIT sinks the sprite 32 px further than the capture | 9 | $A4 map 102 at 912,400 | runner wrong, mechanism open |
+| U | One-pose differences, not reached in 64 passes | 8 | $37 map 1db at 864,336 | unexplained |
+| T1 | Tables and interpreter each match a different recorded frame of the same cycle | 34 | $05 map 008 at 224,368 | interpreter right, no fix |
+| T2 | $1F relocates itself in MAIN; the interpreter pose is the captured one | 1 | $1F map 11c at 352,336 | interpreter right, tables wrong, no fix |
+| T3 | $4D draws no tile and no capture record exists | 1 | $4D map 106 at 3760,368 | unexplained |
+| | **Total distinct** | **336** | | |
 
 Of the 300 "wrong": G1 31 + A 30 + B 161 + K 35 + C 12 + H 14 + S 9 + U 8 = 300. Of the 37: T1 34 +
 T2 1 + T3 1 + the one shared with B = 37. Unexplained: U 8 + T3 1 = 9.
