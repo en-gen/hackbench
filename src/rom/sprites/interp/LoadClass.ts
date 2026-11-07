@@ -34,11 +34,19 @@ const CALL_SITE = 0x028b1d
 const JSR = 0x20
 /**
  * The main loop's own routine, CODE_028AB1 (bank_02.asm:1355, reached by JSL at bank_00.asm:4535): the stretch runs from its
- * fixed start on zeroed state with the sparkle timer seeded. It ends in RTL, but the run stops at the loader's call, before that.
+ * fixed start on zeroed state with each seed set below. It ends in RTL, but the run stops at the loader's call, before that.
  */
 const STRETCH_AT = 0x028ab1
-/** PlayerSparkleTimer (rammap.asm:1890), seeded to 2: an even non-zero value makes the branch at bank_02.asm:1389-1401 take the JSL, which zero state skips. */
-const SPARKLE_TIMER = 0x18d3
+/**
+ * Cells each stretch run seeds (rammap.asm), one run per set. Sparkle timer :1890 = 2 takes the JSL at bank_02.asm:1389-1401,
+ * which zero state skips. Lives :1908 = 2 and star :1635 = $FF run the lives branch (:1361-1373) and the star branch it falls
+ * into (:1377-1387); lives = 1 with timer :1909 = 1 runs the countdown (:1363-1364).
+ */
+const STRETCH_SEEDS: Record<number, number>[] = [
+  { 0x18d3: 2 },
+  { 0x18e4: 2, 0x1490: 0xff },
+  { 0x18e4: 1, 0x18e5: 1 },
+]
 /** Instructions the stretch may take: the vanilla run is a few hundred, and a callee that loops is refused. */
 const STRETCH_CAP = 10_000
 /** The routine opens with a load of a direct-page cell (bank_02.asm:5224). */
@@ -100,9 +108,13 @@ function entryOf(rom: RomFile): number | string {
  * holding its return address (the address of its last byte), under the routine's own PHB. A plain jump or call from a callee, or a pop out of it,
  * fails one of those; a hook that returns normally still arrives, and nothing above the stretch is run.
  */
-function stretchProblem(cpu: Cpu65816, entry: number): string | null {
+function stretchProblem(
+  cpu: Cpu65816,
+  entry: number,
+  seeds: Record<number, number>,
+): string | null {
   nativeReset(cpu)
-  cpu.bus.write(SPARKLE_TIMER, 2)
+  for (const [cell, value] of Object.entries(seeds)) cpu.bus.write(+cell, value)
   cpu.db = ENTRY_DB
   cpu.pb = STRETCH_AT >> 16
   cpu.pc = STRETCH_AT & 0xffff
@@ -175,9 +187,11 @@ function run(rom: RomFile, entry: number, key: string): LoadClasses {
   // The stretch runs on zeroed state with the cell hooks off (a write to a routing cell here means nothing), then the
   // machine is put back, so nothing it left reaches the sweeps. Seeds: DB = 2 and WRAM zero; the sweeps' seeds are not needed.
   const blank = bus.snapshot()
-  const unreached = stretchProblem(cpu, entry)
-  if (unreached) return cache.store(rom, key, bus, fail(unreached))
-  bus.restore(blank)
+  for (const seeds of STRETCH_SEEDS) {
+    const unreached = stretchProblem(cpu, entry, seeds)
+    if (unreached) return cache.store(rom, key, bus, fail(unreached))
+    bus.restore(blank)
+  }
   const w = bus.wram
   w[SCROLL_DIR] = BOUNDARY_ZERO
   w.set([LIST_AT & 0xff, LIST_AT >> 8, WRAM_BANK], SPRITE_DATA_PTR)
