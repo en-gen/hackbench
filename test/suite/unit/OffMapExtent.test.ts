@@ -394,19 +394,19 @@ describe('what grows the canvas: placement, never art (#1325)', () => {
   })
 
   it('a sprite placed off each of the 4 sides pads that side AND draws there; a refused cell pads too', () => {
-    const CELL = { left: 16, top: 32, right: 16, bottom: 32 }
-    const white = Buffer.alloc(16 * 16 * 4, 255).toString('base64')
+    // The art (32 x 32) overlaps both its cell and the map edge, so no fallback hides a clamped cell.
+    const white = Buffer.alloc(32 * 32 * 4, 255).toString('base64')
     for (const m of SIZES) {
       const cases: [number, number, keyof Pad][] = [
         [-16, 40, 'left'],
-        [40, -32, 'top'],
+        [40, -16, 'top'],
         [m.w, 40, 'right'],
-        [40, m.h + 16, 'bottom'],
+        [40, m.h, 'bottom'],
       ]
       for (const [x, y, side] of cases) {
-        const s = { ...sp(x, y, { x0: x, y0: y, x1: x + 16, y1: y + 16 }), rgba: white }
+        const s = { ...sp(x, y, { x0: x - 8, y0: y - 8, x1: x + 24, y1: y + 24 }), rgba: white }
         const pad = padOf(m, [s])
-        expect(bare(m, pad)[side], `${side} pad`).toBe(CELL[side])
+        expect(bare(m, pad)[side], `${side} pad`).toBe(16)
         const out = offMapSpritePixels([s], m.w, m.h, pad, m.vertical)
         const i = ((y + 8 + pad.top) * (m.w + pad.left + pad.right) + x + 8 + pad.left) * 4 + 3
         expect(out?.[i], `${side} draws`).toBe(255)
@@ -422,7 +422,20 @@ describe('what grows the canvas: placement, never art (#1325)', () => {
     }
   })
 
-  it('a sprite with no art on the map is never hidden (D52): its box pads and draws, 1 px of art on the map does not', () => {
+  it('a sprite placed just below the map pads its one cell and its art is cut past it', () => {
+    const m = SIZES[0]!
+    const art = { x0: 64, y0: m.h, x1: 96, y1: m.h + 24 }
+    const rgba = Buffer.alloc(32 * 24 * 4, 255).toString('base64')
+    const s = { ...sp(64, m.h, art), rgba }
+    const pad = padOf(m, [s])
+    expect(pad.bottom).toBe(16)
+    const out = offMapSpritePixels([s], m.w, m.h, pad, false)
+    const at = (y: number) =>
+      out?.[((y + pad.top) * (m.w + pad.left + pad.right) + 70 + pad.left) * 4 + 3]
+    expect([at(m.h + 15), at(m.h + 16)]).toEqual([255, undefined])
+  })
+
+  it('a sprite with no art on the map or its placement cell is never hidden (D52): its box pads and draws, 1 px of art on the map does not', () => {
     const m = SIZES[0]!
     const box = { x0: -48, y0: 8, x1: -32, y1: 24 }
     const rgba = Buffer.alloc(16 * 16 * 4, 255).toString('base64')

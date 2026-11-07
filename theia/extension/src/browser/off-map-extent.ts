@@ -238,7 +238,7 @@ export const placementRect = (s: Pick<MapSpriteDto, 'x' | 'y' | 'stored'>): Rect
 
 /**
  * What the data places on the canvas, for `offMapPad`: each refused cell and each sprite's placement cell.
- * A sprite whose art has no pixel of the map at all would vanish if cut, so its `box` counts too and it
+ * A sprite whose art touches neither the map nor its own placement cell would vanish if cut, so its `box` counts too and it
  * stays drawn and selectable (D52 "never hide a placed sprite", [PROP] on #1325).
  */
 export const contentRects = (
@@ -249,9 +249,11 @@ export const contentRects = (
 ): Rect[] => [
   ...refused.map(c => cellRect(c.x, c.y)),
   ...sprites.flatMap(s => {
-    const { x0, y0, x1, y1 } = s.box
-    const touchesMap = x0 < mapW && x1 > 0 && y0 < mapH && y1 > 0
-    return touchesMap ? [placementRect(s)] : [placementRect(s), s.box]
+    const cell = placementRect(s)
+    const touches = (r: Rect) =>
+      r.x0 < s.box.x1 && r.x1 > s.box.x0 && r.y0 < s.box.y1 && r.y1 > s.box.y0
+    const seen = touches({ x0: 0, y0: 0, x1: mapW, y1: mapH }) || touches(cell)
+    return seen ? [cell] : [cell, s.box]
   }),
 ]
 

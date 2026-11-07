@@ -154,14 +154,16 @@ test('$1B: the grid stops at the map bottom, and the scroll range ends there', a
   await page.waitForTimeout(500)
   const lines = JSON.parse(await grid.getAttribute('data-grid-lines'))
   expect(Math.max(...lines.y.map(l => l.pos))).toBeLessThanOrEqual(MAP_H)
-  // The scroller's content height is the strip, which is the map tall: nothing scrolls past the map's bottom.
+  // The scroller cannot scroll past the map's bottom. The viewport may be taller than the map, so the bound is
+  // the larger of the view and the map's bottom; the old extra row is caught by the grid's last line above
+  // (448 with the row) and by the strip height in the first case, at any viewport.
   const m = await page.evaluate(sel => {
     const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
     const e = document.querySelector(`${sel} [data-control="map-edge"]`).getBoundingClientRect()
-    const top = s.getBoundingClientRect().top
-    return { contentBottom: s.scrollHeight, mapBottom: e.bottom - top + s.scrollTop }
+    const mapBottom = e.bottom - s.getBoundingClientRect().top + s.scrollTop
+    return { scrollH: s.scrollHeight, clientH: s.clientHeight, mapBottom }
   }, root)
-  expect(m.contentBottom - m.mapBottom).toBeLessThanOrEqual(1)
+  expect(m.scrollH).toBeLessThanOrEqual(Math.max(m.clientH, Math.ceil(m.mapBottom)) + 1)
 })
 
 test('$1B: Fit frames the map alone: its height is the map, with no vertical scroll', async ({

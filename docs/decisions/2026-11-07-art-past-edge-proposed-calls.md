@@ -10,7 +10,7 @@ The owner's 2026-11-07 ruling on #1325 ([2026-11-07-art-past-map-edge-grows-no-c
 
 1. Placement: (a) `stored` where a sprite has it, else its anchor, as one 16 x 16 cell. (b) The anchor alone. (c) The art box's top-left.
 2. Art that lands in the far-end gutter: (a) still draws, since that canvas exists either way. (b) Cut like the rest.
-3. A sprite with no pixel of art on the map (an INIT-shifted sprite whose picture is wholly off the map): (a) its box also counts, so it grows the canvas and stays drawn and selectable. (b) Cut entirely, so it vanishes and cannot be hovered.
+3. A sprite whose art touches neither the map nor its own placement cell (an INIT-shifted sprite drawn wholly away from both): (a) its box also counts, so it grows the canvas and stays drawn and selectable. (b) Cut entirely, so it vanishes and cannot be hovered.
 
 ## Ruling
 
@@ -18,7 +18,7 @@ wording not recorded. All three were taken as [PROP] by the implementer, 2026-11
 
 1. Option a.
 2. Option a.
-3. Option a. Vanilla has 0 such sprites (sweep of 488 maps, develop dfb9d43a, one machine, boxes only), so no vanilla pad changes. `[EST]`
+3. Option a. A placed-off-map sprite whose art overlaps its own cell is not in this case: its art is cut past the cell like any other. Vanilla has 0 such sprites (sweep of 488 maps, develop dfb9d43a, one machine, boxes only), so no vanilla pad changes. `[EST]`
 
 ## Why
 
@@ -28,4 +28,4 @@ wording not recorded. All three were taken as [PROP] by the implementer, 2026-11
 
 ## Applies to
 
-`contentRects` and `placementRect` in `theia/extension/src/browser/off-map-extent.ts`. Tests: `OffMapExtent.test.ts` ("a sprite with no art on the map is never hidden").
+`contentRects` and `placementRect` in `theia/extension/src/browser/off-map-extent.ts`. Tests: `OffMapExtent.test.ts` ("a sprite with no art on the map or its cell is never hidden"; "placed below the map, art cut past its cell").
