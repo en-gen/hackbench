@@ -728,8 +728,7 @@ function vramAddrToFlat(vramAddr: number): number {
  * (SNES VMAINC mode 01 = +32 words = one row within a 32-wide sub-screen).
  *
  * RLE format (FLAGS bit 6 = 1): 2 data bytes (one tile word) as the fixed source of two DMAs; the stream
- * advances by 2, not by the byte count (bank_00.asm:906-955). Each run's bytes land as that routine's DMAs write them,
- * see `parseStripeImageInto`.
+ * advances by 2, not by the byte count (bank_00.asm:906-955). Byte placement: see `parseStripeImageInto`.
  */
 export function parseStripeImage(data: Uint8Array): Uint16Array {
   const tilemap = new Uint16Array(L3_TILEMAP_COLS * L3_TILEMAP_ROWS)
@@ -758,11 +757,8 @@ export function parseStripeImageInto(tilemap: Uint16Array, data: Uint8Array): vo
     const countBytes = (((b2 & 0x3f) << 8) | b3) + 1
     i += 4
 
-    // Both kinds are N-byte DMAs of two-byte units to $2118/$2119; a partial last unit writes only its first register.
-    // Plain data: low byte to $2118, high to $2119 (VMAINC steps after the high write), the stream advances N. RLE: two
-    // DMAs from a fixed source, the first stepping after the LOW write, so its odd bytes land in the high byte of the
-    // next word (an even N leaves the run's low byte in the word past it); the second writes the high byte, once per
-    // unit. The stream advances 2 (bank_00.asm:906-955, #805; docs/rom/layer3-world-locked.md).
+    // Byte-level emulation of LoadStripeImage's DMAs, so odd and even counts land as on hardware (SMWDisX
+    // bank_00.asm:906-955; derivation in docs/rom/layer3-world-locked.md, "Map $018 (mode 0E) and its 40 cells").
     const stride = vertical ? 32 : 1
     const put = (word: number, byte: number, high: boolean) => {
       const pos = vramAddrToFlat(word)
