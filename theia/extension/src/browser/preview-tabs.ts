@@ -44,7 +44,9 @@ export class PreviewTabs {
    * `rowKey` is the key `pin` gets for this row, required so the two cannot
    * drift. A row that already has a tab is focused instead (#1324): a second
    * tab would start at defaults and disagree with the open one. A preview of
-   * ANOTHER row is left alone.
+   * ANOTHER row is left alone. "Already has a tab" means a pinned one: the
+   * preview is created under `{ preview: true, ...key }`, never `rowKey`, so
+   * clicking the row the preview shows re-runs `apply` on that same tab.
    */
   async preview<W extends Widget>(
     viewId: string,
