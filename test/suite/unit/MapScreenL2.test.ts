@@ -41,6 +41,9 @@ import { FG_GATE_MAPS } from '../../../tools/scripts/fgGateMaps'
 import { SKIP_CHAIN_B_AT, writeStockSkipChain } from '../support/skipChain'
 import { hGrid, inputs as baseInputs, px, sub, tile, vGrid } from '../support/mapInputs'
 
+// No exit graph in these ROMs, so no entrance is known: Layer 2 sits at the primary entrance's F400/F600 (#1340).
+const NO_EXIT_GRAPH = undefined
+
 // Level mode 1: mode 0 is one the game loads no L2 objects in (#637), which the helper's zero header would hit.
 const inputs: typeof baseInputs = (...a) => {
   const m = baseInputs(...a)
@@ -343,10 +346,10 @@ describe('buildL2Inputs (synthetic ROM)', () => {
   }
 
   it('an image tiles across the map: 27 rows by 16 columns a screen, or 32 wide by 16 rows stacked', () => {
-    const h = ok(buildL2Inputs(smw(image()), LEVEL, inp(hGrid(3), false, 3, 0, 0)))
+    const h = ok(buildL2Inputs(smw(image()), LEVEL, inp(hGrid(3), false, 3, 0, 0), NO_EXIT_GRAPH))
     expect([h.kind, h.grid.length, h.grid[0]!.length]).toEqual(['image', 27, 48])
     expect([h.grid[0]![0], h.grid[0]![4], h.grid[0]![5], h.grid[0]![32]]).toEqual([7, 7, 0x25, 7]) // the 32-wide pattern repeats; $25 draws
-    const v = ok(buildL2Inputs(smw(image()), LEVEL, inp(vGrid(2), true, 2, 0, 0)))
+    const v = ok(buildL2Inputs(smw(image()), LEVEL, inp(vGrid(2), true, 2, 0, 0), NO_EXIT_GRAPH))
     expect([v.grid.length, v.grid[0]!.length]).toEqual([32, 32])
     // The BG plane is 32 rows and the pattern 27: rows 27-31 are empty, then it repeats.
     expect([v.grid[26]![0], v.grid[27]![0], v.grid[31]![0]]).toEqual([0x25, null, null])
@@ -354,7 +357,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
 
   it('an image keeps the 32 x 32 plane it wraps in, whatever the map size, for the gutter (#1197)', () => {
     for (const m of [inp(hGrid(3), false, 3, 0, 0), inp(vGrid(2), true, 2, 0, 0)]) {
-      const l2 = ok(buildL2Inputs(smw(image()), LEVEL, m))
+      const l2 = ok(buildL2Inputs(smw(image()), LEVEL, m, NO_EXIT_GRAPH))
       const plane = l2.plane!
       expect([plane.length, plane[0]!.length]).toEqual([32, 32])
       // 5 x $07 then the $25 fill, the whole 32-wide pattern; rows 27-31 of the BG plane are empty.
@@ -371,13 +374,23 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       beyond: [[0x25, 0x25, 2, 0x25], [3, 0x25, 0x25, 0x25]], // prettier-ignore
     })
     const l2 = ok(
-      buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)])), LEVEL, inp(hGrid(1), false, 1)),
+      buildL2Inputs(
+        smw(romWith([ptr(0x00, 0x90, 0x0c)])),
+        LEVEL,
+        inp(hGrid(1), false, 1),
+        NO_EXIT_GRAPH,
+      ),
     )
     expect(l2.beyond).toEqual([[null, null, 2, null], [3, null, null, null]]) // prettier-ignore
     expect(l2.plane).toBeUndefined()
     objects([[0x25, 1]]) // a stream with no beyond part (a call made without extra room)
     const none = ok(
-      buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)])), LEVEL, inp(hGrid(1), false, 1)),
+      buildL2Inputs(
+        smw(romWith([ptr(0x00, 0x90, 0x0c)])),
+        LEVEL,
+        inp(hGrid(1), false, 1),
+        NO_EXIT_GRAPH,
+      ),
     )
     expect(none.beyond).toBeUndefined()
   })
@@ -385,24 +398,29 @@ describe('buildL2Inputs (synthetic ROM)', () => {
   it('a $FF preset pointer is an image in skipped modes too, on a stock site', () => {
     for (const mode of [0x00, 0x0a]) {
       const m = inputs(hGrid(1), false, 1)
-      const r = buildL2Inputs(smw(image()), LEVEL, {
-        ...m,
-        header: { ...m.header, levelMode: mode },
-      })
+      const r = buildL2Inputs(
+        smw(image()),
+        LEVEL,
+        {
+          ...m,
+          header: { ...m.header, levelMode: mode },
+        },
+        NO_EXIT_GRAPH,
+      )
       expect(ok(r).kind, `mode ${mode}`).toBe('image')
     }
   })
 
   it('an image sits Layer1YPos - Layer2YPos down, like an object stream (bank_05.asm:7323-7328)', () => {
-    expect(ok(buildL2Inputs(smw(image()), LEVEL, inp(hGrid(1), false, 1, 0, 0))).dy).toBe(
-      0x20 - 0xc0,
-    )
+    expect(
+      ok(buildL2Inputs(smw(image()), LEVEL, inp(hGrid(1), false, 1, 0, 0), NO_EXIT_GRAPH)).dy,
+    ).toBe(0x20 - 0xc0)
   })
 
   it('an image whose Map16 table cannot be read is refused with that reason, not drawn from vanilla', () => {
     const rom = romWith([ptr(0x00, 0x80, 0xff), [0x0c8000, [0x00, 0x07, 0xff, 0xff]]])
     // The zeroed ROM has no BG fill loop, so the core's own reader declines.
-    expect(buildL2Inputs(smw(rom), LEVEL, inp(hGrid(1), false, 1, 0, 0))).toMatchObject({ ok: false, reason: expect.stringMatching(/Map16 table cannot be read/) }) // prettier-ignore
+    expect(buildL2Inputs(smw(rom), LEVEL, inp(hGrid(1), false, 1, 0, 0), NO_EXIT_GRAPH)).toMatchObject({ ok: false, reason: expect.stringMatching(/Map16 table cannot be read/) }) // prettier-ignore
   })
 
   it('an object stream keeps its ids, empties $25, and sits Layer1YPos - Layer2YPos down', () => {
@@ -411,7 +429,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       [1, 0x25],
     ])
     const m = inp(hGrid(1), false, 1)
-    const l2 = ok(buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)])), LEVEL, m))
+    const l2 = ok(buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)])), LEVEL, m, NO_EXIT_GRAPH))
     expect(l2.grid).toEqual([
       [null, 1],
       [1, null],
@@ -428,7 +446,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
 
   it('an object build dispatch notes ride on the L2 inputs (#493)', () => {
     vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValue({ grid: [[1]], unverified: ['hooked'] })
-    const l2 = ok(buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)])), LEVEL, inputs(hGrid(1), false, 1))) // prettier-ignore
+    const l2 = ok(buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)])), LEVEL, inputs(hGrid(1), false, 1), NO_EXIT_GRAPH)) // prettier-ignore
     expect(l2.unverified).toEqual(['hooked'])
   })
 
@@ -438,7 +456,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     const entry = (f600: number, d710: number) =>
       romWith([ptr(0x00, 0x90, 0x0c), [0x05f600 + LEVEL, [f600]], [0x05d710, [d710]], [0x05f000 + LEVEL, [0x00]]]) // prettier-ignore
     const dy = (f600: number, d710: number, vertical = true) =>
-      ok(buildL2Inputs(smw(entry(f600, d710), vertical), LEVEL, inp(vertical ? vGrid(1) : hGrid(1), vertical, 1))).dy // prettier-ignore
+      ok(buildL2Inputs(smw(entry(f600, d710), vertical), LEVEL, inp(vertical ? vGrid(1) : hGrid(1), vertical, 1), NO_EXIT_GRAPH)).dy // prettier-ignore
     expect(dy(0x23, 3)).toBe(0x320 - 0xc0) // L1 gets the high byte, L2's stays 0
     expect(dy(0x23, 1)).toBe(0x320 - 0x3c0) // both have it
     expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls[0]!.slice(2)).toEqual([
@@ -640,7 +658,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       // check reads) but holds none of its position code.
       const rom = entry(3)
       rom.writeAt(0x0096f4, [0x22, 0x96, 0xd7, 0x05])
-      const gated = ok(buildL2Inputs(smw(rom, true), LEVEL, m))
+      const gated = ok(buildL2Inputs(smw(rom, true), LEVEL, m, NO_EXIT_GRAPH))
       expect(gated.dy).toBe(0x320 - 0xc0) // still the best reading
       expect(gated.note).toMatch(/^Background height unverified: \$05D7D4 \(the secondary-exit branch and its _E index, bank_05\.asm:7111-7119\) holds .* not the stock/) // prettier-ignore
       // A failed gate and disagreeing entrances: both reasons, one note.
@@ -656,9 +674,9 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     objects([[1]])
     const objRom = romWith([ptr(0x00, 0x90, 0x0c)])
     const palettes = (rom: RomFile, tileset: number, id: number, mode = 1) => {
-      const t = ok(buildL2Inputs(smw(rom), LEVEL, inp(hGrid(1), false, 1, tileset, mode))).tiles[
-        id
-      ]!
+      const t = ok(
+        buildL2Inputs(smw(rom), LEVEL, inp(hGrid(1), false, 1, tileset, mode), NO_EXIT_GRAPH),
+      ).tiles[id]!
       return [t.tl, t.tr, t.bl, t.br].map(s => s.palette)
     }
     expect(palettes(objRom, 3, 1)).toEqual([4, 4, 4, 4])
@@ -668,7 +686,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
 
   it('an L2 whose orientation differs from L1 is refused with both named', () => {
     objects([[1]])
-    const r = buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)]), true), LEVEL, inp(hGrid(1), false, 1)) // prettier-ignore
+    const r = buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)]), true), LEVEL, inp(hGrid(1), false, 1), NO_EXIT_GRAPH) // prettier-ignore
     expect(r).toMatchObject({ ok: false, reason: expect.stringMatching(/L2 is vertical but L1 is horizontal/) }) // prettier-ignore
   })
 
@@ -678,7 +696,12 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     for (let mode = 0; mode < 32; mode++) {
       objects([[1]])
       const m = inputs(hGrid(1), false, 1)
-      const r = buildL2Inputs(smw(rom), LEVEL, { ...m, header: { ...m.header, levelMode: mode } })
+      const r = buildL2Inputs(
+        smw(rom),
+        LEVEL,
+        { ...m, header: { ...m.header, levelMode: mode } },
+        NO_EXIT_GRAPH,
+      )
       const read = vi.mocked(L2LoaderReal.loadL2Objects).mock.calls.length > 0
       if (NO_L2_OBJECT_MODES.includes(mode)) {
         expect(r, `mode ${mode}`).toMatchObject({ ok: false, reason: expect.stringMatching(/loads no layer 2 objects in level mode/) }) // prettier-ignore
@@ -695,7 +718,12 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       objects([[1]])
       const rom = romWith([ptr(0x00, 0x90, 0x0c), [0x05803b, [0x5c]]]) // JML, as Lunar Magic patches it
       const m = inputs(hGrid(1), false, 1)
-      const r = buildL2Inputs(smw(rom), LEVEL, { ...m, header: { ...m.header, levelMode: mode } })
+      const r = buildL2Inputs(
+        smw(rom),
+        LEVEL,
+        { ...m, header: { ...m.header, levelMode: mode } },
+        NO_EXIT_GRAPH,
+      )
       expect(r.ok, `mode ${mode}`).toBe(true)
       expect(vi.mocked(L2LoaderReal.loadL2Objects).mock.calls.length, `mode ${mode}`).toBe(1)
       vi.mocked(L2LoaderReal.loadL2Objects).mockReset()
@@ -707,7 +735,12 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       objects([[1]])
       const rom = romWith([ptr(0x00, 0x90, 0x0c), [0x05803b, [byte]]])
       const m = inputs(hGrid(1), false, 1)
-      const r = buildL2Inputs(smw(rom), LEVEL, { ...m, header: { ...m.header, levelMode: 0x0a } })
+      const r = buildL2Inputs(
+        smw(rom),
+        LEVEL,
+        { ...m, header: { ...m.header, levelMode: 0x0a } },
+        NO_EXIT_GRAPH,
+      )
       expect(r.ok, `site ${byte}`).toBe(true)
     }
   })
@@ -720,7 +753,12 @@ describe('buildL2Inputs (synthetic ROM)', () => {
       for (let mode = 0; mode < 32; mode++) {
         objects([[1]])
         const m = inputs(hGrid(1), false, 1)
-        const r = buildL2Inputs(smw(rom), LEVEL, { ...m, header: { ...m.header, levelMode: mode } })
+        const r = buildL2Inputs(
+          smw(rom),
+          LEVEL,
+          { ...m, header: { ...m.header, levelMode: mode } },
+          NO_EXIT_GRAPH,
+        )
         expect(r, `mode ${mode}`).toMatchObject({ ok: false, reason: expect.stringMatching(/skip chain.*not recognized/) }) // prettier-ignore
         expect(vi.mocked(L2LoaderReal.loadL2Objects), `mode ${mode}`).not.toHaveBeenCalled()
         vi.mocked(L2LoaderReal.loadL2Objects).mockReset()
@@ -731,7 +769,7 @@ describe('buildL2Inputs (synthetic ROM)', () => {
   it('a stock ROM keeps the plain refusal, never the unrecognized one', () => {
     objects([[1]])
     const m = inputs(hGrid(1), false, 1)
-    const r = buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)])), LEVEL, { ...m, header: { ...m.header, levelMode: 0x0a } }) // prettier-ignore
+    const r = buildL2Inputs(smw(romWith([ptr(0x00, 0x90, 0x0c)])), LEVEL, { ...m, header: { ...m.header, levelMode: 0x0a } }, NO_EXIT_GRAPH) // prettier-ignore
     expect(r).toMatchObject({ ok: false, reason: expect.stringMatching(/loads no layer 2 objects in level mode \$0A/) }) // prettier-ignore
   })
 
@@ -741,7 +779,12 @@ describe('buildL2Inputs (synthetic ROM)', () => {
     const rom = { rom: romWith([ptr(0x00, 0x90, 0x0c)]), getVerticalTable: () => ({ ok: true, table: new Array(32).fill(1) }) } as unknown as SmwRom // prettier-ignore
     const at = (mode: number) => {
       const m = inputs(vGrid(1), true, 1)
-      return buildL2Inputs(rom, LEVEL, { ...m, header: { ...m.header, levelMode: mode } })
+      return buildL2Inputs(
+        rom,
+        LEVEL,
+        { ...m, header: { ...m.header, levelMode: mode } },
+        NO_EXIT_GRAPH,
+      )
     }
     expect(at(0x0a)).toMatchObject({ ok: false, reason: expect.stringMatching(/level mode \$0A/) })
     expect(at(0x0d)).toMatchObject({ ok: false, reason: expect.stringMatching(/level mode \$0D/) })
@@ -752,16 +795,16 @@ describe('buildL2Inputs (synthetic ROM)', () => {
   it('an unreadable object stream and a throw are each refused, never a partial grid', () => {
     const rom = romWith([ptr(0x00, 0x90, 0x0c)])
     vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValueOnce(null)
-    expect(buildL2Inputs(smw(rom), LEVEL, inp(hGrid(1), false, 1))).toMatchObject({ ok: false, reason: expect.stringMatching(/object stream .* cannot be read/) }) // prettier-ignore
+    expect(buildL2Inputs(smw(rom), LEVEL, inp(hGrid(1), false, 1), NO_EXIT_GRAPH)).toMatchObject({ ok: false, reason: expect.stringMatching(/object stream .* cannot be read/) }) // prettier-ignore
     vi.mocked(L2LoaderReal.loadL2Objects).mockImplementationOnce(() => {
       throw new Error('boom')
     })
-    expect(buildL2Inputs(smw(rom), LEVEL, inp(hGrid(1), false, 1))).toMatchObject({ ok: false, reason: expect.stringMatching(/boom/) }) // prettier-ignore
+    expect(buildL2Inputs(smw(rom), LEVEL, inp(hGrid(1), false, 1), NO_EXIT_GRAPH)).toMatchObject({ ok: false, reason: expect.stringMatching(/boom/) }) // prettier-ignore
   })
 
   it('a pointer outside the ROM is refused', () => {
     const rom = new RomFile('tiny.sfc', Buffer.alloc(0x8000, 0))
-    expect(buildL2Inputs(smw(rom), LEVEL, inp(hGrid(1), false, 1))).toMatchObject({ ok: false }) // prettier-ignore
+    expect(buildL2Inputs(smw(rom), LEVEL, inp(hGrid(1), false, 1), NO_EXIT_GRAPH)).toMatchObject({ ok: false }) // prettier-ignore
   })
 })
 
@@ -831,7 +874,7 @@ describe.each([VANILLA, MAGIC])('every slot of %s', name => {
         const built = buildL1Inputs(rom, index, UNCLEARED)
         if (!built.ok) continue
         maps++
-        const l2 = buildL2Inputs(rom, index, built.inputs)
+        const l2 = buildL2Inputs(rom, index, built.inputs, NO_EXIT_GRAPH)
         if (!l2.ok) {
           expect(l2.reason.length, `slot ${index}`).toBeGreaterThan(0)
           continue
@@ -850,7 +893,7 @@ describe.each([VANILLA, MAGIC])('every slot of %s', name => {
     const rom = new SmwRom(RomFile.load(romPath(name)))
     const built = buildL1Inputs(rom, index, UNCLEARED)
     if (!built.ok) throw new Error(built.reason)
-    return { rom, inputs: built.inputs, l2: buildL2Inputs(rom, index, built.inputs) }
+    return { rom, inputs: built.inputs, l2: buildL2Inputs(rom, index, built.inputs, NO_EXIT_GRAPH) }
   }
 
   // The level-start relation (not a screen capture): $012's F600 is $64, so the entry code takes the
@@ -878,7 +921,7 @@ describe.each([VANILLA, MAGIC])('every slot of %s', name => {
       for (let index = 0; index < 0x200; index++) {
         const built = buildL1Inputs(rom, index, UNCLEARED)
         if (!built.ok) continue
-        const r = buildL2Inputs(rom, index, built.inputs)
+        const r = buildL2Inputs(rom, index, built.inputs, NO_EXIT_GRAPH)
         if (!r.ok || r.l2.kind !== 'image') continue
         const m = built.inputs
         const drawn = Array.from({ length: m.screenCount }, (_, s) => {
@@ -916,7 +959,7 @@ describe.skipIf(!hasRom(VANILLA))('the entrances over the 143-map roster', () =>
     for (const index of FG_GATE_MAPS) {
       const built = buildL1Inputs(rom, index, UNCLEARED)
       if (!built.ok) continue
-      const before = buildL2Inputs(rom, index, built.inputs)
+      const before = buildL2Inputs(rom, index, built.inputs, NO_EXIT_GRAPH)
       const after = buildL2Inputs(rom, index, built.inputs, entrances.get(index))
       if (!before.ok || !after.ok) continue
       compared++

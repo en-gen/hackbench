@@ -16,6 +16,9 @@ import { plantUploaderTable, OBJ_A_AT } from '../support/l2UploaderRom'
 import { STANDARD_HANDLERS } from '../../../src/rom/objectHandlers/dispatch'
 import { ADDR_TILESET_DISPATCH } from '../../../src/rom/objectHandlers/romData'
 
+// No exit graph in these ROMs, so no entrance is known: Layer 2 sits at the primary entrance's F400/F600 (#1340).
+const NO_EXIT_GRAPH = undefined
+
 const off = (snes: number): number => ((snes >> 16) & 0x3f) * 0x8000 + (snes & 0x7fff)
 const long = (a: number): number[] => [a & 0xff, (a >> 8) & 0xff, a >> 16]
 const STD_ENTRY = 0x0da415
@@ -116,7 +119,7 @@ describe('buildL2Inputs over the real loader (#493)', () => {
     writeStockSkipChain(rom)
     const smw = { rom, getVerticalTable: () => ({ ok: true, table: new Array(32).fill(0) }) }
     const l1 = { screenCount: 1, isVertical: false, header: { levelMode: 1, objectTileset: 0 }, map16: { tiles: [] } } // prettier-ignore
-    return buildL2Inputs(smw as unknown as SmwRom, 0, l1 as unknown as L1Inputs)
+    return buildL2Inputs(smw as unknown as SmwRom, 0, l1 as unknown as L1Inputs, NO_EXIT_GRAPH)
   }
 
   it('a hooked $0DA415 reaches l2.unverified; stock bytes leave it empty', () => {
