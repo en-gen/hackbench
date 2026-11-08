@@ -123,19 +123,13 @@ export const OVERWORLD_INDEX_GUARD: readonly StockOp[] = Object.freeze([
 ])
 
 /**
- * CODE_05D83E from its first instruction through the index computation, to the table load, with the
- * displacements of the three branches the ops do not name (no distance is stated). Vanilla only, measured. ONE StockSpan, one
- * digest per path (#1061, FINGERPRINT MINIMUM rule 6, D191 187B). Spans: the 93 bytes $05D83E-$05D89A
- * (bank_05.asm:7164-7213, holding the guard's BNE displacement at $05D846), the BCC displacement at $05D8A5
- * (:7218) and the BEQ displacement at $05D8B2 (:7224). 4 masked (the guard's LDA and BNE opcode, which the
- * midway hook replaces; the ops check them), 4 already stated (MIDWAY_HOOK_SITE). The BNE displacement is
- * unmasked: 23 of 23 SMW-based midway-hooked corpus ROMs keep it (one machine).
- * Unknown-byte count, treating the 3 displacements as known because the op addresses let a reader derive
- * them (D191, #1109): fingerprints[0], stock: 95 bytes - 4 masked - 4 stated - 3 derivable = 84 unknown.
- * fingerprints[1], LM site: Lunar Magic's site hook overwrites $05D8B2 with its JSL address, so that byte
- * is omitted (`lmSiteOmit`), 94 - 4 - 4 - 3 = 83 unknown. Omitted, not zeroed, so a stock-site ROM whose
- * $05D8B2 happens to be 0 cannot hash to the LM value; the LM digest is tried only once the site hook is
- * recognized (entryPathMismatches).
+ * CODE_05D83E through the table load, plus the displacements of the three branches the ops do not name
+ * (no distance is stated). Vanilla only, measured. One digest per path (#1061, FINGERPRINT MINIMUM rule 6,
+ * D191 187B); spans, mask and byte counts: docs/decisions/2026-11-05-d126-exception-entry-site-ram.md
+ * (Fingerprint counts). The mask covers what the midway hook replaces; the ops check those bytes.
+ * fingerprints[1] omits $05D8B2 (`lmSiteOmit`), which Lunar Magic's site hook overwrites. Omitted, not
+ * zeroed, so a stock-site ROM whose $05D8B2 happens to be 0 cannot hash to the LM value; it is tried only
+ * once the site hook is recognized (entryPathMismatches).
  */
 export const OVERWORLD_INDEX_BODY: StockSpan = Object.freeze({
   addr: 0x05d83e,
@@ -231,10 +225,7 @@ export const SCREEN_EXIT: readonly StockCode[] = [
 export const LEVEL_START_Y: readonly (StockCode | StockSpan)[] = [
   REACH,
   {
-    // ONE digest each (#1061). First: the secondary-exit branch and its _E index (bank_05.asm:7111-7119,
-    // 22 bytes) merged with the FA00/FC00 position reads (:7120-7162, 84 bytes) it was adjacent to:
-    // 106 bytes, none masked. Counted known inside it: 19 (BONUS_PRIMARY 13, SCREEN_EXIT's DATA_05F800
-    // load 3, BONUS_LOAD_JMP 3) and 3 opcodes the position-read test names, so 84 unknown at least.
+    // ONE digest each (#1061); byte counts: docs/rom/map-data-mechanics.md (Layer 2 vertical position).
     addr: 0x05d7d4,
     length: 0x05d83e - 0x05d7d4,
     fingerprints: ['112f553172e14efb4f44c504f9412871556fd8a16f22c705d43660e5aef134fb'],
@@ -242,12 +233,8 @@ export const LEVEL_START_Y: readonly (StockCode | StockSpan)[] = [
     cite: 'bank_05.asm:7111-7162',
   },
   {
-    // Second: the index every F000..F600 read goes through (:7265-7267, 6 bytes) merged with the level
-    // start positions (:7268-7395, 266 bytes): 272 bytes, none masked. Counted known inside it: 9 bytes
-    // (the 5 position-read opcodes and the 4 further bytes of the two reads the synthetic cart plants),
-    // so 263 unknown at least. The
-    // pointer setup before it (:7227-7264) is not covered: it writes only the layer pointers, the
-    // sprite header settings and Y, which :7267 overwrites.
+    // The pointer setup before it (bank_05.asm:7227-7264) is not covered: it writes only the layer
+    // pointers, the sprite header settings and Y, which :7267 overwrites.
     addr: 0x05d907,
     length: 0x05da17 - 0x05d907,
     fingerprints: ['ba2eb7bf0ee4a1d48876b8ab9763d1adef412f49ad4ebb18c660ee3757cd8c61'],

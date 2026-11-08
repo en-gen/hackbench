@@ -15,6 +15,21 @@ Ruled 2026-11-05 (Brian): "D178 B" and "D179 A". The exception, "for this block 
 3. Where a ROM is present, a test checks the RAM table against the ROM (read from the ROM, gated with `describe.skipIf`).
 4. The exception is written down (this file) and is no precedent for other blocks.
 
+## Fingerprint counts
+
+`OVERWORLD_INDEX_BODY` in `src/rom/SubmapFlagGate.ts` is one digest per path over three spans (#1061, FINGERPRINT MINIMUM rule 6, D191 187B), vanilla only, measured:
+
+- The 93 bytes $05D83E-$05D89A (`bank_05.asm:7164-7213`), which hold the guard's BNE displacement at $05D846.
+- The BCC displacement at $05D8A5 (`:7218`).
+- The BEQ displacement at $05D8B2 (`:7224`).
+
+Four bytes are masked: the guard's LDA and BNE opcode, which the midway hook replaces and the ops check. Four are already stated by `MIDWAY_HOOK_SITE`. The BNE displacement stays unmasked: 23 of 23 SMW-based midway-hooked corpus ROMs keep it (one machine). The three displacements count as known, because the op addresses let a reader derive them (D191, #1109).
+
+| Digest                                                     | Bytes | Masked | Stated | Derivable | Unknown |
+| ---------------------------------------------------------- | ----- | ------ | ------ | --------- | ------- |
+| `fingerprints[0]`, stock                                   | 95    | 4      | 4      | 3         | 84      |
+| `fingerprints[1]`, Lunar Magic site hook ($05D8B2 omitted) | 94    | 4      | 4      | 3         | 83      |
+
 ## Why
 
 The opcode and the branch landing then read as stock while a store went elsewhere. Seven named addresses, each cited to SMWDisX, are the smallest statement that refuses it; the alternatives left the gap or ran the ROM. Evidence, one machine: `test/suite/unit/SubmapFlagGate.ram.test.ts`.
