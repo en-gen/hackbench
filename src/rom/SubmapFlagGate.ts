@@ -538,10 +538,11 @@ const SIZE: Readonly<Record<number, number>> = {
 }
 
 /** Operand bytes of an instruction: its size less the opcode. Throws on an opcode `SIZE` does not list:
- *  that is a defect in a stock op, and NaN would read past it silently. */
-export function operandBytes(code: number): number {
+ *  that is a defect in a stock op, and NaN would read past it silently. `at` names the op in the error. */
+export function operandBytes(code: number, at?: string): number {
   const size = SIZE[code]
-  if (size === undefined) throw new Error(`No instruction size for opcode ${hexs(code, 2)}.`)
+  if (size === undefined)
+    throw new Error(`No instruction size for opcode ${hexs(code, 2)}${at ? ` at ${at}` : ''}.`)
   return size - 1
 }
 
@@ -549,8 +550,8 @@ export function operandBytes(code: number): number {
  *  address against `ram`. The whole instruction must be readable: an operand past the end of the image
  *  is a refusal. */
 function opMismatch(rom: RomFile, c: StockOp, ram: RamTable): string | null {
-  const at = rom.readAt(c.addr, 1 + operandBytes(c.op))
   const name = `${formatAddr(c.addr)} (${c.what}, ${c.cite})`
+  const at = rom.readAt(c.addr, 1 + operandBytes(c.op, name))
   if (!at) return `${name} is not readable.`
   if (at[0] !== c.op) return `${name} holds opcode ${hexs(at[0]!)}, not the stock ${hexs(c.op)}.`
   if (c.ram !== undefined) {

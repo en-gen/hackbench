@@ -206,6 +206,11 @@ describe('operandBytes', () => {
     expect(() => operandBytes(0x00)).toThrow(/opcode \$00/)
   })
 
+  it('names the stock op whose opcode has no known size', () => {
+    const o: StockOp = { ...OPS[0]!, op: 0x00, what: 'a planted op' }
+    expect(() => stockCodeMismatch(blankStockRom(), [o])).toThrow(/opcode \$00 at .*a planted op/)
+  })
+
   it('knows the size of every opcode the stock ops name', () => {
     for (const o of [...OPS, ...LM_ENTRY_SITE_OPS])
       expect(Number.isInteger(operandBytes(o.op)), formatAddr(o.addr)).toBe(true)
