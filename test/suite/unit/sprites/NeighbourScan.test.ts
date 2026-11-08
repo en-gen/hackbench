@@ -21,6 +21,7 @@ import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
 import {
   drawSprites,
+  joinReasons,
   interpDrawer,
   interpParts,
 } from '../../../../theia/extension/src/node/map-sprites'
@@ -442,6 +443,17 @@ describe('a shell neighbour is placed as the loader loads it (#837, #841)', () =
   it('a plain id equal to the shell number is not a status-9 sprite, so the same scan finds nothing', () => {
     const m = runOnce(rom, SHELLSCAN, seedWith([{ id: 5, ...near }]))
     expect(m.neighbourRun).toBe('same')
+  })
+})
+
+describe('joinReasons (#1173)', () => {
+  it.each([
+    [['a', ''], 'a'],
+    [['', undefined], undefined],
+    [['a; b', 'b'], 'a; b'],
+    [['a', 'b'], 'a; b'],
+  ] as [(string | undefined)[], string | undefined][])('%j gives %j', (args, want) => {
+    expect(joinReasons(...args)).toBe(want)
   })
 })
 

@@ -548,8 +548,8 @@ function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
 const UNCHECKED_LOADER = "HackBench could not check whether this sprite appears in play (the map's sprite loader is not the stock one)" // prettier-ignore
 
 /** Reasons a picture is unverified, joined as `unverifiedOf` joins them, each once. */
-const joinReasons = (...r: (string | undefined)[]): string | undefined =>
-  [...new Set(r.flatMap(x => x?.split('; ') ?? []))].join('; ') || undefined
+export const joinReasons = (...r: (string | undefined)[]): string | undefined =>
+  [...new Set(r.flatMap(x => x?.split('; ') ?? []).filter(Boolean))].join('; ') || undefined
 
 function unverifiedOf(m: RunModel, generic: string | undefined): { unverified?: string } {
   const why = [
