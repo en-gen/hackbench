@@ -53,6 +53,8 @@ const CHILD_FIRST = 61
 const GATED_SCAN = 62
 /** The same gate and a draw, with no scan. */
 const GATED_PLAIN = 63
+/** GATED_SCAN with the gate moved to Mario 16 px left of it: the reveal search's SECOND try (RevealSearch.ts BESIDE), not its first. */
+const LATE_SCAN = 64
 
 /** Every byte run this file's cart plants, for the copyright check at the foot of the file. */
 const planted: number[][] = []
@@ -130,8 +132,14 @@ function cart(
     0xd0, 0x07, 0xb9, 0x9e, 0x00, 0x49, QUIET, 0xf0, 0x04, 0x88, 0x10, 0xef, 0x60, 0xda, 0xbb, 0x20,
     0x40, 0x86, 0xfa, 0x60,
   ]) // prettier-ignore
+  // LDA $D1 / SEC / SBC $E4,X / CMP #$F0 / BNE out, then GATED_SCAN's body (offsets inside it are the same).
+  put(0x01a400, [
+    0xa5, 0xd1, 0x38, 0xf5, 0xe4, 0xc9, 0xf0, 0xd0, 0x16, 0x20, 0x40, 0x86, 0xa0, 0x09, 0xb9, 0xc8,
+    0x14, 0x49, 0x08, 0xd0, 0x07, 0xb9, 0x9e, 0x00, 0x49, QUIET, 0xf0, 0x04, 0x88, 0x10, 0xef, 0x60,
+    0xda, 0xbb, 0x20, 0x40, 0x86, 0xfa, 0x60,
+  ]) // prettier-ignore
   put(0x01a300, [0xa5, 0xd1, 0xd5, 0xe4, 0xd0, 0x03, 0x20, 0x40, 0x86, 0x60]) // LDA $D1 / CMP $E4,X / BNE out / JSR draw / out: RTS
-  for (const id of [TRAVELS, CHILD_FIRST, GATED_SCAN, GATED_PLAIN]) {
+  for (const id of [TRAVELS, CHILD_FIRST, GATED_SCAN, GATED_PLAIN, LATE_SCAN]) {
     const o = off(0x018320 + 9 + id * 2)
     bytes[o] = 0
     bytes[o + 1] = 0
@@ -157,6 +165,7 @@ function cart(
   main(CHILD_FIRST, 0xa100)
   main(GATED_SCAN, 0xa200)
   main(GATED_PLAIN, 0xa300)
+  main(LATE_SCAN, 0xa400)
   // The shell ceiling compare's opcode ($02A8C0) is what shellLoad reads for a id from $C9 up: a wrong byte refuses.
   if (opts.breakShellLoader) bytes[off(0x02a8c0)] = 0xea
   return RomFile.fromBytes('scan.sfc', bytes)
@@ -424,6 +433,11 @@ describe('a sprite its parent drew, through the real drawer (#1049)', () => {
     }
     it.each([
       ['no ordinary neighbors', [sp(0, GATED_SCAN, 8, 8), extra], true],
+      [
+        'a scan only the second reveal try opens, no neighbors',
+        [sp(0, LATE_SCAN, 8, 8), extra],
+        true,
+      ],
       ['an ordinary neighbor too', [sp(0, GATED_SCAN, 8, 8), extra, stock], true],
       ['no extra-bit entry', [sp(0, GATED_SCAN, 8, 8), stock], false],
       ['a gated sprite that does not scan', [sp(0, GATED_PLAIN, 8, 8), extra], false],
