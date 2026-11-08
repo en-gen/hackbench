@@ -90,8 +90,8 @@ describe.each([VANILLA, MAGIC])('the loader routing of %s, every id', name => {
       const classes = loadClasses(freshRom(name))
       if (classes.status !== 'ok') throw new Error(classes.reason)
       expect(classes.of(id)).toBe(expected(id))
-      // With extra bit 3 set only the scroll commands stay scroll commands.
-      expect(classes.of(id, 0x08)).toBe(expected(id) === 'scroll' ? 'scroll' : 'normal')
+      // These two ROMs route every id the same under each extra-bit combination (the sweep's own verdict, per class).
+      for (const bits of [0x04, 0x08, 0x0c]) expect(classes.of(id, bits), `bits ${bits}`).toBe(expected(id)) // prettier-ignore
     })
   })
 })

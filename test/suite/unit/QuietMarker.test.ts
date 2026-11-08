@@ -1112,6 +1112,62 @@ describe('LoadClass extra bit 3', () => {
     expect(r.of(0xa0, 0x08)).toBe('scroll')
   })
 
+  const COMBOS = [0x04, 0x08, 0x0c]
+  const SCROLLS = Array.from({ length: 0x70 }, (_, k) => 0x90 + k)
+  const bitsOf = (flags: number) => ({ ...sprite(0x31), raw: [flags, 0, 0x31] }) as LevelSprite
+
+  it('a loader that routes the scroll ids as scroll for every combination grants each of $04, $08 and $0C, on every id', () => {
+    const r = loadClasses(cart({ bit2: BANDS, bit3: BANDS }))
+    if (r.status !== 'ok') throw new Error(r.reason)
+    for (const bits of COMBOS) expect(SCROLLS.map(id => r.of(id, bits)), `bits ${bits}`).toEqual(SCROLLS.map(() => 'scroll')) // prettier-ignore
+  })
+
+  it('a loader that changes the scroll ids only when bit 3 is set leaves $04 alone and takes $08 and $0C', () => {
+    const r = classesWith(() => NORMAL)
+    expect([0x04, 0x08, 0x0c].map(b => r.of(0xa0, b))).toEqual(['scroll', 'normal', 'normal'])
+  })
+
+  it('a loader that moves the scroll ids for bit 2 only takes $04 and $0C and leaves $08', () => {
+    const r = loadClasses(cart({ bit2: () => NORMAL }))
+    if (r.status !== 'ok') throw new Error(r.reason)
+    expect(SCROLLS.map(id => r.of(id, 0x08))).toEqual(SCROLLS.map(() => 'scroll'))
+    expect(SCROLLS.map(id => r.of(id, 0x0c))).toEqual(SCROLLS.map(() => 'normal'))
+  })
+
+  it.each([
+    ['shooter', 0x31],
+    ['generator', 0x45],
+  ])(
+    'a plain %s the loader routes as normal with bit 2 set is boxed, not a quiet marker',
+    (kind, id) => {
+      const r = loadClasses(cart({ bit2: () => NORMAL }))
+      if (r.status !== 'ok') throw new Error(r.reason)
+      expect([0x04, 0x0c].map(b => r.of(id, b))).toEqual(['normal', 'normal'])
+      expect(r.of(id)).toBe(kind)
+      const results = { [id]: { ok: false, reason: 'r', routed: kind } as SpriteDrawResult }
+      for (const flags of [0x04, 0x0c]) {
+        const s = { ...sprite(id), raw: [flags, 0, id] } as LevelSprite
+        const [d] = drawSprites([s], model, draw(results), undefined, r.of)
+        expect(d, `flags ${flags}`).toMatchObject({ status: 'placeholder', reason: 'extraBits' })
+      }
+    },
+  )
+
+  it('a shooter and a generator whose class bit 2 does not change keep the quiet marker; so does the plain one', () => {
+    const r = loadClasses(cart({ bit2: BANDS }))
+    if (r.status !== 'ok') throw new Error(r.reason)
+    expect([0x31, 0x45].map(id => r.of(id, 0x04))).toEqual(['shooter', 'generator'])
+    const results = { 0x31: { ok: false, reason: 'r', routed: 'shooter' } as SpriteDrawResult }
+    expect(drawSprites([bitsOf(0x04), bitsOf(0)], model, draw(results), undefined, r.of).map(d => d.status)).toEqual(['quiet', 'quiet']) // prettier-ignore
+  })
+
+  it('framesGate follows the real extra bits: $04 and $0C are read, not just bit 3', () => {
+    const only0c = (id: number, bits?: number): LoadClass => (bits ? (bits === 0x0c ? 'scroll' : 'normal') : routedOf(id)) // prettier-ignore
+    expect(framesGate(sprite(0xe8, 0, 0x0c), only0c)).toBe('it has no picture')
+    expect(framesGate(sprite(0xe8, 0, 0x04), only0c)).toBe('extraBits')
+    expect(framesGate(sprite(0xe8, 0, 0x08), only0c)).toBe('extraBits')
+  })
+
   it('one scroll id the second sweep breaks takes every exemption with it, and the plain table still reads', () => {
     const r = classesWith(scrollHole)
     expect([0xc0, 0xa0].map(id => r.of(id, 0x08))).toEqual(['normal', 'normal'])
