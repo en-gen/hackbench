@@ -73,7 +73,10 @@ describe('the served drawer reveals hidden sprites', () => {
     // no rerun finds an own tile. Id 85 (a spawner that draws nothing at rest) and id 5 keep their marker.
     const r = ok(drawer()(entry(84)))
     expect(r.parts.length).toBeGreaterThan(0)
-    expect(r, 'no probe ran for it, so no reveal claim').not.toHaveProperty('reveal')
+    expect(
+      r,
+      'the hidden check was skipped (no own tile at rest) and the reruns found nothing: no reveal claim',
+    ).not.toHaveProperty('reveal')
     expect(drawer()(entry(85))).toMatchObject({ ok: false, reason: 'unrevealed' })
     expect(drawer()(entry(5))).toMatchObject({ ok: false, reason: 'unrevealed' })
   })

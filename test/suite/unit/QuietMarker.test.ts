@@ -340,10 +340,13 @@ const ROUTINE = 0x029000
 const TABLE = 0x029100
 const TABLE_BIT3 = 0x029200
 const TABLE_BIT2 = 0x029a00
+const TABLE_BOTH = 0x029b00
 const SCROLL_CELL = 0x143e
 const GEN_CELL = 0x18b9
 const SHOOT_SLOTS = 0x1783
 const [NORMAL, SHOOT, GEN, SCROLL, SCROLL_OFFSET] = [0, 1, 2, 3, 4] // the last stores to the scroll cell, but a different value
+/** The same for a shooter and a generator (a different value in the same cell), and a shooter that stores in another slot. */
+const [SHOOT_OFFSET, GEN_OFFSET, SHOOT_ELSEWHERE] = [5, 6, 7]
 const [RTS, BNE_OP, BRA_OP, BEQ_OP] = [0x60, 0xd0, 0x80, 0xf0]
 /** Which class code a table byte holds for an id: shooters 0x30-0x33, generators 0x40-0x4f, scroll commands 0x90 up. */
 const BANDS = (id: number) =>
@@ -356,6 +359,8 @@ interface Plan {
   bit3?: (id: number) => number
   /** The table used for an entry with extra bit 2 set (alone or with bit 3); the routine reads it before the bit 3 test. */
   bit2?: (id: number) => number
+  /** The table used when both extra bits are set, tested before either alone (AND #$0C, CMP #$0C). */
+  both?: (id: number) => number
   store?: Partial<Record<number, Store>>
   /** What a normal id's path does after the dispatch: the default records itself in SRAM and returns. */
   normal?: number[]
@@ -551,7 +556,10 @@ function cart(
     buf.set(bytes, (at & 0x7fff) + ((at >> 16) & 0x3f) * 0x8000)
   const value = (s: Store) => (s === 'id' ? [0x8a] : s === 'offset' ? [0x8a, 0x18, 0x69, 0xf9] : [])
   const tail = (code: number, cell: number): Item[] => [
-    ...value(plan.store?.[code] ?? (code === SCROLL_OFFSET ? 'offset' : 'id')),
+    ...value(
+      plan.store?.[code] ??
+        (code === SCROLL_OFFSET || code === SHOOT_OFFSET || code === GEN_OFFSET ? 'offset' : 'id'),
+    ),
     0x8f,
     cell & 0xff,
     cell >> 8,
@@ -620,6 +628,25 @@ function cart(
       0x1a,
       BNE_OP,
       'ret', // the list end
+      ...(plan.both
+        ? [
+            0xaf,
+            0x01,
+            0xe0,
+            0x7e,
+            0x29,
+            0x0c,
+            0xc9,
+            0x0c,
+            BNE_OP,
+            'noBoth',
+            ...ID_READ,
+            ...lookup(TABLE_BOTH),
+            BRA_OP,
+            'go',
+            { label: 'noBoth' },
+          ]
+        : []),
       ...(plan.bit2
         ? [
             0xaf,
@@ -670,11 +697,29 @@ function cart(
       SCROLL_OFFSET,
       BEQ_OP,
       'offset',
+      0xc9,
+      SHOOT_OFFSET,
+      BEQ_OP,
+      'shootOff',
+      0xc9,
+      GEN_OFFSET,
+      BEQ_OP,
+      'genOff',
+      0xc9,
+      SHOOT_ELSEWHERE,
+      BEQ_OP,
+      'elsewhere',
       ...(plan.normal ?? NORMAL_PATH),
       { label: 'shoot' },
       ...tail(SHOOT, plan.shootCell ?? SHOOT_SLOTS + 2),
       { label: 'gen' },
       ...tail(GEN, GEN_CELL),
+      { label: 'shootOff' },
+      ...tail(SHOOT_OFFSET, plan.shootCell ?? SHOOT_SLOTS + 2),
+      { label: 'genOff' },
+      ...tail(GEN_OFFSET, GEN_CELL),
+      { label: 'elsewhere' },
+      ...tail(SHOOT_ELSEWHERE, (plan.shootCell ?? SHOOT_SLOTS + 2) + 1),
       { label: 'offset' },
       ...tail(SCROLL_OFFSET, SCROLL_CELL),
       { label: 'scroll' },
@@ -732,6 +777,10 @@ function cart(
   put(
     TABLE_BIT2,
     Array.from({ length: 256 }, (_, id) => (plan.bit2 ?? BANDS)(id)),
+  )
+  put(
+    TABLE_BOTH,
+    Array.from({ length: 256 }, (_, id) => (plan.both ?? BANDS)(id)),
   )
   edit(put)
   return RomFile.fromBytes('x.sfc', buf)
@@ -1106,10 +1155,12 @@ describe('LoadClass extra bit 3', () => {
     const bit2 = loadClasses(cart({ bit2: () => NORMAL }))
     if (bit2.status !== 'ok') throw new Error('unavailable')
     const scroll = { ok: false, reason: 'r', routed: 'scroll' } as const
-    const at = (flags: number) => ({ ...sprite(0xa0), raw: [flags, 0, 0xa0] }) as LevelSprite
-    const out = drawSprites([at(0x00), at(0x08), at(0x04), at(0x0c)], model, draw({ 0xa0: scroll }), undefined, bit2.of) // prettier-ignore
-    expect(out.map(d => d.status)).toEqual(['quiet', 'quiet', 'placeholder', 'placeholder'])
-    expect(r.of(0xa0, 0x08)).toBe('scroll')
+    for (const id of SCROLLS) {
+      const at = (flags: number) => ({ ...sprite(id), raw: [flags, 0, id] }) as LevelSprite
+      const out = drawSprites([at(0x00), at(0x08), at(0x04), at(0x0c)], model, draw({ [id]: scroll }), undefined, bit2.of) // prettier-ignore
+      expect(out.map(d => d.status), `id ${id}`).toEqual(['quiet', 'quiet', 'placeholder', 'placeholder']) // prettier-ignore
+      expect(r.of(id, 0x08)).toBe('scroll')
+    }
   })
 
   const COMBOS = [0x04, 0x08, 0x0c]
@@ -1134,31 +1185,78 @@ describe('LoadClass extra bit 3', () => {
     expect(SCROLLS.map(id => r.of(id, 0x0c))).toEqual(SCROLLS.map(() => 'normal'))
   })
 
-  it.each([
-    ['shooter', 0x31],
-    ['generator', 0x45],
-  ])(
-    'a plain %s the loader routes as normal with bit 2 set is boxed, not a quiet marker',
-    (kind, id) => {
+  const BANDS_OF = {
+    shooter: [0x30, 0x31, 0x32, 0x33],
+    generator: Array.from({ length: 16 }, (_, k) => 0x40 + k),
+  }
+  it.each(['shooter', 'generator'] as const)(
+    'every plain %s the loader routes as normal with bit 2 set is boxed, not a quiet marker',
+    kind => {
       const r = loadClasses(cart({ bit2: () => NORMAL }))
       if (r.status !== 'ok') throw new Error(r.reason)
-      expect([0x04, 0x0c].map(b => r.of(id, b))).toEqual(['normal', 'normal'])
-      expect(r.of(id)).toBe(kind)
-      const results = { [id]: { ok: false, reason: 'r', routed: kind } as SpriteDrawResult }
-      for (const flags of [0x04, 0x0c]) {
-        const s = { ...sprite(id), raw: [flags, 0, id] } as LevelSprite
-        const [d] = drawSprites([s], model, draw(results), undefined, r.of)
-        expect(d, `flags ${flags}`).toMatchObject({ status: 'placeholder', reason: 'extraBits' })
+      for (const id of BANDS_OF[kind]) {
+        expect([0x04, 0x0c].map(b => r.of(id, b))).toEqual(['normal', 'normal'])
+        expect(r.of(id)).toBe(kind)
+        const results = { [id]: { ok: false, reason: 'r', routed: kind } as SpriteDrawResult }
+        for (const flags of [0x04, 0x0c]) {
+          const s = { ...sprite(id), raw: [flags, 0, id] } as LevelSprite
+          const [d] = drawSprites([s], model, draw(results), undefined, r.of)
+          expect(d, `id ${id} flags ${flags}`).toMatchObject({ status: 'placeholder', reason: 'extraBits' }) // prettier-ignore
+        }
       }
     },
   )
 
-  it('a shooter and a generator whose class bit 2 does not change keep the quiet marker; so does the plain one', () => {
+  it('shooters and generators whose class bit 2 does not change keep the quiet marker; so do the plain ones', () => {
     const r = loadClasses(cart({ bit2: BANDS }))
     if (r.status !== 'ok') throw new Error(r.reason)
-    expect([0x31, 0x45].map(id => r.of(id, 0x04))).toEqual(['shooter', 'generator'])
-    const results = { 0x31: { ok: false, reason: 'r', routed: 'shooter' } as SpriteDrawResult }
-    expect(drawSprites([bitsOf(0x04), bitsOf(0)], model, draw(results), undefined, r.of).map(d => d.status)).toEqual(['quiet', 'quiet']) // prettier-ignore
+    for (const kind of ['shooter', 'generator'] as const)
+      for (const id of BANDS_OF[kind]) {
+        expect(r.of(id, 0x04)).toBe(kind)
+        const results = { [id]: { ok: false, reason: 'r', routed: kind } as SpriteDrawResult }
+        const at = (flags: number) => ({ ...sprite(id), raw: [flags, 0, id] }) as LevelSprite
+        const out = drawSprites([at(0x04), at(0)], model, draw(results), undefined, r.of)
+        expect(
+          out.map(d => d.status),
+          `id ${id}`,
+        ).toEqual(['quiet', 'quiet'])
+      }
+  })
+
+  it('a band the bit-2 sweep moved onto plain normal ids is boxed with that combination and drawn without it', () => {
+    const r = loadClasses(cart({ bit2: moved }))
+    if (r.status !== 'ok') throw new Error(r.reason)
+    const empty = { ok: false, reason: 'drew no OAM tile', empty: true } as const
+    for (let id = 0x10; id < 0x20; id++) {
+      expect(r.of(id, 0x04), `id ${id}`).not.toBe('normal')
+      expect([r.of(id), r.of(id, 0x08)]).toEqual(['normal', 'normal'])
+      const at = (flags: number) => ({ ...sprite(id), raw: [flags, 0, id] }) as LevelSprite
+      const [boxed, plain] = drawSprites([at(0x04), at(0)], model, draw({ [id]: empty }), undefined, r.of) // prettier-ignore
+      expect(boxed, `id ${id}`).toMatchObject({ status: 'placeholder', reason: 'extraBits' })
+      expect(plain!.reason).not.toBe('extraBits')
+      expect(framesGate(at(0x04), r.of), `id ${id}`).toBe('extraBits')
+    }
+  })
+
+  it('a combination of both bits is judged by its own run: $04 and $08 kept does not keep $0C', () => {
+    const r = loadClasses(cart({ bit2: BANDS, bit3: BANDS, both: () => NORMAL }))
+    if (r.status !== 'ok') throw new Error(r.reason)
+    expect(SCROLLS.map(id => r.of(id, 0x04))).toEqual(SCROLLS.map(() => 'scroll'))
+    expect(SCROLLS.map(id => r.of(id, 0x08))).toEqual(SCROLLS.map(() => 'scroll'))
+    expect(SCROLLS.map(id => r.of(id, 0x0c))).toEqual(SCROLLS.map(() => 'normal'))
+  })
+
+  it.each([
+    ['a different value in the same cell', SHOOT_OFFSET, GEN_OFFSET],
+    ['the same value in another shooter slot', SHOOT_ELSEWHERE, GEN],
+  ])('a shooter or generator that stores %s under bit 2 is not kept', (_t, shootCode, genCode) => {
+    const r = loadClasses(cart({ bit2: id => (BANDS(id) === SHOOT ? shootCode : BANDS(id) === GEN ? genCode : BANDS(id)) })) // prettier-ignore
+    if (r.status !== 'ok') throw new Error(r.reason)
+    const [shooters, gens] = [BANDS_OF.shooter, BANDS_OF.generator]
+    expect(shooters.map(id => r.of(id, 0x04))).toEqual(shooters.map(() => 'normal'))
+    // the generator row of the second case stores the same value in the same cell, so it is kept; a different value is not
+    expect(gens.map(id => r.of(id, 0x04))).toEqual(gens.map(() => (genCode === GEN ? 'generator' : 'normal'))) // prettier-ignore
+    expect(SCROLLS.map(id => r.of(id, 0x04))).toEqual(SCROLLS.map(() => 'scroll'))
   })
 
   it('framesGate follows the real extra bits: $04 and $0C are read, not just bit 3', () => {
