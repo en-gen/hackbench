@@ -38,14 +38,18 @@ const JSR = 0x20
  */
 const STRETCH_AT = 0x028ab1
 /**
- * Cells each stretch run seeds (rammap.asm), one run per set. Sparkle timer :1890 = 2 takes the JSL at bank_02.asm:1389-1401,
- * which zero state skips. Lives :1908 = 2 and star :1635 = $FF run the lives branch (:1361-1373) and the star branch it falls
- * into (:1377-1387); lives = 1 with timer :1909 = 1 runs the countdown (:1363-1364).
+ * Cells each stretch run seeds (rammap.asm), one run per set, so that every branch of bank_02.asm:1355-1409 is taken by a
+ * run that must arrive. Sparkle timer :1890 = 2 takes the JSL (:1389-1401), which zero state skips. Lives :1908 = 2 and
+ * star :1635 = $FF run the lives branch (:1361-1373) and the star branch (:1377-1387); lives = 1 with timer :1909 = 1 runs
+ * the countdown (:1363-1364). Lives = 1 (:1368), star = 3 (:1378) and X's screen-relative high byte :689+1 = 1 (:1397) go
+ * round the JSL; the last set takes :1400 with the player's screen-relative Y :694 = $D0.
  */
 const STRETCH_SEEDS: Record<number, number>[] = [
   { 0x18d3: 2 },
   { 0x18e4: 2, 0x1490: 0xff },
   { 0x18e4: 1, 0x18e5: 1 },
+  { 0x18e4: 1, 0x1490: 3, 0x18d3: 2, 0x7f: 1 },
+  { 0x18d3: 2, 0x80: 0xd0 },
 ]
 /** Instructions the stretch may take: the vanilla run is a few hundred, and a callee that loops is refused. */
 const STRETCH_CAP = 10_000
