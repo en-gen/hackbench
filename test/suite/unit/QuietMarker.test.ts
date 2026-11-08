@@ -334,6 +334,8 @@ const ABOVE = 0x029500
 const [LIVES_CELL, STAR_CELL, LIVES_HOOK, STAR_HOOK] = [0x18e4, 0x1490, 0x029510, 0x029520]
 /** GiveLivesTimer (rammap.asm:1909): the countdown path at bank_02.asm:1363-1364. */
 const [TIMER_CELL, TIMER_HOOK] = [0x18e5, 0x029530]
+/** PlayerXPosScrRel+1, PlayerYPosScrRel and +1 (rammap.asm:689, :694), direct-page cells read at bank_02.asm:1395-1400. */
+const [REL_X_HI, REL_Y, REL_Y_HI] = [0x7f, 0x80, 0x81]
 const ROUTINE = 0x029000
 const TABLE = 0x029100
 const TABLE_BIT3 = 0x029200
@@ -390,8 +392,8 @@ const LOOP_500 = [0xa2, 0xff, 0xca, BNE_OP, 0xfd]
 const LOOP_100K = [0xa0, 0xff, 0xa2, 0xff, 0xca, BNE_OP, 0xfd, 0x88, BNE_OP, 0xf8]
 type Item = number | string | { label: string }
 /** Bytes with branch operands named by label: a string is the displacement to `{ label }`. */
-function assemble(items: Item[]): number[] {
-  const at = new Map<string, number>()
+function assemble(items: Item[], labels = new Map<string, number>()): number[] {
+  const at = labels
   let n = 0
   for (const it of items)
     if (typeof it === 'object') at.set(it.label, n)
@@ -403,6 +405,138 @@ function assemble(items: Item[]): number[] {
   }
   return out
 }
+/** Where the fixture's gate block is, and the offsets in it of the branch edges (label -> byte offset of the branch). */
+const GATES = 0x029600
+const edgeAt = new Map<string, number>()
+const [LO, HI] = [(n: number) => n & 0xff, (n: number) => n >> 8]
+const BRA_EDGE = [BRA_OP, 0x00] // an edge: a branch to the next byte, so it changes nothing until a test points it at itself
+/**
+ * The stretch's lives, countdown and star gates and the four branch edges the game's runs must take (bank_02.asm:1368,
+ * :1378, :1397, :1400), with the game's conditions but other instructions. A seed that misses a gate leaves its stub
+ * unseen; a test turns an edge's branch into a self-loop (offset $FE), which only a run that reaches the edge sees.
+ */
+const gates = assemble(
+  [
+    // the countdown only under a non-zero lives, the lives hook from 2, the star hook from 8
+    ...[0xae, LO(LIVES_CELL), HI(LIVES_CELL), 0xf0, 'endL'],
+    ...[
+      0xac,
+      LO(TIMER_CELL),
+      HI(TIMER_CELL),
+      0xf0,
+      'noT',
+      0x20,
+      LO(TIMER_HOOK),
+      HI(TIMER_HOOK),
+      { label: 'noT' },
+    ],
+    ...[
+      0xe0,
+      2,
+      0x90,
+      'noL',
+      0x20,
+      LO(LIVES_HOOK),
+      HI(LIVES_HOOK),
+      { label: 'noL' },
+      { label: 'endL' },
+    ],
+    ...[
+      0xae,
+      LO(STAR_CELL),
+      HI(STAR_CELL),
+      0xe0,
+      8,
+      0x90,
+      'noS',
+      0x20,
+      LO(STAR_HOOK),
+      HI(STAR_HOOK),
+      { label: 'noS' },
+    ],
+    // lives = 1 with the timer 0 (:1368)
+    ...[
+      0xae,
+      LO(LIVES_CELL),
+      HI(LIVES_CELL),
+      0xe0,
+      1,
+      BNE_OP,
+      'nA',
+      0xac,
+      LO(TIMER_CELL),
+      HI(TIMER_CELL),
+      BNE_OP,
+      'nA',
+      { label: 'edgeA' },
+      ...BRA_EDGE,
+      { label: 'nA' },
+    ],
+    // a star timer of 1-7 (:1378)
+    ...[
+      0xae,
+      LO(STAR_CELL),
+      HI(STAR_CELL),
+      0xf0,
+      'nB',
+      0xe0,
+      8,
+      0xb0,
+      'nB',
+      { label: 'edgeB' },
+      ...BRA_EDGE,
+      { label: 'nB' },
+    ],
+    // the sparkle timer set and the player's screen-relative high byte (X) non-zero (:1397)
+    ...[
+      0xae,
+      LO(SPARKLE),
+      HI(SPARKLE),
+      0xf0,
+      'nC',
+      0xac,
+      REL_X_HI,
+      0x00,
+      0xf0,
+      'nC',
+      { label: 'edgeC' },
+      ...BRA_EDGE,
+      { label: 'nC' },
+    ],
+    // the sparkle timer set, both high bytes zero, the player's screen-relative Y at $D0 or more (:1400)
+    ...[
+      0xae,
+      LO(SPARKLE),
+      HI(SPARKLE),
+      0xf0,
+      'nD',
+      0xac,
+      REL_X_HI,
+      0x00,
+      BNE_OP,
+      'nD',
+      0xac,
+      REL_Y_HI,
+      0x00,
+      BNE_OP,
+      'nD',
+      0xae,
+      REL_Y,
+      0x00,
+      0xe0,
+      0xd0,
+      0x90,
+      'nD',
+      { label: 'edgeD' },
+      ...BRA_EDGE,
+      { label: 'nD' },
+    ],
+    0x4c, // back into the routine's own start, so the stack is as if the gates were inline
+    LO(ENTRY + 26),
+    HI(ENTRY + 26),
+  ],
+  edgeAt,
+)
 /** A 512 KB LoROM cart whose call site calls the invented routine; `edit` plants a defect after the build. */
 function cart(
   plan: Plan = {},
@@ -552,38 +686,16 @@ function cart(
     0x20,
     ABOVE & 0xff,
     ABOVE >> 8,
-    // The lives, countdown and star gates, with the game's conditions but other instructions: the countdown only under a
-    // non-zero lives, the lives hook from 2, the star hook from 8. A seed that misses a gate leaves its stub unseen.
-    ...[0xae, LIVES_CELL & 0xff, LIVES_CELL >> 8, 0xf0, 15],
-    ...[
-      0xac,
-      TIMER_CELL & 0xff,
-      TIMER_CELL >> 8,
-      0xf0,
-      3,
-      0x20,
-      TIMER_HOOK & 0xff,
-      TIMER_HOOK >> 8,
-    ],
-    ...[0xe0, 2, 0x90, 3, 0x20, LIVES_HOOK & 0xff, LIVES_HOOK >> 8],
-    ...[
-      0xae,
-      STAR_CELL & 0xff,
-      STAR_CELL >> 8,
-      0xe0,
-      8,
-      0x90,
-      3,
-      0x20,
-      STAR_HOOK & 0xff,
-      STAR_HOOK >> 8,
-    ],
+    0x4c,
+    LO(GATES),
+    HI(GATES),
     0xa5,
     0x14,
     0xf0,
-    0x45 - 42,
+    0x54 - 30,
   ])
   put(ABOVE, [RTS])
+  put(GATES, gates)
   put(LIVES_HOOK, [RTS])
   put(STAR_HOOK, [RTS])
   put(TIMER_HOOK, [RTS])
@@ -844,6 +956,17 @@ describe('LoadClass runs the stretch before the call', () => {
     ['Y', [0xa0, 0x05]],
   ])('a run starts with %s zero, whatever the run before left in it', (_r, load) => {
     expect(reasonOf(cart({}, put => put(ABOVE, [...load, RTS])))).toBe('ok')
+  })
+
+  it.each([
+    ['edgeA', 'lives 1 with the timer 0 (:1368)'],
+    ['edgeB', 'a star timer of 1-7 (:1378)'],
+    ['edgeC', 'a non-zero screen-relative high byte (:1397)'],
+    ['edgeD', 'a screen-relative Y of $D0 or more (:1400)'],
+  ])('unavailable when the branch taken for %s (%s) is turned into a loop', (label, _what) => {
+    expect(reasonOf(cart({}, put => put(GATES + edgeAt.get(label)! + 1, [0xfe])))).toMatch(
+      unreached,
+    )
   })
 
   it('a hook at the seeded call that returns normally still reads ok', () => {

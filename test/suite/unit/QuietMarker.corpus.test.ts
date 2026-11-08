@@ -129,6 +129,19 @@ describe.skipIf(!hasRom(VANILLA))('a planted loop in the stretch before the load
     expect(missed.map(s => s.at.toString(16))).toEqual([])
   })
 
+  it('is unavailable with each branch turned into a self-loop (offset $FE): every branch has a run that takes it', () => {
+    // BPL, BMI, BVC, BVS, BRA, BCC, BCS, BNE, BEQ: the stretch's branches are bank_02.asm:1360, :1362, :1364, :1368,
+    // :1376, :1378, :1387, :1391, :1397 and :1400. A looped branch only shows in a run that takes it.
+    const branches = starts.filter(s =>
+      [0x10, 0x30, 0x50, 0x70, 0x80, 0x90, 0xb0, 0xd0, 0xf0].includes(s.op),
+    )
+    expect(branches.length).toBe(10)
+    const missed = branches.filter(
+      s => status(rom => rom.writeAt(s.at + 1, [0xfe])) !== 'unavailable',
+    )
+    expect(missed.map(s => s.at.toString(16))).toEqual([])
+  })
+
   it('still reads ok with the JSL at :1401 replaced by NOPs', () => {
     const jsl = starts.filter(s => s.op === 0x22)
     expect(jsl.length).toBe(1)
