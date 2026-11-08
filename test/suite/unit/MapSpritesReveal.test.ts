@@ -68,6 +68,16 @@ describe('the served drawer reveals hidden sprites', () => {
     expect(drawer()(entry(5))).toMatchObject({ ok: false, reason: 'unrevealed' })
   })
 
+  it('keeps the at-rest companion picture of a run no search rerun gives an own tile (id 84), not a marker', () => {
+    // Id 84 writes one OAM entry under a $15E9 that names no slot, so the at-rest run draws it as a companion piece and
+    // no rerun finds an own tile. Id 85 (a spawner that draws nothing at rest) and id 5 keep their marker.
+    const r = ok(drawer()(entry(84)))
+    expect(r.parts.length).toBeGreaterThan(0)
+    expect(r.reveal).toBe('none-found')
+    expect(drawer()(entry(85))).toMatchObject({ ok: false, reason: 'unrevealed' })
+    expect(drawer()(entry(5))).toMatchObject({ ok: false, reason: 'unrevealed' })
+  })
+
   it('serves a refused search rerun as the refusal, in its own words, not as "unrevealed"', () => {
     // Id 147 is blank with Mario away; on touch it becomes $FF, which has no handler.
     expect(drawer()(entry(147))).toMatchObject({ ok: false, reason: expect.stringMatching(/^refused: .*became \$FF/) }) // prettier-ignore

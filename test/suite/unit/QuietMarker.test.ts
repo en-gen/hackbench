@@ -339,6 +339,7 @@ const [REL_X_HI, REL_Y, REL_Y_HI] = [0x7f, 0x80, 0x81]
 const ROUTINE = 0x029000
 const TABLE = 0x029100
 const TABLE_BIT3 = 0x029200
+const TABLE_BIT2 = 0x029a00
 const SCROLL_CELL = 0x143e
 const GEN_CELL = 0x18b9
 const SHOOT_SLOTS = 0x1783
@@ -353,6 +354,8 @@ interface Plan {
   classes?: (id: number) => number
   /** The table used for an entry with extra bit 3 set; the routine reads it only when this is given. */
   bit3?: (id: number) => number
+  /** The table used for an entry with extra bit 2 set (alone or with bit 3); the routine reads it before the bit 3 test. */
+  bit2?: (id: number) => number
   store?: Partial<Record<number, Store>>
   /** What a normal id's path does after the dispatch: the default records itself in SRAM and returns. */
   normal?: number[]
@@ -617,6 +620,23 @@ function cart(
       0x1a,
       BNE_OP,
       'ret', // the list end
+      ...(plan.bit2
+        ? [
+            0xaf,
+            0x01,
+            0xe0,
+            0x7e,
+            0x89,
+            0x04,
+            BEQ_OP,
+            'no2', // the flags byte, bit 2
+            ...ID_READ,
+            ...lookup(TABLE_BIT2),
+            BRA_OP,
+            'go',
+            { label: 'no2' },
+          ]
+        : []),
       ...(plan.bit3 || plan.bit3Path
         ? [
             0xaf,
@@ -708,6 +728,10 @@ function cart(
   put(
     TABLE_BIT3,
     Array.from({ length: 256 }, (_, id) => (plan.bit3 ?? BANDS)(id)),
+  )
+  put(
+    TABLE_BIT2,
+    Array.from({ length: 256 }, (_, id) => (plan.bit2 ?? BANDS)(id)),
   )
   edit(put)
   return RomFile.fromBytes('x.sfc', buf)
@@ -1061,6 +1085,31 @@ describe('LoadClass extra bit 3', () => {
     const r = classesWith(id => (id >= 0x90 ? code : NORMAL))
     expect([0x95, 0xa0].map(id => r.of(id, true))).toEqual(['normal', 'normal'])
     expect(r.of(0xa0)).toBe('scroll')
+  })
+
+  it.each([
+    [0x00, 'scroll'],
+    [0x08, 'scroll'],
+    [0x04, 'normal'],
+    [0x0c, 'normal'],
+  ])(
+    'a loader that routes id A0 as scroll for extra bits 0 and 8 only: bits %i gives %s',
+    (bits, want) => {
+      const r = loadClasses(cart({ bit2: () => NORMAL }))
+      if (r.status !== 'ok') throw new Error(r.reason)
+      expect(r.of(0xa0, bits)).toBe(want)
+    },
+  )
+
+  it('the gate shows no quiet marker for a scroll id whose $04 or $0C combination the loader routes as normal', () => {
+    const r = classesWith(BANDS)
+    const bit2 = loadClasses(cart({ bit2: () => NORMAL }))
+    if (bit2.status !== 'ok') throw new Error('unavailable')
+    const scroll = { ok: false, reason: 'r', routed: 'scroll' } as const
+    const at = (flags: number) => ({ ...sprite(0xa0), raw: [flags, 0, 0xa0] }) as LevelSprite
+    const out = drawSprites([at(0x00), at(0x08), at(0x04), at(0x0c)], model, draw({ 0xa0: scroll }), undefined, bit2.of) // prettier-ignore
+    expect(out.map(d => d.status)).toEqual(['quiet', 'quiet', 'placeholder', 'placeholder'])
+    expect(r.of(0xa0, 0x08)).toBe('scroll')
   })
 
   it('one scroll id the second sweep breaks takes every exemption with it, and the plain table still reads', () => {
