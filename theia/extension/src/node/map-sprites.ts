@@ -81,7 +81,11 @@ import {
   type FlameRoutines,
 } from '../../../../src/rom/sprites/interp/CastleFlames'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
-import { loadClasses, type LoadClass } from '../../../../src/rom/sprites/interp/LoadClass'
+import {
+  EXTRA_BITS_MASK,
+  loadClasses,
+  type LoadClass,
+} from '../../../../src/rom/sprites/interp/LoadClass'
 import { undrawnNote, type UndrawnChildren } from '../../../../src/rom/sprites/interp/SpawnedChildren' // prettier-ignore
 import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
 import {
@@ -330,7 +334,7 @@ export function drawSprites(
   draw: SpriteDrawer,
   dynamic: (note: PaletteNote) => RgbaColor[] = () => [],
   /** How the game's loader routes an id (LoadClass.ts), when readable: a routed scroll command keeps its extra bits. */
-  routedOf?: (id: number, extraBits?: boolean) => LoadClass,
+  routedOf?: (id: number, extraBits?: number) => LoadClass,
 ): MapSpriteDto[] {
   /** One sprite's bitmap from a drawer result: its parts blitted at the anchor, or the marker when it cannot be drawn. */
   const render = (s: LevelSprite, res: SpriteDrawResult): MapSpriteDto => {
@@ -426,8 +430,7 @@ export function drawSprites(
   const dtos = sprites.map((s): MapSpriteDto => {
     // Fail closed: a possibly custom sprite is never given vanilla art, and its code is not run. A scroll command is exempt:
     // the game reads those bits as its scroll data (bank_02.asm:5301-5305), and it has no art to get wrong.
-    if ((s.raw[0] ?? 0) & EXTRA_BITS && routedOf?.(s.spriteId, true) !== 'scroll')
-      return placeholder(s, 'extraBits')
+    if (extraBitsBlock(s, routedOf)) return placeholder(s, 'extraBits')
     const res = draw(s)
     if (res.ok) for (const c of res.children ?? []) claimed.set(c.index, { parent: s.index, res, parts: c.parts }) // prettier-ignore
     return render(s, res)
@@ -982,6 +985,9 @@ export function interpRunner(
       // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.
       if (rv.status === 'unrevealed' && rv.drewAtRest)
         return { m: { ...m, chosen: drawnPass(m), reveal: 'none-found' }, fixed: false } // prettier-ignore
+      // No own tile at rest or under any reveal, but the at-rest run drew through a companion: that picture stands, as above.
+      if (rv.status === 'unrevealed' && m.chosen !== undefined && drawnParts(m.passes[m.chosen]!).length > 0)
+        return { m: { ...m, reveal: 'none-found' }, fixed: false } // prettier-ignore
       if (rv.status === 'unrevealed') return { m: { ...m, chosen: undefined, emptyReason: UNREVEALED }, fixed: false } // prettier-ignore
     }
     const at = m.chosen
@@ -1215,7 +1221,7 @@ export function spriteLayer(
   model: SpriteModel & { isVertical: boolean; screenCount: number },
   draw: SpriteDrawer,
   dynamic?: (note: PaletteNote) => RgbaColor[],
-  routedOf?: (id: number, extraBits?: boolean) => LoadClass,
+  routedOf?: (id: number, extraBits?: number) => LoadClass,
 ): Extract<MapSpritesResult, { status: 'ok' }> {
   const { w, h } = screenTiles(model.isVertical)
   const sprites = drawSprites(
@@ -1439,11 +1445,27 @@ const routedFor = (rom: RomFile) => {
  */
 export function framesGate(
   s: LevelSprite,
-  routedOf?: (id: number, extraBits?: boolean) => LoadClass,
+  routedOf?: (id: number, extraBits?: number) => LoadClass,
 ): string | undefined {
-  if (routedOf?.(s.spriteId, !!((s.raw[0] ?? 0) & EXTRA_BITS)) === 'scroll')
+  if (routedOf?.(s.spriteId, (s.raw[0] ?? 0) & EXTRA_BITS_MASK) === 'scroll')
     return 'it has no picture'
-  return (s.raw[0] ?? 0) & EXTRA_BITS ? 'extraBits' : undefined
+  return extraBitsBlock(s, routedOf) ? 'extraBits' : undefined
+}
+
+/**
+ * Whether a sprite's extra bits fail it closed. Bit 3 always does, unless the loader still routes that exact combination as a
+ * scroll command (the game reads those bits as its scroll data, bank_02.asm:5301-5305). Bit 2 alone does not box a sprite, but
+ * it does not carry a plain scroll id's quiet marker either: the loader must route that combination as scroll too.
+ */
+function extraBitsBlock(
+  s: LevelSprite,
+  routedOf?: (id: number, extraBits?: number) => LoadClass,
+): boolean {
+  const raw = s.raw[0] ?? 0
+  const bits = raw & EXTRA_BITS_MASK
+  if (!bits) return false
+  if (routedOf?.(s.spriteId, bits) === 'scroll') return false
+  return !!(raw & EXTRA_BITS) || routedOf?.(s.spriteId) === 'scroll'
 }
 
 /** The frames answer: a sprite its parent drew gets the rides-with code, anything else keeps what `framesOf` found. */

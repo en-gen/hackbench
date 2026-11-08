@@ -1043,7 +1043,7 @@ describe('LoadClass extra bit 3', () => {
 
   it('an entry with the bit set is a scroll command only when the plain sweep and the second sweep both say so', () => {
     const r = classesWith(BANDS)
-    expect([0x50, 0x95, 0xa0].map(id => r.of(id, true))).toEqual(['normal', 'scroll', 'scroll'])
+    expect([0x50, 0x95, 0xa0].map(id => r.of(id, 0x08))).toEqual(['normal', 'scroll', 'scroll'])
     expect([0x50, 0x95, 0xa0].map(id => r.of(id))).toEqual(['normal', 'scroll', 'scroll'])
   })
 
@@ -1052,7 +1052,7 @@ describe('LoadClass extra bit 3', () => {
     ['a band the second sweep put on plain shooters', onShooters, 0x31],
   ])('%s gets no exemption: its sprite code does not run and the box stays', (_t, bit3, id) => {
     const r = classesWith(bit3)
-    expect(r.of(id, true)).toBe('normal')
+    expect(r.of(id, 0x08)).toBe('normal')
     const ran: number[] = []
     const run = (_r: RomFile, i: number) => (ran.push(i), runModel({ refusal: 'spy' }))
     const real = interpDrawer(cart({ bit3 }), 0, geometry, run, seedFor)
@@ -1083,7 +1083,7 @@ describe('LoadClass extra bit 3', () => {
     ['the same value in another cell', GEN],
   ])('a scroll id that stores %s with the bit set gets no exemption', (_t, code) => {
     const r = classesWith(id => (id >= 0x90 ? code : NORMAL))
-    expect([0x95, 0xa0].map(id => r.of(id, true))).toEqual(['normal', 'normal'])
+    expect([0x95, 0xa0].map(id => r.of(id, 0x08))).toEqual(['normal', 'normal'])
     expect(r.of(0xa0)).toBe('scroll')
   })
 
@@ -1114,7 +1114,7 @@ describe('LoadClass extra bit 3', () => {
 
   it('one scroll id the second sweep breaks takes every exemption with it, and the plain table still reads', () => {
     const r = classesWith(scrollHole)
-    expect([0xc0, 0xa0].map(id => r.of(id, true))).toEqual(['normal', 'normal'])
+    expect([0xc0, 0xa0].map(id => r.of(id, 0x08))).toEqual(['normal', 'normal'])
     expect(r.of(0xc0)).toBe('scroll')
   })
 
@@ -1127,7 +1127,7 @@ describe('LoadClass extra bit 3', () => {
   ])('a bit-set path that %s exempts nothing, and the plain table still reads', (_t, bit3Path) => {
     const r = loadClasses(cart({ bit3Path }))
     if (r.status !== 'ok') throw new Error(r.reason)
-    expect([0x90, 0xa0, 0xff].map(id => r.of(id, true))).toEqual(['normal', 'normal', 'normal'])
+    expect([0x90, 0xa0, 0xff].map(id => r.of(id, 0x08))).toEqual(['normal', 'normal', 'normal'])
     expect(r.of(0xa0)).toBe('scroll')
   })
 

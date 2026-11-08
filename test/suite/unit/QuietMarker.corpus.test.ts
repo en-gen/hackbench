@@ -91,7 +91,7 @@ describe.each([VANILLA, MAGIC])('the loader routing of %s, every id', name => {
       if (classes.status !== 'ok') throw new Error(classes.reason)
       expect(classes.of(id)).toBe(expected(id))
       // With extra bit 3 set only the scroll commands stay scroll commands.
-      expect(classes.of(id, true)).toBe(expected(id) === 'scroll' ? 'scroll' : 'normal')
+      expect(classes.of(id, 0x08)).toBe(expected(id) === 'scroll' ? 'scroll' : 'normal')
     })
   })
 })
