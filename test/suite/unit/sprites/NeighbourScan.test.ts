@@ -390,16 +390,14 @@ describe('a sprite its parent drew, through the real drawer (#1049)', () => {
   }
   const withExtra = [sp(0, SCANNER, 8, 8), { ...sp(1, QUIET, 9, 7), raw: [0x08] } as LevelSprite]
 
-  it('a scanner that already carries another reason keeps it, not the extra-bit one (#1173)', () => {
-    const u = stub(withExtra, () => 'earlier')
-    expect(u).toContain('earlier')
-    expect(u).not.toContain(NEIGHBOUR_EXTRA_BIT_REASON)
+  it('a scanner that already carries another reason keeps it and gains the extra-bit one (#1173)', () => {
+    expect(stub(withExtra, () => 'earlier')).toBe(`earlier; ${NEIGHBOUR_EXTRA_BIT_REASON}`)
   })
 
-  it("the reveal search's own reason wins over the carried one, which only fills a gap (#1173)", () => {
+  it("the reveal search's own reason and the carried one are both kept, once each (#1173)", () => {
     const u = stub(withExtra, probe => (probe === false ? 'own' : undefined), true)
-    expect(u).toContain('own')
-    expect(u).not.toContain(NEIGHBOUR_EXTRA_BIT_REASON)
+    expect(u).toBe(`own; ${NEIGHBOUR_EXTRA_BIT_REASON}`)
+    expect(stub(withExtra, () => NEIGHBOUR_EXTRA_BIT_REASON, true)).toBe(NEIGHBOUR_EXTRA_BIT_REASON)
   })
 
   it('the mark survives the reveal search, which swaps in its own model (#1173)', () => {
