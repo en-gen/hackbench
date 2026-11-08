@@ -17,6 +17,7 @@ import {
   OVERWORLD_ENTRY,
   OVERWORLD_INDEX_BODY,
   entryPathMismatches,
+  operandBytes,
   readTranslevelBias,
   stockCodeMismatch,
   type StockOp,
@@ -197,5 +198,16 @@ describe.skipIf(!hasRom(VANILLA))('the planted stock cart against the game, wind
     // the vanilla BEQ displacement; the high byte the cart keeps at 0 or 1 is not enough to match). D191
     // condition 2, entry-site scope: the rest of the built ROM is #1109's.
     expect(mine).toEqual([])
+  })
+})
+
+describe('operandBytes', () => {
+  it('refuses an opcode with no known size, naming it, instead of returning NaN', () => {
+    expect(() => operandBytes(0x00)).toThrow(/opcode \$00/)
+  })
+
+  it('knows the size of every opcode the stock ops name', () => {
+    for (const o of [...OPS, ...LM_ENTRY_SITE_OPS])
+      expect(Number.isInteger(operandBytes(o.op)), formatAddr(o.addr)).toBe(true)
   })
 })
