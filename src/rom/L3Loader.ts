@@ -8,7 +8,7 @@
  *   - LoadStripeImage: bank_00.asm line 886
  *   - CODE_00A993: L3 GFX upload to VRAM $4000 (bank_00.asm ~line 5287)
  *
- * Layer 3 in SMW uses BG3 in 2BPP mode.  GFX28–GFX2B (file indices 40–43)
+ * Layer 3 in SMW draws on BG3, which runs in 2BPP mode.  GFX28–GFX2B (file indices 40–43)
  * are uploaded as 2BPP chars to VRAM word $4000 (VRam_L3Tiles).  The tilemap
  * is a 64×64 word grid at VRAM word $5000 (VRam_L3Tilemap), written frame-0
  * by LoadStripeImage from one of the fixed tilemap datasets.
