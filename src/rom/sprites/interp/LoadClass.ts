@@ -26,7 +26,15 @@ import { RunCache, smwMachine } from './Machine'
 export type LoadClass = 'normal' | 'shooter' | 'generator' | 'scroll'
 
 export type LoadClasses =
-  | { status: 'ok'; of: (id: number, extraBits?: number) => LoadClass }
+  | {
+      status: 'ok'
+      /**
+       * The class of `id` with the entry's extra bits (flags & $0C; none by default). A routed id the combination does not leave
+       * as it was reads 'normal'; a normal id that $04 moves reads as the class it moved to, and one whose $04 run proved
+       * nothing reads 'generator', a stand-in that forces boxing (any routed class but 'scroll', the one that unboxes).
+       */
+      of: (id: number, extraBits?: number) => LoadClass
+    }
   | { status: 'unavailable'; reason: string }
 
 /** The call in the sprite main loop (bank_02.asm:1410): one JSR opcode, whose operand is the routine. */
@@ -83,7 +91,12 @@ interface Row {
   value: number
   cell: number
 }
-/** A run that proved nothing under a combination: it never equals a real row (no real write has cell -2), so the id is boxed with it, and it is not the scroll class that unboxes. */
+/**
+ * A run that proved nothing under a combination: it never equals a real row (no real write has cell -2), so the id is boxed
+ * with it. Its class is 'normal' only because `same` compares the cell; no consumer can tell it from 'scroll' there (a routed
+ * id with such a row is dropped by `same`, a normal one is answered as the stand-in in `of`), but 'scroll' is the class that
+ * unboxes, so it is not the one to leave lying about.
+ */
 const UNKNOWN: Row = { cls: 'normal', value: -1, cell: -2 }
 
 /** The class the cell `off` of WRAM belongs to, or null. */
@@ -257,21 +270,22 @@ function run(rom: RomFile, entry: number, key: string): LoadClasses {
   for (const combo of EXTRA_COMBOS) {
     const all = combo === 0x04
     const ids = all ? plain.map((_, id) => id) : [...routed('shooter'), ...routed('generator'), ...routed('scroll')] // prettier-ignore
-    const again = sweep(combo, ids, true)
-    const rowOf = (id: number) => (typeof again === 'string' ? undefined : again[ids.indexOf(id)])
+    // Tolerant, so a refused run is a row and never a string; every id of `ids` has one.
+    const again = sweep(combo, ids, true) as Row[]
+    const rowOf = (id: number) => again[ids.indexOf(id)]!
     const keep = new Set<number>()
     for (const cls of ['shooter', 'generator', 'scroll'] as const) {
       const of = routed(cls)
-      if (of.every(id => rowOf(id) && same(rowOf(id)!, plain[id]!)))
-        for (const id of of) keep.add(id)
+      if (of.every(id => same(rowOf(id), plain[id]!))) for (const id of of) keep.add(id)
     }
     kept.set(combo, keep)
     const changed = new Map<number, LoadClass>()
     if (all)
       for (const [id, r] of plain.entries()) {
         const now = rowOf(id)
-        if (r.cls === 'normal' && now && !same(now, r))
-          changed.set(id, now.cls === 'normal' ? 'generator' : now.cls) // an unreadable run answers as a routed class that is not scroll: it boxes, it never unboxes // prettier-ignore
+        // An unreadable run answers as a routed class that is not scroll: it boxes, it never unboxes.
+        if (r.cls === 'normal' && !same(now, r))
+          changed.set(id, now.cls === 'normal' ? 'generator' : now.cls)
       }
     moved.set(combo, changed)
   }
