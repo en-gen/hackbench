@@ -874,30 +874,25 @@ export function interpRunner(
       earlierSpriteLoaded(list, s, i => w?.[SPRITE_LOAD_STATUS + i] ?? 0)
     )
       m = { ...m, unverifiedReason: EARLIER_SPRITE_REASON }
-    // An extra-bit entry is never seeded, so a scanner would draw without it: marked. With stock neighbors seeded the run above
-    // had the scan hook and `scansSlots` is exact; with none, one probe run with the extras in finds out. A rope is not probed (its slot run differs).
-    if (
-      !rope &&
-      hasExtraBitNeighbour(list, s) &&
-      (neighbours.length
-        ? m.scansSlots
-        : run(
-            rom,
-            s.spriteId,
-            seed(camera, {
-              opening,
-              neighbours: neighboursOf(list, s, e => ({ x: pixelX(e), y: e.y * TILE }), true),
-            }),
-          ).scansSlots)
-    )
-      // prettier-ignore
+    // An extra-bit entry is never seeded, so a scanner would draw without it: marked. With stock neighbors seeded the run
+    // has the scan hook and `scansSlots` is exact; with none, one probe run with the extras in finds out (never drawn).
+    // A rope is not probed (its slot run differs). A reveal condition can reach a scan the at-rest run did not: asked again below.
+    const extras = !rope && hasExtraBitNeighbour(list, s)
+    const scans = (known: boolean | undefined, q: SpriteSeed) =>
+      extras && (neighbours.length ? known : run(rom, s.spriteId, { ...q, neighbours: neighboursOf(list, s, e => ({ x: pixelX(e), y: e.y * TILE }), true) }).scansSlots) // prettier-ignore
+    if (scans(m.scansSlots, seed(camera, { opening })))
       m = { ...m, unverifiedReason: joinReasons(m.unverifiedReason, NEIGHBOUR_EXTRA_BIT_REASON) }
     // Hidden sprites take their picture from the search, whatever the at-rest run drew (a mole drawn from where Mario starts).
     if (reveal) {
-      const rv = findReveal(seed(camera, { opening }), m, (q, probe) =>
-        run(rom, s.spriteId, q, { stopAtDraw: probe }),
-      )
-      if (rv.status === 'hidden') return { m: { ...rv.model, unverifiedReason: joinReasons(rv.model.unverifiedReason, m.unverifiedReason) }, fixed: false } // prettier-ignore
+      let won = seed(camera, { opening }) // the last whole rerun is the winning condition's seed
+      const rv = findReveal(seed(camera, { opening }), m, (q, probe) => {
+        if (!probe) won = q
+        return run(rom, s.spriteId, q, { stopAtDraw: probe })
+      })
+      if (rv.status === 'hidden') {
+        const mark = scans(rv.model.scansSlots, won) ? NEIGHBOUR_EXTRA_BIT_REASON : undefined
+        return { m: { ...rv.model, unverifiedReason: joinReasons(rv.model.unverifiedReason, m.unverifiedReason, mark) }, fixed: false } // prettier-ignore
+      }
       if (rv.status === 'refused') return { m: { ...m, chosen: undefined, refusal: rv.reason }, fixed: false } // prettier-ignore
       // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.
       if (rv.status === 'unrevealed' && rv.drewAtRest)

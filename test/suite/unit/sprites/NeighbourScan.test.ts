@@ -49,6 +49,10 @@ const BARE = 59
 const TRAVELS = 60
 /** Draws the companion first and its own piece after it (the order that leaves a sticky "drawing for" attribution wrong). */
 const CHILD_FIRST = 61
+/** Draws nothing and scans nothing unless Mario's X ($D1) equals its own; then draws, scans for QUIET and draws it (a scan only a reveal condition reaches). */
+const GATED_SCAN = 62
+/** The same gate and a draw, with no scan. */
+const GATED_PLAIN = 63
 
 /** Every byte run this file's cart plants, for the copyright check at the foot of the file. */
 const planted: number[][] = []
@@ -119,7 +123,15 @@ function cart(
     0x88, 0x10, 0xef, 0x20, 0x40, 0x86, 0x60, 0xda, 0xbb, 0x20, 0x40, 0x86, 0xfa, 0x20, 0x40, 0x86,
     0x60,
   ]) // prettier-ignore
-  for (const id of [TRAVELS, CHILD_FIRST]) {
+  // LDA $D1 / CMP $E4,X / BNE out / JSR draw / LDY #9 / loop: [LDA $14C8,Y / EOR #8 / BNE next] LDA $9E,Y / EOR #51 / BEQ found
+  // / next: DEY / BPL loop / out: RTS / found: PHX / TYX / JSR draw / PLX / RTS
+  put(0x01a200, [
+    0xa5, 0xd1, 0xd5, 0xe4, 0xd0, 0x16, 0x20, 0x40, 0x86, 0xa0, 0x09, 0xb9, 0xc8, 0x14, 0x49, 0x08,
+    0xd0, 0x07, 0xb9, 0x9e, 0x00, 0x49, QUIET, 0xf0, 0x04, 0x88, 0x10, 0xef, 0x60, 0xda, 0xbb, 0x20,
+    0x40, 0x86, 0xfa, 0x60,
+  ]) // prettier-ignore
+  put(0x01a300, [0xa5, 0xd1, 0xd5, 0xe4, 0xd0, 0x03, 0x20, 0x40, 0x86, 0x60]) // LDA $D1 / CMP $E4,X / BNE out / JSR draw / out: RTS
+  for (const id of [TRAVELS, CHILD_FIRST, GATED_SCAN, GATED_PLAIN]) {
     const o = off(0x018320 + 9 + id * 2)
     bytes[o] = 0
     bytes[o + 1] = 0
@@ -143,6 +155,8 @@ function cart(
   main(SHIFTS, 0x9900)
   main(TRAVELS, 0xa000)
   main(CHILD_FIRST, 0xa100)
+  main(GATED_SCAN, 0xa200)
+  main(GATED_PLAIN, 0xa300)
   // The shell ceiling compare's opcode ($02A8C0) is what shellLoad reads for a id from $C9 up: a wrong byte refuses.
   if (opts.breakShellLoader) bytes[off(0x02a8c0)] = 0xea
   return RomFile.fromBytes('scan.sfc', bytes)
@@ -399,6 +413,25 @@ describe('a sprite its parent drew, through the real drawer (#1049)', () => {
     const u = stub(withExtra, probe => (probe === false ? 'own' : undefined), true)
     expect(u).toBe(`own; ${NEIGHBOUR_EXTRA_BIT_REASON}`)
     expect(stub(withExtra, () => NEIGHBOUR_EXTRA_BIT_REASON, true)).toBe(NEIGHBOUR_EXTRA_BIT_REASON)
+  })
+
+  describe('a scan only a reveal condition reaches (#1173)', () => {
+    const extra = { ...sp(1, QUIET, 15, 15), raw: [0x08] } as LevelSprite
+    const stock = sp(2, QUIET, 9, 7)
+    const revealed = (list: LevelSprite[]) => {
+      const run = interpDrawer(rom, 0x104, { isVertical: false, screenCount: 2 }, runOnce, () => withSeed({ loaded: new Uint8Array(0x2000) }), undefined, undefined, undefined, list, true) // prettier-ignore
+      return drawSprites(list, { vram, colors: COLORS } as never, run)[0]!
+    }
+    it.each([
+      ['no ordinary neighbors', [sp(0, GATED_SCAN, 8, 8), extra], true],
+      ['an ordinary neighbor too', [sp(0, GATED_SCAN, 8, 8), extra, stock], true],
+      ['no extra-bit entry', [sp(0, GATED_SCAN, 8, 8), stock], false],
+      ['a gated sprite that does not scan', [sp(0, GATED_PLAIN, 8, 8), extra], false],
+    ] as [string, LevelSprite[], boolean][])('%# marked = %s', (_n, list, marked) => {
+      const d = revealed(list)
+      expect(d.status).toBe('drawn')
+      expect((d.unverified ?? '').includes(NEIGHBOUR_EXTRA_BIT_REASON)).toBe(marked)
+    })
   })
 
   it('the mark survives the reveal search, which swaps in its own model (#1173)', () => {
