@@ -90,7 +90,7 @@ describe.each([VANILLA, MAGIC])('the loader routing of %s, every id', name => {
       const classes = loadClasses(freshRom(name))
       if (classes.status !== 'ok') throw new Error(classes.reason)
       expect(classes.of(id)).toBe(expected(id))
-      // These two ROMs route every id the same under each extra-bit combination (the sweep's own verdict, per class).
+      // These two ROMs route every id the same under each extra-bit combination: no routed id changes class and, under $04, no normal id is moved (the sweep runs all 256 ids there).
       for (const bits of [0x04, 0x08, 0x0c]) expect(classes.of(id, bits), `bits ${bits}`).toBe(expected(id)) // prettier-ignore
     })
   })

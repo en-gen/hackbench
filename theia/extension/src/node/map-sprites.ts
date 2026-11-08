@@ -38,8 +38,8 @@
  * vanilla descriptor would draw wrongly. Vanilla scroll/command sprites ($E8,
  * $E9, $EA, $F5; e.g. slot $115 id $EA) also set it, since scroll sprites
  * read the bits as Layer1ScrollBits (bank_02.asm:5301-5305), and get the same
- * marker; that costs nothing today because none has a descriptor. Bit 2 is
- * not gated: vanilla keeps both extra bits in Y high (bank_02.asm:5441-5447)
+ * marker; that costs nothing today because none has a descriptor. Bit 2
+ * alone does not gate the art, only an id whose loader class it changes (extraBitsBlock): vanilla keeps both extra bits in Y high (bank_02.asm:5441-5447)
  * and the goal tape saves them (InitGoalTape, bank_01.asm:8785-8788) and
  * reads bit 2 as its secret exit (bank_01.asm:8833-8836). Custom PIXI sprites on
  * GrandPooWorld_V1.2 were measured with EE = 2 (reviewer's scan, one ROM).
@@ -333,7 +333,7 @@ export function drawSprites(
   model: SpriteModel,
   draw: SpriteDrawer,
   dynamic: (note: PaletteNote) => RgbaColor[] = () => [],
-  /** How the game's loader routes an id (LoadClass.ts), when readable: a routed scroll command keeps its extra bits. */
+  /** How the game's loader routes an id under its extra bits (LoadClass.ts), when readable: a scroll command it still routes as one keeps them, an id the bits re-route is boxed. */
   routedOf?: (id: number, extraBits?: number) => LoadClass,
 ): MapSpriteDto[] {
   /** One sprite's bitmap from a drawer result: its parts blitted at the anchor, or the marker when it cannot be drawn. */
@@ -985,8 +985,8 @@ export function interpRunner(
       // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.
       if (rv.status === 'unrevealed' && rv.drewAtRest)
         return { m: { ...m, chosen: drawnPass(m), reveal: 'none-found' }, fixed: false } // prettier-ignore
-      // No own tile at rest or under any reveal, but the at-rest run drew through a companion: that picture stands, solid and
-      // with no reveal claim (no probe ran for it: a spawner has no own tile to hide), as before #1132.
+      // No own tile at rest (so the hidden check was skipped) and none under the six reveal reruns, but the at-rest run drew
+      // through a companion: that picture stands, solid and with no reveal claim, as before #1132.
       if (
         rv.status === 'unrevealed' &&
         m.chosen !== undefined &&
@@ -1452,16 +1452,17 @@ export function framesGate(
   s: LevelSprite,
   routedOf?: (id: number, extraBits?: number) => LoadClass,
 ): string | undefined {
-  if (routedOf?.(s.spriteId, (s.raw[0] ?? 0) & EXTRA_BITS_MASK) === 'scroll')
+  const blocked = extraBitsBlock(s, routedOf)
+  if (!blocked && routedOf?.(s.spriteId, (s.raw[0] ?? 0) & EXTRA_BITS_MASK) === 'scroll')
     return 'it has no picture'
-  return extraBitsBlock(s, routedOf) ? 'extraBits' : undefined
+  return blocked ? 'extraBits' : undefined
 }
 
 /**
  * Whether a sprite's extra bits fail it closed (a box, not a quiet marker or sprite art). With bit 3 set it always does,
  * unless the loader still routes that exact combination as a scroll command (the game reads those bits as its scroll data,
- * bank_02.asm:5301-5305). With bit 2 alone it does only for an id the loader routes (shooter, generator, scroll) whose class
- * that combination changes; an ordinary sprite is drawn as before.
+ * bank_02.asm:5301-5305). With bit 2 alone it does for an id whose loader class that combination changes, in either direction
+ * (a routed id turned normal, a normal id turned routed, a run that proved nothing); the rest is drawn as before.
  */
 function extraBitsBlock(
   s: LevelSprite,
@@ -1472,8 +1473,7 @@ function extraBitsBlock(
   if (!bits) return false
   const now = routedOf?.(s.spriteId, bits)
   if (raw & EXTRA_BITS) return now !== 'scroll'
-  const plain = routedOf?.(s.spriteId)
-  return plain !== undefined && plain !== 'normal' && now !== plain
+  return now !== routedOf?.(s.spriteId)
 }
 
 /** The frames answer: a sprite its parent drew gets the rides-with code, anything else keeps what `framesOf` found. */

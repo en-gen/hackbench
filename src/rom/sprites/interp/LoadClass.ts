@@ -77,11 +77,14 @@ const EXTRA_COMBOS = [0x04, 0x08, 0x0c]
 export const EXTRA_BITS_MASK = 0x0c
 const [FLAGS_AT, ID_AT, END_AT] = [1, 3, 4]
 
-/** One id's verdict: its class and the value the decisive write stored (0 for a normal one). */
+/** One id's verdict: its class, the cell the decisive write went to and the value it stored (-1 and 0 for a normal one). */
 interface Row {
   cls: LoadClass
   value: number
+  cell: number
 }
+/** A run that proved nothing under a combination: read as a class change, so the id is boxed with it. */
+const UNKNOWN: Row = { cls: 'scroll', value: -1, cell: -2 }
 
 /** The class the cell `off` of WRAM belongs to, or null. */
 const classOfCell = (off: number): LoadClass | null =>
@@ -186,7 +189,7 @@ export function loadClasses(rom: RomFile): LoadClasses {
   return cache.lookup(rom, key) ?? run(rom, entry, key)
 }
 
-/** Runs the routine for each id, then the scroll ids again with each extra-bit combination set, on one machine put back between runs, and remembers the verdict. */
+/** Runs the routine for each id, then again under each extra-bit combination (all 256 ids under $04, the routed ones under the others), on one machine put back between runs, and remembers the verdict. */
 function run(rom: RomFile, entry: number, key: string): LoadClasses {
   const { bus, cpu } = smwMachine(rom)
   cache.track(bus, rom)
@@ -210,11 +213,11 @@ function run(rom: RomFile, entry: number, key: string): LoadClasses {
   bus.onWramWrite = (off, value) => {
     const cls = classOfCell(off)
     if (!cls) return
-    seen.row = { cls, value }
+    seen.row = { cls, value, cell: off }
     throw new Refusal('decided') // the class is known at the first write; what follows is not run
   }
-  /** One row per id of `ids`, run with `flags` in the entry, or why the runs prove nothing. */
-  const sweep = (flags: number, ids: number[]): Row[] | string => {
+  /** One row per id of `ids`, run with `flags` in the entry, or why the runs prove nothing; `tolerant` rows a failed run as UNKNOWN instead. */
+  const sweep = (flags: number, ids: number[], tolerant = false): Row[] | string => {
     const rows: Row[] = []
     for (const id of ids) {
       bus.restore(seeded) // WRAM, SRAM and the multiply units: no run sees an earlier run's state
@@ -226,10 +229,13 @@ function run(rom: RomFile, entry: number, key: string): LoadClasses {
       const r = callSubroutine(cpu, entry, { kind: 'jsr', maxSteps: STEP_CAP, regs })
       const at = `id $${id.toString(16).toUpperCase().padStart(2, '0')}`
       // A run that never read the entry decided nothing about it, whatever it wrote or returned.
-      if (!seen.read) return `${at}: the routine finished without reading the list entry`
-      if (seen.row) rows.push(seen.row)
-      else if (returned(r, cpu)) rows.push({ cls: 'normal', value: 0 })
-      else return `${at}: ${whyNot(r)}`
+      const problem = seen.read
+        ? null
+        : `${at}: the routine finished without reading the list entry`
+      if (!problem && seen.row) rows.push(seen.row)
+      else if (!problem && returned(r, cpu)) rows.push({ cls: 'normal', value: 0, cell: -1 })
+      else if (tolerant) rows.push(UNKNOWN)
+      else return problem ?? `${at}: ${whyNot(r)}`
     }
     return rows
   }
@@ -239,23 +245,34 @@ function run(rom: RomFile, entry: number, key: string): LoadClasses {
   )
   const bad = typeof plain === 'string' ? plain : bandsProblem(plain)
   if (bad || typeof plain === 'string') return cache.store(rom, key, bus, fail(bad!))
-  // Each extra-bit combination ($04, $08, $0C) is run on its own over every routed id (shooter, generator, scroll). A class
-  // keeps its ids for a combination only if every id of it lands in the same class storing the same value in the same cell;
-  // any id of another class, or of a class that differs for even one id, reads as normal there, so its box stays.
+  // Each extra-bit combination ($04, $08, $0C) is run on its own. A routed id (shooter, generator, scroll) keeps its class for
+  // a combination only if every id of its class lands in that class storing the same value in the same cell; otherwise it
+  // reads as normal there and its box stays. Under $04 (bit 3 clear, so nothing else boxes it) all 256 ids are run: a plain
+  // normal id the combination moves into a routed class reads as that class, and a run that proves nothing reads the same
+  // way, so the id is boxed. Under the combinations with bit 3 set everything but a kept scroll command is boxed already.
+  const same = (a: Row, b: Row) => a.cls === b.cls && a.value === b.value && a.cell === b.cell
   const routed = (cls: LoadClass) => plain.flatMap((r, id) => (r.cls === cls ? [id] : []))
   const kept = new Map<number, Set<number>>()
+  const moved = new Map<number, Map<number, LoadClass>>()
   for (const combo of EXTRA_COMBOS) {
-    const ids = new Set<number>()
+    const all = combo === 0x04
+    const ids = all ? plain.map((_, id) => id) : [...routed('shooter'), ...routed('generator'), ...routed('scroll')] // prettier-ignore
+    const again = sweep(combo, ids, all)
+    const rowOf = (id: number) => (typeof again === 'string' ? undefined : again[ids.indexOf(id)])
+    const keep = new Set<number>()
     for (const cls of ['shooter', 'generator', 'scroll'] as const) {
       const of = routed(cls)
-      const again = sweep(combo, of)
-      if (
-        typeof again !== 'string' &&
-        of.every((id, k) => again[k]!.cls === cls && again[k]!.value === plain[id]!.value)
-      )
-        for (const id of of) ids.add(id)
+      if (of.every(id => rowOf(id) && same(rowOf(id)!, plain[id]!)))
+        for (const id of of) keep.add(id)
     }
-    kept.set(combo, ids)
+    kept.set(combo, keep)
+    const changed = new Map<number, LoadClass>()
+    if (all)
+      for (const [id, r] of plain.entries()) {
+        const now = rowOf(id)
+        if (r.cls === 'normal' && now && now.cls !== 'normal') changed.set(id, now.cls)
+      }
+    moved.set(combo, changed)
   }
   const result: LoadClasses = {
     status: 'ok',
@@ -263,7 +280,7 @@ function run(rom: RomFile, entry: number, key: string): LoadClasses {
       const combo = (extraBits ?? 0) & EXTRA_BITS_MASK
       const cls = plain[id]?.cls ?? 'normal'
       if (!combo) return cls
-      return kept.get(combo)?.has(id) ? cls : 'normal'
+      return kept.get(combo)?.has(id) ? cls : (moved.get(combo)?.get(id) ?? 'normal')
     },
   }
   return cache.store(rom, key, bus, result)

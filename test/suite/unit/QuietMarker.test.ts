@@ -346,7 +346,7 @@ const GEN_CELL = 0x18b9
 const SHOOT_SLOTS = 0x1783
 const [NORMAL, SHOOT, GEN, SCROLL, SCROLL_OFFSET] = [0, 1, 2, 3, 4] // the last stores to the scroll cell, but a different value
 /** The same for a shooter and a generator (a different value in the same cell), and a shooter that stores in another slot. */
-const [SHOOT_OFFSET, GEN_OFFSET, SHOOT_ELSEWHERE] = [5, 6, 7]
+const [SHOOT_OFFSET, GEN_OFFSET, SHOOT_ELSEWHERE, HITS_BRK] = [5, 6, 7, 8]
 const [RTS, BNE_OP, BRA_OP, BEQ_OP] = [0x60, 0xd0, 0x80, 0xf0]
 /** Which class code a table byte holds for an id: shooters 0x30-0x33, generators 0x40-0x4f, scroll commands 0x90 up. */
 const BANDS = (id: number) =>
@@ -709,6 +709,12 @@ function cart(
       SHOOT_ELSEWHERE,
       BEQ_OP,
       'elsewhere',
+      0xc9,
+      HITS_BRK,
+      BNE_OP,
+      'fine',
+      0x00, // BRK: a run no sweep can read
+      { label: 'fine' },
       ...(plan.normal ?? NORMAL_PATH),
       { label: 'shoot' },
       ...tail(SHOOT, plan.shootCell ?? SHOOT_SLOTS + 2),
@@ -1236,6 +1242,16 @@ describe('LoadClass extra bit 3', () => {
       expect(plain!.reason).not.toBe('extraBits')
       expect(framesGate(at(0x04), r.of), `id ${id}`).toBe('extraBits')
     }
+  })
+
+  it('a normal id whose bit-2 run proves nothing (BRK) is boxed with that combination, not read as normal', () => {
+    const r = loadClasses(cart({ bit2: id => (id >= 0x10 && id < 0x20 ? HITS_BRK : BANDS(id)) }))
+    if (r.status !== 'ok') throw new Error(r.reason)
+    for (let id = 0x10; id < 0x20; id++) {
+      expect(r.of(id, 0x04), `id ${id}`).not.toBe('normal')
+      expect(r.of(id)).toBe('normal')
+    }
+    expect([0x05, 0x31, 0x95].map(id => r.of(id, 0x04))).toEqual(['normal', 'shooter', 'scroll'])
   })
 
   it('a combination of both bits is judged by its own run: $04 and $08 kept does not keep $0C', () => {

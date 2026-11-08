@@ -328,7 +328,7 @@ test.describe('no ROM: a canned quiet scroll command', () => {
       await page.waitForTimeout(500) // the layer repaint
       ;[dotOff, ringOff, insideOff] = await shots()
     } finally {
-      if (off) await toggle.click() // a failed assertion must not leave the layer hidden
+      if (off) await toggle.click() // a failure in the wait or the screenshots must not leave the layer hidden
     }
     expect(dotOn.equals(dotOff), 'the center pixel differs with the layer on').toBe(false)
     expect(ringOn.equals(ringOff), 'the ring differs with the layer on').toBe(false)
