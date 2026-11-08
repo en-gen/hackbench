@@ -238,8 +238,10 @@ export const placementRect = (s: Pick<MapSpriteDto, 'x' | 'y' | 'stored'>): Rect
 
 /**
  * What the data places on the canvas, for `offMapPad`: each refused cell and each sprite's placement cell.
- * A sprite whose art touches neither the map nor its own placement cell would vanish if cut, so its `box` counts too and it
- * stays drawn and selectable (D52 "never hide a placed sprite", [PROP] on #1325).
+ * The fallback: a sprite whose art overlaps neither the map nor its own placement cell would have no visible anchor on the
+ * trimmed canvas, so its `box` counts too and the pad grows to keep it drawn and selectable (D52 "never hide a placed
+ * sprite", [PROP] on #1325). A sprite that overlaps either one needs no extra room, which keeps the pad from growing
+ * for art that is already reachable.
  */
 export const contentRects = (
   refused: readonly { x: number; y: number }[],
