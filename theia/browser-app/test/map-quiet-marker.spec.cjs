@@ -7,14 +7,15 @@
  * sprite layer hidden (an opaque marker turns that red), while the ring pixels differ (a missing marker turns that red).
  * (2) No ROM: there is no route for a synthetic ROM into the project service (it needs a cart file on disk that the
  * level loader can run), so the closest equivalent is a canned `mapSprites` reply, as map-far-end-gutter.spec.cjs does:
- * a quiet scroll command whose bitmap is nearly clear. It checks the VIEW: the hover text, that the clear interior
- * hovers and selects. The screen door and the priority are unit tests'. The marker's own pixels are asserted by
- * test/suite/unit/QuietMarker.test.ts, not here.
+ * a quiet scroll command whose bitmap is a ring, a center dot and a clear interior. It checks the VIEW: the hover text,
+ * that the clear interior hovers and selects, the sprite canvas pixel by pixel, and the toggle's on/off look. The screen door and the priority are unit tests'. The real marker's own pixels are asserted by
+ * test/suite/unit/QuietMarker.test.ts.
  *
  * Planted defects for the verifier (each turns the named case red):
  *   Q1 spriteLayer/opaqueAt in map-view-model.ts: drop the `status === 'quiet'` hit rule: the clear-interior hover and select cases.
  *   Q2 map-sprites.ts `ring()`: fill the interior (return an opaque 16 x 16): the $126 pixel case.
  *   Q3 spriteName: return `s.name` for a quiet sprite: both hover-text cases.
+ *   Q5 spriteLayer in map-view-model.ts: skip DTOs with status 'quiet' when painting: the two canvas cases.
  *   Q4 map-sprites.ts `quiet(...)` returns `placeholder(...)`: the $126 DTO case.
  */
 const { test, expect } = require('@playwright/test')
@@ -183,6 +184,16 @@ test.describe('vanilla ROM, map $126', () => {
   })
 })
 
+/**
+ * The canned marker's shape on its 16 x 16 bitmap, as the real one is: a ring, a 2 x 2 dot at the center, and a clear
+ * interior between them. `ringAlpha(x, y)` is 255 on the ring and the dot and 0 elsewhere; the bitmap and the checks
+ * share it, so a change to the shape cannot make one of them stale.
+ */
+const ringAlpha = (x, y) => {
+  const d = Math.hypot(x - 7.5, y - 7.5)
+  return (d >= 5.5 && d <= 7.2) || (x >= 7 && x <= 8 && y >= 7 && y <= 8) ? 255 : 0
+}
+
 test.describe('no ROM: a canned quiet scroll command', () => {
   const INDEX = 0x7f1
   const [X, Y] = [64, 64]
@@ -203,11 +214,15 @@ test.describe('no ROM: a canned quiet scroll command', () => {
   /** Opens a synthetic map holding one canned quiet scroll command at (X, Y). */
   async function open(page) {
     await page.evaluate(
-      async ({ index, x, y }) => {
+      async ({ index, x, y, alphaSrc }) => {
+        const alpha = new Function(`return (${alphaSrc})`)()
         const box = { x0: x, y0: y, x1: x + 16, y1: y + 16 }
-        // A bitmap with one lit pixel at its center and nothing else: the interior is clear, as the real ring's is.
+        // A ring with a center dot and a clear interior, as the real marker's: hit-testing by opaque pixel would miss the interior.
         const px = new Uint8Array(16 * 16 * 4)
-        px.set([235, 235, 235, 255], (7 * 16 + 7) * 4)
+        for (let yy = 0; yy < 16; yy++)
+          for (let xx = 0; xx < 16; xx++) {
+            if (alpha(xx, yy)) px.set([235, 235, 235, 255], (yy * 16 + xx) * 4)
+          }
         const rgba = btoa(String.fromCharCode(...px))
         const sprites = [{ index: 900, id: 0xe8, x, y, box, rgba, status: 'quiet', kind: 'scroll', reason: 'the loader treats it as a scroll' }] // prettier-ignore
         const canned = {
@@ -227,7 +242,7 @@ test.describe('no ROM: a canned quiet scroll command', () => {
         await shell.addWidget(w, { area: 'main' })
         await shell.activateWidget(w.id)
       },
-      { index: INDEX, x: X, y: Y },
+      { index: INDEX, x: X, y: Y, alphaSrc: ringAlpha.toString() },
     )
     await expect.poll(() => page.evaluate(i => getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index: i }).then(w => w.spritesVersion > 0 && !!w.sprites), INDEX), { timeout: 30000 }).toBe(true) // prettier-ignore
     await page.locator(`${rootOf(INDEX)} [data-control="zoom-actual"]`).click()
@@ -260,5 +275,57 @@ test.describe('no ROM: a canned quiet scroll command', () => {
         { timeout: 15000 },
       ) // prettier-ignore
       .toBe(900)
+  })
+
+  test('the sprite canvas holds the ring, the dot and a clear interior, from the canned reply alone', async ({
+    page,
+  }) => {
+    await open(page)
+    // The sprite canvas is the screen's `data-plane="sprites"` canvas, marked `data-drawn` once painted; its pixels are the bitmap at map scale. A spriteLayer
+    // that skipped scroll commands paints nothing, so no canvas is marked and this goes red.
+    await expect.poll(() => page.locator(`${rootOf(INDEX)} canvas[data-plane="sprites"][data-screen="0"][data-drawn]`).count(), { timeout: 15000 }).toBeGreaterThan(0) // prettier-ignore
+    const alphas = await page.evaluate(
+      ({ root, x, y }) => {
+        const c = document.querySelector(
+          `${root} canvas[data-plane="sprites"][data-screen="0"][data-drawn]`,
+        )
+        const d = c.getContext('2d').getImageData(x, y, 16, 16).data
+        return Array.from({ length: 256 }, (_, i) => d[i * 4 + 3])
+      },
+      { root: rootOf(INDEX), x: X, y: Y },
+    )
+    const want = Array.from({ length: 256 }, (_, i) => ringAlpha(i % 16, Math.floor(i / 16)))
+    expect(alphas, 'ring, dot and clear interior, pixel by pixel').toEqual(want)
+    expect(want.filter(a => a).length, 'the fixture has a ring and a dot').toBeGreaterThan(20)
+    expect(want[4 * 16 + 7], 'a pixel inside the ring is clear').toBe(0)
+  })
+
+  test('the sprite layer toggle changes the dot and the ring on screen, not the clear interior (the #1011 look)', async ({
+    page,
+  }) => {
+    await open(page)
+    const toggle = page.locator(`${rootOf(INDEX)} [data-control="layer-sprites"]`)
+    const origin = await locate(page, INDEX, 256, 432, X, Y)
+    await page.waitForTimeout(1500) // the scroll repaints over a few frames
+    await page.mouse.move(0, 0)
+    const clip = (lx, ly, w, h) => ({
+      x: Math.round(origin.x + lx * origin.z),
+      y: Math.round(origin.y + ly * origin.z),
+      width: Math.round(w * origin.z),
+      height: Math.round(h * origin.z),
+    })
+    const shots = async () => [
+      await page.screenshot({ clip: clip(7, 7, 2, 2) }), // the dot
+      await page.screenshot({ clip: clip(7, 1, 2, 1) }), // the ring
+      await page.screenshot({ clip: clip(3, 7, 2, 1) }), // inside the ring
+    ]
+    const [dotOn, ringOn, insideOn] = await shots()
+    await toggle.click()
+    await page.waitForTimeout(500) // the layer repaint
+    const [dotOff, ringOff, insideOff] = await shots()
+    expect(dotOn.equals(dotOff), 'the center pixel differs with the layer on').toBe(false)
+    expect(ringOn.equals(ringOff), 'the ring differs with the layer on').toBe(false)
+    expect(insideOn.equals(insideOff), 'an interior pixel is the bare map either way').toBe(true)
+    await toggle.click()
   })
 })
