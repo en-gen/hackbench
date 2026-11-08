@@ -1171,7 +1171,6 @@ describe('LoadClass extra bit 3', () => {
 
   const COMBOS = [0x04, 0x08, 0x0c]
   const SCROLLS = Array.from({ length: 0x70 }, (_, k) => 0x90 + k)
-  const bitsOf = (flags: number) => ({ ...sprite(0x31), raw: [flags, 0, 0x31] }) as LevelSprite
 
   it('a loader that routes the scroll ids as scroll for every combination grants each of $04, $08 and $0C, on every id', () => {
     const r = loadClasses(cart({ bit2: BANDS, bit3: BANDS }))
