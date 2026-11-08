@@ -83,8 +83,8 @@ interface Row {
   value: number
   cell: number
 }
-/** A run that proved nothing under a combination: read as a class change, so the id is boxed with it. */
-const UNKNOWN: Row = { cls: 'scroll', value: -1, cell: -2 }
+/** A run that proved nothing under a combination: it never equals a real row (no real write has cell -2), so the id is boxed with it, and it is not the scroll class that unboxes. */
+const UNKNOWN: Row = { cls: 'normal', value: -1, cell: -2 }
 
 /** The class the cell `off` of WRAM belongs to, or null. */
 const classOfCell = (off: number): LoadClass | null =>
@@ -257,7 +257,7 @@ function run(rom: RomFile, entry: number, key: string): LoadClasses {
   for (const combo of EXTRA_COMBOS) {
     const all = combo === 0x04
     const ids = all ? plain.map((_, id) => id) : [...routed('shooter'), ...routed('generator'), ...routed('scroll')] // prettier-ignore
-    const again = sweep(combo, ids, all)
+    const again = sweep(combo, ids, true)
     const rowOf = (id: number) => (typeof again === 'string' ? undefined : again[ids.indexOf(id)])
     const keep = new Set<number>()
     for (const cls of ['shooter', 'generator', 'scroll'] as const) {
@@ -270,7 +270,8 @@ function run(rom: RomFile, entry: number, key: string): LoadClasses {
     if (all)
       for (const [id, r] of plain.entries()) {
         const now = rowOf(id)
-        if (r.cls === 'normal' && now && now.cls !== 'normal') changed.set(id, now.cls)
+        if (r.cls === 'normal' && now && !same(now, r))
+          changed.set(id, now.cls === 'normal' ? 'generator' : now.cls) // an unreadable run answers as a routed class that is not scroll: it boxes, it never unboxes // prettier-ignore
       }
     moved.set(combo, changed)
   }
