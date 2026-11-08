@@ -985,9 +985,14 @@ export function interpRunner(
       // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.
       if (rv.status === 'unrevealed' && rv.drewAtRest)
         return { m: { ...m, chosen: drawnPass(m), reveal: 'none-found' }, fixed: false } // prettier-ignore
-      // No own tile at rest or under any reveal, but the at-rest run drew through a companion: that picture stands, as above.
-      if (rv.status === 'unrevealed' && m.chosen !== undefined && drawnParts(m.passes[m.chosen]!).length > 0)
-        return { m: { ...m, reveal: 'none-found' }, fixed: false } // prettier-ignore
+      // No own tile at rest or under any reveal, but the at-rest run drew through a companion: that picture stands, solid and
+      // with no reveal claim (no probe ran for it: a spawner has no own tile to hide), as before #1132.
+      if (
+        rv.status === 'unrevealed' &&
+        m.chosen !== undefined &&
+        drawnParts(m.passes[m.chosen]!).length > 0
+      )
+        return { m, fixed: false }
       if (rv.status === 'unrevealed') return { m: { ...m, chosen: undefined, emptyReason: UNREVEALED }, fixed: false } // prettier-ignore
     }
     const at = m.chosen
@@ -1453,9 +1458,10 @@ export function framesGate(
 }
 
 /**
- * Whether a sprite's extra bits fail it closed. Bit 3 always does, unless the loader still routes that exact combination as a
- * scroll command (the game reads those bits as its scroll data, bank_02.asm:5301-5305). Bit 2 alone does not box a sprite, but
- * it does not carry a plain scroll id's quiet marker either: the loader must route that combination as scroll too.
+ * Whether a sprite's extra bits fail it closed (a box, not a quiet marker or sprite art). With bit 3 set it always does,
+ * unless the loader still routes that exact combination as a scroll command (the game reads those bits as its scroll data,
+ * bank_02.asm:5301-5305). With bit 2 alone it does only for an id the loader routes (shooter, generator, scroll) whose class
+ * that combination changes; an ordinary sprite is drawn as before.
  */
 function extraBitsBlock(
   s: LevelSprite,
@@ -1464,8 +1470,10 @@ function extraBitsBlock(
   const raw = s.raw[0] ?? 0
   const bits = raw & EXTRA_BITS_MASK
   if (!bits) return false
-  if (routedOf?.(s.spriteId, bits) === 'scroll') return false
-  return !!(raw & EXTRA_BITS) || routedOf?.(s.spriteId) === 'scroll'
+  const now = routedOf?.(s.spriteId, bits)
+  if (raw & EXTRA_BITS) return now !== 'scroll'
+  const plain = routedOf?.(s.spriteId)
+  return plain !== undefined && plain !== 'normal' && now !== plain
 }
 
 /** The frames answer: a sprite its parent drew gets the rides-with code, anything else keeps what `framesOf` found. */

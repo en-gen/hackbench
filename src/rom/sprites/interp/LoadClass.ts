@@ -72,8 +72,7 @@ const LIST_AT = 0xe000
 const WRAM_BANK = 0x7e
 const BOUNDARY_ZERO = 1
 const LIST_END = 0xff
-/** The entry's flags byte holds the extra bits; bit 3 is the one that moves ids on some hacks (measured). */
-/** The extra-bit combinations of the flags byte (bits 2 and 3) a list entry can carry besides none. */
+/** The extra-bit combinations of the flags byte (bits 2 and 3) a list entry can carry besides none; bit 3 is the one that moves ids on some hacks (measured). */
 const EXTRA_COMBOS = [0x04, 0x08, 0x0c]
 export const EXTRA_BITS_MASK = 0x0c
 const [FLAGS_AT, ID_AT, END_AT] = [1, 3, 4]
@@ -240,24 +239,31 @@ function run(rom: RomFile, entry: number, key: string): LoadClasses {
   )
   const bad = typeof plain === 'string' ? plain : bandsProblem(plain)
   if (bad || typeof plain === 'string') return cache.store(rom, key, bus, fail(bad!))
-  // Each extra-bit combination ($04, $08, $0C) is run on its own, over the plain scroll ids only: a scroll id stays a scroll
-  // command for a combination only if every one stores the same value in the same cell. Any other id, or a combination
-  // that differs for even one id, gets no exemption from the extra-bits gate, so its box stays.
-  const scrolls = plain.flatMap((r, id) => (r.cls === 'scroll' ? [id] : []))
-  const exempt = new Map<number, Set<number>>()
+  // Each extra-bit combination ($04, $08, $0C) is run on its own over every routed id (shooter, generator, scroll). A class
+  // keeps its ids for a combination only if every id of it lands in the same class storing the same value in the same cell;
+  // any id of another class, or of a class that differs for even one id, reads as normal there, so its box stays.
+  const routed = (cls: LoadClass) => plain.flatMap((r, id) => (r.cls === cls ? [id] : []))
+  const kept = new Map<number, Set<number>>()
   for (const combo of EXTRA_COMBOS) {
-    const again = sweep(combo, scrolls)
-    const agree =
-      typeof again !== 'string' &&
-      scrolls.every((id, k) => again[k]!.cls === 'scroll' && again[k]!.value === plain[id]!.value)
-    exempt.set(combo, new Set(agree ? scrolls : []))
+    const ids = new Set<number>()
+    for (const cls of ['shooter', 'generator', 'scroll'] as const) {
+      const of = routed(cls)
+      const again = sweep(combo, of)
+      if (
+        typeof again !== 'string' &&
+        of.every((id, k) => again[k]!.cls === cls && again[k]!.value === plain[id]!.value)
+      )
+        for (const id of of) ids.add(id)
+    }
+    kept.set(combo, ids)
   }
   const result: LoadClasses = {
     status: 'ok',
     of: (id, extraBits) => {
       const combo = (extraBits ?? 0) & EXTRA_BITS_MASK
-      if (!combo) return plain[id]?.cls ?? 'normal'
-      return exempt.get(combo)?.has(id) ? 'scroll' : 'normal'
+      const cls = plain[id]?.cls ?? 'normal'
+      if (!combo) return cls
+      return kept.get(combo)?.has(id) ? cls : 'normal'
     },
   }
   return cache.store(rom, key, bus, result)

@@ -281,8 +281,8 @@ test.describe('no ROM: a canned quiet scroll command', () => {
     page,
   }) => {
     await open(page)
-    // The sprite canvas is the screen's `data-plane="sprites"` canvas, marked `data-drawn` once painted; its pixels are the bitmap at map scale. A spriteLayer
-    // that skipped scroll commands paints nothing, so no canvas is marked and this goes red.
+    // The poll only waits for the first paint (data-drawn is set whenever the canvas has sprites). The check that goes red
+    // for a spriteLayer that skips scroll commands is the pixel compare below: the canvas would hold none of the marker.
     await expect.poll(() => page.locator(`${rootOf(INDEX)} canvas[data-plane="sprites"][data-screen="0"][data-drawn]`).count(), { timeout: 15000 }).toBeGreaterThan(0) // prettier-ignore
     const alphas = await page.evaluate(
       ({ root, x, y }) => {
@@ -320,12 +320,18 @@ test.describe('no ROM: a canned quiet scroll command', () => {
       await page.screenshot({ clip: clip(3, 7, 2, 1) }), // inside the ring
     ]
     const [dotOn, ringOn, insideOn] = await shots()
-    await toggle.click()
-    await page.waitForTimeout(500) // the layer repaint
-    const [dotOff, ringOff, insideOff] = await shots()
+    let off = false
+    let dotOff, ringOff, insideOff
+    try {
+      await toggle.click()
+      off = true
+      await page.waitForTimeout(500) // the layer repaint
+      ;[dotOff, ringOff, insideOff] = await shots()
+    } finally {
+      if (off) await toggle.click() // a failed assertion must not leave the layer hidden
+    }
     expect(dotOn.equals(dotOff), 'the center pixel differs with the layer on').toBe(false)
     expect(ringOn.equals(ringOff), 'the ring differs with the layer on').toBe(false)
     expect(insideOn.equals(insideOff), 'an interior pixel is the bare map either way').toBe(true)
-    await toggle.click()
   })
 })
