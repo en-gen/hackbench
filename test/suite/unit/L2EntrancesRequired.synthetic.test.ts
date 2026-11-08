@@ -1,9 +1,10 @@
 /**
  * `buildL2Inputs` takes `entrances` as a required argument (#1340): leaving it out once placed
  * Layer 2 at the primary entrance with no word in the note (#1039). Vitest does not type-check, so
- * the proof is the `@ts-expect-error` below, which `npx tsc -p tsconfig.test.json` (CI `static`)
- * turns into an error as soon as the parameter is optional again (unused directive, TS2578).
- * Synthetic 512 KiB cart, no ROM.
+ * the oracle is the `@ts-expect-error` below, checked by `npx tsc -p tsconfig.test.json` (CI
+ * `static` job, ci.yml): it reports an unused directive (TS2578) once the parameter is optional
+ * again. The runtime case exists only so this file registers a test; it claims nothing.
+ * Synthetic 512 KiB ROM, no corpus.
  */
 import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
@@ -12,7 +13,7 @@ import type { L1Inputs } from '../../../src/rom/model/L1Model'
 import type { SmwRom } from '../../../src/rom/SmwRom'
 
 describe('buildL2Inputs entrances parameter (#1340)', () => {
-  it('is a compile error to omit; an explicit undefined compiles and runs', () => {
+  it('compiles only with entrances given (checked by tsc, not by this assertion)', () => {
     const smw = { rom: new RomFile('synthetic.sfc', Buffer.alloc(0x80000)) } as unknown as SmwRom
     const l1 = {
       screenCount: 1,
@@ -22,7 +23,6 @@ describe('buildL2Inputs entrances parameter (#1340)', () => {
     // @ts-expect-error entrances is required (#1340)
     const omitted = buildL2Inputs(smw, 0, l1)
     const explicit = buildL2Inputs(smw, 0, l1, undefined)
-    // Blank cart: both runs reach the same verdict; only the compiler tells the calls apart.
     expect(explicit).toEqual(omitted)
   })
 })

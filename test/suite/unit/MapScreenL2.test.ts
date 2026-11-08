@@ -43,6 +43,8 @@ import { hGrid, inputs as baseInputs, px, sub, tile, vGrid } from '../support/ma
 
 // No exit graph in these ROMs, so no entrance is known: Layer 2 sits at the primary entrance's F400/F600 (#1340).
 const NO_EXIT_GRAPH = undefined
+// Corpus sweep of the primary-entrance reading (F400/F600); the exit graph is not built here (#1340).
+const PRIMARY_ENTRANCE = undefined
 
 // Level mode 1: mode 0 is one the game loads no L2 objects in (#637), which the helper's zero header would hit.
 const inputs: typeof baseInputs = (...a) => {
@@ -874,7 +876,7 @@ describe.each([VANILLA, MAGIC])('every slot of %s', name => {
         const built = buildL1Inputs(rom, index, UNCLEARED)
         if (!built.ok) continue
         maps++
-        const l2 = buildL2Inputs(rom, index, built.inputs, NO_EXIT_GRAPH)
+        const l2 = buildL2Inputs(rom, index, built.inputs, PRIMARY_ENTRANCE)
         if (!l2.ok) {
           expect(l2.reason.length, `slot ${index}`).toBeGreaterThan(0)
           continue
@@ -893,7 +895,11 @@ describe.each([VANILLA, MAGIC])('every slot of %s', name => {
     const rom = new SmwRom(RomFile.load(romPath(name)))
     const built = buildL1Inputs(rom, index, UNCLEARED)
     if (!built.ok) throw new Error(built.reason)
-    return { rom, inputs: built.inputs, l2: buildL2Inputs(rom, index, built.inputs, NO_EXIT_GRAPH) }
+    return {
+      rom,
+      inputs: built.inputs,
+      l2: buildL2Inputs(rom, index, built.inputs, PRIMARY_ENTRANCE),
+    }
   }
 
   // The level-start relation (not a screen capture): $012's F600 is $64, so the entry code takes the
@@ -921,7 +927,7 @@ describe.each([VANILLA, MAGIC])('every slot of %s', name => {
       for (let index = 0; index < 0x200; index++) {
         const built = buildL1Inputs(rom, index, UNCLEARED)
         if (!built.ok) continue
-        const r = buildL2Inputs(rom, index, built.inputs, NO_EXIT_GRAPH)
+        const r = buildL2Inputs(rom, index, built.inputs, PRIMARY_ENTRANCE)
         if (!r.ok || r.l2.kind !== 'image') continue
         const m = built.inputs
         const drawn = Array.from({ length: m.screenCount }, (_, s) => {
@@ -959,7 +965,8 @@ describe.skipIf(!hasRom(VANILLA))('the entrances over the 143-map roster', () =>
     for (const index of FG_GATE_MAPS) {
       const built = buildL1Inputs(rom, index, UNCLEARED)
       if (!built.ok) continue
-      const before = buildL2Inputs(rom, index, built.inputs, NO_EXIT_GRAPH)
+      // `before` is the baseline without entrances, to measure the #505 delta.
+      const before = buildL2Inputs(rom, index, built.inputs, PRIMARY_ENTRANCE)
       const after = buildL2Inputs(rom, index, built.inputs, entrances.get(index))
       if (!before.ok || !after.ok) continue
       compared++

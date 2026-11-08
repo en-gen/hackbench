@@ -26,6 +26,8 @@ import {
 
 // No exit graph in these ROMs, so no entrance is known: Layer 2 sits at the primary entrance's F400/F600 (#1340).
 const NO_EXIT_GRAPH = undefined
+// Corpus sweep of the primary-entrance reading (F400/F600); the exit graph is not built here (#1340).
+const PRIMARY_ENTRANCE = undefined
 
 const fresh = (plant = true): RomFile => {
   const rom = new RomFile('t.sfc', Buffer.alloc(0x80000, 0))
@@ -213,7 +215,7 @@ describe.each([VANILLA, MAGIC])('the real %s', name => {
         const built = buildL1Inputs(rom, index, UNCLEARED)
         if (!built.ok) continue
         maps++
-        const r = buildL2Inputs(rom, index, built.inputs, NO_EXIT_GRAPH)
+        const r = buildL2Inputs(rom, index, built.inputs, PRIMARY_ENTRANCE)
         if (!r.ok) expect(r.reason, `slot ${index}`).not.toMatch(/uploads|recognizes|dispatch/)
       }
       expect(maps).toBeGreaterThan(100)
