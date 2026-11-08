@@ -230,7 +230,7 @@ test.describe('no ROM: a canned quiet scroll command', () => {
           mapScreen: (_m, _i, screen) => ({
             status: 'ok', screen, screenCount: 1, orientation: 'horizontal', width: 256, height: 432,
             planes: { l2Low: null, l1Low: null, l2High: null, l1High: null, l3Low: null, l3High: null },
-            layer3: { priority: false, reason: null }, screens: { main: ['l1Low'], sub: [] },
+            layer3: { priority: false, reason: null }, screens: { main: ['l1Low', 'sprites2'], sub: [] },
             math: null, layer2Interactive: false, layerNotes: [], backdrop: [0, 0, 0],
           }), // prettier-ignore
           mapSprites: () => ({ status: 'ok', orientation: 'horizontal', screenCount: 1, width: 256, height: 432, sprites }), // prettier-ignore
