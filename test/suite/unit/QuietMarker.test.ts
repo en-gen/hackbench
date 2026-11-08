@@ -1253,6 +1253,13 @@ describe('LoadClass extra bit 3', () => {
     expect([0x05, 0x31, 0x95].map(id => r.of(id, 0x04))).toEqual(['normal', 'shooter', 'scroll'])
   })
 
+  it('one class whose bit-3 run proves nothing (BRK) loses only itself: the scroll ids stay kept under $08', () => {
+    const r = loadClasses(cart({ bit3: id => (BANDS(id) === SHOOT ? HITS_BRK : BANDS(id)) }))
+    if (r.status !== 'ok') throw new Error(r.reason)
+    expect([0x95, 0xa0].map(id => r.of(id, 0x08))).toEqual(['scroll', 'scroll'])
+    expect(BANDS_OF.shooter.map(id => r.of(id, 0x08))).toEqual(BANDS_OF.shooter.map(() => 'normal'))
+  })
+
   it('a combination of both bits is judged by its own run: $04 and $08 kept does not keep $0C', () => {
     const r = loadClasses(cart({ bit2: BANDS, bit3: BANDS, both: () => NORMAL }))
     if (r.status !== 'ok') throw new Error(r.reason)
