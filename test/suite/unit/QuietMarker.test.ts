@@ -1520,7 +1520,7 @@ describe('an unreadable loader boxes every sprite with an extra bit (#1011, thre
   it('the words say the loader could not be read, in plain language, on the hover and in the animation text', () => {
     const say = "The app could not read how this ROM's sprite loader treats the extra-bits marker, so it cannot tell whether vanilla art is right." // prettier-ignore
     expect(framesReasonText('loaderUnreadable')).toBe(say)
-    expect(placeholderText({ id: 0x7b, name: undefined, status: 'placeholder', reason: 'loaderUnreadable' })).toBe(`Sprite $7b: ${say}`) // prettier-ignore
+    expect(placeholderText({ id: 0x7b, name: undefined, status: 'placeholder', reason: 'loaderUnreadable' })).toBe(`Sprite $7B: ${say}`) // prettier-ignore
   })
 
   describe('through the served paths, on a cart whose loader cannot be read', () => {
@@ -1535,7 +1535,7 @@ describe('an unreadable loader boxes every sprite with an extra bit (#1011, thre
 
     it.each([
       ['a call site that no longer calls the loader', noLoader],
-      ['a ROM that is not LoROM', () => cart({}, put => put(0x00ffd5, [0x21]))],
+      ['a table with no routed id', () => cart({ classes: () => NORMAL })],
     ])(
       'mapSprites and mapSpriteFrames: bit 2 alone is boxed with the unreadable reason (%s)',
       (_t, make) => {
