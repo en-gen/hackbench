@@ -13,6 +13,8 @@ import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import type { SpriteModel } from '../../../src/rom/sprites/interp/SpriteRunner'
 import {
   drawSprites,
+  drawnByParent,
+  framesAnswer,
   framesGate,
   framesOf,
   interpDrawer,
@@ -1467,5 +1469,125 @@ describe('with the plain unverified note (#1166)', () => {
     const p = spriteProps(u!)
     expect(p.notes).toContain(UNVERIFIED_NOTE)
     expect(noteTitle(UNVERIFIED_NOTE, p)).toBe("the loader's id routing could not be read (x)")
+  })
+})
+
+describe('an unreadable loader boxes every sprite with an extra bit (#1011, thread 4505953790)', () => {
+  const GOAL_TAPE = 0x7b
+  const bitsOf = (id: number, flags: number, index = 0) => ({ ...sprite(id, index), raw: [flags, 0, id] }) as LevelSprite // prettier-ignore
+  /** A drawer that must not run: the box comes first. */
+  const never = (s: LevelSprite): SpriteDrawResult => {
+    throw new Error(`sprite ${s.spriteId} must not run`)
+  }
+  const flagsList = [0x04, 0x08, 0x0c]
+
+  it.each(flagsList)(
+    'drawSprites: any id with flags %i is boxed "loaderUnreadable", its code not run',
+    flags => {
+      for (const id of [0x10, GOAL_TAPE, 0xc9, 0xe8]) {
+        const [d] = drawSprites([bitsOf(id, flags)], model, never, undefined, 'unreadable')
+        expect(d, `id ${id}`).toMatchObject({ status: 'placeholder', reason: 'loaderUnreadable' })
+      }
+    },
+  )
+
+  it('drawSprites: a sprite with no extra bit is drawn as before, and no routing at all (a caller that never routes) still draws bit 2', () => {
+    const empty: SpriteDrawResult = { ok: false, reason: 'drew no OAM tile', empty: true }
+    const [plain] = drawSprites([bitsOf(0x10, 0)], model, () => empty, undefined, 'unreadable')
+    expect(plain!.reason).not.toBe('loaderUnreadable')
+    const [absent] = drawSprites([bitsOf(0x10, 0x04)], model, () => empty, undefined, undefined)
+    expect(absent!.reason).not.toBe('loaderUnreadable')
+    expect(absent!.reason).not.toBe('extraBits')
+  })
+
+  it('drawSprites: a readable loader that leaves bit 2 alone still draws it (the goal tape included)', () => {
+    const empty: SpriteDrawResult = { ok: false, reason: 'drew no OAM tile', empty: true }
+    const r = loadClasses(cart())
+    if (r.status !== 'ok') throw new Error(r.reason)
+    for (const id of [0x10, GOAL_TAPE]) {
+      const [d] = drawSprites([bitsOf(id, 0x04)], model, () => empty, undefined, r.of)
+      expect(d!.reason, `id ${id}`).not.toMatch(/extraBits|loaderUnreadable/)
+    }
+  })
+
+  it('framesGate: the same boxes, with the same reason; a plain sprite has none', () => {
+    for (const flags of flagsList)
+      for (const id of [0x10, GOAL_TAPE, 0xe8])
+        expect(framesGate(bitsOf(id, flags), 'unreadable'), `id ${id} flags ${flags}`).toBe('loaderUnreadable') // prettier-ignore
+    expect(framesGate(bitsOf(0x10, 0), 'unreadable')).toBeUndefined()
+  })
+
+  it('the words say the loader could not be read, in plain language, on the hover and in the animation text', () => {
+    const say = "The app could not read how this ROM's sprite loader treats the extra-bits marker, so it cannot tell whether vanilla art is right." // prettier-ignore
+    expect(framesReasonText('loaderUnreadable')).toBe(say)
+    expect(placeholderText({ id: 0x7b, name: undefined, status: 'placeholder', reason: 'loaderUnreadable' })).toBe(`Sprite $7b: ${say}`) // prettier-ignore
+  })
+
+  describe('through the served paths, on a cart whose loader cannot be read', () => {
+    afterEach(() => vi.restoreAllMocks())
+    const servedOn = (rom: RomFile, id: number, flags: number) => {
+      const bytes = Uint8Array.from(rom.buffer)
+      bytes.set([0, flags, 0x01, id, 0xff], 0x7ffb0)
+      vi.spyOn(SmwRom.prototype, 'getLevelSpritePointer').mockReturnValue(0x0fffb0)
+      const inputs = { vram: {}, colors: COLORS, isVertical: false, screenCount: 1 }
+      return { bytes, cache: new L1ModelCache(() => ({ ok: true, inputs }) as never) }
+    }
+
+    it.each([
+      ['a call site that no longer calls the loader', noLoader],
+      ['a ROM that is not LoROM', () => cart({}, put => put(0x00ffd5, [0x21]))],
+    ])(
+      'mapSprites and mapSpriteFrames: bit 2 alone is boxed with the unreadable reason (%s)',
+      (_t, make) => {
+        expect(loadClasses(make()).status).toBe('unavailable')
+        for (const id of [0x70, GOAL_TAPE]) {
+          const { bytes, cache } = servedOn(make(), id, 0x04)
+          const r = mapSprites(cache, bytes, 'x.sfc', 0)
+          if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+          expect(r.sprites[0], `id ${id}`).toMatchObject({ status: 'placeholder', reason: 'loaderUnreadable' }) // prettier-ignore
+          expect(mapSpriteFrames(cache, bytes, 'x.sfc', 0, 0)).toMatchObject({ status: 'ok', frames: [], reason: 'loaderUnreadable' }) // prettier-ignore
+        }
+      },
+    )
+
+    it('a readable loader serves the same bit-2 sprite without that reason', () => {
+      const { bytes, cache } = servedOn(cart(), 0x70, 0x04)
+      const r = mapSprites(cache, bytes, 'x.sfc', 0)
+      if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+      expect(r.sprites[0]!.reason).not.toMatch(/extraBits|loaderUnreadable/)
+    })
+  })
+})
+
+describe('the frames fallback routes as the map does (#1011, thread 4505953787)', () => {
+  const sp1 = [0, 1].map(() => new Uint8Array(64).fill(3))
+  const m = { vram: { sp1 }, colors: COLORS }
+  const part = { charNum: 0x401, palette: 9, flipX: false, flipY: false, dx: 0, dy: 0 }
+  const identity = { spriteId: 0x9c, mainHandler: 0, initHandler: 0, status: 'vanilla' } as const
+  /** $10 is the parent here (an id the cart moves); it draws and claims the sprite at index 1. */
+  const parentDraw = (s: LevelSprite): SpriteDrawResult =>
+    s.spriteId === 0x10
+      ? ({ ok: true, parts: [part], identity, children: [{ index: 1, parts: [{ ...part, dy: -16 }] }] } as unknown as SpriteDrawResult) // prettier-ignore
+      : { ok: false, reason: 'drew no OAM tile', empty: true }
+  const moved = (id: number) => (id >= 0x10 && id < 0x20 ? SCROLL : NORMAL)
+  const stream = [{ ...sprite(0x10, 0), raw: [0x04, 0, 0x10] } as LevelSprite, sprite(0x9b, 1)]
+
+  it('control: with no routing the bit-2 parent runs and claims its child', () => {
+    const [, child] = drawSprites(stream, m, parentDraw)
+    expect(child).toMatchObject({ status: 'drawn', drawnBy: 0 })
+  })
+
+  it('a bit-2 parent the loader re-routes is boxed, so it claims no child and the frames do not say it rides with it', () => {
+    const rom = cart({ bit2: moved })
+    expect(drawnByParent(rom, stream, m, parentDraw, 0)).toMatchObject({ status: 'placeholder', reason: 'extraBits' }) // prettier-ignore
+    const child = drawnByParent(rom, stream, m, parentDraw, 1)
+    expect(child!.drawnBy).toBeUndefined()
+    expect(framesAnswer({ frames: [], reason: 'drew no tile' }, child)).toEqual({ status: 'ok', frames: [], reason: 'drew no tile' }) // prettier-ignore
+  })
+
+  it('a parent whose bit 2 the loader leaves alone still claims its child; an unreadable loader boxes the parent', () => {
+    expect(drawnByParent(cart(), stream, m, parentDraw, 1)).toMatchObject({ status: 'drawn', drawnBy: 0 }) // prettier-ignore
+    expect(drawnByParent(noLoader(), stream, m, parentDraw, 0)).toMatchObject({ reason: 'loaderUnreadable' }) // prettier-ignore
+    expect(drawnByParent(noLoader(), stream, m, parentDraw, 1)!.drawnBy).toBeUndefined()
   })
 })
