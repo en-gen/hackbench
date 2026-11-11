@@ -51,10 +51,8 @@ const VERTICAL = '0c2 0db 0e7 0ea 0f7 108 109 12a 134 1ce 1ed'.split(' ')
 // mode-$0B maps 096 097 196 197 1eb 1f6 (row 5 pre-filled $05, 16 cells). The capture is right on these.
 // Mode-$10 Bowser maps 09b 19b 1c7: the ROM writes $3232 at row 12 of screens 0-1 (bank_00.asm:2925-2929
 // -> 3014-3023); neither source does, so they are L=E and not pinned.
-// 021 (7 cells): object $1F at x=143 y=18 size $FF, tileset 5, draws rows 18-33; CODE_0DA97D
-// (bank_0D.asm:2018-2031) carries LevelLoadPos into the next screen with no row-27 check, and cursor.ts
-// writeTile drops row >= grid.length. The loader is right, the expander is wrong (#300).
-const DIFFERING = '021:7 095:32 096:16 097:16 098:32 099:32 09a:32 0cc:32 0d5:32 0d9:32 0df:32 0e2:32 0e5:32 195:32 196:16 197:16 198:32 199:32 19a:32 1de:32 1eb:16 1f6:16'.split(' ') // prettier-ignore
+// 021 (7 cells) agreed once rows past the 27th wrapped into the next screen, as CODE_0DA97D does (#1034).
+const DIFFERING = '095:32 096:16 097:16 098:32 099:32 09a:32 0cc:32 0d5:32 0d9:32 0df:32 0e2:32 0e5:32 195:32 196:16 197:16 198:32 199:32 19a:32 1de:32 1eb:16 1f6:16'.split(' ') // prettier-ignore
 
 /** The map view's Layer 1 grid for a map: expandMap exactly as buildL1Inputs calls it (minus the L1-refusal for boss arenas). */
 function expanded(
@@ -105,7 +103,7 @@ describe.skipIf(!hasRom(VANILLA))('level loader vs map-view expander: Layer 1 Ma
     const smw = new SmwRom(rom)
     for (const [id, base] of [
       ['004', 0],
-      ['021', 7],
+      ['096', 16],
     ] as const) {
       const e = expanded(rom, smw, id)
       const l = loadLevelState(rom, parseInt(id, 16))

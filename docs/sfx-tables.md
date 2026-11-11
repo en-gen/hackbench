@@ -125,8 +125,7 @@ candidates means we cannot say which the engine runs, and starting at the
 wrong one yields silence or noise with nothing to say which.
 
 `buildSpc`, on the music path, still hardcodes `$12A1`, `$1295` and `$0549`
-for the same three things. Retrofitting it is issue #461, deliberately not
-done here.
+for the same three things. Retrofitting it is issue #222 (open).
 
 ## AddmusicK ROMs report unavailable
 

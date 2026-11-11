@@ -187,6 +187,15 @@ describe('0DBA4C (std $34) draws a top tile and exactly H body tiles (synthetic 
       expect(g[ROW + 3][COL]).toBe(TILE_EMPTY)
     })
 
+    it('size $22 at row 26: the body cells past the bottom row keep the high byte of the cells they wrap onto (#1034)', () => {
+      const g = createGrid(3)
+      g[1][COL + 16] = p1(0x25) // row 28 of the strip is row 1 of the next screen
+      const cur = makeCursor(g, rom, 0, COL, 26, 0x34, 0x22)
+      cur.handlerAddr = addr
+      handle_0DBA4C(cur)
+      expect([g[26][COL], g[0][COL + 16], g[1][COL + 16]]).toEqual([0x122, 0x42, 0x142])
+    })
+
     it('size $12 past the last column: a cell with no entry has high byte 0', () => {
       const g = createGrid(3)
       const cur = makeCursor(g, rom, 0, 48, ROW, 0x34, 0x12)

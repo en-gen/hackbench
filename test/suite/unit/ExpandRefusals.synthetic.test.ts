@@ -185,7 +185,8 @@ describe('expandMapOwned refusals (#301)', () => {
       for (let v = 0; v < 10; v++) rom.writeAt(PIPE + 18 + v * 3, long(unknownFor(v)))
       rom.writeAt(PIPE + 18 + (nibble % 10) * 3, long(target))
       const sink = withSink ? mkSink() : null
-      return { r: run(rom, [obj(1, 3, 0x10 | nibble)], sink), sink }
+      // x = 8: the pipe reaches up to 4 columns left of its anchor, which at x = 3 is before the buffer (#1034).
+      return { r: run(rom, [obj(1, 8, 0x10 | nibble)], sink), sink }
     }
 
     it('every size nibble reads its own table entry (nibble modulo 10) and names it', () => {

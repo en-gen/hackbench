@@ -2,6 +2,8 @@
 
 Read-only measurement. Nothing in any repo or worktree was modified.
 
+Status 2026-11-07: the verdict below is about a table-driven draw engine. The Theia map view now draws each sprite by running its own INIT and MAIN on the core (`sprite-engine-wiring.md`, Theia wiring), so "reach" no longer limits what the map draws; the table engine in `src/rom/model/sprites/generic/` remains as the comparison oracle. The measurements stand. [EST: `ls`, wiring doc]
+
 Sources, both read-only:
 
 - ROM: `C:\Projects\hackbench\test\roms\Super Mario World (USA).vanilla.sfc`, headerless, 524288 bytes, SHA of length verified at read time.

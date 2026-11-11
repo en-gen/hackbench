@@ -244,7 +244,7 @@ describe('beyondResult', () => {
     return r
   }
 
-  it('answers the screens past the last, L2 only, with no map notes and no Layer 1', () => {
+  it('answers the screens past the last, L2 only here, with no map notes', () => {
     const r = ok(beyondResult(map(2), 2))
     expect(r.screen).toBe(2)
     expect([r.planes.l1Low, r.planes.l1High, r.planes.l3Low]).toEqual([null, null, null])

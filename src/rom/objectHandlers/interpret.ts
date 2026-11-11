@@ -35,6 +35,7 @@ import { hasFlagSizedImmediate, instructionLength } from '../dispatch/HandlerWal
 import { readLongPointer } from './romData'
 import {
   MAP16_BYTES_PER_SCREEN_H,
+  cellOfOffset,
   OWNER_NONE,
   SWITCH_FLAGS_UNCLEARED,
   type OwnerGrid,
@@ -542,18 +543,15 @@ export function horizontalPlacement(
 }
 
 /** The grid cell a buffer address is, on a horizontal level; null off the grid. */
-function gridCell(addr: number, cols: number): { row: number; col: number; high: boolean } | null {
-  const o = (addr & 0xffff) - (BUF_LO & 0xffff)
-  const screen = Math.floor(o / MAP16_BYTES_PER_SCREEN_H)
-  const rem = o % MAP16_BYTES_PER_SCREEN_H
-  const col = screen * 16 + (rem & 0x0f)
-  return o < 0 || col >= cols ? null : { row: rem >> 4, col, high: addr >>> 16 !== 0x7e }
+function gridCell(addr: number): { row: number; col: number; high: boolean } | null {
+  const c = cellOfOffset((addr & 0xffff) - (BUF_LO & 0xffff))
+  return c && { ...c, high: addr >>> 16 !== 0x7e }
 }
 
 /** A `seed` that reads the tiles a horizontal-level grid already holds. */
 export function seedFromGrid(grid: TileGrid): (addr: number) => number | undefined {
   return addr => {
-    const c = gridCell(addr, 0x200)
+    const c = gridCell(addr)
     const t = c ? grid[c.row]?.[c.col] : undefined
     return c && t !== undefined ? (c.high ? t >> 8 : t & 0xff) : undefined
   }
@@ -562,18 +560,23 @@ export function seedFromGrid(grid: TileGrid): (addr: number) => number | undefin
 /**
  * Apply writes to a horizontal-level grid the way cursor.ts's writeTile
  * stores a tile: (high byte << 8) | low byte, rows growing up to $200 columns.
- * With `owners`, each cell written is recorded as drawn by `owner`.
+ * With `owners`, each cell written is recorded as drawn by `owner`. Returns how many writes fell
+ * outside the buffer and were not stored, so the caller can mark the object (#1034).
  */
 export function applyWrites(
   grid: TileGrid,
   writes: readonly BufferWrite[],
   owners: OwnerGrid | null = null,
   owner: number = OWNER_NONE,
-): void {
+): number {
+  let dropped = 0
   for (const { addr, value } of writes) {
-    const c = gridCell(addr, 0x200)
+    const c = gridCell(addr)
     const row = c && grid[c.row]
-    if (!c || !row) continue
+    if (!c || !row) {
+      dropped++
+      continue
+    }
     while (row.length < c.col) row.push(TILE_EMPTY)
     const cell = row[c.col] ?? TILE_EMPTY
     row[c.col] = c.high ? (value << 8) | (cell & 0xff) : (cell & ~0xff) | value
@@ -583,4 +586,5 @@ export function applyWrites(
       orow[c.col] = owner
     }
   }
+  return dropped
 }

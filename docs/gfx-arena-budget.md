@@ -77,11 +77,9 @@ four editable ROMs in this corpus are in that state.
 Separate question from the budget, and the intuition is wrong, so it is
 measured here too (vanilla ROM, one machine).
 
-These run counts came from a diff-to-runs helper that splits an arena plan
-into changed spans. That helper belongs to the persistence layer and is not
-part of this change, so the two columns below are a recorded measurement
-rather than one re-derivable from this repository alone; the Bytes changed
-column is reproducible from `layoutArena` and the ROM bytes.
+The Runs column came from a diff-to-runs helper (changed spans of an arena
+plan) that is not in this repository, so it is a recorded measurement; Bytes
+changed is reproducible from `layoutArena` and the ROM bytes.
 
 The encoder returns every untouched file byte for byte, so an edit that does
 not change any stream's LENGTH touches only that stream. But the files are
@@ -98,7 +96,6 @@ So "the patch stays proportional to the edit" is true of the CONTENT and not
 of the position: an edit near the front of the arena exports as most of the
 region whatever the encoder does. Fixing that would mean laying files out in
 an order the ROM does not currently use (pointers are per-file, so
-nothing requires them to stay in index order), which is a layout change this
-work deliberately did not make: the spec asks for a contiguous relay from the
-arena start, and reordering trades a smaller patch for slack burned on
-abandoned copies.
+nothing requires them to stay in index order), which was not done: the spec asks for a contiguous relay from the arena
+start, and reordering trades a smaller patch for slack burned on abandoned
+copies.

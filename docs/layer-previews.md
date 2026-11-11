@@ -3,6 +3,8 @@
 Inherits `docs/ui-conventions.md`. That file's rules about pixel
 rendering, emphasis and copy apply here without restating them.
 
+Status: the `LayerPreview` contract below is a design; no preview kind is implemented yet (no `LayerPreview` in `src/` or `theia/`). Built so far: the staged gfx layer (`GfxLayer`) and its scope line (`WorkingRom.scopeLine`). `[EST]` (grep, 2026-11-07)
+
 ## What a preview is for
 
 The layer stack is the project's edit history: each layer visits the ROM

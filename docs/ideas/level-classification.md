@@ -1,6 +1,13 @@
 # Level Catalog and Classification
 
-Status: proposal. Drafted 2026-09-13.
+Status: built, mostly. Drafted 2026-09-13. Updated 2026-11-07:
+- Tier 1 is `buildLevelCatalog` (`src/rom/LevelCatalog.ts`).
+- Tier 2 is `src/rom/OverworldEntrances.ts` (`overworldReadable`).
+- Tier 3 uses the repaired exit graph (`SmwRom.buildLevelExitGraph`).
+- `src/rom/MapTree.ts` groups them for the Maps tree as entry maps, sub areas and unassigned maps; the glossary's terms ([../glossary.md](../glossary.md)) replace Maps, Sub-areas and Extras below.
+- Still `classifyLevels`: the three reference providers named under Tier 1.
+
+This page keeps the model and the evidence. [EST] from a grep of `src/rom/`
 
 How HackBench should enumerate and group the levels in a ROM, vanilla or edited.
 
@@ -78,7 +85,7 @@ implying orphanhood.
 
 ## Tier 1: the catalog
 
-This is the first deliverable and it works on every ROM we have.
+Built (`LevelCatalog.ts`); works on every ROM in the corpus.
 
 A slot is **pointed** (a map) when its L1 pointer is nonzero and resolves to an
 offset inside the ROM file; otherwise it is **New** (D155). A pointed slot is
@@ -126,9 +133,8 @@ check plus `levelHasObjects()`, and dedupes by L1 pointer. Three defects follow:
    which are different levels (`$015` and `$017` on vanilla).
 3. The range check admits `$000`, which no overworld tile can reach.
 
-Three providers consume it: `RomExplorerProvider`, `LevelGraphProvider`,
-`RomStatsProvider`. Tier 1 is additive; migrating those callers is a separate,
-deliberate step, not a side effect.
+Three reference-extension providers still consume it: `RomExplorerProvider`,
+`LevelGraphProvider`, `RomStatsProvider`. The Theia Maps tree does not.
 
 ## Tier 2: Maps
 
@@ -139,7 +145,7 @@ translevel numbers is replaced by one that decompresses a precomputed table.
 The table is reachable: a 3 byte pointer at `$04D803` / `$04D808` inside the
 patched routine, LC_LZ2 compressed, decompressing to 4096 bytes. Verified with
 this repo's own `src/rom/LcLz2.ts` on two of the four hacked ROMs; the other two
-are 4 MB and need the expanded addressing fix first.
+were 4 MB and needed the expanded addressing fix (since landed; not re-run on them).
 
 Detection is a single byte: `$05D8B1` holds `$22` (JSL) in a patched ROM and
 `$F0` (BEQ) in a stock one.
@@ -215,10 +221,13 @@ not the most likely.
 
 ## Tier 3: Sub-areas
 
-Requires the exit graph, which is currently broken: `buildLevelExitGraph`
-derives destinations from RAM the game never reads, and 54 of its 88 edges are
-invalid on vanilla. Tracked in issue #308. Tier 3 should not be built until that
-is fixed.
+Requires the exit graph. Corrected 2026-11-07: was "currently broken:
+`buildLevelExitGraph` derives destinations from RAM the game never reads, 54 of
+its 88 edges invalid on vanilla (#308)", because `SmwRom.ts` now derives the
+destination high byte from `OWPlayerSubmap` as the game does, and `MapTree.ts`
+builds sub areas from the graph. The four corpus hacks still refuse the graph
+(`docs/rom/map-data-mechanics.md`). #308 here is the archive's number; not
+re-checked. [INF]
 
 ## Non-goals
 

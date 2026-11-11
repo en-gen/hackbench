@@ -1308,7 +1308,7 @@ export function mapSprites(
 }
 
 /** The colors a handler uploads to CGRAM at runtime, read from the cart (the engine's `dynamicCgram` note). */
-const dynamicOf = (rom: RomFile) => (n: PaletteNote) => {
+export const dynamicOf = (rom: RomFile) => (n: PaletteNote) => {
   const b = rom.readAt(n.entryAddr, n.colors * 2)
   return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore
 }

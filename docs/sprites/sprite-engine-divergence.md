@@ -7,6 +7,8 @@ because vanilla and magic are the same ROM with and without a copier header).
 No emulator was run. Nothing here is verified against live hardware or an
 accurate emulator, and no claim should be read as dynamically confirmed.
 
+Corrected 2026-11-07: was "`test/roms/`" throughout, because the ROM corpus moved out of the repo to `hackbench-tools/roms/`; tests resolve it through `test/suite/support/corpus.ts` (see `docs/testing.md`). The ROM files and measurements below are unchanged. The sprite engine is at `src/rom/model/sprites/generic/`, with 16 descriptors in `SPRITE_DRAW_DESCRIPTORS` (5 bespoke, 11 walk family); the tests are under `test/suite/unit/sprites/`. [EST: `ls`, `grep`]
+
 ## How to read this document
 
 It is APPEND-ONLY, written one work session per section in commit order, and
@@ -211,7 +213,7 @@ render time; that is a strict improvement and the merged type should keep it.
 
 ### Animation cadence
 
-`ROM_FRAMES_PER_TICK = 125 / (1000 / 60) = 7.5`, converted once, centrally.
+`ROM_FRAMES_PER_TICK = 125 / (1000 / 60) = 7.5`, converted once, centrally. Corrected 2026-11-07: now 8 (`SPRITE_ANIM_FRAME_STRIDE`, `src/rom/timing.ts`), since the shared frame clock (`dde3b49f`).
 Every animation is expressed in GAME frames. A descriptor states a shift and a
 mask; `animPeriodFrames` reports the period. `SpikeTopAppearance`'s
 `ANIM_TICKS = 8` counted in editor ticks is about 7.5x too slow and was
