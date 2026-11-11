@@ -877,6 +877,7 @@ export function interpRunner(
     // An extra-bit entry is never seeded, so a scanner would draw without it: marked. With stock neighbors seeded the run
     // has the scan hook and `scansSlots` is exact; with none, one probe run with the extras in finds out (never drawn).
     // A rope is not probed (its slot run differs). A reveal condition can reach a scan the at-rest run did not: asked again below.
+    const atRestReason = m.unverifiedReason // without the neighbor mark: a revealed picture is warned only by its own run
     const extras = !rope && hasExtraBitNeighbour(list, s)
     const scans = (known: boolean | undefined, q: SpriteSeed) =>
       extras && (neighbours.length ? known : run(rom, s.spriteId, { ...q, neighbours: neighboursOf(list, s, e => ({ x: pixelX(e), y: e.y * TILE }), true) }).scansSlots) // prettier-ignore
@@ -891,7 +892,7 @@ export function interpRunner(
       })
       if (rv.status === 'hidden') {
         const mark = scans(rv.model.scansSlots, won) ? NEIGHBOUR_EXTRA_BIT_REASON : undefined
-        return { m: { ...rv.model, unverifiedReason: joinReasons(rv.model.unverifiedReason, m.unverifiedReason, mark) }, fixed: false } // prettier-ignore
+        return { m: { ...rv.model, unverifiedReason: joinReasons(rv.model.unverifiedReason, atRestReason, mark) }, fixed: false } // prettier-ignore
       }
       if (rv.status === 'refused') return { m: { ...m, chosen: undefined, refusal: rv.reason }, fixed: false } // prettier-ignore
       // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.
