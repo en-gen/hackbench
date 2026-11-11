@@ -101,6 +101,15 @@ describe('mapCollision reply cache (synthetic layer)', () => {
     expect((await ask(c, b, 0x105, layer([]).fn)).status).toBe('ok')
   })
 
+  it('the reply is as wide as the map, not as wide as a row a wrapped write grew (#1034)', async () => {
+    const grid = hGrid(2)
+    grid[0]!.push(...new Array<number>(16).fill(0x25))
+    const cache = new L1ModelCache(() => ({ ok: true, inputs: inputs(grid, false, 2) }))
+    const r = await ask(cache, synthetic(), 0x15, layer([]).fn)
+    if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+    expect([r.width, r.height]).toEqual([2 * 16 * 16, 27 * 16])
+  })
+
   it('draws the grid with the view flags and probes in the same state; each state is its own reply', async () => {
     const seen: unknown[] = []
     const cache = new L1ModelCache((_r, _i, flags) => {

@@ -1,5 +1,7 @@
 # Removal of sprite path and movement overlays
 
+Status 2026-11-07: done and merged; this file is the record. Later changes: the `behaviors/` layer was mostly deleted (see "Update 2026-09-28" at the end) and `BlurpBehavior.ts` and the other ten classes named there no longer exist. Citations of those files below describe the tree at the time of the removal. [EST: `ls src/rom/model/sprites/behaviors`]
+
 Commit: `d1d6bcd` on `chore/remove-path-movement-overlays`, based on
 `870fa29`. Corrected by a later commit on the same branch after an
 adversarial review found several claims here asserted past their
@@ -84,7 +86,7 @@ Every sprite that lost an overlay, and what remains of its ROM work:
 | `$18` | `JumpingFish` | **none** | **gone** |
 | `$2E` | `SpikeTop` | **none** | **gone** except the animation cadence |
 | `$47` | `SwimJumpFish` | **none** | **gone** except the handler line |
-| `$4D`/`$4E` | `MontyMole` | **none** | **gone**; PR #326 brings back a different and larger derivation |
+| `$4D`/`$4E` | `MontyMole` | **none** | **gone**; PR #326 (merged) brought back a different and larger derivation |
 | `$4F` | `JumpingPiranha` | **none** | **gone**; the `InitPiranha` centering survives in `SpriteTileLoader.ts` |
 | `$9C` | `HammerBroPlatform` | **none** | **gone** except the handler line |
 | `$B7`/`$B8` | `CarrotTopLift` | **none** | **gone** |
@@ -106,96 +108,9 @@ transcribed under "ROM evidence that went with the overlays" below.
 
 ## Merge with `feature/monty-mole-render` (PR #326)
 
-Branch `feature/monty-mole-render`, open as PR #326, is not on this base.
-It adds:
+Resolved: the PR merged as `e03fd318` (archive#326) and `develop` has `MontyMoleAppearance.renderAboveL1` (identity annotation, a pixel pass) with no `$4D` detection-zone `renderOverlay`. `AppearanceGuards.test.ts` is gone. [EST: `git log -S`, `grep` over `src/`, 2026-11-07]
 
-- a NEW annotation mechanism, `SpriteAppearance.renderAboveL1?()`, a
-  pixel pass (the Canvas2D `OverlayContext` cannot blit tile pixels), and
-- a `$4D` detection-zone `renderOverlay`.
-
-This branch removes the `$4D` detection-zone `renderOverlay` (it lived in
-`MontyMoleAppearance`) and every other `renderOverlay` implementation.
-
-### What git actually does
-
-Measured, not predicted: `git merge-tree --write-tree` run in both branch
-orders on 2026-09-18, one machine, against base `870fa29`. Both orders
-give the identical result, two conflicts:
-
-```
-CONFLICT (content): src/rom/model/sprites/appearances/MontyMoleAppearance.ts
-CONFLICT (modify/delete): test/suite/unit/model/AppearanceGuards.test.ts
-    deleted in chore/remove-path-movement-overlays and modified in
-    feature/monty-mole-render.
-    Version feature/monty-mole-render left in tree.
-```
-
-An earlier draft of this document claimed that merging PR #326 second
-would "silently reintroduce one detection-zone overlay" and that "git
-will not flag it". Both halves are wrong.
-
-**Git flags it, and nothing is reintroduced.** The conflict in
-`MontyMoleAppearance.ts` is confined to the file header, everything above
-`export class MontyMoleAppearance`. The class body auto-merges cleanly:
-`renderAboveL1` in, `renderOverlay` out, because the deleted method and
-the added one sit far enough apart for the merge to resolve. The
-conflicted blob contains zero occurrences of `renderOverlay`, and so does
-the rest of the merged `src/` tree apart from the unrelated
-`TileBehavior.renderOverlay` implementations and the kept declarations.
-
-**The dangerous conflict is the one an earlier draft never mentioned.**
-`AppearanceGuards.test.ts` is a modify/delete, and git leaves PR #326's
-version in the tree: about 250 lines of `renderOverlay` describes for
-Blurp, JumpingFish, JumpingPiranha, MontyMole, CarrotTopLift, CheepCheep,
-HopFlame and Koopa. None of those classes has the method after this
-branch. Resolve the header hunk, observe that no `renderOverlay`
-survives, conclude the warning is handled, and you ship a red suite and a
-failing `tsc` from a file that never showed you a conflict marker.
-
-### Resolution
-
-1. `src/rom/model/sprites/appearances/MontyMoleAppearance.ts`: take PR
-   #326's side of the header hunk, then drop from it the three things the
-   auto-merged body no longer uses:
-   - `import { COLORS, drawOverlayRect } from '../../overlays/primitives'`.
-     This branch deletes that module, so keeping the import is an
-     unresolvable one, not merely a dead one.
-   - `import type { GetL1Tile, OverlayContext } from '../../OverlayContext'`.
-   - the `DETECT_HALF` constant, which was the `$4D` zone half-width.
-
-   Keep everything else PR #326 adds: the `SpriteTileTables`, `Char`,
-   `partsHitRect` / `HitRect`, `RenderTarget`, `MapStore`,
-   `SpriteBehavior` and `ROM_FRAMES_PER_TICK` imports, and the `MOLE_*`
-   and `EMERGED_*` exports. Leave the auto-merged body alone.
-
-   Do NOT take this branch's side of that hunk wholesale. This branch's
-   header is two imports long, because the class under it is a 13-line
-   constructor; against PR #326's body it drops every symbol the ghost
-   pose needs. That is a loud compile error rather than a silent loss,
-   but it is still the wrong resolution.
-
-2. `git rm test/suite/unit/model/AppearanceGuards.test.ts`. Every describe
-   in it covers a `renderOverlay` that no longer exists, and nothing in it
-   covers `renderAboveL1`; PR #326 carries its own tests for that.
-
-The OUTCOME the earlier draft recommended was right: keep `renderAboveL1`
-and the mole indicator, which is an identity annotation by the definition
-above, and drop the `$4D` detection zone, which is not. Only its account
-of how you get there was wrong.
-
-### Which one should merge first
-
-**PR #326 first, then this branch.** Standing alone, this branch is a real
-regression for `$4D`/`$4E`: `MontyMoleAppearance` becomes a 13-line
-constructor with no annotation at all, so a Monty Mole in the editor is an
-anonymous mound with nothing saying a mole lives in it. This document
-resolves that by pointing at an unmerged branch, which is a dependency,
-not an argument. #326 being open strengthens the position but does not
-remove the dependency.
-
-The reverse order also works and costs nothing extra, because the
-conflicts and the resolution above are identical either way. It just
-leaves `$4D` unannotated on `develop` for however long #326 takes.
+The merge dry-run (`git merge-tree`, 2026-09-18, base `870fa29`) gave two conflicts, the header of `MontyMoleAppearance.ts` and a modify/delete on `AppearanceGuards.test.ts`; the class body auto-merged. The lesson kept: a modify/delete conflict can leave a red suite behind a header hunk that looks handled. The outcome recommended then (keep `renderAboveL1`, drop the detection zone) is what shipped.
 
 ## What was kept, and why
 
@@ -764,6 +679,8 @@ here for `LineBrownPlatBehavior`, and then delete `MovementBehavior`,
 that point nothing needs a `SpriteBehavior` subclass for anything beyond
 the shared metadata object `BehaviorFactory`'s `default` case already
 returns.
+
+Status 2026-11-07: #418 is open. `SuperKoopaBehavior`, `BehaviorFactory`, `MovementBehavior` and `SpriteCollision` still exist in `src/rom/model/sprites/`. #435 is closed. [EST: `ls`, `gh issue view`]
 
 See `src/rom/model/sprites/CLAUDE.md` for the current (post-deletion)
 description of the `behaviors/` layer.

@@ -54,9 +54,6 @@ carrying those elements, sets `Module.locateFile`, injects the script, and
 then drives `Backend` directly. The package's own UI is never shown; its
 README sanctions this under "Custom interface".
 
-What the shell DID let us drop, compared to the webview: the CSP nonce,
-`wasm-unsafe-eval`, webview resource URIs, and the `postMessage` bridge.
-
 ## The controls, and where each one comes from
 
 Every control below is a byte the game itself writes. None is invented.

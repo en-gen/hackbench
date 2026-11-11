@@ -1,7 +1,11 @@
 # Emulator-Backed Oracle Testing
 
-Status: proposal, not implemented. Drafted 2026-09-13, revised same day after
-an adversarial pass invalidated the first determinism claim.
+Status: partly built. Drafted 2026-09-13, revised same day after an adversarial
+pass invalidated the first determinism claim. Updated 2026-11-07:
+- Phase 1 exists as the headless per-layer capture harness in `en-gen/hackbench-validation` (`capture/mesen/headless_capture.lua`, with Lua-side tests).
+- The runner question is ruled: ROM-needing runs go on the owner's self-hosted runner ([../decisions/2026-10-04-rom-ci-on-owner-hardware.md](../decisions/2026-10-04-rom-ci-on-owner-hardware.md)); the sprite grader's two tiers read those captures ([../testing.md](../testing.md)).
+- The mutation-proof requirement is now a repo rule (CLAUDE.md, "Oracles must be proven able to fail").
+- Tier 2 and Tier 3 as described here (PPU registers, VRAM/CGRAM/OAM parity per module) were not found; whether the harness covers them was not checked, since `hackbench-validation` is private. [OPEN] resolve by reading that repo's `capture/`.
 
 Extends [docs/testing.md](../testing.md) with new test categories backed by
 headless Mesen. Read the legal position in that document first; nothing here
@@ -14,7 +18,7 @@ and reporting what looks wrong. That loop is slow, non-reproducible, and cannot
 gate a pull request. An agent working on the render pipeline has no way to
 self-check its work.
 
-The gap is measurable. Running the suite twice, once with a local ROM and
+The gap was measured on 2026-09-13 (counts are from then, not current). Running the suite twice, once with a local ROM and
 fixtures present and once from a clean checkout (the CI condition):
 
 |                | Collected | Passed | Skipped |
@@ -276,7 +280,7 @@ which is the main audience here.
 report how many tests were skipped and fail if that count rises above a recorded
 baseline. Cheap, prevents silent erosion, never validates rendering in CI.
 
-Recommendation: **B first, then A, with C regardless.** B is implementable now
+Ruled for ROM-needing runs 2026-10-04: A (decision linked in the status line). Recommendation as drafted: **B first, then A, with C regardless.** B is implementable now
 and serves the actual goal, which is letting an agent verify its own render work
 before requesting review. A is the durable answer but should not block the
 harness being built, and needs the cross-machine determinism question answered
@@ -303,8 +307,8 @@ scrapped rather than patched.
 ## Non-goals
 
 - Replacing the Tier 1 fixtures. They work.
-- Testing webview UI interaction. Separate question, would need
-  `@vscode/test-cli` or Playwright.
+- Testing UI interaction. Separate question; Playwright covers it (see
+  [../testing.md](../testing.md)).
 - Reviving the dead `npm test` script. Fixed separately: the Electron harness
   it pointed at is gone, and `npm test` now type-checks the provider tests and
   runs vitest.

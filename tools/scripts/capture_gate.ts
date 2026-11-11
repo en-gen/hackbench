@@ -132,7 +132,8 @@ export function checkGrid(
   const overflow: string[] = []
   const dims = (expected: string, actual: string) =>
     mismatches.push({ table: 'grid', cell: 'dimensions', expected, actual })
-  if (romGrid.length !== rows) {
+  // A vertical grid grows by the rows an object wrote past the last screen (#1034); they are overflow, below.
+  if (romGrid.length < rows || (romGrid.length > rows && !isVertical)) {
     dims(`${cols}x${rows}`, `${romGrid[0]?.length ?? 0}x${romGrid.length}`)
     return { mismatches, overflow }
   }
@@ -160,6 +161,7 @@ export function checkGrid(
       }
     }
   }
+  for (let r = rows; r < romGrid.length; r++) overflow.push(`row ${r} writes past the level's own end`) // prettier-ignore
   return { mismatches, overflow }
 }
 
