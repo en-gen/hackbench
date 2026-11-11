@@ -1481,15 +1481,26 @@ describe('an unreadable loader boxes every sprite with an extra bit (#1011, thre
   }
   const flagsList = [0x04, 0x08, 0x0c]
 
+  const ids = Array.from({ length: 256 }, (_, id) => id)
   it.each(flagsList)(
-    'drawSprites: any id with flags %i is boxed "loaderUnreadable", its code not run',
+    'drawSprites: every id with flags %i is boxed "loaderUnreadable", its code not run',
     flags => {
-      for (const id of [0x10, GOAL_TAPE, 0xc9, 0xe8]) {
-        const [d] = drawSprites([bitsOf(id, flags)], model, never, undefined, 'unreadable')
-        expect(d, `id ${id}`).toMatchObject({ status: 'placeholder', reason: 'loaderUnreadable' })
-      }
+      const out = drawSprites(ids.map(id => bitsOf(id, flags, id)), model, never, undefined, 'unreadable') // prettier-ignore
+      expect(out.map(d => [d.status, d.reason])).toEqual(ids.map(() => ['placeholder', 'loaderUnreadable'])) // prettier-ignore
     },
   )
+
+  it('flags $01-$03 are not extra bits: nothing is boxed for them, in the map or the frames', () => {
+    const empty: SpriteDrawResult = { ok: false, reason: 'drew no OAM tile', empty: true }
+    for (const flags of [0x01, 0x02, 0x03]) {
+      const out = drawSprites(ids.map(id => bitsOf(id, flags, id)), model, () => empty, undefined, 'unreadable') // prettier-ignore
+      expect(
+        out.filter(d => d.reason === 'loaderUnreadable'),
+        `flags ${flags}`,
+      ).toEqual([])
+      expect(ids.filter(id => framesGate(bitsOf(id, flags), 'unreadable')), `flags ${flags}`).toEqual([]) // prettier-ignore
+    }
+  })
 
   it('drawSprites: a sprite with no extra bit is drawn as before, and no routing at all (a caller that never routes) still draws bit 2', () => {
     const empty: SpriteDrawResult = { ok: false, reason: 'drew no OAM tile', empty: true }
@@ -1510,11 +1521,10 @@ describe('an unreadable loader boxes every sprite with an extra bit (#1011, thre
     }
   })
 
-  it('framesGate: the same boxes, with the same reason; a plain sprite has none', () => {
+  it('framesGate: the same boxes for every id and extra-bit combination, with the same reason; a plain sprite has none', () => {
     for (const flags of flagsList)
-      for (const id of [0x10, GOAL_TAPE, 0xe8])
-        expect(framesGate(bitsOf(id, flags), 'unreadable'), `id ${id} flags ${flags}`).toBe('loaderUnreadable') // prettier-ignore
-    expect(framesGate(bitsOf(0x10, 0), 'unreadable')).toBeUndefined()
+      expect(ids.filter(id => framesGate(bitsOf(id, flags), 'unreadable') !== 'loaderUnreadable'), `flags ${flags}`).toEqual([]) // prettier-ignore
+    expect(ids.filter(id => framesGate(bitsOf(id, 0), 'unreadable'))).toEqual([])
   })
 
   it('the words say the loader could not be read, in plain language, on the hover and in the animation text', () => {
@@ -1537,18 +1547,35 @@ describe('an unreadable loader boxes every sprite with an extra bit (#1011, thre
       ['a call site that no longer calls the loader', noLoader],
       ['a table with no routed id', () => cart({ classes: () => NORMAL })],
     ])(
-      'mapSprites and mapSpriteFrames: bit 2 alone is boxed with the unreadable reason (%s)',
+      'mapSprites and mapSpriteFrames: extra bits are boxed with the unreadable reason (%s)',
       (_t, make) => {
         expect(loadClasses(make()).status).toBe('unavailable')
-        for (const id of [0x70, GOAL_TAPE]) {
-          const { bytes, cache } = servedOn(make(), id, 0x04)
-          const r = mapSprites(cache, bytes, 'x.sfc', 0)
-          if (r.status !== 'ok') throw new Error(JSON.stringify(r))
-          expect(r.sprites[0], `id ${id}`).toMatchObject({ status: 'placeholder', reason: 'loaderUnreadable' }) // prettier-ignore
-          expect(mapSpriteFrames(cache, bytes, 'x.sfc', 0, 0)).toMatchObject({ status: 'ok', frames: [], reason: 'loaderUnreadable' }) // prettier-ignore
-        }
+        for (const id of [0x70, GOAL_TAPE])
+          for (const flags of flagsList) {
+            const { bytes, cache } = servedOn(make(), id, flags)
+            const r = mapSprites(cache, bytes, 'x.sfc', 0)
+            if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+            const at = `id ${id} flags ${flags}`
+            expect(r.sprites[0], at).toMatchObject({ status: 'placeholder', reason: 'loaderUnreadable' }) // prettier-ignore
+            expect(mapSpriteFrames(cache, bytes, 'x.sfc', 0, 0), at).toMatchObject({ status: 'ok', frames: [], reason: 'loaderUnreadable' }) // prettier-ignore
+          }
       },
     )
+
+    it('the goal tape boxed for an unreadable loader hovers by its id, not by its vanilla name', () => {
+      const { bytes, cache } = servedOn(noLoader(), GOAL_TAPE, 0x04)
+      const r = mapSprites(cache, bytes, 'x.sfc', 0)
+      if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+      expect(r.sprites[0]!.name).toBeUndefined()
+      expect(placeholderText(r.sprites[0]!)).toMatch(
+        /^Sprite \$7B: The app could not read how this ROM/,
+      )
+      // control: the same sprite with no extra bit keeps its name
+      const plain = servedOn(noLoader(), GOAL_TAPE, 0)
+      const p = mapSprites(plain.cache, plain.bytes, 'x.sfc', 0)
+      if (p.status !== 'ok') throw new Error(JSON.stringify(p))
+      expect(p.sprites[0]!.name).toBe('Goal Tape')
+    })
 
     it('a readable loader serves the same bit-2 sprite without that reason', () => {
       const { bytes, cache } = servedOn(cart(), 0x70, 0x04)
