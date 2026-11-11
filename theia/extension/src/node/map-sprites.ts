@@ -1379,6 +1379,7 @@ export const MAX_FRAMES = 16
  * stood when it drew. A sprite with screen-fixed parts (`fixOffsets`) is not animated here: their map
  * position comes from the loader's camera for the chosen pass only, so another pass has no honest place.
  * When the chosen pass is not drawn (unloaded chars: the map shows a marker), the later poses that do draw are still kept and `reason` is the chosen pass's, so the panel never calls it "one pose" (#1113).
+ * It does no extra-bit check of its own: a caller must pass `framesGate` first, or a boxed sprite's frames would be drawn (#1011).
  */
 export function framesOf(
   run: SpriteRun,
