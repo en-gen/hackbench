@@ -64,6 +64,8 @@ export class PaletteExplorerContribution extends AbstractViewContribution<Palett
         {},
       )
     }
+    // Must equal pin's key above, `?? null` included: the widget manager keys
+    // on the JSON of the options, which drops an undefined `variant`.
     return this.previews.preview<PaletteGroupViewWidget>(PALETTE_GROUP_VIEW_ID, apply, {
       groupId: req.groupId,
       variant: req.variant ?? null,
