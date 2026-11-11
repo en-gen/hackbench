@@ -33,6 +33,9 @@ export class PreviewTabs {
   /** The preview opens still running, so `pin` can wait for one rather than
    * race it - see PreviewSequence. */
   protected readonly sequence = new PreviewSequence()
+  /** Bumped by every tab this class focuses, so a preview still loading can
+   * tell that the user picked a tab after it started. */
+  protected focusRequests = 0
 
   /**
    * Opens `target` in this view's preview tab.
@@ -55,13 +58,17 @@ export class PreviewTabs {
     key: object = {},
   ): Promise<W> {
     // Needs the tab ATTACHED: a click while a double click's pin still loads
-    // can start a preview that `pin` then closes, and a slower preview of
-    // another row finishing after this click is revealed over the focused tab.
+    // can start a preview that `pin` then closes. A slower preview of another
+    // row finishing after this click still lands, but behind the focused tab
+    // (see `asked` below).
     const open = this.widgets.tryGetWidget<W>(viewId, rowKey)
     if (open && !open.isDisposed && open.isAttached) {
-      void this.shell.activateWidget(open.id)
+      this.focus(open.id)
       return open
     }
+    // A tab focused while `apply` runs is newer than this click, so it keeps
+    // the front; the preview is still added, since its row was asked for.
+    const asked = this.focusRequests
     const tabId = previewId(viewId, key)
     const widget = await this.widgets.getOrCreateWidget<W>(viewId, { preview: true, ...key })
     // Registered as in flight for the whole of `apply`, which is where the
@@ -78,7 +85,7 @@ export class PreviewTabs {
     // Map16's two tables - so previewing one never replaces the other.
     widget.id = tabId
     addClass(widget, PREVIEW_TAB_CLASS)
-    this.attach(widget, false)
+    this.attach(widget, false, this.focusRequests !== asked)
     return widget
   }
 
@@ -134,8 +141,10 @@ export class PreviewTabs {
    * leaves the caret in the tree and the arrow keys keep walking the list,
    * previewing each row as it goes (a row with an open tab focuses that tab
    * instead, #1324). Pinning is an explicit "I want this one", so it focuses.
+   * `behind` adds without revealing. Lumino's DockLayout inserts tabs with
+   * `select-tab-if-needed`, so a plain add does not take the current tab.
    */
-  protected attach(widget: Widget, focus: boolean): void {
+  protected attach(widget: Widget, focus: boolean, behind = false): void {
     // A view of the previous project that was still loading when another
     // project opened is not in shell.widgets, so the switch could not close
     // it. It must not appear now (#628).
@@ -145,8 +154,13 @@ export class PreviewTabs {
       return
     }
     if (!widget.isAttached) this.shell.addWidget(widget, { area: 'main' })
-    if (focus) void this.shell.activateWidget(widget.id)
-    else void this.shell.revealWidget(widget.id)
+    if (focus) this.focus(widget.id)
+    else if (!behind) void this.shell.revealWidget(widget.id)
+  }
+
+  protected focus(id: string): void {
+    this.focusRequests++
+    void this.shell.activateWidget(id)
   }
 }
 

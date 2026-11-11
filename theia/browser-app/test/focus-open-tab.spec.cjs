@@ -228,3 +228,65 @@ suite('Overworld', {
   rowA: page => page.locator(OW('overworld')),
   rowB: page => page.locator(OW('overworld/area:1')),
 })
+
+/**
+ * A preview still loading when the user focuses an open tab lands behind
+ * that tab, not over it (CodeRabbit on #1366). The GFX preview widget is
+ * reused, so its `gfx` service property is swapped for one whose sheet
+ * reply waits for the test (docs/testing.md, Playwright and RPC).
+ */
+test('GFX: a preview that finishes after an open tab is focused stays behind it', async ({
+  page,
+}) => {
+  const re = /^hackbench\.gfx-view:/
+  await openProject(page, ['hackbench.gfx-explorer'])
+  await reveal(page, 'hackbench.gfx-explorer')
+  await page.waitForSelector(GFX, { timeout: 15000 })
+  const row = n => page.locator(GFX).nth(n)
+  await row(2).dblclick()
+  await expect.poll(async () => (await pinnedOf(page, re)).length).toBe(1)
+  const a = (await pinnedOf(page, re))[0].id
+  await row(3).click()
+  await expect.poll(async () => (await previewOf(page, re)).length).toBe(1)
+  const [before] = await previewOf(page, re)
+
+  await page.evaluate(id => {
+    const w = getSvc('ApplicationShell')
+      .getWidgets('main')
+      .find(x => x.id === id)
+    const real = w.gfx
+    window.__parked = 0
+    w.gfx = new Proxy(real, {
+      get(t, p) {
+        if (p !== 'gfxSheet') return Reflect.get(t, p)
+        return (...args) => {
+          window.__parked++
+          return new Promise(r => (window.__release = () => r(t.gfxSheet(...args))))
+        }
+      },
+    })
+  }, before.id)
+  await row(4).click()
+  await expect.poll(() => page.evaluate(() => window.__parked)).toBe(1)
+  await row(2).click()
+  await expect.poll(() => activeId(page)).toBe(a)
+
+  await page.evaluate(() => window.__release())
+  // apply has finished once the preview is back under its tab id with row 4's label.
+  await expect
+    .poll(async () => {
+      const now = await previewOf(page, re)
+      return now.length === 1 && now[0].label !== before.label
+    })
+    .toBe(true)
+  await noSecondTab(page)
+  // activeWidget alone would pass on the old code: revealWidget changes the
+  // current tab without moving focus. Ask which tab A's tab bar shows.
+  const shown = await page.evaluate(id => {
+    const shell = getSvc('ApplicationShell')
+    const w = shell.getWidgets('main').find(x => x.id === id)
+    return { current: shell.getTabBarFor(w)?.currentTitle?.owner.id, visible: w.isVisible }
+  }, a)
+  expect(shown).toEqual({ current: a, visible: true })
+  expect(await activeId(page)).toBe(a)
+})
