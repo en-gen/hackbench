@@ -6,6 +6,7 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 
 | File | State | Decides |
 | --- | --- | --- |
+| [2026-11-11-unreadable-loader-boxes-extra-bits.md](2026-11-11-unreadable-loader-boxes-extra-bits.md) | Proposed | when the sprite loader cannot be read, a sprite with extra bit 2 or 3 is boxed with the reason "loader unreadable", goal tapes included; never vanilla art, never hidden (#1011, PR #1273) |
 | [2026-11-07-process-timeout-budgets-above-30s.md](2026-11-07-process-timeout-budgets-above-30s.md) | Proposed | two #1209 files needed budgets above 30 s under the heavy loaded run: RevealSweep `slow(90_000)`, playwrightPortGate `loadTimeout(120_000)` (option A, night shift) |
 | [2026-11-06-rope-length-calls.md](2026-11-06-rope-length-calls.md) | Proposed | the rope's sprite-slot length: the dispatch role gate picks the sprites, setting 1's odd rope is long and solid (fixed-range spawners assumed away), no hover line for the door, the Properties preview draws door tiles solid |
 | [2026-11-06-map-notes-spawner-ratios-stay-collapsed.md](2026-11-06-map-notes-spawner-ratios-stay-collapsed.md) | Proposed | per-spawner ratio sentences ("Only N of 5 appear") stay collapsed in the map note, not summed; only "N did not draw" sums, per noun (#1281) |

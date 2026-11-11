@@ -30,6 +30,8 @@ export const animatedText = (n: number) => `Animated: ${n} frames, looping.`
 const WHY_NOT_DRAWN: Record<string, string> = {
   extraBits:
     'It uses the extra-bits marker that custom sprites use, so vanilla art would be wrong.',
+  loaderUnreadable:
+    "The app could not read how this ROM's sprite loader treats the extra-bits marker, so it cannot tell whether vanilla art is right.",
   noParts: 'Its code drew no tiles.',
   charsNotLoaded: 'Some of its graphics are not loaded on this map.',
   noDescriptor: 'The app has no drawing rules for this sprite yet.',

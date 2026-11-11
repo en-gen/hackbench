@@ -324,6 +324,12 @@ function blit(
 }
 
 /**
+ * The loader's routing as a caller holds it: the lookup when the ROM's loader was read, 'unreadable' when it was tried and refused,
+ * absent when the caller never routes (no extra bits to judge). Unreadable is not absent: it boxes, the other draws as before.
+ */
+export type Routing = ((id: number, extraBits?: number) => LoadClass) | 'unreadable'
+
+/**
  * Every sprite as one bitmap, in the stream's order. `dynamic` supplies the
  * colors a sprite's own handler uploads to CGRAM at runtime (the engine's
  * `dynamicCgram` note): spliced over the level's row, the rest kept.
@@ -333,8 +339,8 @@ export function drawSprites(
   model: SpriteModel,
   draw: SpriteDrawer,
   dynamic: (note: PaletteNote) => RgbaColor[] = () => [],
-  /** How the game's loader routes an id under its extra bits (LoadClass.ts), when readable: a scroll command it still routes as one keeps them, an id the bits re-route is boxed. */
-  routedOf?: (id: number, extraBits?: number) => LoadClass,
+  /** How the game's loader routes an id under its extra bits (LoadClass.ts): a scroll command it still routes as one keeps them, an id the bits re-route is boxed; 'unreadable' boxes every extra-bit sprite. */
+  routedOf?: Routing,
 ): MapSpriteDto[] {
   /** One sprite's bitmap from a drawer result: its parts blitted at the anchor, or the marker when it cannot be drawn. */
   const render = (s: LevelSprite, res: SpriteDrawResult): MapSpriteDto => {
@@ -430,7 +436,8 @@ export function drawSprites(
   const dtos = sprites.map((s): MapSpriteDto => {
     // Fail closed: a possibly custom sprite is never given vanilla art, and its code is not run. A scroll command is exempt:
     // the game reads those bits as its scroll data (bank_02.asm:5301-5305), and it has no art to get wrong.
-    if (extraBitsBlock(s, routedOf)) return placeholder(s, 'extraBits')
+    const blocked = extraBitsBlock(s, routedOf)
+    if (blocked) return placeholder(s, blocked)
     const res = draw(s)
     if (res.ok) for (const c of res.children ?? []) claimed.set(c.index, { parent: s.index, res, parts: c.parts }) // prettier-ignore
     return render(s, res)
@@ -439,7 +446,12 @@ export function drawSprites(
   // tiles the parent drew for it as its area and no marker. The view hit-tests it and does not paint it again.
   return dtos.map((d, n) => {
     const c = claimed.get(d.index)
-    if (!c || (d.status !== 'placeholder' && d.status !== 'quiet') || d.reason === 'extraBits')
+    if (
+      !c ||
+      (d.status !== 'placeholder' && d.status !== 'quiet') ||
+      d.reason === 'extraBits' ||
+      d.reason === 'loaderUnreadable'
+    )
       return d
     const own = render(sprites[n]!, { ...c.res, parts: c.parts } as SpriteDrawResult)
     return own.status === 'drawn' ? { ...own, x: d.x, y: d.y, drawnBy: c.parent } : d
@@ -1189,7 +1201,7 @@ export const unverifiedNote = (sprites: readonly MapSpriteDto[]) => {
 }
 
 /** Placeholders drawn because the sprite may not be the vanilla one: the id's vanilla name would be a guess. */
-const NOT_VANILLA = new Set(['extraBits', 'customHandler'])
+const NOT_VANILLA = new Set(['extraBits', 'loaderUnreadable', 'customHandler'])
 
 /**
  * The sprite with its plain name from the app's sprite name table (#981); a sprite the table lacks keeps none.
@@ -1226,7 +1238,7 @@ export function spriteLayer(
   model: SpriteModel & { isVertical: boolean; screenCount: number },
   draw: SpriteDrawer,
   dynamic?: (note: PaletteNote) => RgbaColor[],
-  routedOf?: (id: number, extraBits?: number) => LoadClass,
+  routedOf?: Routing,
 ): Extract<MapSpritesResult, { status: 'ok' }> {
   const { w, h } = screenTiles(model.isVertical)
   const sprites = drawSprites(
@@ -1437,10 +1449,10 @@ export function frameRun(
   return interpRunner(rom, index, model, undefined, () => base, undefined, undefined, undefined, list)(s)
 }
 
-/** The loader's routing for an id when readable (LoadClass.ts), else undefined: the map view and its frames share it. */
-const routedFor = (rom: RomFile) => {
+/** The loader's routing for an id (LoadClass.ts), or 'unreadable' when the loader was refused: the map view and its frames share it. */
+const routedFor = (rom: RomFile): Routing => {
   const c = loadClasses(rom)
-  return c.status === 'ok' ? c.of : undefined
+  return c.status === 'ok' ? c.of : 'unreadable'
 }
 
 /**
@@ -1448,32 +1460,32 @@ const routedFor = (rom: RomFile) => {
  * scroll command with no picture, not a custom sprite. Extra bits otherwise fail closed in the map view, so there is
  * nothing to animate either.
  */
-export function framesGate(
-  s: LevelSprite,
-  routedOf?: (id: number, extraBits?: number) => LoadClass,
-): string | undefined {
+export function framesGate(s: LevelSprite, routedOf?: Routing): string | undefined {
   const blocked = extraBitsBlock(s, routedOf)
-  if (!blocked && routedOf?.(s.spriteId, (s.raw[0] ?? 0) & EXTRA_BITS_MASK) === 'scroll')
-    return 'it has no picture'
-  return blocked ? 'extraBits' : undefined
+  if (!blocked && typeof routedOf === 'function' && routedOf(s.spriteId, (s.raw[0] ?? 0) & EXTRA_BITS_MASK) === 'scroll') return 'it has no picture' // prettier-ignore
+  return blocked
 }
 
 /**
- * Whether a sprite's extra bits fail it closed (a box, not a quiet marker or sprite art). With bit 3 set it always does,
+ * Why a sprite's extra bits fail it closed (a box, not a quiet marker or sprite art), or undefined. With bit 3 set it always does,
  * unless the loader still routes that exact combination as a scroll command (the game reads those bits as its scroll data,
  * bank_02.asm:5301-5305). With bit 2 alone it does for an id whose loader class that combination changes, in either direction
- * (a routed id turned normal, a normal id turned routed, a run that proved nothing); the rest is drawn as before.
+ * (a routed id turned normal, a normal id turned routed, a run that proved nothing); the rest is drawn as before. When the
+ * loader could not be read ('unreadable') no combination can be judged, so every sprite with an extra bit is boxed with
+ * 'loaderUnreadable', the goal tape's bit 2 included: never vanilla art, never hidden. A caller that passes no routing at all
+ * never routes, and keeps the rule above without it.
  */
 function extraBitsBlock(
   s: LevelSprite,
-  routedOf?: (id: number, extraBits?: number) => LoadClass,
-): boolean {
+  routedOf?: Routing,
+): 'extraBits' | 'loaderUnreadable' | undefined {
   const raw = s.raw[0] ?? 0
   const bits = raw & EXTRA_BITS_MASK
-  if (!bits) return false
+  if (!bits) return undefined
+  if (routedOf === 'unreadable') return 'loaderUnreadable'
   const now = routedOf?.(s.spriteId, bits)
-  if (raw & EXTRA_BITS) return now !== 'scroll'
-  return now !== routedOf?.(s.spriteId)
+  if (raw & EXTRA_BITS) return now !== 'scroll' ? 'extraBits' : undefined
+  return now !== routedOf?.(s.spriteId) ? 'extraBits' : undefined
 }
 
 /** The frames answer: a sprite its parent drew gets the rides-with code, anything else keeps what `framesOf` found. */
@@ -1483,6 +1495,20 @@ export function framesAnswer(
 ): SpriteFramesResult {
   if (dto?.drawnBy !== undefined) return { status: 'ok', frames: [], reason: RIDES_WITH_REASON }
   return { status: 'ok', ...frames }
+}
+
+/**
+ * The map's picture of one sprite when a parent may have drawn it. It routes as the map does: a bit-2 parent the loader
+ * re-routes is boxed there, so it must not run here and claim a child (#1011).
+ */
+export function drawnByParent(
+  rom: RomFile,
+  stream: readonly LevelSprite[],
+  model: SpriteModel,
+  draw: SpriteDrawer,
+  spriteIndex: number,
+): MapSpriteDto | undefined {
+  return drawSprites(stream, model, draw, undefined, routedFor(rom)).find(d => d.index === spriteIndex) // prettier-ignore
 }
 
 /** One sprite of a map as frames: the same seed, camera and drawer the map view used, run again for this sprite alone. */
@@ -1514,7 +1540,7 @@ export function mapSpriteFrames(
     const withUploads = { ...model, playerGraphics: () => readMarioGraphics(rom.rom) }
     const frames = framesOf(frameRun(rom.rom, index, model, base, s, stream), s, withUploads, dynamicOf(rom.rom)) // prettier-ignore
     // Drawn by its parent on the map (the $9B a $9C carries): its tiles are the parent's, so say that, not "drew no tile".
-    const dto = frames.frames.length ? undefined : drawSprites(stream, model, interpDrawer(rom.rom, index, model, undefined, () => base, undefined, undefined, undefined, stream)).find(d => d.index === s.index) // prettier-ignore
+    const dto = frames.frames.length ? undefined : drawnByParent(rom.rom, stream, model, interpDrawer(rom.rom, index, model, undefined, () => base, undefined, undefined, undefined, stream), s.index) // prettier-ignore
     return framesAnswer(frames, dto)
   } catch (err) {
     return { status: 'unavailable', reason: (err as Error).message }
