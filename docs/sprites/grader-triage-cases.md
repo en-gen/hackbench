@@ -108,3 +108,5 @@ T2 (1)
 T3 (1)
   $4D: 106@3760,368
 ```
+
+Corrected 2026-11-11 (#839, #1370): maps 101 ($22, $24, $25, $54) and 1d4 ($33) cases above that were bad captures (lost early frames) now grade exact or left the set after the re-capture; see the correction at the end of grader-triage.md. The rows are kept because the coordinates were not re-matched.
