@@ -434,7 +434,9 @@ describe('a refused level loader marks every sprite unverified', () => {
     const draw = interpDrawer(blank, 0x105, shape, (_r, _i, seed) => ran(n++ === 0, seed))
     const [a, b] = drawSprites([sprite(0), sprite(1)], { vram: chars, colors: COLORS }, draw)
     expect(a).toMatchObject({ status: 'drawn' })
-    expect(a!.unverified).toMatch(/^level loader refused \(.+\); drawn from a placement-only seed$/)
+    expect(a!.unverified).toMatch(
+      /^level loader refused \(.+\); drawn from a placement-only seed; the loader's id routing could not be read \(.+\), so this id may be a shooter/,
+    )
     expect(b).toMatchObject({ status: 'placeholder', reason: 'refused: loop' })
     expect(b!.unverified).toBe(a!.unverified)
   })
@@ -447,7 +449,9 @@ describe('a refused level loader marks every sprite unverified', () => {
     expect(seeds[0]).toMatchObject({ level: { screenMode: 1, screens: 3 } })
     expect(r.note).toBe('Unverified: 1 sprite may not be drawn exactly as in the game.')
     expect(r.note).not.toMatch(/loader|refused/)
-    expect(r.noteDetail).toMatch(/^level loader refused \(.+\); drawn from a placement-only seed$/)
+    expect(r.noteDetail).toMatch(
+      /^level loader refused \(.+\); drawn from a placement-only seed; the loader's id routing could not be read \(.+\), so this id may be a shooter/,
+    )
   })
 
   it('keeps the note detail of a sprite beside the unverified causes on the tooltip, each once (#1254)', () => {

@@ -1452,6 +1452,57 @@ describe('review findings (#1273)', () => {
   })
 })
 
+describe('the route check runs before the special-case drawers (#1273)', () => {
+  const never = () => {
+    throw new Error('sprite code must not run')
+  }
+  const drawer = (rom: RomFile, run = never) => interpDrawer(rom, 0, geometry, run, seedFor)
+
+  // 0xe2/0xe3 rings, 0xde Five Eeries, 0xe0 Three Platforms: BANDS routes every id from 0x90 up as a scroll command.
+  it.each([
+    ['ring left', 0xe2],
+    ['ring right', 0xe3],
+    ['Five Eeries', 0xde],
+    ['Three Platforms', 0xe0],
+  ])(
+    '%s: an id the loader routes as a scroll command is the routed refusal, not its drawing',
+    (_n, id) => {
+      expect(drawer(cart())(sprite(id))).toMatchObject({ ok: false, routed: 'scroll' })
+    },
+  )
+
+  it('the torpedo launcher still previews when the loader classes its id as a shooter', () => {
+    // Classes run shooters, generators, scroll commands in id order, so the launcher's $CA sits in a shooter run $C8-$CB.
+    const classes = (id: number) => (id >= 0xc8 && id < 0xcc ? SHOOT : id >= 0xcc && id < 0xd0 ? GEN : id >= 0xd0 ? SCROLL : NORMAL) // prettier-ignore
+    const rom = cart({ classes })
+    const c = loadClasses(rom)
+    if (c.status !== 'ok') throw new Error(JSON.stringify(c))
+    expect(c.of(0xca)).toBe('shooter')
+    const r = drawer(rom)(sprite(0xca))
+    expect(r).not.toHaveProperty('routed')
+  })
+})
+
+describe('an unreadable loader routing marks a drawn run too (#1273)', () => {
+  const tile = { oam: 0, char: 0, size: 8, palette: 9, priority: 2, flipX: false, flipY: false, dx: 0, dy: 0, attr: 0, ox: 0, oy: 0 } // prettier-ignore
+  const drawn = () => runModel({ anchor: { x: 1, y: 1, rawX: 1, rawY: 1 }, passes: [{ pass: 0, pos: { x: 0, y: 0 }, origin: { x: 0, y: 0 }, parts: [tile], uploads: [], palette: [] }], chosen: 0 }) // prettier-ignore
+  it('a run with no emptyReason gets the unverified reason', () => {
+    const r = interpDrawer(noLoader(), 0, geometry, drawn, seedFor)(sprite(0x70))
+    expect(r).toMatchObject({ unverified: expect.stringContaining('routing could not be read') })
+    expect(r).toMatchObject({ unverified: expect.stringContaining('may be a shooter, generator or scroll command') }) // prettier-ignore
+  })
+  it('an existing unverifiedReason is kept', () => {
+    const run = () => ({ ...drawn(), unverifiedReason: 'seed lacks state' })
+    const r = interpDrawer(noLoader(), 0, geometry, run, seedFor)(sprite(0x70))
+    expect(r).toMatchObject({ unverified: expect.stringContaining('seed lacks state') })
+    expect(JSON.stringify(r)).not.toContain('routing could not be read')
+  })
+  it('readable routing adds nothing', () => {
+    const r = interpDrawer(cart(), 0, geometry, drawn, seedFor)(sprite(0x70))
+    expect(JSON.stringify(r)).not.toContain('routing could not be read')
+  })
+})
+
 describe('with the plain unverified note (#1166)', () => {
   const stream = Uint8Array.from([0, 0x00, 0x01, 0x10, 0x00, 0x02, 0x11, 0xff]) // two entries, ids $10 and $11
   const m = { ...model, isVertical: false, screenCount: 1 }
