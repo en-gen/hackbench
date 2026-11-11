@@ -1590,4 +1590,11 @@ describe('the frames fallback routes as the map does (#1011, thread 4505953787)'
     expect(drawnByParent(noLoader(), stream, m, parentDraw, 0)).toMatchObject({ reason: 'loaderUnreadable' }) // prettier-ignore
     expect(drawnByParent(noLoader(), stream, m, parentDraw, 1)!.drawnBy).toBeUndefined()
   })
+
+  it('a child boxed for an unreadable loader stays boxed: its parent does not claim it', () => {
+    const kid = { ...sprite(0x9b, 1), raw: [0x04, 0, 0x9b] } as LevelSprite
+    const list = [sprite(0x10, 0), kid]
+    expect(drawSprites(list, m, parentDraw)[1]).toMatchObject({ drawnBy: 0 }) // control: unrouted, the claim lands
+    expect(drawSprites(list, m, parentDraw, undefined, 'unreadable')[1]).toMatchObject({ status: 'placeholder', reason: 'loaderUnreadable' }) // prettier-ignore
+  })
 })
