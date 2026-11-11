@@ -248,10 +248,12 @@ seen.
 
 ### The map strip's pad (#1004)
 
-Content the data places off the map (a refused-object cell, a sprite's `box`)
-must draw where the data names it, so `offMapPad` (`browser/off-map-extent.ts`)
+Content the data places off the map (a refused-object cell, a sprite's placement
+cell: `stored`, else its anchor) must draw where the data names it, so `offMapPad` (`browser/off-map-extent.ts`)
 is the one place the canvas grows: per side, the content extent rounded up to
-whole 16 px tiles. At the far end only (right of a horizontal map, bottom of a
+whole 16 px tiles. Art past an edge from a placement on the map is cut and
+grows nothing (#1325); only a sprite whose box touches neither the map nor its
+placement cell also counts its `box` (D52). At the far end only (right of a horizontal map, bottom of a
 vertical one) a fixed 256 px gutter (`GUTTER_PX`) is added beyond it, except
 on a 32-screen map (`MAX_SCREENS`), which cannot grow. There is no gutter
 before position 0. Rulings: D76 call 2, D145 and

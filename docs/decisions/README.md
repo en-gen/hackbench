@@ -6,6 +6,8 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 
 | File | State | Decides |
 | --- | --- | --- |
+| [2026-11-07-art-past-edge-proposed-calls.md](2026-11-07-art-past-edge-proposed-calls.md) | Proposed | the three build calls under the art-past-the-edge ruling: placement is `stored` else the anchor; far-end-gutter art still draws; a sprite with no art on the map keeps its box in the pad (#1325) |
+| [2026-11-07-art-past-map-edge-grows-no-canvas.md](2026-11-07-art-past-map-edge-grows-no-canvas.md) | Ruled | map view: art past a map's edge is cut and grows no canvas on any side; a sprite or object placed off the map still grows it (#1325; narrows D76 call 2) |
 | [2026-11-07-process-timeout-budgets-above-30s.md](2026-11-07-process-timeout-budgets-above-30s.md) | Proposed | two #1209 files needed budgets above 30 s under the heavy loaded run: RevealSweep `slow(90_000)`, playwrightPortGate `loadTimeout(120_000)` (option A, night shift) |
 | [2026-11-07-partly-drawn-object-gets-the-mark.md](2026-11-07-partly-drawn-object-gets-the-mark.md) | Proposed | an object with some tiles outside the map's tile space keeps the tiles that fit and also gets the "!" mark with the off-buffer reason (#1034) |
 | [2026-11-06-rope-length-calls.md](2026-11-06-rope-length-calls.md) | Proposed | the rope's sprite-slot length: the dispatch role gate picks the sprites, setting 1's odd rope is long and solid (fixed-range spawners assumed away), no hover line for the door, the Properties preview draws door tiles solid |
