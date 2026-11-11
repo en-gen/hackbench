@@ -940,12 +940,20 @@ export function interpRunner(
   // no-free-slot sprite's (5345, 5419). 128 entries; a later index is not tracked, so not placed.
   // Only the map's own shape is added to a generic seed; a loaded one ignores it.
   const shape = { level: { screenMode: model.isVertical ? 1 : 0, screens: model.screenCount } }
+  // When the routing cannot be read, a drawn or empty run (a special drawer's too) may be an id the game never runs as a sprite.
+  const unreadableWhy = classes.status === 'unavailable' ? `the loader's id routing could not be read (${classes.reason}), so this id may be a shooter, generator or scroll command the game never runs as a sprite` : undefined // prettier-ignore
+  /** A special drawer's answer; one that drew carries the routing reason unless it already has an `unverified` text. */
+  const direct = (d: SpriteDrawResult): SpriteRun => ({
+    direct: unreadableWhy && d.ok && !d.unverified ? { ...d, unverified: unreadableWhy } : d,
+  })
   return s => {
     // The game's loader never runs a shooter, generator or scroll command as a sprite (LoadClass.ts), so there is no sprite
     // code to run for it. A class that cannot be read leaves the id to the sprite path (and its refusal).
     // This runs before the ring, Five Eeries and Three Platforms drawers: an id the loader routes away is never drawn by them.
-    // The torpedo launcher is the one id drawn from its own routine whatever the loader calls it (its preview is the launcher, not a sprite run).
-    const routed = classes.status === 'ok' && s.spriteId !== TORPEDO_LAUNCHER_ID ? classes.of(s.spriteId) : 'normal' // prettier-ignore
+    // The torpedo launcher is the one id drawn from its own routine, but only while the loader routes it as a shooter (its preview is the
+    // launcher, not a sprite run): routed as a generator or scroll command it is the routed refusal like any other id.
+    const of = classes.status === 'ok' ? classes.of(s.spriteId) : 'normal'
+    const routed = s.spriteId === TORPEDO_LAUNCHER_ID && of === 'shooter' ? 'normal' : of
     if (routed !== 'normal')
       return {
         direct: {
@@ -954,14 +962,14 @@ export function interpRunner(
           routed,
         },
       }
-    if (s.spriteId === RING_LEFT || s.spriteId === RING_RIGHT) return { direct: ringResult(rom, base, s, model.isVertical, ringRoutines) } // prettier-ignore
+    if (s.spriteId === RING_LEFT || s.spriteId === RING_RIGHT) return direct(ringResult(rom, base, s, model.isVertical, ringRoutines)) // prettier-ignore
     const [x, y] = [pixelX(s), s.y * TILE]
     const camera = cameraFor(x, y, model.isVertical, model.screenCount)
     const neighbours = neighboursOf(list, s, e => ({ x: pixelX(e), y: e.y * TILE }))
     const seed = (camera: { x: number; y: number }, extra = {}) => withSeed({ sprite: { x, y }, camera, mario, ...shape, ...(neighbours.length ? { neighbours } : {}), ...extra }, base) // prettier-ignore
-    if (s.spriteId === FIVE_EERIES) return { direct: eeriesResult(rom, seed(camera), s, model.isVertical, eeriesRoutines) } // prettier-ignore
-    if (s.spriteId === THREE_PLATFORMS) return { direct: platformsResult(rom, seed(camera), s, model.isVertical, platformRoutines) } // prettier-ignore
-    if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
+    if (s.spriteId === FIVE_EERIES) return direct(eeriesResult(rom, seed(camera), s, model.isVertical, eeriesRoutines)) // prettier-ignore
+    if (s.spriteId === THREE_PLATFORMS) return direct(platformsResult(rom, seed(camera), s, model.isVertical, platformRoutines)) // prettier-ignore
+    if (s.spriteId === TORPEDO_LAUNCHER_ID) return direct(launcherResult(rom, seed(camera))) // prettier-ignore
     // The map's own loader placed it at map load (D156): it also spawns at the map-load camera.
     const opening = !!w && s.index >= 0 && s.index < 128 && !!w[SPRITE_LOAD_STATUS + s.index]
     // The rope draws its length from the slot the loader gives it (RopeLength.ts, #1230): run in that slot, not slot 0.
@@ -974,11 +982,9 @@ export function interpRunner(
     if (!w && isRopeId(s.spriteId) && m.snaps) m = { ...m, lengthNote: NO_IMAGE_NOTE }
     // A run (empty or drawn) is only "ran fine" if the loader's routing was readable: otherwise the id may be a shooter, generator or
     // scroll command the game never runs as a sprite, so the run is unverified (an empty one keeps the box; both say why).
-    if (classes.status === 'unavailable' && !m.unverifiedReason)
-      m = {
-        ...m,
-        unverifiedReason: `the loader's id routing could not be read (${classes.reason}), so this id may be a shooter, generator or scroll command the game never runs as a sprite`,
-      }
+    // A refused run already shows the failure box, so the reason is not added to it.
+    if (unreadableWhy && !m.unverifiedReason && !m.refusal)
+      m = { ...m, unverifiedReason: unreadableWhy }
     // A sprite placed at the game's own layout (the bonus game) was replayed in the loader's top slot; an earlier loaded sprite
     // may have taken it, which moves one block by a pixel and changes its item (measured on $000, slots 9 vs 8): drawn, marked.
     if (

@@ -438,7 +438,9 @@ describe('a refused level loader marks every sprite unverified', () => {
       /^level loader refused \(.+\); drawn from a placement-only seed; the loader's id routing could not be read \(.+\), so this id may be a shooter/,
     )
     expect(b).toMatchObject({ status: 'placeholder', reason: 'refused: loop' })
-    expect(b!.unverified).toBe(a!.unverified)
+    // The refused run already shows the failure box, so it carries the loader's reason but not the routing one (#1273).
+    expect(b!.unverified).toMatch(/^level loader refused \(.+\); drawn from a placement-only seed$/)
+    expect(a!.unverified).toContain(b!.unverified)
   })
 
   it('seeds the run from the map shape alone, and says so once on the map', () => {

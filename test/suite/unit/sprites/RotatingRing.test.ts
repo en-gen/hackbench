@@ -54,6 +54,7 @@ import {
   STANDIN_LAYOUT,
   tableWord,
 } from '../../support/clusterPathStandIn'
+import { withoutRoutingReason } from '../../support/routingReason'
 
 const LEVEL = 0x105
 const off = (snes: number) => (snes >>> 16) * 0x8000 + ((snes & 0xffff) - 0x8000)
@@ -430,7 +431,7 @@ describe('the rotating ring on the map (synthetic cart)', () => {
   it('one sprite at its real stream index, drawn from the ring pieces, never a marker', () => {
     const d = draw(sprite())
     expect(d).toMatchObject({ index: 2, id: 0xe3, x: 416, y: 320, status: 'drawn' })
-    expect(d.unverified).toBeUndefined()
+    expect(withoutRoutingReason(d.unverified)).toBeUndefined()
     // Pieces 8 wide at dx 8 * X - 158 (X 10..19: -78..-6) and dy from oyOf (see the first test): the box spans them.
     expect(d.box).toEqual({
       x0: 338,
@@ -504,7 +505,7 @@ describe.skipIf(!hasRom(VANILLA))('the rotating ring, vanilla ROM', () => {
       for (const s of rings) {
         expect(s).toMatchObject({ status: 'drawn' })
         expect(s.index).toBeGreaterThanOrEqual(0)
-        expect(s.unverified).toBeUndefined()
+        expect(withoutRoutingReason(s.unverified)).toBeUndefined()
       }
       // The pieces, from the same run the reply draws (the reply holds one bitmap).
       const rom = RomFile.load(romPath(VANILLA))

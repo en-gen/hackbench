@@ -21,6 +21,7 @@ import {
   SYNTHETIC_OFFSETS,
   SYNTHETIC_SPEEDS,
 } from '../support/syntheticEeries'
+import { withoutRoutingReason } from '../support/routingReason'
 
 /** The $DE entry the fixture's list holds: data byte $71 (Y $170 = 368), column 4 of screen 3 (X 832). */
 const entry: LevelSprite = { screen: 3, x: 52, y: 23, spriteId: 0xde, extraBit: false, raw: [0x71, 0x43, 0xde], index: 5, streamOffset: 0 } // prettier-ignore
@@ -177,7 +178,7 @@ describe('sprite $DE on the map', () => {
       expect(d.parts).toHaveLength(n * 4)
       // The first spawn is the far end of the table; the ones that never exist are the last spawned, the leftmost.
       expect(extent(d).x).toEqual([SYNTHETIC_OFFSETS.slice(5 - n)[0], far + 8])
-      expect(d.unverified).toBeUndefined()
+      expect(withoutRoutingReason(d.unverified)).toBeUndefined()
       if (n < 5)
         expect(d.note).toBe(`Only ${n} of the 5 Eeries appear: this map's sprite memory setting leaves room for ${n}.`) // prettier-ignore
       else expect(d.note).toBeUndefined()
@@ -211,7 +212,7 @@ describe('sprite $DE on the map', () => {
     )
     expect(repointed.unverified).not.toMatch(/vanilla address/)
     // Unchanged route and routine: nothing to say.
-    expect(ok(draw(100)).unverified).toBeUndefined()
+    expect(withoutRoutingReason(ok(draw(100)).unverified)).toBeUndefined()
   })
 
   it('is a marker with the reason when the loader route is not the shape the reader knows', () => {

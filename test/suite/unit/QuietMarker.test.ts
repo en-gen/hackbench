@@ -3,12 +3,35 @@
  * corpus cases are in QuietMarker.corpus.test.ts.
  */
 import { afterEach, describe, it, expect, vi } from 'vitest'
+
+// The special drawers need a real ROM to draw; these spies delegate to the real routine and let one test plant an `ok` answer
+// (the corpus is absent in CI), so the unreadable-routing mark on a direct result is testable on a synthetic cart.
+vi.mock('../../../src/rom/sprites/interp/RotatingRing', async orig => {
+  const m = await orig<typeof import('../../../src/rom/sprites/interp/RotatingRing')>()
+  return { ...m, rotatingRing: vi.fn(m.rotatingRing) }
+})
+vi.mock('../../../src/rom/sprites/interp/FiveEeries', async orig => {
+  const m = await orig<typeof import('../../../src/rom/sprites/interp/FiveEeries')>()
+  return { ...m, fiveEeries: vi.fn(m.fiveEeries) }
+})
+vi.mock('../../../src/rom/sprites/interp/ThreePlatforms', async orig => {
+  const m = await orig<typeof import('../../../src/rom/sprites/interp/ThreePlatforms')>()
+  return { ...m, threePlatforms: vi.fn(m.threePlatforms) }
+})
+vi.mock('../../../src/rom/sprites/interp/TorpedoLauncher', async orig => {
+  const m = await orig<typeof import('../../../src/rom/sprites/interp/TorpedoLauncher')>()
+  return { ...m, torpedoLauncher: vi.fn(m.torpedoLauncher) }
+})
 import type { LevelSprite } from '../../../src/rom/LevelParser'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { composeScreen, DOOR_PART_BIT, DOOR_PART_ID } from '../../../src/rom/model/ColorMath'
 import { FALLBACK_SCREENS } from '../../../src/rom/model/ScreenPlanes'
 import { loadClasses, type LoadClass } from '../../../src/rom/sprites/interp/LoadClass'
+import { rotatingRing } from '../../../src/rom/sprites/interp/RotatingRing'
+import { fiveEeries } from '../../../src/rom/sprites/interp/FiveEeries'
+import { threePlatforms } from '../../../src/rom/sprites/interp/ThreePlatforms'
+import { torpedoLauncher } from '../../../src/rom/sprites/interp/TorpedoLauncher'
 import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import type { SpriteModel } from '../../../src/rom/sprites/interp/SpriteRunner'
 import {
@@ -1481,6 +1504,62 @@ describe('the route check runs before the special-case drawers (#1273)', () => {
     const r = drawer(rom)(sprite(0xca))
     expect(r).not.toHaveProperty('routed')
   })
+})
+
+describe('special drawers and the unreadable routing (#1273 round 2)', () => {
+  const never = () => {
+    throw new Error('sprite code must not run')
+  }
+  const WHY = 'routing could not be read'
+  const ring = () => ({ ok: true as const, parts: [], unverified: [] as string[] })
+  const spawn = () => ({ ...ring(), eeries: [], spawned: 5, notes: [] as string[] })
+  const launch = () => ({ ok: true as const, torpedo: { x: 0, y: 0 }, torpedoId: 0x44, torpedoParts: [], arm: [], unverified: [] as string[] }) // prettier-ignore
+  const drawer = (rom: RomFile) => interpDrawer(rom, 0, geometry, never, seedFor)
+  const cases: [string, number, () => void][] = [
+    ['$E2 ring', 0xe2, () => vi.mocked(rotatingRing).mockReturnValueOnce(ring())],
+    ['$E3 ring', 0xe3, () => vi.mocked(rotatingRing).mockReturnValueOnce(ring())],
+    ['Five Eeries', 0xde, () => vi.mocked(fiveEeries).mockReturnValueOnce(spawn())],
+    ['Three Platforms', 0xe0, () => vi.mocked(threePlatforms).mockReturnValueOnce(spawn())],
+    ['torpedo launcher', 0xca, () => vi.mocked(torpedoLauncher).mockReturnValueOnce(launch())],
+  ]
+  it.each(cases)(
+    '%s: a drawn result is marked unverified when the routing cannot be read',
+    (_n, id, plant) => {
+      plant()
+      const r = drawer(noLoader())(sprite(id))
+      expect(r).toMatchObject({ ok: true, unverified: expect.stringContaining(WHY) })
+    },
+  )
+  it('an existing unverified text on a special drawer is kept, not overwritten', () => {
+    vi.mocked(rotatingRing).mockReturnValueOnce({ ...ring(), unverified: ['x'] })
+    const r = drawer(noLoader())(sprite(0xe2))
+    expect(r).toMatchObject({ unverified: expect.stringContaining('x is not the vanilla shape') })
+    expect(JSON.stringify(r)).not.toContain(WHY)
+  })
+  it('readable routing adds nothing to a special drawer', () => {
+    vi.mocked(rotatingRing).mockReturnValueOnce(ring())
+    expect('unverified' in drawer(cart())(sprite(0xe2))).toBe(false)
+  })
+  it('a refused special drawer keeps its failure box without the routing reason', () => {
+    vi.mocked(fiveEeries).mockReturnValueOnce({ ok: false, reason: 'nope', unverified: [] })
+    const r = drawer(noLoader())(sprite(0xde))
+    expect(r).toMatchObject({ ok: false })
+    expect(JSON.stringify(r)).not.toContain(WHY)
+  })
+  // Classes run shooters, generators, scroll commands in id order; $CA is placed in each class in turn.
+  it.each([
+    ['generator', 'generator', (id: number) => (id >= 0xd0 ? SCROLL : id >= 0xc8 ? GEN : NORMAL)],
+    ['scroll', 'scroll', (id: number) => (id >= 0xc8 ? SCROLL : NORMAL)],
+  ] as const)(
+    'the torpedo launcher the loader routes as a %s is the routed refusal',
+    (_n, routed, classes) => {
+      const rom = cart({ classes })
+      const c = loadClasses(rom)
+      if (c.status !== 'ok') throw new Error(JSON.stringify(c))
+      expect(c.of(0xca)).toBe(routed)
+      expect(drawer(rom)(sprite(0xca))).toMatchObject({ ok: false, routed })
+    },
+  )
 })
 
 describe('an unreadable loader routing marks a drawn run too (#1273)', () => {

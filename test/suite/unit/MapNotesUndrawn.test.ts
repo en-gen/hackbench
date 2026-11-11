@@ -28,17 +28,21 @@ const dto = (noun: 'Eerie' | 'platform', count: number, extra = ''): MapSpriteDt
 
 describe('map note counts of undrawn children', () => {
   it('two $DE spawners that each lose one Eerie say 2', () => {
-    expect(eeries().note).toMatch(/^2 Eeries did not draw\.$/)
-    expect(eeries().noteDetail).toMatch(/^drew no OAM tile/)
+    expect(eeries().note).toMatch(
+      /^Unverified: 2 sprites may not be drawn exactly as in the game\. 2 Eeries did not draw\.$/,
+    )
+    expect(eeries().noteDetail).toContain('drew no OAM tile')
   })
   it('room for 3 and two Eeries not drawn per spawner: the count is spawned minus drawn, 4 over two', () => {
     expect(eeries(3, 0x54).note).toMatch(/ 4 Eeries did not draw\./)
   })
   it('two $E0 spawners that each lose one platform say 2', () => {
-    expect(platforms().note).toMatch(/^2 platforms did not draw\.$/)
+    expect(platforms().note).toMatch(
+      /^Unverified: 2 sprites may not be drawn exactly as in the game\. 2 platforms did not draw\.$/,
+    )
   })
   it('a shortfall sentence stays once, beside the summed undrawn count', () => {
-    expect(platforms(2).note).toMatch(/^Only 2 of the 3 platforms appear: [^.]*\. 2 platforms did not draw\.$/) // prettier-ignore
+    expect(platforms(2).note).toMatch(/^Unverified: 2 sprites may not be drawn exactly as in the game\. Only 2 of the 3 platforms appear: [^.]*\. 2 platforms did not draw\.$/) // prettier-ignore
   })
   it('different numbers undrawn sum to the total; a single one reads singular', () => {
     expect(mapNotes([dto('Eerie', 1), dto('Eerie', 2)])).toEqual(['3 Eeries did not draw.']) // prettier-ignore

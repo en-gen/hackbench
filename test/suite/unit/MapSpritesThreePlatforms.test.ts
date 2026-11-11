@@ -15,6 +15,7 @@ import {
   SPAWNER_AT,
   SYNTHETIC_PLATFORM_ROUTINES,
 } from '../support/syntheticPlatforms'
+import { withoutRoutingReason } from '../support/routingReason'
 
 /** The $E0 entry the fixture's list holds: data byte $51 (Y $150 = 336), screen 3 column $B (X 944). */
 const entry: LevelSprite = { screen: 3, x: 59, y: 21, spriteId: 0xe0, extraBit: false, raw: [0x51, 0xb3, 0xe0], index: 4, streamOffset: 0 } // prettier-ignore
@@ -38,7 +39,7 @@ describe('sprite $E0 on the map', () => {
     expect(r.parts).toHaveLength(3 * 4) // each platform is one 16 x 16 piece, four chars
     expect(r.anchor).toEqual({ x: 944, y: 336 })
     expect(xs(r)).toEqual([16, 24, 32, 40, 48, 56])
-    expect(r.unverified).toBeUndefined()
+    expect(withoutRoutingReason(r.unverified)).toBeUndefined()
     expect(r.note).toBeUndefined()
   })
 
@@ -54,7 +55,7 @@ describe('sprite $E0 on the map', () => {
     expect(r.anchor).toEqual({ x: 944, y: 336 })
     expect(r.unverified).toMatch(/vertical map the spawner is given the entry's Y as its X/)
     // The horizontal map names nothing: the flag is the vertical input's, not the cart's.
-    expect(ok(draw()).unverified).toBeUndefined()
+    expect(withoutRoutingReason(ok(draw()).unverified)).toBeUndefined()
     // The cart puts each platform at the spawner's X plus its angle; X is the boundary 336, so the pieces sit 944 - 336 left of the horizontal ones,
     // measured from the entry's own X (re-anchored by `at`, not by the boundary).
     expect(xs(r)).toEqual(xs(ok(draw())).map(x => x - (944 - 336)))
@@ -65,7 +66,7 @@ describe('sprite $E0 on the map', () => {
     expect(r.note).toBe('1 platform did not draw.')
     expect(r.note).not.toMatch(/opcode|unsupported|refused|interpreter/i)
     expect(r.noteDetail).toMatch(/drew no OAM tile/)
-    expect(r.unverified).toBeUndefined()
+    expect(withoutRoutingReason(r.unverified)).toBeUndefined()
   })
 
   it('is refused, with the reason, when the level loader gave no image: SpriteDataPtr was never set', () => {
@@ -115,7 +116,7 @@ describe('sprite $E0 on the map', () => {
       }
       const d = ok(r)
       expect(d.parts).toHaveLength(n * 4)
-      expect(d.unverified).toBeUndefined()
+      expect(withoutRoutingReason(d.unverified)).toBeUndefined()
       if (n < 3)
         expect(d.note).toBe(`Only ${n} of the 3 platforms appear: this map's sprite memory setting leaves room for ${n}.`) // prettier-ignore
       else expect(d.note).toBeUndefined()
