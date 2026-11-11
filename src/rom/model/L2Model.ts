@@ -166,6 +166,9 @@ function dyFromEntrances(
  * "no known entrance, the primary entrance's F400/F600" and says nothing in the note, so a caller
  * must choose it on purpose and say why; `GRAPH_UNAVAILABLE` says the graph itself failed and
  * adds that to the unverified note (#1039).
+ * The parameter is deliberately required, not optional (#1340): a new caller must choose
+ * entrances, `GRAPH_UNAVAILABLE` or `undefined`, and `L2EntrancesRequired.synthetic.test.ts` guards
+ * that at compile time.
  */
 export function buildL2Inputs(
   rom: SmwRom,
