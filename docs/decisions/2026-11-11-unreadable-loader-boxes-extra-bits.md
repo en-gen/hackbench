@@ -17,9 +17,9 @@ When the app cannot read a ROM's sprite loader routing (the `LoadClass` table is
 
 ## Ruling
 
-wording not recorded. Option A was taken as [PROP] by papa-1011 and accepted by Overwatch for night shift, 2026-11-11, and is not ruled; owner ruling pending. [INF]
+wording not recorded. Option A was taken as [PROP] by papa-1011 and accepted by Overwatch for night shift, 2026-11-11, and is not ruled; owner ruling pending.
 
-When the loader cannot be read, a sprite with extra bit 2 or 3 is boxed with the reason `loaderUnreadable`, goal tapes included. It is never drawn with vanilla art and never hidden. A caller that supplies no routing at all (it never routes) is not an unreadable loader and is unchanged. The frames gate gives the same reason, and the frames fallback that looks for a parent routes as the map does.
+When the loader cannot be read, a sprite with extra bit 2 or 3 is boxed with the reason `loaderUnreadable`, goal tapes included. It is never drawn with vanilla art and never hidden. A caller that supplies no routing at all (it never routes) is not an unreadable loader and is unchanged. The frames gate gives the same reason, and the frames fallback that looks for a parent routes as the map does. `[INF]`
 
 ## Why
 
@@ -30,7 +30,7 @@ Cost, measured by counting list entries of all 512 slot pointers (parse only, no
 - Kaizo Kindergarten v1.09: 8 entries with bit 2 alone newly boxed, 3 of them goal tapes; unique 7 and 2.
 - Seven_Vanilla_Levels: 10 entries with bit 2 alone newly boxed, 5 of them goal tapes; unique 9 and 4.
 - Their entries with bit 3 (26 and 4) were already boxed and only change reason.
-- Seven_Vanilla_Levels' bit-2 counts equal vanilla's (10 entries, 5 goal tapes), so its new boxes are likely vanilla placements that the loader would route unchanged, which is the case A cannot tell apart from a real re-route.
+- Seven_Vanilla_Levels' bit-2 counts equal vanilla's (10 entries, 5 goal tapes), so its new boxes are likely vanilla placements that the loader would route unchanged, which is the case A cannot tell apart from a real re-route. `[INF]`
 - Both loaders are refused on the current build (Kaizo: the call goes elsewhere; Seven_Vanilla_Levels: the run for id $00 never reads the list entry), so on those two hacks every extra-bit sprite is a box.
 
 ## Applies to
