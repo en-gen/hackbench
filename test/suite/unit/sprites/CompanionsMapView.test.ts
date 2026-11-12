@@ -99,6 +99,8 @@ describe('a companion whose chars are not loaded', () => {
 })
 
 describe('screen-fixed pieces (fixOffsets) include companions', () => {
+  // The runner reads the loader's routing from the cart (#1011); this cart has no bank, so the read is unavailable and every id runs as a sprite.
+  const CARTLESS = { readAt: () => null } as unknown as RomFile
   // A cart-less run: the drawer only reads the run's model, the loader image and the camera.
   const loaded = new Uint8Array(0x20000)
   loaded.set([0x30, 0], 0x1a) // loader camera X 48
@@ -108,7 +110,7 @@ describe('screen-fixed pieces (fixOffsets) include companions', () => {
   const fake = () => model([pass(0, [], [piece(7, 0, 40, 60)])])
 
   it('a companion that does not follow the camera is placed from the loader camera, once', () => {
-    const r = interpRunner({} as RomFile, 0, { isVertical: false, screenCount: 2 }, fake, () => base)(spr) // prettier-ignore
+    const r = interpRunner(CARTLESS, 0, { isVertical: false, screenCount: 2 }, fake, () => base)(spr) // prettier-ignore
     if (!('m' in r)) throw new Error('direct')
     expect(r.fixed).toBe(true)
     const drawn = drawnParts(r.m.passes[0]!)

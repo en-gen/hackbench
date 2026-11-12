@@ -917,7 +917,7 @@ describe.skipIf(!hasRom(VANILLA) || !hasCaptures())('gradeCaptures on the corpus
     for (const g of got) tally[g.verdict] = (tally[g.verdict] ?? 0) + 1
     expect(tally).toEqual(want)
     expect(got).toHaveLength(total)
-    expect(total).toBe(1957)
+    expect(total).toBe(1955)
     const pages = buildReport(got, { sha: 'x', dirty: false })
     const anchors = [...pages].flatMap(([k, t]) =>
       k === 'index.md' ? [] : [...t.matchAll(/<a id="([^"]+)">/g)].map(m => m[1]),

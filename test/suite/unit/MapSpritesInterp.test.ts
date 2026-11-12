@@ -104,7 +104,7 @@ describe('modelResult', () => {
     expect(r).toMatchObject({ ok: true, anchor: { x: 104, y: 51 } })
     expect(r.ok && r.parts.map(p => p.charNum)).toEqual([0x405])
     expect(modelResult(model({ refusal: 'step budget spent' }))).toEqual({ ok: false, reason: 'refused: step budget spent' }) // prettier-ignore
-    expect(modelResult(model({ emptyReason: 'drew no OAM tile' }))).toEqual({ ok: false, reason: 'drew no OAM tile' }) // prettier-ignore
+    expect(modelResult(model({ emptyReason: 'drew no OAM tile' }))).toEqual({ ok: false, reason: 'drew no OAM tile', empty: true }) // prettier-ignore
   })
 })
 

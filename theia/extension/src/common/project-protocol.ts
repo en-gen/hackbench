@@ -332,7 +332,13 @@ export interface MapSpriteDto {
    * which has no OAM entry and keeps the pre-#795 slot, priority 2.
    */
   priority?: string
-  status: 'drawn' | 'placeholder'
+  /**
+   * `drawn`: a picture. `quiet`: it ran fine (or the game never runs it as a sprite) and has no picture, shown as a ring
+   * marker (#1011). `placeholder`: it failed or was refused, shown as the framed id box with `reason`.
+   */
+  status: 'drawn' | 'placeholder' | 'quiet'
+  /** With `quiet`: how the game's own loader routes the id, when it is not an ordinary sprite slot. Absent: a sprite that ran and drew nothing. */
+  kind?: 'shooter' | 'generator' | 'scroll'
   /**
    * List index of the sprite whose own code drew this one (the $9B a $9C carries, #1049). Its bitmap is the tiles
    * that parent drew for it: the view hit-tests and names it but does not paint it, the parent's bitmap already holds them.

@@ -13,7 +13,7 @@
  * (headless_capture.lua:1305-1311), which is the model's pass 0
  * (SpriteRunner.ts:509-524), so the target is pass `drawnFrame - firstRealFrame`
  * itself; `chosen` (the first drawing pass) is not added. Measured lag over the
- * 1957 graded records: 1 to 116 frames. All 80 `lagged` records are
+ * 1955 graded records: 1 to 116 frames. All 80 `lagged` records are
  * captures whose first draw came 31 to 89 frames after the first MAIN (likely
  * the level fade-in; not traced). Not re-aligned to the first draw.
  *   exact    every piece position matches

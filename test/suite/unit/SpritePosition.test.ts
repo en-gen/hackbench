@@ -232,8 +232,8 @@ function loadAll(): { map: string; rec: Rec }[] {
   return out
 }
 
-/** Measured 2026-10-17 on the #842 head, one machine, vanilla ROM: exact 1396, off 461, missing 1, parked 18, late 1, lagged 80, refused 0 of 1957 (2026-10-10, before #842: 1366/469/23); bounds have headroom. Pairing at pass drawnFrame - firstRealFrame. */
-const FLOOR = { graded: 1957, exact: 1382, maxOff: 466, maxLagged: 81, maxMissing: 2, maxParked: 19, maxLate: 2, maxRefused: 1 } // prettier-ignore
+/** Re-measured 2026-11-11 after the #1370 re-capture of maps 101, 1d4, 109, 11b, one machine, vanilla ROM: exact 1424, off 431, missing 1, parked 18, late 1, lagged 80, refused 0 of 1955. Measured 2026-10-17 on the #842 head, one machine, vanilla ROM: exact 1396, off 461, missing 1, parked 18, late 1, lagged 80, refused 0 of 1957 (2026-10-10, before #842: 1366/469/23); bounds have headroom. Pairing at pass drawnFrame - firstRealFrame. */
+const FLOOR = { graded: 1955, exact: 1382, maxOff: 466, maxLagged: 81, maxMissing: 2, maxParked: 19, maxLate: 2, maxRefused: 1 } // prettier-ignore
 /** The ten ids with the most exact records: exact count measured, minus 1. */
 const ID_FLOOR: Record<string, number> = {
   $C2: 82,

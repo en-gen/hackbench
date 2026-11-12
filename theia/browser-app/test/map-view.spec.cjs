@@ -1546,10 +1546,14 @@ test('$4F on $105 is served at its stream position: the INIT move (+8, -1) is no
     project.manifestPath,
   )
   expect(reply.status).toBe('ok')
-  // 31 plus the shell $DB at 3344,368 (#968), and the invisible mushroom $C7 the reveal search draws (#1132); the $8E
-  // that nothing reveals stays a marker.
+  // 31 plus the shell $DB at 3344,368 (#968), and the invisible mushroom $C7 the reveal search draws (#1132). The $8E
+  // that nothing reveals is the quiet marker with the search's reason (#1011), not the failure box: its words say the app could
+  // not tell what reveals it.
   expect(reply.sprites.filter(s => s.status === 'drawn')).toHaveLength(33)
-  expect(reply.sprites.filter(s => s.status === 'placeholder').map(s => s.id)).toEqual([0x8e])
+  expect(reply.sprites.filter(s => s.status === 'placeholder')).toHaveLength(0)
+  expect(reply.sprites.filter(s => s.status === 'quiet').map(s => [s.id, s.reason])).toEqual([
+    [0x8e, 'unrevealed'],
+  ])
   // Stream positions (1808, 336), (2224, 320), (4544, 320): measured on vanilla, absolute.
   const fours = reply.sprites.filter(s => s.id === 0x4f)
   expect(fours.map(s => [s.x, s.y, s.status])).toEqual([

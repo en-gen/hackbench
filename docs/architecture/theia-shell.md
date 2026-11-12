@@ -220,6 +220,14 @@ seen.
   through the hidden-tile screen door (D52, `spriteDoors`); hovering a sprite
   lifts its door (`doorIdAt`) and shows its name (`spriteAt`, Theia's
   `HoverService`). The `S` toggle hides the sprite canvases.
+- **Quiet marker (#1011).** A sprite the game's loader never runs as a sprite (shooter,
+  generator, scroll command), or whose run drew nothing, is `status: 'quiet'`: a 16 x 16
+  ring and dot at the placed spot, `kind` naming the loader path, door 0 (never dithered),
+  hit anywhere in its box, words from `quietText`. The routing comes from `loadClasses`
+  (`LoadClass.ts`), which runs the ROM's own sprite-list routine once per ROM version and
+  caches by the bytes read; when it cannot read the ROM an empty run keeps the framed box,
+  marked unverified. The failure box (`placeholder`) stays for refusals, unloaded chars,
+  extra bits and no descriptor.
 - **Block content indicators (#566).** A screen that holds an item block gets
   a display canvas (`IndicatorDisplay`, `map-view-model.ts`) that recomposes
   the indicator's cell at the zoom; the native composite is never given

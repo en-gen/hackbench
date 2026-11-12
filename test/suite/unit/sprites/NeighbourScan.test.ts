@@ -6,10 +6,14 @@
  * PutHammerBroOnPlat does), id 51 (draws nothing, as $9B alone), id 52 (draws its own piece in its own turn).
  * Evidence scope: the fixture's own routines; the vanilla maps are graded by spriteGrade.captures.test.ts.
  */
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { freshRom, hasRom, VANILLA } from '../../support/corpus'
 import { romWindowHits } from '../../support/romWindows'
 import { RomFile } from '../../../../src/rom/RomFile'
+import { SmwRom } from '../../../../src/rom/SmwRom'
+import { loadClasses } from '../../../../src/rom/sprites/interp/LoadClass'
+import { L1ModelCache } from '../../../../theia/extension/src/node/map-screen'
+import { mapSpriteFrames } from '../../../../theia/extension/src/node/map-sprites'
 import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
 import { Refusal } from '../../../../src/rom/cpu/call'
 import { drawnParts, Machine, RAM, runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
@@ -323,7 +327,7 @@ describe('a sprite its parent drew, through the real drawer (#1049)', () => {
     // The scanner draws two pieces, its own and the companion's: the companion gets the one it drew.
     expect(parent!.parts!.length).toBe(2 * child!.parts!.length)
     // Another companion, on a screen the scanner's neighbors do not reach, keeps its marker.
-    expect(far).toMatchObject({ index: 2, status: 'placeholder' })
+    expect(far).toMatchObject({ index: 2, status: 'placeholder' }) // this synthetic cart has no readable loader routing, so its empty run keeps the box (#1011)
   })
 
   it('a parent that draws the companion before its own piece still gives the companion only its own tiles', () => {
@@ -428,5 +432,32 @@ describe('companions and the neighbor run (#840)', () => {
     expect(m.neighbourRun).toBe('same')
     expect(m.passes[m.chosen!]!.companions).toHaveLength(1)
     expect(cells(m)).toBe(8)
+  })
+})
+
+/** The served frames path, end to end on the scanner cart (its loader is unreadable): a $9C-like parent's child rides with it unless the parent is boxed. */
+describe('mapSpriteFrames: the parent fallback routes as the map does (#1011)', () => {
+  afterEach(() => vi.restoreAllMocks())
+  const served = (parentFlags: number) => {
+    const rom = cart()
+    const bytes = Uint8Array.from(rom.buffer)
+    bytes[0x7fd5] = 0x20
+    const at = bytes.length - 0x40
+    bytes.set([0, 0x80 | parentFlags, 0x80, SCANNER, 0x70, 0x90, QUIET, 0xff], at)
+    const snes = ((at >> 15) << 16) | (0x8000 + (at & 0x7fff))
+    vi.spyOn(SmwRom.prototype, 'getLevelSpritePointer').mockReturnValue(snes)
+    const vram = { sp1: Array.from({ length: 512 }, () => new Uint8Array(64).fill(1)) }
+    const inputs = { vram, colors: COLORS, isVertical: false, screenCount: 2 }
+    return { bytes, cache: new L1ModelCache(() => ({ ok: true, inputs }) as never), rom }
+  }
+  const reasonOf = (parentFlags: number) => {
+    const { bytes, cache } = served(parentFlags)
+    return (mapSpriteFrames(cache, bytes, 'x.sfc', 0x104, 1) as { reason?: string }).reason
+  }
+
+  it('a parent with no extra bit gives its child the rides-with answer; with bit 2 it is boxed and the child is not claimed', () => {
+    expect(loadClasses(served(0).rom).status).toBe('unavailable')
+    expect(reasonOf(0)).toBe('ridesWith')
+    for (const flags of [0x04, 0x08, 0x0c]) expect(reasonOf(flags), `flags ${flags}`).not.toBe('ridesWith') // prettier-ignore
   })
 })
