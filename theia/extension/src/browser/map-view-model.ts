@@ -82,8 +82,9 @@ function opaqueAt(s: MapSpriteDto, px: number, py: number): boolean {
 /**
  * The sprite that owns the map pixel (x, y), in map pixels: the topmost of the `stackOrder` `spriteLayer` draws
  * with an opaque pixel there. Transparent pixels and Layer 2 flames hit nothing (#981). A sprite its parent drew
- * (`drawnBy`) takes the hit over that parent wherever it has a pixel, whichever sorts on top, because the parent's
- * bitmap holds the same pixels (D52).
+ * (`drawnBy`) is not tested at its own stack slot, as `spriteLayer` paints nothing there; it is hit only through
+ * its parent, and takes the hit over that parent wherever it has a pixel, whichever sorts on top, because the
+ * parent's bitmap holds the same pixels (D52, #1173).
  */
 export function spriteAt(
   sprites: readonly MapSpriteDto[],
@@ -95,8 +96,8 @@ export function spriteAt(
   const order = stackOrder(sprites, g, false)
   for (let n = order.length - 1; n >= 0; n--) {
     const s = order[n]!
-    if (!opaqueAt(s, px, py)) continue
-    // A sprite its parent drew is inside the parent's bitmap, which wins here when it sorts on top: the child takes the hit (D52).
+    if (s.drawnBy !== undefined || !opaqueAt(s, px, py)) continue
+    // A sprite its parent drew is inside the parent's bitmap: the child takes the hit where it has a pixel, whichever sorts on top (D52).
     return order.find(c => c.drawnBy === s.index && opaqueAt(c, px, py)) ?? s
   }
   return undefined

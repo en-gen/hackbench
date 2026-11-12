@@ -86,8 +86,13 @@ import {
   loadClasses,
   type LoadClass,
 } from '../../../../src/rom/sprites/interp/LoadClass'
+import {
+  EXTRA_BITS,
+  hasExtraBitNeighbour,
+  NEIGHBOUR_EXTRA_BIT_REASON,
+  neighboursOf,
+} from '../../../../src/rom/sprites/interp/Neighbours'
 import { undrawnNote, type UndrawnChildren } from '../../../../src/rom/sprites/interp/SpawnedChildren' // prettier-ignore
-import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
 import {
   EERIES_COUNT,
   fiveEeries,
@@ -130,7 +135,6 @@ import { RIDES_WITH_REASON } from '../common/project-protocol'
 import { screenTiles, unreadable, type L1ModelCache } from './map-screen'
 
 const TILE = 16
-const EXTRA_BITS = 0x08
 const NO_FLAGS: SwitchFlagsDto = { yellow: false, green: false, red: false, blue: false }
 /** Bytes of a level's sprite stream read; a longer one is noted, not silently cut. */
 export const STREAM_WINDOW = 0x200
@@ -631,6 +635,10 @@ function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
 
 const UNCHECKED_LOADER = "HackBench could not check whether this sprite appears in play (the map's sprite loader is not the stock one)" // prettier-ignore
 
+/** Reasons a picture is unverified, joined as `unverifiedOf` joins them, each once. */
+export const joinReasons = (...r: (string | undefined)[]): string | undefined =>
+  [...new Set(r.flatMap(x => x?.split('; ') ?? []).filter(Boolean))].join('; ') || undefined
+
 function unverifiedOf(m: RunModel, generic: string | undefined): { unverified?: string } {
   const why = [
     generic,
@@ -985,14 +993,26 @@ export function interpRunner(
       earlierSpriteLoaded(list, s, i => w?.[SPRITE_LOAD_STATUS + i] ?? 0)
     )
       m = { ...m, unverifiedReason: EARLIER_SPRITE_REASON }
+    // An extra-bit entry is never seeded, so a scanner would draw without it: marked. With stock neighbors seeded the run
+    // has the scan hook and `scansSlots` is exact; with none, one probe run with the extras in finds out (never drawn).
+    // A rope is not probed (its slot run differs). A reveal condition can reach a scan the at-rest run did not: asked again below.
+    const atRestReason = m.unverifiedReason // without the neighbor mark: a revealed picture is warned only by its own run
+    const extras = !rope && hasExtraBitNeighbour(list, s)
+    const scans = (known: boolean | undefined, q: SpriteSeed) =>
+      extras && (neighbours.length ? known : run(rom, s.spriteId, { ...q, neighbours: neighboursOf(list, s, e => ({ x: pixelX(e), y: e.y * TILE }), true) }).scansSlots) // prettier-ignore
+    if (scans(m.scansSlots, seed(camera, { opening })))
+      m = { ...m, unverifiedReason: joinReasons(m.unverifiedReason, NEIGHBOUR_EXTRA_BIT_REASON) }
     // Hidden sprites take their picture from the search, whatever the at-rest run drew (a mole drawn from where Mario starts).
     if (reveal) {
-      const rv = findReveal(seed(camera, { opening }), m, (q, probe) =>
-        run(rom, s.spriteId, q, { stopAtDraw: probe }),
-      )
-      // The routing warning of the at-rest run stays: the search's fresh run does not know the loader's routing was unreadable.
-      if (rv.status === 'hidden')
-        return { m: { unverifiedReason: m.unverifiedReason, ...rv.model }, fixed: false }
+      let won = seed(camera, { opening }) // the last whole rerun is the winning condition's seed
+      const rv = findReveal(seed(camera, { opening }), m, (q, probe) => {
+        if (!probe) won = q
+        return run(rom, s.spriteId, q, { stopAtDraw: probe })
+      })
+      if (rv.status === 'hidden') {
+        const mark = scans(rv.model.scansSlots, won) ? NEIGHBOUR_EXTRA_BIT_REASON : undefined
+        return { m: { ...rv.model, unverifiedReason: joinReasons(rv.model.unverifiedReason, atRestReason, mark) }, fixed: false } // prettier-ignore
+      }
       if (rv.status === 'refused') return { m: { ...m, chosen: undefined, refusal: rv.reason }, fixed: false } // prettier-ignore
       // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.
       if (rv.status === 'unrevealed' && rv.drewAtRest)

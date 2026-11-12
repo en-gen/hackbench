@@ -224,6 +224,21 @@ describe('offMapSpritePixels', () => {
       return [out[i]!, out[i + 3]!]
     }
 
+  it('a sprite its parent drew paints nothing off the map either: the parent holds its pixels (#1173)', () => {
+    const pad = { left: 32, top: 0, right: 0, bottom: 0 }
+    // Parent 1, C 2, child 3 overlap at x -8..-1. The child's pixel would sit over C if it painted; spriteAt skips it too.
+    const parent = sprite(1, { x0: -8, y0: 4, x1: 8, y1: 6 }, 30)
+    const c = sprite(2, { x0: -8, y0: 4, x1: 0, y1: 6 }, 40)
+    const child = { ...sprite(3, { x0: -8, y0: 4, x1: 0, y1: 6 }, 50), drawnBy: 1 }
+    const out = offMapSpritePixels([parent, c, child], 256, 432, pad, false)
+    expect(reader(out, 256, pad)(-4, 4)).toEqual([40, 255]) // C over the parent, as spriteAt answers
+    expect(
+      reader(offMapSpritePixels([parent, child], 256, 432, pad, false), 256, pad)(-4, 4),
+    ).toEqual([30, 255]) // the parent's own bitmap shows
+    expect(offMapSpritePixels([child], 256, 432, pad, false)).toBeNull()
+    expect(offMapSpritePixels([{ ...child, drawnBy: 0 }], 256, 432, pad, false)).toBeNull() // parent at index 0
+  })
+
   it('keeps only the pixels outside the map, at their padded position', () => {
     const pad = { left: 32, top: 0, right: 0, bottom: 0 }
     // 16 wide, straddling the map's left edge: 8 px off the map, 8 on it.
