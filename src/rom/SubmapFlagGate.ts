@@ -548,7 +548,8 @@ export function operandBytes(code: number, at?: string): number {
 
 /** Why the instruction at `c.addr` is not the stock one, or null: its opcode and, for a RAM operand, its
  *  address against `ram`. The whole instruction must be readable: an operand past the end of the image
- *  is a refusal. */
+ *  is a refusal. An opcode with no `SIZE` entry throws instead of returning a reason, because that is a
+ *  defect in the op table, not something a hack's bytes can cause. */
 function opMismatch(rom: RomFile, c: StockOp, ram: RamTable): string | null {
   const name = `${formatAddr(c.addr)} (${c.what}, ${c.cite})`
   const at = rom.readAt(c.addr, 1 + operandBytes(c.op, name))
