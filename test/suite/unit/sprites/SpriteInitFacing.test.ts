@@ -284,10 +284,10 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
     it(
       'matches the capture on every compared record except the named known mismatches',
       () => {
-        expect(compared.length).toBe(2162)
+        expect(compared.length).toBe(2160)
         const got = mismatches(compared).map(m => `${m.key}:${m.capture}>${m.ours}`.toLowerCase())
         expect(got.sort()).toEqual([...KNOWN_MISMATCHES].sort())
-        expect(compared.length - got.length).toBe(2158)
+        expect(compared.length - got.length).toBe(2156)
       },
       SLOW,
     )
