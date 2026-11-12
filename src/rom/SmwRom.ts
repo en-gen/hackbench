@@ -36,6 +36,7 @@ import {
   readSubmapHigh,
   readTranslevelBias,
   stockCodeMismatch,
+  type EntryFingerprints,
 } from './SubmapFlagGate'
 import {
   readBossModes,
@@ -478,7 +479,7 @@ export class SmwRom {
    */
   buildLevelExitGraph(
     roots: OverworldRoots | null,
-    entryFingerprints?: readonly string[],
+    entryFingerprints?: EntryFingerprints,
   ): LevelExitGraph {
     const entry = readTranslevelBias(this.rom, entryFingerprints)
     if (!entry.ok) return { graph: new Map(), unavailable: entry.reason }

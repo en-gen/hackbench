@@ -13,9 +13,9 @@ slot = (high << 8) | low
 
 The high byte comes from the player's submap, never from the translevel. A
 translevel at or above the threshold on the main map is still biased and
-still lands in $000-$0FF. `biasThreshold` and `bias` ($25 and $24 on
-vanilla) are read from the `CMP`/`SBC` operands
-(`src/rom/OverworldEntrances.ts`).
+still lands in $000-$0FF. `biasThreshold` and `bias` are read from the
+`CMP`/`SBC` operands (`readEntrySite` in `src/rom/SubmapFlagGate.ts`); the
+source states neither value.
 
 Statically, the submap flag is the buffer half a launch tile sits in:
 `CODE_05D83E` adds $400 to the `OWLayer1Translevel` index when
@@ -50,7 +50,7 @@ The hook is Lunar Magic's replacement of the stock `BEQ` that picks the
 entry high byte from `OWPlayerSubmap` (stock BEQ at bank_05.asm:7224,
 opened via smw-mcp `get_lines`; the `$05D8B1` address is from CLAUDE.md,
 not re-derived here). Whether a ROM carries the hook is decided by
-`src/rom/SubmapFlagGate.ts` (`LM_ENTRY_SITE`, `LM_ENTRY_HOOK`), which is
+`src/rom/SubmapFlagGate.ts` (`LM_ENTRY_SITE_OPS`, `LM_ENTRY_HOOK`), which is
 the authority for the hook claim, not any ASM line.
 
 ## Implementation

@@ -10,6 +10,7 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { ADDR, SmwRom, type MapEntrances } from '../../../src/rom/SmwRom'
 import {
   LEVEL_START_Y,
+  SCREEN_EXIT,
   entrancePositionGate,
   spanFingerprint,
   type StockCode,
@@ -39,22 +40,6 @@ const SPANS = LEVEL_START_Y.filter((c): c is StockSpan => 'fingerprints' in c)
 const CODES = LEVEL_START_Y.filter((c): c is StockCode => 'bytes' in c)
 const hex6 = (n: number) => `$${n.toString(16).toUpperCase().padStart(6, '0')}`
 
-/**
- * Written from bank_05.asm, not from the constants under test, so a wrong constant goes red with no
- * ROM. The secondary-exit head, bank_05.asm:7111-7119: LDA UseSecondaryExit ($1B93) / BEQ to the JMP
- * at $05D83B (+$62) / REP #$30 / LDA #$0000 / SEP #$20 / LDY _E / LDA DATA_05F800,Y / STA _E /
- * STA LoadingLevelNumber ($17BB).
- */
-const SECONDARY_HEAD_AT = 0x05d7d4
-// prettier-ignore
-const SECONDARY_HEAD = [
-  0xad, 0x93, 0x1b, 0xf0, 0x62, 0xc2, 0x30, 0xa9, 0x00, 0x00, 0xe2, 0x20, 0xa4, 0x0e,
-  0xb9, 0x00, 0xf8, 0x85, 0x0e, 0x8d, 0xbb, 0x17,
-]
-/** bank_05.asm:7265-7267: REP #$10 / SEP #$20 / LDY _E, the index of every F000..F600 read below. */
-const MAIN_INDEX_AT = 0x05d907
-const MAIN_INDEX = [0xc2, 0x10, 0xe2, 0x20, 0xa4, 0x0e]
-
 /** Every code byte of the gate gets a distinct non-zero value, so any single flip changes a hash. */
 function withStockCode(rom: RomFile): RomFile {
   for (const c of CODES)
@@ -63,8 +48,15 @@ function withStockCode(rom: RomFile): RomFile {
       c.bytes.map(b => (b === WILD ? 0 : b)),
     )
   for (const s of SPANS) rom.writeAt(s.addr, Array.from({ length: s.length }, (_, i) => (i % 250) + 1)) // prettier-ignore
-  rom.writeAt(SECONDARY_HEAD_AT, SECONDARY_HEAD)
-  rom.writeAt(MAIN_INDEX_AT, MAIN_INDEX)
+  // The filler covers the screen-exit path's DATA_05F800 read, which the exit graph's own gate checks.
+  for (const c of SCREEN_EXIT.filter(c =>
+    SPANS.some(s => c.addr >= s.addr && c.addr < s.addr + s.length),
+  )) {
+    rom.writeAt(
+      c.addr,
+      c.bytes.map(b => (b === WILD ? 0 : b)),
+    )
+  }
   return rom
 }
 /** The spans as the synthetic cart's own build: stands in for the vanilla fingerprints. */
@@ -159,24 +151,19 @@ describe('the gate watches each instruction that reads the entrance position tab
     expect(entrancePositionGate(rom, spans)).not.toBeNull()
   })
 
-  // The control-flow gaps the first version left (#860 review): the branch around the
-  // secondary-exit position reads, and the index every F000..F600 read goes through.
-  it('stock: the independent encodings of the secondary-exit head and the index pass the gate', () => {
-    const rom = l3Cart()
-    expect(entrancePositionGate(rom, stockOf(rom))).toBeNull()
-  })
-  it('BEQ to BRA over the secondary-exit reads fires the gate (bank_05.asm:7112)', () => {
+  // The control-flow gaps the first version left (#860 review), now inside the two merged digests
+  // (#1061): the branch around the secondary-exit reads, and the index every F000..F600 read uses.
+  it('the BEQ over the secondary-exit reads (bank_05.asm:7112) is watched, first byte to last of its span', () => {
     const rom = l3Cart()
     const spans = stockOf(rom)
-    expect(rom.readByte(0x05d7d7)).toBe(0xf0)
-    rom.writeAt(0x05d7d7, [0x80])
+    expect(entrancePositionGate(rom, spans)).toBeNull()
+    flipAt(rom, 0x05d7d7)
     expect(entrancePositionGate(rom, spans)).toMatch(/^\$05D7D4 /)
   })
-  it('a different operand on LDY _E fires the gate (bank_05.asm:7267)', () => {
+  it('the operand of LDY _E (bank_05.asm:7267) is watched', () => {
     const rom = l3Cart()
     const spans = stockOf(rom)
-    expect(rom.readByte(0x05d90c)).toBe(0x0e)
-    rom.writeAt(0x05d90c, [0x0f])
+    flipAt(rom, 0x05d90c)
     expect(entrancePositionGate(rom, spans)).toMatch(/^\$05D907 /)
   })
 })
@@ -255,7 +242,7 @@ describe('MapBuilder carries the same reason on its map store, through the paylo
     const spans = stockOf(real)
     flipAt(real, 0x05d7ed)
     const built = buildMapWithGraph(rom, 7, { startSpans: spans }).map.mapStore.entranceUnverified
-    expect(built).toMatch(/^\$05D7EA /)
+    expect(built).toMatch(/^\$05D7D4 /)
     expect(buildMapPayload(rom, 7, { startSpans: spans }).header.entranceUnverified).toBe(built)
     expect(roundTrip(rom, spans).map.mapStore.entranceUnverified).toBe(built)
   })

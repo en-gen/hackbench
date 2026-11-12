@@ -113,6 +113,7 @@ import { loadOverworldEvents } from './OverworldEvents'
 import {
   OVERWORLD_INDEX_BODY,
   readTranslevelBias,
+  type EntryFingerprints,
   translevelToPointerIndex,
 } from './SubmapFlagGate'
 import { findUnique, matchesAt, WILD, type BytePattern } from './BytePattern'
@@ -145,7 +146,7 @@ export const WALK_PROLOGUE_LENGTH = 43
 /** Recognized builds of the two fingerprinted spans. Vanilla only, measured:
  *  the magic ROM matches both, the four hacks match neither. */
 export interface OverworldFingerprints {
-  entry: readonly string[]
+  entry: EntryFingerprints
   walk: readonly string[]
   /** Decompressor builds for Lunar Magic's stored table; the shipped ones when absent. */
   decompressor?: LmDecompressors

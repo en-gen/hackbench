@@ -10,9 +10,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { WILD } from '../../../src/rom/BytePattern'
-import { LM_ENTRY_HOOK, LM_ENTRY_SITE, readTranslevelBias } from '../../../src/rom/SubmapFlagGate'
+import { LM_ENTRY_HOOK, readTranslevelBias } from '../../../src/rom/SubmapFlagGate'
 import {
   blankStockRom,
+  flip,
   plantLmEntryHook,
   SYNTHETIC_FINGERPRINTS,
   writeSyntheticRom,
@@ -28,7 +29,7 @@ const read = (rom: RomFile): ReturnType<typeof readTranslevelBias> =>
 
 describe('readTranslevelBias: Lunar Magic entry hook', () => {
   it("reads the routine's operands, not the stock site's", () => {
-    // The stock site keeps $25/$24; the routine overwrites what they computed.
+    // The site's own threshold and bias operands are invented too; the routine's are the ones read.
     expect(read(hooked({ threshold: 0x30, bias: 0x2a }))).toEqual({
       ok: true,
       threshold: 0x30,
@@ -36,6 +37,22 @@ describe('readTranslevelBias: Lunar Magic entry hook', () => {
       submapHigh: 1,
       high: 'translevel',
     })
+  })
+
+  it('refuses a stock-site ROM whose $05D8B2 changed, even to 0: the LM digest is only tried on the LM path', () => {
+    for (const v of [0, 0x4d ^ 0xff, 0xff]) {
+      const rom = blankStockRom()
+      rom.writeAt(0x05d8b2, [v])
+      const r = read(rom)
+      expect(r.ok, `value ${v}`).toBe(false)
+      if (!r.ok) expect(r.reason).toContain('not a recognized build of that code')
+    }
+  })
+
+  it('still checks the BCC displacement at $05D8A5 on the LM path', () => {
+    const rom = hooked()
+    flip(rom, 0x05d8a5)
+    expect(read(rom).ok).toBe(false)
   })
 
   it.each([0x05e900, 0x85dcd0])('follows the JSL to $%s', at => {
@@ -63,9 +80,12 @@ describe('readTranslevelBias: Lunar Magic entry hook', () => {
   })
 
   const pinned = (p: readonly number[]): number[] => p.flatMap((b, i) => (b === WILD ? [] : [i]))
-  it.each(pinned(LM_ENTRY_SITE.bytes))('refuses with site byte %i flipped', i => {
+  // Opcodes only (#1061): the nine instruction addresses, named by hand, flipped in turn.
+  it.each([
+    0x05d8a2, 0x05d8a4, 0x05d8a6, 0x05d8a7, 0x05d8a9, 0x05d8ac, 0x05d8ae, 0x05d8b1, 0x05d8b5,
+  ])('refuses with the instruction at $%s flipped', at => {
     const rom = hooked()
-    rom.writeAt(LM_ENTRY_SITE.addr + i, [LM_ENTRY_SITE.bytes[i]! ^ 0xff])
+    flip(rom, at)
     expect(read(rom).ok).toBe(false)
   })
   it.each(pinned(LM_ENTRY_HOOK))('refuses with routine byte %i flipped', i => {

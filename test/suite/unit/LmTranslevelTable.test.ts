@@ -12,7 +12,12 @@ import { encode } from '../../../src/rom/LcLz2'
 import { ENTER_COMPARE, deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
 import { WILD } from '../../../src/rom/BytePattern'
 import { STOCK_LCLZ2_ENTRY } from '../../../src/rom/GfxDecompressor'
-import { blankStockRom, flip, SYNTHETIC_FINGERPRINTS } from '../support/syntheticRom'
+import {
+  blankStockRom,
+  flip,
+  SYNTHETIC_BIAS,
+  SYNTHETIC_FINGERPRINTS,
+} from '../support/syntheticRom'
 import {
   BACKREF_AT,
   BACKREF_DISPATCH,
@@ -126,6 +131,8 @@ const tableOf = (entries: Record<number, number>): Uint8Array => {
   for (const [i, tl] of Object.entries(entries)) t[Number(i)] = tl
   return t
 }
+/** Translevel $30 on the sub-map half: past the threshold, so the bias comes off. */
+const SUB_SLOT_OF_30 = 0x100 + 0x30 - SYNTHETIC_BIAS
 const walked = (rom: RomFile): number[][] =>
   derive(rom).entrances.map(e => [e.bufferIndex, e.translevel, e.slot])
 
@@ -157,10 +164,10 @@ describe('deriveOverworldEntrances: Lunar Magic stored translevels', () => {
   ] as const)('reads the table with bank-first %s and %i block(s)', (bankFirst, blocks) => {
     for (const fastRom of [false, true]) {
       const rom = build(tableOf({ 0x10: 3, 0x420: 0x30 }), lmEntry(bankFirst, blocks, fastRom))
-      // $30 is past #601's threshold: slot $10C on either map.
+      // $30 is past the threshold: the bias comes off, on either map.
       expect(walked(rom)).toEqual([
         [0x10, 3, 0x003],
-        [0x420, 0x30, 0x10c],
+        [0x420, 0x30, SUB_SLOT_OF_30],
       ])
     }
   })
@@ -198,7 +205,7 @@ describe('deriveOverworldEntrances: Lunar Magic stored translevels', () => {
     for (const key of [0x0300, 0x5aa5]) {
       expect(walked(build(t, undefined, { key })), `key ${key}`).toEqual([
         [0x10, 3, 0x003],
-        [0x420, 0x30, 0x10c],
+        [0x420, 0x30, SUB_SLOT_OF_30],
       ])
     }
     expect(derive(build(t, undefined, { key: 0x5aa5, stored: 0x0300 })).overworldReadable).toBe(

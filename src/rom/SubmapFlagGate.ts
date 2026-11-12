@@ -7,10 +7,11 @@
  * machine): empirical, not an ASM claim. A mismatch means code HackBench does
  * not decode, so callers decline rather than assume the stock rule.
  *
- * The overworld entry is checked contiguously from the JMP target through
- * `STA _F`: CODE_05D83E's index as a fingerprint between its literal
- * OverworldOverride test and table load, then CODE_05D8A2 literally. The test
- * and the load each also accept a recognized hook.
+ * The overworld entry path is checked as the JMP target's digest (CODE_05D83E through the index
+ * computation and three branch displacements, with the two instructions a Lunar Magic hook replaces
+ * masked), then the guard's, the table load's and CODE_05D8A2's instructions one opcode at a time
+ * (#1061): single named ISA constants, with the operands the model uses read from the ROM. The
+ * guard and the load each also accept a recognized hook.
  */
 import type { RomFile } from './RomFile'
 import { WILD, matchesBytes, type BytePattern } from './BytePattern'
@@ -36,11 +37,74 @@ export interface StockSpan {
   length: number
   /** The recognized builds; a caller may pass its own to `stockCodeMismatch`. */
   fingerprints: readonly string[]
-  /** Offsets zeroed before hashing: operands the caller reads and checks itself. */
+  /** Offsets zeroed before hashing: operands the caller reads and checks itself. Offsets here and in
+   *  `lmSiteOmit` run over `addr`'s bytes, then `also`'s, in order. */
   mask?: readonly number[]
+  /** Offset dropped from the hash when the LM site hook is recognized. */
+  lmSiteOmit?: number
+  /** Further [address, length] runs hashed after the first, in the same digest (FINGERPRINT MINIMUM rule 6). */
+  also?: readonly (readonly [number, number])[]
   what: string
   cite: string
 }
+
+/** ISA opcodes, one named constant each: the checks below compare single instructions, never runs. */
+const OP = {
+  LDA_IMM: 0xa9,
+  LDA_ABS: 0xad,
+  LDA_ABS_Y: 0xb9,
+  LDA_LONG_X: 0xbf,
+  STA_DP: 0x85,
+  STA_ABS: 0x8d,
+  CMP_IMM: 0xc9,
+  SBC_IMM: 0xe9,
+  SEC: 0x38,
+  BCC: 0x90,
+  BEQ: 0xf0,
+  BNE: 0xd0,
+  JSL: 0x22,
+} as const
+
+/**
+ * The seven RAM addresses the entry path's instructions name, one constant each, cited to SMWDisX
+ * rammap.asm. A named exception to the no-hardcoded-ROM-values rule for this block only (D185,
+ * docs/decisions/2026-11-05-d126-exception-entry-site-ram.md): opcodes and these addresses are named;
+ * the threshold, bias, high byte and branch displacements stay read from the ROM. A hack that keeps the
+ * opcodes but repoints a store would otherwise read as stock and yield a confidently wrong slot.
+ */
+export const ENTRY_RAM = Object.freeze({
+  OverworldOverride: 0x0109, // rammap.asm:1036
+  TranslevelNo: 0x13bf, // rammap.asm:1445
+  LoadingLevelNumber: 0x17bb, // rammap.asm:1796
+  OWPlayerSubmap: 0x1f11, // rammap.asm:2049
+  OWLayer1Translevel: 0x7ed000, // rammap.asm:2115
+  _E: 0x0e, // rammap.asm:23
+  _F: 0x0f, // rammap.asm:24
+})
+export type RamKey = keyof typeof ENTRY_RAM
+export type RamTable = Readonly<Record<RamKey, number>>
+
+/** The span-fingerprint override a synthetic ROM passes; it may also carry its own RAM table. */
+export type EntryFingerprints = readonly string[] & { readonly ram?: RamTable }
+
+/** One instruction's opcode and, for a RAM operand, its key in the RAM table (never the value). A branch's
+ *  displacement is not named: it sits in a digest (OVERWORLD_INDEX_BODY). */
+export interface StockOp {
+  addr: number
+  op: number
+  ram?: RamKey
+  what: string
+  cite: string
+}
+
+/** A frozen StockOp. Only the opcode and a RAM key are stated; a branch's distance is deliberately not (it sits in a digest). */
+const op = (
+  addr: number,
+  code: number,
+  what: string,
+  cite: string,
+  extra: { ram?: RamKey } = {},
+): StockOp => Object.freeze({ addr, op: code, what, cite, ...extra })
 
 const REACH: StockCode = {
   addr: 0x0096f4,
@@ -50,55 +114,81 @@ const REACH: StockCode = {
   cite: 'bank_00.asm:2644',
 }
 
-/** STZ _F / LDY #0 / LDA OverworldOverride / BNE CODE_05D8A2. */
-export const OVERWORLD_INDEX_GUARD: StockCode = {
-  addr: 0x05d83e,
-  bytes: [0x64, 0x0f, 0xa0, 0x00, 0xad, 0x09, 0x01, 0xd0, 0x5b],
-  what: "CODE_05D83E's OverworldOverride test",
-  cite: 'bank_05.asm:7164-7168',
-}
+/** LDA OverworldOverride / BNE; the STZ _F and LDY #0 before them, and the BNE's displacement, are in the digest below. */
+export const OVERWORLD_INDEX_GUARD: readonly StockOp[] = Object.freeze([
+  op(0x05d842, OP.LDA_ABS, "CODE_05D83E's OverworldOverride test", 'bank_05.asm:7167', {
+    ram: 'OverworldOverride',
+  }),
+  op(0x05d845, OP.BNE, "CODE_05D83E's BNE", 'bank_05.asm:7168'),
+])
 
-/** The index computation up to the table load. Vanilla only, measured. */
+/**
+ * CODE_05D83E through the table load, plus the displacements of the three branches the ops do not name
+ * (no distance is stated). Vanilla only, measured. One digest per path (#1061, FINGERPRINT MINIMUM rule 6,
+ * D191 187B); spans, mask and byte counts: docs/decisions/2026-11-05-d126-exception-entry-site-ram.md
+ * (Fingerprint counts). The mask covers what the midway hook replaces; the ops check those bytes.
+ * fingerprints[1] omits $05D8B2 (`lmSiteOmit`), which Lunar Magic's site hook overwrites. Omitted, not
+ * zeroed, so a stock-site ROM whose $05D8B2 happens to be 0 cannot hash to the LM value; it is tried only
+ * once the site hook is recognized (entryPathMismatches).
+ */
 export const OVERWORLD_INDEX_BODY: StockSpan = Object.freeze({
-  addr: 0x05d847,
-  length: 0x54,
-  fingerprints: Object.freeze(['ab9d13cbee1de3f1f850dc3a60d98f23db85ea307afe430922ada36ac2aee7ed']),
-  what: 'CODE_05D83E, the OWLayer1Translevel index',
-  cite: 'bank_05.asm:7169-7213',
+  addr: 0x05d83e,
+  length: 93,
+  mask: Object.freeze([4, 5, 6, 7]),
+  also: Object.freeze([
+    Object.freeze([0x05d8a5, 1] as const),
+    Object.freeze([0x05d8b2, 1] as const),
+  ]),
+  lmSiteOmit: 94,
+  fingerprints: Object.freeze([
+    // stock
+    '8325c1cad42dd3525170a655b526c6d51c7da7e3a454aaf97381911241d6ee5d',
+    // LM site hook ($05D8B2 omitted)
+    '00a2f9f9d0fd33630c6a24dcfc7f3721246e9baba88ea0136b39fb79d9e85f0f',
+  ]),
+  what: 'CODE_05D83E, the OWLayer1Translevel index and three branch displacements',
+  cite: 'bank_05.asm:7164-7213, 7218, 7224',
 })
 
-/** LDA.L OWLayer1Translevel,X / STA TranslevelNo. */
-export const OVERWORLD_INDEX_LOAD: StockCode = {
-  addr: 0x05d89b,
-  bytes: [0xbf, 0x00, 0xd0, 0x7e, 0x8d, 0xbf, 0x13],
-  what: 'the OWLayer1Translevel load',
-  cite: 'bank_05.asm:7214-7215',
-}
+/** LDA.L OWLayer1Translevel,X / STA TranslevelNo; a JSL replaces the first (the second stays). */
+export const OVERWORLD_INDEX_LOAD: readonly StockOp[] = Object.freeze([
+  op(0x05d89b, OP.LDA_LONG_X, 'the OWLayer1Translevel load', 'bank_05.asm:7214', {
+    ram: 'OWLayer1Translevel',
+  }),
+  op(0x05d89f, OP.STA_ABS, 'the store to TranslevelNo', 'bank_05.asm:7215', {
+    ram: 'TranslevelNo',
+  }),
+])
 
-export const OVERWORLD_ENTRY: readonly (StockCode | StockSpan)[] = [
+/**
+ * CODE_05D8A2 (bank_05.asm:7217-7226), one opcode at a time. The operands the model uses
+ * (threshold, bias, high byte) are read by `readEntrySite`.
+ */
+const A2 = 'CODE_05D8A2'
+export const ENTRY_SITE_OPS: readonly StockOp[] = Object.freeze([
+  op(0x05d8a2, OP.CMP_IMM, `${A2}'s threshold compare`, 'bank_05.asm:7217'),
+  op(0x05d8a4, OP.BCC, `${A2}'s BCC`, 'bank_05.asm:7218'),
+  op(0x05d8a6, OP.SEC, `${A2}'s SEC`, 'bank_05.asm:7219'),
+  op(0x05d8a7, OP.SBC_IMM, `${A2}'s bias subtract`, 'bank_05.asm:7220'),
+  op(0x05d8a9, OP.STA_ABS, `${A2}'s store of the level number`, 'bank_05.asm:7221', {
+    ram: 'LoadingLevelNumber',
+  }),
+  op(0x05d8ac, OP.STA_DP, `${A2}'s store to _E`, 'bank_05.asm:7222', { ram: '_E' }),
+  op(0x05d8ae, OP.LDA_ABS_Y, `${A2}'s read of the submap flag`, 'bank_05.asm:7223', {
+    ram: 'OWPlayerSubmap',
+  }),
+  op(0x05d8b1, OP.BEQ, `${A2}'s BEQ`, 'bank_05.asm:7224'),
+  op(0x05d8b3, OP.LDA_IMM, `${A2}'s high byte`, 'bank_05.asm:7225'),
+  op(0x05d8b5, OP.STA_DP, `${A2}'s store to _F`, 'bank_05.asm:7226', { ram: '_F' }),
+])
+
+export const OVERWORLD_ENTRY: readonly (StockCode | StockSpan | StockOp)[] = [
   REACH,
   { addr: 0x05d7b0, bytes: [0x4c, 0x3e, 0xd8], what: 'JMP CODE_05D83E', cite: 'bank_05.asm:7093' },
-  OVERWORLD_INDEX_GUARD,
+  ...OVERWORLD_INDEX_GUARD,
   OVERWORLD_INDEX_BODY,
-  OVERWORLD_INDEX_LOAD,
-  {
-    addr: 0x05d8a2,
-    // prettier-ignore
-    bytes: [
-      0xc9, WILD,       // CMP #threshold
-      0x90, 0x03,       // BCC +
-      0x38,             // SEC
-      0xe9, WILD,       // SBC #bias
-      0x8d, 0xbb, 0x17, // + STA LoadingLevelNumber
-      0x85, 0x0e,       // STA _E
-      0xb9, 0x11, 0x1f, // LDA OWPlayerSubmap,Y
-      0xf0, 0x02,       // BEQ +
-      0xa9, WILD,       // LDA #submapHigh
-      0x85, 0x0f,       // + STA _F
-    ],
-    what: 'CODE_05D8A2, the translevel bias and high byte',
-    cite: 'bank_05.asm:7217-7226',
-  },
+  ...OVERWORLD_INDEX_LOAD,
+  ...ENTRY_SITE_OPS,
 ]
 
 /** The screen-exit path's own `LDA #imm` submap high byte (bank_05.asm:7109). */
@@ -128,54 +218,28 @@ export const SCREEN_EXIT: readonly StockCode[] = [
 
 /**
  * The level load's start-position code the map view's L2 height reads tables through (#505):
- * the secondary entrance block, and CODE_05D8B7 from the DATA_05F000 read to CODE_05DA17 (the
+ * the secondary entrance block, and CODE_05D8B7 from the index setup at bank_05.asm:7265 to CODE_05DA17 (the
  * settings, ScreenMode, primary rows, midway branch and high bytes). Vanilla only, measured; on
  * the 4 corpus hacks both spans differ, so their heights are unverified.
  */
 export const LEVEL_START_Y: readonly (StockCode | StockSpan)[] = [
   REACH,
   {
-    // The branch that decides whether the secondary entrance block runs at all, the `LDY _E` that
-    // indexes its F800/FA00/FC00 reads, and the two stores that hand _E and the level number on.
-    // Literal, not a fingerprint: a BEQ turned BRA or a wrong index register has to be named.
+    // ONE digest each (#1061); byte counts: docs/rom/map-data-mechanics.md (Layer 2 vertical position).
     addr: 0x05d7d4,
-    // prettier-ignore
-    bytes: [
-      0xad, 0x93, 0x1b, // LDA UseSecondaryExit
-      0xf0, 0x62,       // BEQ to the JMP CODE_05D8B7 at $05D83B
-      0xc2, 0x30,       // REP #$30
-      0xa9, 0x00, 0x00, // LDA #$0000
-      0xe2, 0x20,       // SEP #$20
-      0xa4, 0x0e,       // LDY _E
-      0xb9, 0x00, 0xf8, // LDA DATA_05F800,Y
-      0x85, 0x0e,       // STA _E, which the main block's LDY _E reloads
-      0x8d, 0xbb, 0x17, // STA LoadingLevelNumber
-    ],
-    what: 'the secondary-exit branch and its _E index',
-    cite: 'bank_05.asm:7111-7119',
+    length: 0x05d83e - 0x05d7d4,
+    fingerprints: ['112f553172e14efb4f44c504f9412871556fd8a16f22c705d43660e5aef134fb'],
+    what: 'the secondary-exit branch, its _E index and the secondary entrance position reads',
+    cite: 'bank_05.asm:7111-7162',
   },
   {
-    addr: 0x05d7ea,
-    length: 84,
-    fingerprints: ['0205f62a9a66930567e58633c6a3c4420bea50ae960a91bceeede88a71cac967'],
-    what: 'the secondary entrance position reads',
-    cite: 'bank_05.asm:7120-7162',
-  },
-  {
-    // The widths and the `LDY _E` every F000/F200/F400/F600 read below indexes through. The pointer
-    // setup before it (:7227-7264) is not covered: it writes only the layer pointers, the sprite
-    // header settings and Y, which :7267 overwrites.
+    // The pointer setup before it (bank_05.asm:7227-7264) is not covered: it writes only the layer
+    // pointers, the sprite header settings and Y, which :7267 overwrites.
     addr: 0x05d907,
-    bytes: [0xc2, 0x10, 0xe2, 0x20, 0xa4, 0x0e],
-    what: 'the index for the main entrance position reads',
-    cite: 'bank_05.asm:7265-7267',
-  },
-  {
-    addr: 0x05d90d,
-    length: 0x05da17 - 0x05d90d,
-    fingerprints: ['e46e2778b7b31911e83daf9531dbc9b5bd56f49aa10b594e4e354476f9969d23'],
-    what: 'the level start positions',
-    cite: 'bank_05.asm:7268-7395',
+    length: 0x05da17 - 0x05d907,
+    fingerprints: ['ba2eb7bf0ee4a1d48876b8ab9763d1adef412f49ad4ebb18c660ee3757cd8c61'],
+    what: 'the index for the main entrance position reads and the level start positions',
+    cite: 'bank_05.asm:7265-7395',
   },
 ]
 
@@ -206,19 +270,17 @@ export function readSubmapHigh(rom: RomFile, at: number): number | string {
   )
 }
 
-const ENTRY_PATH = OVERWORLD_ENTRY.slice(0, -1)
-const ENTRY_SITE = OVERWORLD_ENTRY[OVERWORLD_ENTRY.length - 1] as StockCode
-/** The stock site's `LDA OWPlayerSubmap,Y` ends here; the hook's JSL follows. */
-const SITE_KEPT = 15
+const ENTRY_PATH = OVERWORLD_ENTRY.slice(0, -ENTRY_SITE_OPS.length)
+/** The stock site's `LDA OWPlayerSubmap,Y` is its seventh instruction; the hook's JSL follows. */
+const SITE_KEPT = 7
+const JSL_AT = 0x05d8b1
 
-/** CODE_05D8A2 as Lunar Magic leaves it: a JSL, followed, in place of `BEQ + /
- *  LDA #submapHigh`, returning to the stock `STA _F`. */
-export const LM_ENTRY_SITE: StockCode = {
-  addr: ENTRY_SITE.addr,
-  bytes: [...ENTRY_SITE.bytes.slice(0, SITE_KEPT), 0x22, WILD, WILD, WILD, 0x85, 0x0f],
-  what: "CODE_05D8A2 with Lunar Magic's high-byte JSL",
-  cite: ENTRY_SITE.cite,
-}
+/** CODE_05D8A2 as Lunar Magic leaves it: the first seven instructions, then a JSL, then the last. */
+export const LM_ENTRY_SITE_OPS: readonly StockOp[] = Object.freeze([
+  ...ENTRY_SITE_OPS.slice(0, SITE_KEPT),
+  op(JSL_AT, OP.JSL, "CODE_05D8A2's high-byte JSL", 'bank_05.asm:7224'),
+  ENTRY_SITE_OPS[ENTRY_SITE_OPS.length - 1]!,
+])
 
 /** The JSL's routine. Off the override path it recomputes the level number
  *  from TranslevelNo and takes the high byte from the translevel, not the submap. */
@@ -244,10 +306,13 @@ export const LM_ENTRY_HOOK: BytePattern = [
 ]
 
 /** The routine's own threshold and bias, or why the site is not the hook. */
-function lmEntryHook(rom: RomFile): { threshold: number; bias: number } | string {
-  const site = stockCodeMismatch(rom, [LM_ENTRY_SITE])
+function lmEntryHook(
+  rom: RomFile,
+  spanFingerprints?: EntryFingerprints,
+): { threshold: number; bias: number } | string {
+  const site = stockCodeMismatch(rom, LM_ENTRY_SITE_OPS, spanFingerprints)
   if (site) return site
-  const b = rom.readAt(LM_ENTRY_SITE.addr + SITE_KEPT + 1, 3)!
+  const b = rom.readAt(JSL_AT + 1, 3)!
   const at = b[0]! | (b[1]! << 8) | (b[2]! << 16)
   const routine = rom.readAt(at, LM_ENTRY_HOOK.length)
   if (!matchesBytes(routine, LM_ENTRY_HOOK)) {
@@ -269,10 +334,13 @@ export interface TranslevelBias {
 export type TranslevelBiasSite = ({ ok: true } & TranslevelBias) | { ok: false; reason: string }
 
 /** CODE_05D8A2's operands, stock or through the recognized hook. */
-export function readEntrySite(rom: RomFile): TranslevelBiasSite {
-  const stock = stockCodeMismatch(rom, [ENTRY_SITE])
+export function readEntrySite(
+  rom: RomFile,
+  spanFingerprints?: EntryFingerprints,
+): TranslevelBiasSite {
+  const stock = stockCodeMismatch(rom, ENTRY_SITE_OPS, spanFingerprints)
   if (stock) {
-    const hook = lmEntryHook(rom)
+    const hook = lmEntryHook(rom, spanFingerprints)
     if (typeof hook === 'string') {
       return { ok: false, reason: `${stock} Nor is it Lunar Magic's hook: ${hook}` }
     }
@@ -313,7 +381,7 @@ export const MIDWAY_HELPERS: readonly FastRoutine[] = [
 ]
 
 /** STZ _F / LDY #0 / JML: Lunar Magic's midway hook in place of the OverworldOverride test. */
-const MIDWAY_HOOK_SITE: BytePattern = [0x64, 0x0f, 0xa0, 0x00, 0x5c, WILD, WILD, WILD]
+export const MIDWAY_HOOK_SITE: BytePattern = [0x64, 0x0f, 0xa0, 0x00, 0x5c, WILD, WILD, WILD]
 
 /**
  * Why $05D842 is not Lunar Magic's midway hook, or null when it is. Its midway
@@ -325,7 +393,7 @@ function midwayHookMismatch(
   builds: readonly MidwayHookBuild[] = MIDWAY_BUILDS,
   helpers: readonly FastRoutine[] = MIDWAY_HELPERS,
 ): string | null {
-  const site = rom.readAt(OVERWORLD_INDEX_GUARD.addr, MIDWAY_HOOK_SITE.length)
+  const site = rom.readAt(OVERWORLD_INDEX_BODY.addr, MIDWAY_HOOK_SITE.length)
   if (!matchesBytes(site, MIDWAY_HOOK_SITE)) return '$05D83E holds no STZ _F / LDY #0 / JML.'
   const at = le24(site!, 5)
   for (const b of builds) {
@@ -350,7 +418,8 @@ function midwayHookMismatch(
 }
 
 /** JSL loader / STA TranslevelNo: a hook in place of the table load. */
-const LOAD_HOOK_SITE: BytePattern = [0x22, WILD, WILD, WILD, 0x8d, 0xbf, 0x13]
+// The store's operand is checked as an op, so the pattern stops at its opcode.
+const LOAD_HOOK_SITE: BytePattern = [OP.JSL, WILD, WILD, WILD, OP.STA_ABS]
 
 /** Loaders that return OWLayer1Translevel,X. The second returns save byte $70035C for translevel
  *  1; first boot sets it to 1 at $A0F20F, the table's value, the runtime-state default. */
@@ -363,8 +432,8 @@ export const LOAD_HOOKS: readonly BytePattern[] = [
 
 /** Why $05D89B is not a recognized load hook, or null when it is. */
 function loadHookMismatch(rom: RomFile): string | null {
-  const at = jslTarget(rom, OVERWORLD_INDEX_LOAD.addr)
-  const site = rom.readAt(OVERWORLD_INDEX_LOAD.addr, LOAD_HOOK_SITE.length)
+  const at = jslTarget(rom, OVERWORLD_INDEX_LOAD[0]!.addr)
+  const site = rom.readAt(OVERWORLD_INDEX_LOAD[0]!.addr, LOAD_HOOK_SITE.length)
   if (at === null || !matchesBytes(site, LOAD_HOOK_SITE)) {
     return '$05D89B holds no JSL before STA TranslevelNo.'
   }
@@ -373,20 +442,34 @@ function loadHookMismatch(rom: RomFile): string | null {
 }
 
 /** The recognized hooks each stock check also accepts, and what to call them. */
-const HOOKS = new Map<StockCode | StockSpan, [string, (rom: RomFile, h: Hooks) => string | null]>([
-  [OVERWORLD_INDEX_GUARD, ["Lunar Magic's midway hook", (rom, h) => midwayHookMismatch(rom, ...h)]],
-  [OVERWORLD_INDEX_LOAD, ['a recognized load hook', rom => loadHookMismatch(rom)]],
+const midway = [
+  "Lunar Magic's midway hook",
+  (rom: RomFile, h: Hooks) => midwayHookMismatch(rom, ...h),
+] as const
+const HOOKS = new Map<object, readonly [string, (rom: RomFile, h: Hooks) => string | null]>([
+  ...OVERWORLD_INDEX_GUARD.map(c => [c, midway] as const),
+  [OVERWORLD_INDEX_LOAD[0]!, ['a recognized load hook', rom => loadHookMismatch(rom)]],
 ])
 type Hooks = [builds?: readonly MidwayHookBuild[], helpers?: readonly FastRoutine[]]
 
-/** Each check on the path into CODE_05D8A2 on its own: null where it holds. */
+/**
+ * Each check on the path into CODE_05D8A2 on its own: null where it holds. The body digest is the one
+ * check with a second accepted form: Lunar Magic's site hook overwrites $05D8B2, so once that hook is
+ * recognized the digest is retried with the byte omitted. A stock site never gets that retry.
+ */
 export function entryPathMismatches(
   rom: RomFile,
-  spanFingerprints?: readonly string[],
+  spanFingerprints?: EntryFingerprints,
   ...hooks: Hooks
 ): (string | null)[] {
   return ENTRY_PATH.map(c => {
-    const stock = stockCodeMismatch(rom, [c], spanFingerprints)
+    let stock = stockCodeMismatch(rom, [c], spanFingerprints)
+    // The LM site hook overwrites the BEQ displacement in the body digest: try its variant only then.
+    if (stock && 'lmSiteOmit' in c) {
+      const lm = lmEntryHook(rom, spanFingerprints)
+      if (typeof lm === 'string') stock += ` Nor is it Lunar Magic's hook: ${lm}`
+      else stock = stockCodeMismatch(rom, [c], spanFingerprints, true)
+    }
     const hook = HOOKS.get(c)
     const why = stock && hook ? hook[1](rom, hooks) : null
     return hook ? why && `${stock} Nor is it ${hook[0]}: ${why}` : stock
@@ -396,10 +479,10 @@ export function entryPathMismatches(
 /** `TranslevelBias` once the path into CODE_05D8A2 is stock or recognized. */
 export function readTranslevelBias(
   rom: RomFile,
-  spanFingerprints?: readonly string[],
+  spanFingerprints?: EntryFingerprints,
 ): TranslevelBiasSite {
   const path = entryPathMismatches(rom, spanFingerprints).find(r => r !== null)
-  return path ? { ok: false, reason: path } : readEntrySite(rom)
+  return path ? { ok: false, reason: path } : readEntrySite(rom, spanFingerprints)
 }
 
 /** The recognized code's formula. `layout` (which buffer half assigned the
@@ -426,22 +509,82 @@ export function spanFingerprint(
   return fingerprint(copy)
 }
 
+/** A span's bytes as hashed: its own run, then each `also` run; null if any is unreadable. */
+export function spanBytes(rom: RomFile, c: StockSpan, lmSite = false): Uint8Array | null {
+  const runs = [[c.addr, c.length] as const, ...(c.also ?? [])].map(([a, n]) => rom.readAt(a, n))
+  if (!runs.every(r => r !== null)) return null
+  const all = runs.flatMap(r => [...r!])
+  return Uint8Array.from(lmSite ? all.filter((_, i) => i !== c.lmSiteOmit) : all)
+}
+
 const hex = (bytes: Iterable<number>): string =>
   [...bytes].map(b => (b === WILD ? '??' : b.toString(16).padStart(2, '0'))).join(' ')
+
+/** Bytes per instruction at the 8-bit widths the stock site runs in, so a read covers the operand too. */
+const SIZE: Readonly<Record<number, number>> = {
+  [OP.SEC]: 1,
+  [OP.LDA_IMM]: 2,
+  [OP.CMP_IMM]: 2,
+  [OP.SBC_IMM]: 2,
+  [OP.STA_DP]: 2,
+  [OP.BCC]: 2,
+  [OP.BEQ]: 2,
+  [OP.BNE]: 2,
+  [OP.LDA_ABS]: 3,
+  [OP.LDA_ABS_Y]: 3,
+  [OP.STA_ABS]: 3,
+  [OP.LDA_LONG_X]: 4,
+  [OP.JSL]: 4,
+}
+
+/** Operand bytes of an instruction: its size less the opcode. Throws on an opcode `SIZE` does not list:
+ *  that is a defect in a stock op, and NaN would read past it silently. `at` names the op in the error. */
+export function operandBytes(code: number, at?: string): number {
+  const size = SIZE[code]
+  if (size === undefined)
+    throw new Error(`No instruction size for opcode ${hexs(code, 2)}${at ? ` at ${at}` : ''}.`)
+  return size - 1
+}
+
+/** Why the instruction at `c.addr` is not the stock one, or null: its opcode and, for a RAM operand, its
+ *  address against `ram`. The whole instruction must be readable: an operand past the end of the image
+ *  is a refusal. An opcode with no `SIZE` entry throws instead of returning a reason, because that is a
+ *  defect in the op table, not something a hack's bytes can cause. */
+function opMismatch(rom: RomFile, c: StockOp, ram: RamTable): string | null {
+  const name = `${formatAddr(c.addr)} (${c.what}, ${c.cite})`
+  const at = rom.readAt(c.addr, 1 + operandBytes(c.op, name))
+  if (!at) return `${name} is not readable.`
+  if (at[0] !== c.op) return `${name} holds opcode ${hexs(at[0]!)}, not the stock ${hexs(c.op)}.`
+  if (c.ram !== undefined) {
+    const found = at.subarray(1).reduce((v, b, i) => v | (b << (8 * i)), 0)
+    const want = ram[c.ram]
+    const show = (v: number): string => hexs(v, 2 * operandBytes(c.op))
+    if (found !== want) return `${name} addresses ${show(found)}, not ${c.ram} at ${show(want)}.`
+  }
+  return null
+}
 
 /**
  * A sentence naming the first run that is not stock, or null when all are.
  *
- * @param spanFingerprints Replaces every span's own list; for a synthetic ROM.
+ * @param spanFingerprints Replaces every span's own list; for a synthetic ROM. Its `ram`, if any,
+ *   replaces ENTRY_RAM the same way.
+ * @param lmSite Hash a span with its `lmSiteOmit` byte dropped; only for a recognized LM site hook.
  */
 export function stockCodeMismatch(
   rom: RomFile,
-  checks: readonly (StockCode | StockSpan)[],
-  spanFingerprints?: readonly string[],
+  checks: readonly (StockCode | StockSpan | StockOp)[],
+  spanFingerprints?: EntryFingerprints,
+  lmSite = false,
 ): string | null {
   for (const c of new Set(checks)) {
+    if ('op' in c) {
+      const why = opMismatch(rom, c, spanFingerprints?.ram ?? ENTRY_RAM)
+      if (why) return why
+      continue
+    }
     if ('fingerprints' in c) {
-      const fp = spanFingerprint(rom.readAt(c.addr, c.length), c.mask)
+      const fp = spanFingerprint(spanBytes(rom, c, lmSite), c.mask)
       if (fp !== null && (spanFingerprints ?? c.fingerprints).includes(fp)) continue
       return (
         `${formatAddr(c.addr)} (${c.what}, ${c.cite}) is ` +
