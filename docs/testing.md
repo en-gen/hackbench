@@ -538,7 +538,7 @@ pieces sit on the map: the capture's drawing at `drawnFrame` (the first frame
 with every tile complete, not the first OAM write) against the model's pass
 `drawnFrame - firstRealFrame`, counted from the model's pass 0 (the first
 MAIN after INIT, as the capture's `firstRealFrame` is), so `chosen` is not
-added; the lag is 1 to 116 frames over the 1957 graded records. Both sides
+added; the lag is 1 to 116 frames over the 1955 graded records. Both sides
 are placed with the capture camera; the model is seeded with the camera at
 `drawnFrame`. Positions are compared in map coordinates. Graded captures never
 set X bit 8; the 9-bit X is synthetic-only coverage. It reports exact, off,
@@ -548,8 +548,8 @@ sides drew only parked pieces, at matching positions: agreement), late (the
 model had not drawn yet at the target pass, the capture had), lagged (target
 pass past the pass count, drew or not) and refused, per sprite and per id
 (`SPRITE_POSITION_OUT=<file>` dumps the records), and holds a bound per verdict
-with 1% headroom (vanilla, one machine, 2026-10-17 measured on the #842 head: 1396 exact, 461
-off, 1 missing, 18 parked, 1 late, 80 lagged, 0 refused of 1957; 1366, 469 and 23 before #842). All 80
+with 1% headroom (vanilla, one machine, 2026-11-11 after the #1370 re-capture: 1424 exact, 431
+off, 1 missing, 18 parked, 1 late, 80 lagged, 0 refused of 1955; 2026-10-17 on the #842 head: 1396, 461, 1, 18, 1, 80, 0 of 1957; 1366, 469 and 23 before #842). All 80
 lagged records are captures whose first draw came 31 to 89 frames after the
 first MAIN (likely the level fade-in, not traced); it is not re-aligned to the
 first draw.
@@ -847,6 +847,7 @@ private to the test file.
 
 ## The validation repository
 
+- Provenance of the `layers_v5` capture set (#839, #1370): the zips for maps 101, 1d4, 109 and 11b were re-captured in 2026-11 with harness `en-gen/hackbench-validation` `bc8d1a3` (PR #47; the 101 and 1d4 change is a castle-flame cluster tile, `CODE_02FA16`, OAM 124-126, that the old harness attributed to sprite records, fixed in validation#31 and #32; 109 and 11b lost early frames and changed no grader verdict); every other zip is from an older harness commit. The four zips they replaced are kept in `layers_v5-backup-2026-11-11-pre1370` beside the set. Effect on the sprite grader (vanilla ROM, one machine, 2026-11-11): 1957 to 1955 graded records, exact 1917 to 1925, wrong 22 to 13, empty 1 to 0. One limit of the harness is recorded in `docs/decisions/2026-11-11-capture-double-reload-limit.md` `[PROP]`. `[EST]`
 - `en-gen/hackbench-validation` is private and holds the Playwright e2e workflow (`e2e-playwright.yml`; builds the Theia browser shell and runs `theia/browser-app/test` against the requested ref, manually or via hackbench's manual-only `e2e-dispatch.yml`), the nightly run, the corpus nightly (`corpus-nightly.yml`, manually via `corpus-dispatch.yml`), the perf nightly (#415) and the Mesen per-graphics-layer capture harness (`capture/`). `[EST]`
 - map-diff was deleted 2026-09-25. `[EST]`
 - The CI secrets live there; `en-gen` is a Free org, so secrets are duplicated per repo. The ROM is pulled from OneDrive at run time. `[EST]`
