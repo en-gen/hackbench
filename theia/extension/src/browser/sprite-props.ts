@@ -30,6 +30,8 @@ export const animatedText = (n: number) => `Animated: ${n} frames, looping.`
 const WHY_NOT_DRAWN: Record<string, string> = {
   extraBits:
     'It uses the extra-bits marker that custom sprites use, so vanilla art would be wrong.',
+  loaderUnreadable:
+    "The app could not read how this ROM's sprite loader treats the extra-bits marker, so it cannot tell whether vanilla art is right.",
   noParts: 'Its code drew no tiles.',
   charsNotLoaded: 'Some of its graphics are not loaded on this map.',
   noDescriptor: 'The app has no drawing rules for this sprite yet.',
@@ -60,6 +62,8 @@ export function framesReasonText(reason: string): string {
   if (reason.startsWith('its parts are fixed')) return 'Its parts are fixed to the screen, so they have no place on the map to animate at.' // prettier-ignore
   if (reason.startsWith('it is drawn by a special routine')) return 'This sprite is drawn by its own routine, not frame by frame, so no animation is shown.' // prettier-ignore
   if (reason.startsWith('drew no')) return WHY_NOT_DRAWN.noParts!
+  if (reason === 'it has no picture')
+    return 'It has no picture on the map, so there is nothing to animate.'
   return 'The frames could not be worked out.'
 }
 
@@ -149,13 +153,30 @@ export const noteTitle = (
       ? p.rawUnverified
       : undefined
 
+/** The quiet marker's tooltip and Properties line (#1011): the sprite's name, then why nothing shows. Plain words. */
+export function quietText(s: Pick<MapSpriteDto, 'kind' | 'name' | 'reason'>): string {
+  if (s.kind === 'scroll')
+    return 'Scroll command: changes how the screen scrolls; it has no picture in the game'
+  if (s.kind === 'shooter')
+    return `${s.name ?? 'Shooter'}: fires on a timer; nothing is drawn until it does`
+  if (s.kind === 'generator')
+    return `${s.name ?? 'Generator'}: runs in the background; it has no picture on the map`
+  // A reason the Properties view has words for says why (the reveal search found no condition, #1132).
+  const why = s.reason ? WHY_NOT_DRAWN[s.reason] : undefined
+  if (why) return s.name ? `${s.name}: ${why}` : why
+  // The words claim only what was checked: nothing drew in the app's run, which cannot tell a sprite that shows only in play.
+  return s.name
+    ? `${s.name}: nothing is drawn for it on the map; it may only show up in play`
+    : 'Nothing is drawn for it on the map; it may only show up in play'
+}
+
 /** The engine's wording is for diagnosis and is long and technical, so the notes stay plain words and the raw text is carried apart for a tooltip or disclosure (#1166). */
 export function spriteProps(s: MapSpriteDto): SpriteProps {
   const parts = s.status === 'drawn' && s.parts ? s.parts : null
   const notes: string[] = []
   if (s.status === 'placeholder') {
     notes.push(`Not drawn: ${notDrawnText(s.reason)}`)
-  }
+  } else if (s.status === 'quiet') notes.push(quietText(s).replace(/\.?$/, '.'))
   if (s.unverified) notes.push(UNVERIFIED_NOTE)
   const shift = shiftNote(s)
   if (shift) notes.push(shift)
