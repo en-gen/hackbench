@@ -2,12 +2,14 @@
  * How far the map view's canvas reaches past the map (owner rulings D76 call 2, D145, #1004, #1228).
  * Pure (no DOM, no Theia).
  *
- * Each side's pad is the content the data places off the map there (a refused-object mark, a sprite),
- * rounded up to whole 16 px tiles. The FAR end only (right of a horizontal map, bottom of a vertical one)
- * adds a 256 px gutter BEYOND that content, even for a map with nothing off it, unless the map is at the
- * 32-screen ceiling. There is no gutter before position 0 (growing that way would move (0,0)), and the
- * short sides get the content alone. This is the single place the canvas grows: every pointer and
- * overlay consumer reads the resulting `Pad` as one origin.
+ * Each side's pad is the content the data PLACES off the map there (a refused-object cell, a sprite's
+ * placement cell), rounded up to whole 16 px tiles. Art that spills past an edge from a placement on the
+ * map is cut there and grows nothing, on every side (owner ruling on #1325, 2026-11-07, narrowing D76
+ * call 2); art that lands in the far-end gutter still draws there. The FAR end only (right of a
+ * horizontal map, bottom of a vertical one) adds a 256 px gutter BEYOND that content, even for a map
+ * with nothing off it, unless the map is at the 32-screen ceiling. There is no gutter before position 0
+ * (growing that way would move (0,0)), and the short sides get the content alone. This is the single place
+ * the canvas grows: every pointer and overlay consumer reads the resulting `Pad` as one origin.
  */
 import { MAP_PLANE_KEYS, type MapPlaneKey, type MapSpriteDto } from '../common/project-protocol'
 import {
@@ -224,6 +226,38 @@ export const cellRect = (x: number, y: number): Rect => ({
   x1: (x + 1) * TILE,
   y1: (y + 1) * TILE,
 })
+
+/**
+ * A sprite's placement cell: the 16 x 16 tile at `stored` where the map stores it elsewhere than it draws,
+ * else at its anchor (#1325, [PROP]). The pad grows for this, never for the art in `box`.
+ */
+export const placementRect = (s: Pick<MapSpriteDto, 'x' | 'y' | 'stored'>): Rect => {
+  const { x, y } = s.stored ?? s
+  return { x0: x, y0: y, x1: x + TILE, y1: y + TILE }
+}
+
+/**
+ * What the data places on the canvas, for `offMapPad`: each refused cell and each sprite's placement cell.
+ * The fallback: a sprite whose art overlaps neither the map nor its own placement cell would have no visible anchor on the
+ * trimmed canvas, so its `box` counts too and the pad grows to keep it drawn and selectable (D52 "never hide a placed
+ * sprite", [PROP] on #1325). A sprite that overlaps either one needs no extra room, which keeps the pad from growing
+ * for art that is already reachable.
+ */
+export const contentRects = (
+  refused: readonly { x: number; y: number }[],
+  sprites: readonly MapSpriteDto[],
+  mapW: number,
+  mapH: number,
+): Rect[] => [
+  ...refused.map(c => cellRect(c.x, c.y)),
+  ...sprites.flatMap(s => {
+    const cell = placementRect(s)
+    const touches = (r: Rect) =>
+      r.x0 < s.box.x1 && r.x1 > s.box.x0 && r.y0 < s.box.y1 && r.y1 > s.box.y0
+    const seen = touches({ x0: 0, y0: 0, x1: mapW, y1: mapH }) || touches(cell)
+    return seen ? [cell] : [cell, s.box]
+  }),
+]
 
 /** Whether map pixel (x, y) is inside the map: positions in the pad have negative or too-large coordinates. */
 export const insideMap = (x: number, y: number, mapW: number, mapH: number): boolean =>

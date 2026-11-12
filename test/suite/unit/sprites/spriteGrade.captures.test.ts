@@ -201,22 +201,23 @@ function gradeAll(
   return { rows, by, inputs, fallbacks, missAtK }
 }
 
-/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Raised for #840 (init companions): measured 2026-11-04 on the merge of develop a028e0dc, one machine, 1957 records: exact 1917, shape 0, close 17, wrong 22, empty 1, missAtK 7 (develop alone: 1906, 0, 17, 33, 1, 7; the 11 rows that changed are $61 and $1E, wrong to exact, none got worse). */
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Re-measured for #839/#1370 after four maps (101, 1d4, 109, 11b) were re-captured with the fixed harness (en-gen/hackbench-validation bc8d1a3): 2026-11-11, one machine, vanilla ROM, 1955 records: exact 1925, shape 0, close 17, wrong 13, empty 0, fallback 42, missAtK 3 (1957 records, exact 1917, close 17, wrong 22, empty 1, fallback 38, missAtK 7 with the old zips; the 9 wrong records on maps 101 and 1d4 were castle-flame cluster tiles the old harness attributed to sprite records; the 2 that left were of the same kind). */
 const FLOOR = {
-  graded: 1957,
+  graded: 1955,
   // Measured on the merge of develop a9de2145 and #842 (offsets from the draw-time position, Layer 3 handler run),
   // one machine, 2026-10-28: exact 1906, shape 0, close 17, wrong 33, empty 1 (the #842 head alone, before
   // the merge: 1865, 0, 17, 75, 0). Shape is not floored: with shape at 0, exact + shape could never fire below the
   // exact floor.
-  exact: 1900, // 1917 measured, develop a028e0dc alone 1906
+  exact: 1908, // 1925 measured (1917 with the pre-#1370 zips)
   maxRefused: 0,
   maxShape: 5, // 0 measured
   maxClose: 20, // 17 measured
-  maxEmpty: 5, // 1 measured
-  maxWrong: 30, // 22 measured (develop alone 33)
-  maxMissAtK: 10, // 7 measured
-  // 38 measured (spawned records without initFrame); all-timed would read 0.
-  minFallbacks: 30,
+  maxEmpty: 4, // 0 measured (old slack 4 over 1)
+  maxWrong: 21, // 13 measured, same 8 slack as the old 30 over 22 (22 with the pre-#1370 zips)
+  maxMissAtK: 6, // 3 measured, same 3 slack as the old 10 over 7
+  // 42 measured (spawned records without initFrame; 38 before the #1370 re-capture); all-timed would read 0.
+  minFallbacks: 34, // old 30 under 38 measured: same 8 slack under 42
+  maxFallbacks: 44, // old hard-coded 40 over 38 measured: same 2 headroom over 42
   // 7 measured on the merge (3 on the #842 head alone, 25 before it: the 22 initFrames > 1 records missed until the
   // loader ran the Layer 3 handler); a runner that stops counting misses (or stops grading at k) drops below.
   minMissAtK: 3,
@@ -256,9 +257,9 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     expect(by.close ?? 0).toBeLessThanOrEqual(FLOOR.maxClose)
     expect(by.empty ?? 0).toBeLessThanOrEqual(FLOOR.maxEmpty)
     expect(by.wrong ?? 0).toBeLessThanOrEqual(FLOOR.maxWrong)
-    // 38 records carry no initFrame (the spawned ones) and grade the old way.
+    // 42 records carry no initFrame (the spawned ones) and grade the old way.
     expect(fallbacks).toBeGreaterThanOrEqual(FLOOR.minFallbacks)
-    expect(fallbacks).toBeLessThanOrEqual(40)
+    expect(fallbacks).toBeLessThanOrEqual(FLOOR.maxFallbacks)
     expect(missAtK).toBeLessThanOrEqual(FLOOR.maxMissAtK)
     expect(missAtK).toBeGreaterThanOrEqual(FLOOR.minMissAtK)
   }, 300_000)

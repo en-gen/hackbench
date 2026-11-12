@@ -108,3 +108,5 @@ T2 (1)
 T3 (1)
   $4D: 106@3760,368
 ```
+
+Corrected 2026-11-11 (#839, #1370): the cases above on map 101 ($22, $24, $25, $54) and 1d4 ($33) that were a castle-flame cluster tile (`CODE_02FA16`, OAM 124-126) attributed to sprite records by the old harness now grade exact or left the set after the re-capture; see the correction at the end of grader-triage.md. The rows are kept because the coordinates were not re-matched.

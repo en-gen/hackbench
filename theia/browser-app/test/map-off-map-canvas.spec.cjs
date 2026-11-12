@@ -14,10 +14,16 @@
  * Injection uses the RPC intercept pattern (docs/testing.md "Playwright and RPC"; the widget's own
  * `projects` swapped for a Proxy, as map-refused-cells.spec.cjs does).
  *
+ * #1325 (owner, 2026-11-07) narrowed the content rule: only what the data PLACES off the map grows the canvas
+ * (a refused-object cell, a sprite's placement cell). Art that spills past an edge from a placement on the map
+ * is cut there and grows nothing; map-sprite-art-past-edge.spec.cjs holds the behaviour, and the cases below that
+ * grow the canvas use sprites and cells placed off the map.
+ *
  * Planted-offset sanity for the verifier (each should turn the named cases red): drop `- pad.left` or
  * `- pad.top` in updateHover (hover, on $105 and $109), drop `+ pad.top` from the sprite anchor (the anchor
- * case on $109), write `(y + pad.top) * w + x` without `+ pad.left` in offMapSpritePixels (the $C4/$DD
- * canvas-pixel cases), make the back area a solid color (the fade case), or request screens outside the
+ * case on $109), write `(y + pad.top) * w + x` without `+ pad.left` in offMapSpritePixels (no case here:
+ * since #1325 no vanilla map has a left pad, so only OffMapExtent.test.ts, "placed off each of the 4 sides",
+ * reads a left-pad pixel), make the back area a solid color (the fade case), or request screens outside the
  * map in visibleScreens (any case would then show a screen error).
  */
 const { test, expect } = require('@playwright/test')
@@ -313,9 +319,9 @@ for (const { index, screenW, vertical } of [
 }
 
 // The ghost houses (sweep of the 488 vanilla maps, one machine): each has sprite $8D with its door 8 px left of
-// the map, which pads 16 px left (one tile) and has no left gutter. $C4 has a second sprite ($7B) inside the map.
+// the map. Its art is cut at the map's edge since #1325: no left pad. $C4 has a second sprite ($7B) inside the map.
 for (const index of [0xc4, 0xeb, 0xf0, 0xfb, 0x1da, 0x1e6, 0x1e7, 0x1f9]) {
-  test(`$${index.toString(16)} (ghost house): the left pad is the door alone (one tile, no left gutter); $8D sits at its door`, async ({
+  test(`$${index.toString(16)} (ghost house): the door's art past the left edge adds no left pad (#1325); $8D is still the sprite there`, async ({
     page,
   }) => {
     const mp = await openMap(page, index)
@@ -331,58 +337,43 @@ for (const index of [0xc4, 0xeb, 0xf0, 0xfb, 0x1da, 0x1e6, 0x1e7, 0x1f9]) {
     await zoomAt(page, index, 'zoom-actual')
     const r = await rects(page, index)
     const zoom = r.screen.w / 256
-    expectPad(pads(r, zoom), { left: 16, top: 0, right: G, bottom: 0 })
+    expectPad(pads(r, zoom), { left: 0, top: 0, right: G, bottom: 0 })
+    // Nothing outside the map on the sprite canvas: the screens draw the map's own pixels.
     const px = await canvasPixels(page, index)
-    expect(px.left).toBeGreaterThan(0)
-    expect(px.minX).toBeGreaterThanOrEqual(-8)
-    expect(px.maxX).toBeLessThan(0)
-    // Nothing above, below or over the map: the screens draw the map's own pixels.
-    expect([px.above, px.below, px.right, px.map]).toEqual([0, 0, 0, 0])
-    expect(px.padL).toBe(16)
+    expect(px === null ? 0 : px.left + px.above + px.below + px.map).toBe(0)
   })
 }
 
-test('$C4: hovering the door left of the map shows the sprite tooltip anchor at the door', async ({
+test('$C4: the door cut at the left edge still hovers and selects from the part left on the map', async ({
   page,
 }) => {
   await openMap(page, 0xc4)
   await spritesLanded(page, 0xc4)
   await zoomAt(page, 0xc4, 'zoom-actual')
-  const px = await canvasPixels(page, 0xc4)
   // The door is 287 px down: scroll it to the middle of the view first, or the pointer lands off the page.
-  await page.evaluate(
-    ({ sel, y }) => {
-      const sc = document.querySelector(`${sel} [data-control="map-scroller"]`)
-      sc.scrollTop = Math.max(0, y - sc.clientHeight / 2)
-      sc.scrollLeft = 0
-    },
-    { sel: root(0xc4), y: px.inner.y + px.padT },
-  )
+  await page.evaluate(sel => {
+    const sc = document.querySelector(`${sel} [data-control="map-scroller"]`)
+    sc.scrollTop = Math.max(0, 335 - sc.clientHeight / 2)
+    sc.scrollLeft = 0
+  }, root(0xc4))
   await page.waitForTimeout(400)
   const r = await rects(page, 0xc4)
   const zoom = r.screen.w / 256
-  // A real opaque door pixel, left of the map.
-  const at = {
-    x: r.edge.left + (px.inner.x + 0.5) * zoom,
-    y: r.edge.top + (px.inner.y + 0.5) * zoom,
-  }
-  await page.mouse.move(at.x, at.y)
-  await expect.poll(() => inWidget(page, 0xc4, w => w.hoverSprite?.id ?? null), { timeout: 10000 }).toBe(0x8d) // prettier-ignore
-  const a = await page.evaluate(() => {
-    const e = document.querySelector('.hb-map-sprite-anchor')
-    const b = e && e.getBoundingClientRect()
-    return b && { left: b.left, top: b.top, right: b.right, bottom: b.bottom }
-  })
-  expect(a).not.toBeNull()
-  expect(a.left).toBeLessThanOrEqual(at.x)
-  expect(a.right).toBeGreaterThanOrEqual(at.x)
-  expect(a.top).toBeLessThanOrEqual(at.y)
-  expect(a.bottom).toBeGreaterThanOrEqual(at.y)
-  // The anchor is the sprite's box at the pad offset: 8 px left of the map edge.
-  expect(a.left - r.edge.left).toBeCloseTo(-8 * zoom, 0)
+  const hovered = () => inWidget(page, 0xc4, w => w.hoverSprite?.id ?? null)
+  // Any opaque door pixel on the map: scan its box (x 0-56, y 287-383) until the hover names the door.
+  let found = null
+  for (let y = 300; y < 380 && !found; y += 6)
+    for (let x = 2; x < 54 && !found; x += 6) {
+      await page.mouse.move(r.edge.left + (x + 0.5) * zoom, r.edge.top + (y + 0.5) * zoom)
+      await page.waitForTimeout(40)
+      if ((await hovered()) === 0x8d) found = { x, y }
+    }
+  expect(found, 'the hover finds the door on the map').not.toBeNull()
+  await page.mouse.click(r.edge.left + (found.x + 0.5) * zoom, r.edge.top + (found.y + 0.5) * zoom)
+  await expect.poll(() => inWidget(page, 0xc4, w => w.selectedSprite?.id ?? null)).toBe(0x8d)
 })
 
-test('$DD: platform pixels land in the left pad: 8 px rounds up to one 16 px tile, with no gutter', async ({
+test('$DD: platform art 8 px past the left edge is cut there: no left pad, no gutter', async ({
   page,
 }) => {
   await openMap(page, 0xdd)
@@ -390,22 +381,35 @@ test('$DD: platform pixels land in the left pad: 8 px rounds up to one 16 px til
   await zoomAt(page, 0xdd, 'zoom-actual')
   const r = await rects(page, 0xdd)
   const zoom = r.screen.w / 256
-  expectPad(pads(r, zoom), { left: 16, top: 0, right: G, bottom: 0 })
+  expectPad(pads(r, zoom), { left: 0, top: 0, right: G, bottom: 0 })
   const px = await canvasPixels(page, 0xdd)
-  expect(px.left).toBeGreaterThan(0)
-  expect(px.minX).toBeGreaterThanOrEqual(-8)
-  expect(px.map).toBe(0)
+  expect(px === null ? 0 : px.left + px.map).toBe(0)
 })
 
-// Map $102's old 24 px below the map was a sprite sinking in a retry loop (#842, #1119), so the band rests on a
-// synthetic box 24 px below the map plus $1B's real 16 px (Wooden Spike $AD): docs/sprites/sprite-ad-wooden-spike.md,
-// docs/sprites/sprite-a4-floating-spike-ball.md.
-const BELOW_24 = { x0: 64, y0: 420, x1: 96, y1: 456 }
-const addBelow24 = page => page.evaluate(b => (window.__hbExtra = [b]), BELOW_24)
+// Map $102's old 24 px below the map was a sprite sinking in a retry loop (#842, #1119). Since #1325 the real Wooden
+// Spike art ($1B, 16 px below the map: docs/sprites/sprite-ad-wooden-spike.md) is cut at the map's edge, so the band
+// rests on a synthetic sprite PLACED on the first row below the map, its 24 px art cut at the one row's end.
+const PLACED_BELOW = { x0: 64, y0: 432, x1: 96, y1: 456 }
+const addPlacedBelow = page => page.evaluate(b => (window.__hbExtra = [b]), PLACED_BELOW)
 
-test('$1B: the Wooden Spikes 16 px below the map grow the bottom by 16 and there is no gutter below', async ({
+test('$1B: the Wooden Spikes drawn 16 px below the map grow nothing (#1325): the canvas ends at the map', async ({
   page,
 }) => {
+  await openMap(page, 0x1b)
+  await spritesLanded(page, 0x1b)
+  await zoomAt(page, 0x1b, 'zoom-actual')
+  const r = await rects(page, 0x1b)
+  const zoom = r.screen.w / 256
+  expect(r.edge.h / zoom).toBeCloseTo(432, 0)
+  expectPad(pads(r, zoom), { left: 0, top: 0, right: G, bottom: 0 })
+  const px = await canvasPixels(page, 0x1b)
+  expect(px === null ? 0 : px.below).toBe(0)
+})
+
+test('$1B: a sprite PLACED below the map grows the bottom by its one cell (16, art cut there) and there is no gutter below', async ({
+  page,
+}) => {
+  await addPlacedBelow(page)
   await openMap(page, 0x1b)
   await spritesLanded(page, 0x1b)
   await zoomAt(page, 0x1b, 'zoom-actual')
@@ -415,31 +419,15 @@ test('$1B: the Wooden Spikes 16 px below the map grow the bottom by 16 and there
   expectPad(pads(r, zoom), { left: 0, top: 0, right: G, bottom: 16 })
   const px = await canvasPixels(page, 0x1b)
   expect(px.below).toBeGreaterThan(0)
+  // The art runs to y 455; the pad ends at 447.
+  expect(px.maxY).toBeLessThan(448)
   expect(px.above).toBe(0)
 })
 
-test('$1B: a box 24 px below the map grows the bottom by 32 (24 rounds up to 32, not the real 16) and there is no gutter below', async ({
+test('$1B: Fit frames the map and the placed sprite row: the whole strip fits the view with no vertical scroll', async ({
   page,
 }) => {
-  await addBelow24(page)
-  await openMap(page, 0x1b)
-  await spritesLanded(page, 0x1b)
-  await zoomAt(page, 0x1b, 'zoom-actual')
-  const r = await rects(page, 0x1b)
-  const zoom = r.screen.w / 256
-  expect(r.edge.h / zoom).toBeCloseTo(432, 0)
-  expectPad(pads(r, zoom), { left: 0, top: 0, right: G, bottom: 32 })
-  const px = await canvasPixels(page, 0x1b)
-  expect(px.below).toBeGreaterThan(0)
-  // The real spikes end at y 447; only the box paints rows 448 to 455, so this fails if the box's pixels do not.
-  expect(px.maxY).toBeGreaterThan(448)
-  expect(px.above).toBe(0)
-})
-
-test('$1B: Fit frames the map and its bottom band: the whole strip fits the view with no vertical scroll', async ({
-  page,
-}) => {
-  await addBelow24(page)
+  await addPlacedBelow(page)
   await openMap(page, 0x1b)
   await spritesLanded(page, 0x1b)
   await click(page, 0x1b, 'zoom-fit')
@@ -451,10 +439,10 @@ test('$1B: Fit frames the map and its bottom band: the whole strip fits the view
   }, root(0x1b))
   expect(m.stripH).toBeLessThanOrEqual(m.clientH + 1)
   expect(m.scrollH).toBeLessThanOrEqual(m.clientH + 1)
-  // And Fit used the bottom band: 432 map px + 32 px, not 432 alone.
+  // Fit used the bottom row: 432 map px + 16 px, not 432 alone.
   const r = await rects(page, 0x1b)
   const zoom = r.screen.w / 256
-  expect(r.strip.h / zoom).toBeCloseTo(432 + 32, 0)
+  expect(r.strip.h / zoom).toBeCloseTo(432 + 16, 0)
 })
 
 test('marks far past the end draw raw, in a canvas grown to hold them with the far-end gutter beyond', async ({
@@ -558,7 +546,7 @@ for (const { index, screenW, vertical } of [
 }
 
 test('the grid runs across the far-end gutter and the growth band', async ({ page }) => {
-  await addBelow24(page)
+  await addPlacedBelow(page)
   await openMap(page, 0x1b)
   await spritesLanded(page, 0x1b)
   await zoomAt(page, 0x1b, 'zoom-actual')
@@ -582,7 +570,7 @@ test('the grid runs across the far-end gutter and the growth band', async ({ pag
   await page.waitForTimeout(500)
   lines = JSON.parse(await grid.getAttribute('data-grid-lines'))
   expect(Math.max(...lines.x.map(l => l.pos))).toBeGreaterThan(screens * 256 + G / 2)
-  // The bottom growth band (32 px below the map) has lines too, once scrolled to it.
+  // The bottom growth band (16 px below the map) has lines too, once scrolled to it.
   await page.evaluate(sel => {
     const s = document.querySelector(`${sel} [data-control="map-scroller"]`)
     s.scrollTop = s.scrollHeight

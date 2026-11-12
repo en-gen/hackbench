@@ -67,11 +67,11 @@ import {
   beyondScreens,
   composeGutter,
   fadeMask,
-  cellRect,
   centerScroll,
   insideMap,
   NO_PAD,
   offMapPad,
+  contentRects,
   offMapSpritePixels,
   samePad,
   screensInView,
@@ -779,8 +779,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   }
 
   /**
-   * The canvas beyond each side of the map (D145, #1004, #1228): the content the data places off
-   * it, rounded to tiles, plus the gutter beyond that at the far end only. The ONE origin every pointer
+   * The canvas beyond each side of the map (D145, #1004, #1228, #1325): the content the data places off
+   * it (a refused cell, a sprite's placement cell, never its art), rounded to tiles, plus the gutter beyond
+   * that at the far end only. Art past an edge is cut there and grows nothing. The ONE origin every pointer
    * and overlay consumer reads. It is derived from the layout and the sprites together, so it can change
    * when the sprites reply lands (`keepViewOnPadChange`).
    */
@@ -790,10 +791,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const m = this.padMemo
     if (m && m.l === l && m.s === this.sprites) return m.pad
     const [w, h] = this.mapPx(l)
-    const rects = [
-      ...(l.refusedCells ?? []).map(c => cellRect(c.x, c.y)),
-      ...(this.sprites?.sprites ?? []).map(sp => sp.box),
-    ]
+    const rects = contentRects(l.refusedCells ?? [], this.sprites?.sprites ?? [], w, h)
     const pad = offMapPad(w, h, rects, l.orientation === 'vertical', l.screenCount)
     this.padMemo = { l, s: this.sprites, pad }
     return pad

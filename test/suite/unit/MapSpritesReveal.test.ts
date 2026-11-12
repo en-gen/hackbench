@@ -53,11 +53,31 @@ describe('the served drawer reveals hidden sprites', () => {
     expect(r.anchor).toEqual({ x: 0x1000, y: 0x120 })
   })
 
+  it('keeps the routing warning on a revealed sprite when the loader routing could not be read (#1011)', () => {
+    // The synthetic cart has no level loader call, so the routing is unavailable and an empty run at rest is unverified.
+    expect(ok(drawer()(entry(140)))).toMatchObject({
+      unverified: expect.stringContaining('routing could not be read'),
+    })
+  })
+
   it('leaves a sprite that draws at rest alone', () => {
     expect(ok(drawer()(entry(0)))).not.toHaveProperty('reveal')
   })
 
   it('marks a sprite no condition shows, with its own reason code', () => {
+    expect(drawer()(entry(5))).toMatchObject({ ok: false, reason: 'unrevealed' })
+  })
+
+  it('keeps the at-rest companion picture of a run no search rerun gives an own tile (id 84), not a marker', () => {
+    // Id 84 writes one OAM entry under a $15E9 that names no slot, so the at-rest run draws it as a companion piece and
+    // no rerun finds an own tile. Id 85 (a spawner that draws nothing at rest) and id 5 keep their marker.
+    const r = ok(drawer()(entry(84)))
+    expect(r.parts.length).toBeGreaterThan(0)
+    expect(
+      r,
+      'the hidden check was skipped (no own tile at rest) and the reruns found nothing: no reveal claim',
+    ).not.toHaveProperty('reveal')
+    expect(drawer()(entry(85))).toMatchObject({ ok: false, reason: 'unrevealed' })
     expect(drawer()(entry(5))).toMatchObject({ ok: false, reason: 'unrevealed' })
   })
 

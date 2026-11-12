@@ -220,6 +220,14 @@ seen.
   through the hidden-tile screen door (D52, `spriteDoors`); hovering a sprite
   lifts its door (`doorIdAt`) and shows its name (`spriteAt`, Theia's
   `HoverService`). The `S` toggle hides the sprite canvases.
+- **Quiet marker (#1011).** A sprite the game's loader never runs as a sprite (shooter,
+  generator, scroll command), or whose run drew nothing, is `status: 'quiet'`: a 16 x 16
+  ring and dot at the placed spot, `kind` naming the loader path, door 0 (never dithered),
+  hit anywhere in its box, words from `quietText`. The routing comes from `loadClasses`
+  (`LoadClass.ts`), which runs the ROM's own sprite-list routine once per ROM version and
+  caches by the bytes read; when it cannot read the ROM an empty run keeps the framed box,
+  marked unverified. The failure box (`placeholder`) stays for refusals, unloaded chars,
+  extra bits and no descriptor.
 - **Block content indicators (#566).** A screen that holds an item block gets
   a display canvas (`IndicatorDisplay`, `map-view-model.ts`) that recomposes
   the indicator's cell at the zoom; the native composite is never given
@@ -248,10 +256,12 @@ seen.
 
 ### The map strip's pad (#1004)
 
-Content the data places off the map (a refused-object cell, a sprite's `box`)
-must draw where the data names it, so `offMapPad` (`browser/off-map-extent.ts`)
+Content the data places off the map (a refused-object cell, a sprite's placement
+cell: `stored`, else its anchor) must draw where the data names it, so `offMapPad` (`browser/off-map-extent.ts`)
 is the one place the canvas grows: per side, the content extent rounded up to
-whole 16 px tiles. At the far end only (right of a horizontal map, bottom of a
+whole 16 px tiles. Art past an edge from a placement on the map is cut and
+grows nothing (#1325); only a sprite whose box touches neither the map nor its
+placement cell also counts its `box` (D52). At the far end only (right of a horizontal map, bottom of a
 vertical one) a fixed 256 px gutter (`GUTTER_PX`) is added beyond it, except
 on a 32-screen map (`MAX_SCREENS`), which cannot grow. There is no gutter
 before position 0. Rulings: D76 call 2, D145 and
