@@ -1,0 +1,3 @@
+### Changed
+
+- Tests and docs: the smash-driven Layer 3 on maps $01F and $1D4 is bound to the Mesen captures (#1065): the map view's X equals the captured smasher's X and frame 8's BG3HOFS (the first landing, #997), its Y equals frame 0's Layer3YPos once the slot's landing Y is shown equal to the placed Y, and its BG3 tilemap equals frame 0's; evidence: 2 maps sharing one landing, vanilla, one machine. A synthetic case stubs the landing and the sprite list and checks every landing Y 0-$FF and a spread of X come through the real smash reader. docs/rom/level-rendering.md now lists the camera-locked maps $011, $130, $1C1 and $018 as drawn (26 of 512 slots after #805, none refused; #1051).

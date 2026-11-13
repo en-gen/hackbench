@@ -835,6 +835,12 @@ describe('a $80 level under a smash sprite (synthetic, #807)', () => {
     expect(verdictWith(noSmash).l3).toMatchObject({ xPx: 0, yPx: 0xd0 })
   })
 
+  it('a loaded smasher moves layer 3 to the landing, every Y and a spread of X, through the real smash reader (#1065)', () => {
+    const through = (x: number, y: number) => verdictWith((r, i) => readL3SmashLoadPos(r, i, () => ({ ok: true, landing: { x, y } }), (() => [{ spriteId: 0x89 }]) as never)) // prettier-ignore
+    for (let y = 0; y <= 0xff; y++) expect(through(-104, y).l3).toMatchObject({ xPx: -104, yPx: y, followsCamera: true }) // prettier-ignore
+    for (const x of [-256, -128, -104, -1, 0, 1, 99, 255, 256]) expect(through(x, 0xa0).l3).toMatchObject({ xPx: x, yPx: 0xa0 }) // prettier-ignore
+  })
+
   it('draws at the load-time position, with an unverified note, when the smash read refuses', () => {
     const v = verdictWith(() => ({ ok: false, reason: 'because' }))
     expect(v.l3).toMatchObject({ xPx: 0, yPx: 0xd0 })
