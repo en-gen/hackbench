@@ -2,14 +2,20 @@
  * The map view's end line and "Add screen" outline, en-gen/hackbench#1296 (owner D194, option D: "I choose D, but
  * I don't want the line to shift if there is a sprite past the end"). SYNTHETIC maps, no ROM (the widget's
  * `projects` is swapped for canned replies, docs/testing.md "Playwright and RPC"); one case drives the vanilla
- * $1B with a sprite injected past its end and skips without the ROM. Expected positions come from the map's own
- * rectangle (`data-control="map-edge"`, the data end), never from the line under test.
+ * $1B with a sprite injected past its end and skips without the ROM. The expected far edge is the rect of the
+ * LAST rendered `.hb-map-view-screen` (the data end), never the `map-edge` element or the line under test.
+ *
+ * Bands: every position case runs with no band, with a band BEFORE position 0 (a sprite placed at (-32, -16):
+ * the canvas leads the map by 32 px and 16 px, so a line or outline that forgets the leading pad lands off), and
+ * with a band past the far end.
  *
  * Planted defects (each turns the named cases red), as source mutations for the verifier:
- *   E1 `farEdge` returns the strip's far end (`pad.left + mapW + pad.right`): the sits-on-the-edge cases and
- *      the sprite-past-the-end cases (the line follows the content band).
+ *   E1 `farEdge` returns the strip's far end (`pad.left + mapW + pad.right`): the sits-on-the-edge and the
+ *      sprite-past-the-end cases (the line follows the content band).
  *   E2 `farEdge` adds `TILE` (16 px) to its far-axis coordinate: the sits-on-the-edge cases.
- *   E3 the `.hb-map-end-line` rule is hidden while the grid is on or a layer is off: the shows-always case.
+ *   E3 `farEdge` or `addScreenRect` drops `pad.left` or `pad.top`: the near-band cases (unit sweep too).
+ *   E4 the `.hb-map-end-line` z-index drops below 200 (collision overlay): the stacking case.
+ *   E5 the `.hb-map-add-screen` outline takes `--theia-foreground` out (white): the light-theme contrast case.
  * The "planted defects" case also moves the LIVE element (one tile, the content band's end, the canvas end) and
  * requires the SAME `onFarEdge` predicate to fail, so the oracle is proven able to fail without editing source.
  */
@@ -31,6 +37,7 @@ const GET_SVC = `function getSvc(name) {
   return null
 }`
 const AMBER = [0xff, 0xc2, 0x3d]
+const L2_GREEN = [30, 160, 60]
 
 let pageErrors
 test.beforeEach(async ({ page }) => {
@@ -49,16 +56,32 @@ test.afterEach(async ({ page }) => {
   expect(pageErrors).toEqual([])
 })
 
+/** Sprite placements ([x, y] map px) for a band: before position 0, past the far end, both, or none. */
+const bandBoxes = (vertical, band) => [
+  ...(band.includes('near') ? [[-32, -16]] : []),
+  ...(band.includes('far') ? [vertical ? [0, 600] : [600, 0]] : []),
+]
+const BANDS = [[], ['near'], ['far'], ['near', 'far']]
+const bandName = band => (band.length ? band.join('+') + ' band' : 'no band')
+
 /**
  * Opens a synthetic map of `screens` screens. `boxes` are opaque 16 x 16 sprites at [x, y] map px (index 900 up);
- * `back` is the back color. `window.__calls` logs every RPC the widget makes, so a click that wrote shows.
+ * `back` is the back color. `layers` makes Layers 2 and 3 draw (green and blue) in the gutter through `mapBeyond`.
+ * `window.__calls` logs every RPC the widget makes, so a click that wrote shows.
  */
 async function openSynthetic(
   page,
-  { screens = 2, vertical = false, boxes = [], back = [200, 0, 0], zoomStep = 'zoom-actual' } = {},
+  {
+    screens = 2,
+    vertical = false,
+    boxes = [],
+    back = [200, 0, 0],
+    zoomStep = 'zoom-actual',
+    layers = false,
+  } = {},
 ) {
   await page.evaluate(
-    async ({ index, screens, vertical, boxes, back }) => {
+    async ({ index, screens, vertical, boxes, back, layers }) => {
       const [width, height] = vertical ? [512, 256] : [256, 432]
       const orientation = vertical ? 'vertical' : 'horizontal'
       const sprites = boxes.map(([x0, y0], i) => {
@@ -67,14 +90,36 @@ async function openSynthetic(
         return { index: 900 + i, id: 1, name: 'Test sprite', x: x0, y: y0, box, rgba, status: 'drawn' } // prettier-ignore
       })
       window.__calls = []
+      const none = {
+        l2Low: null,
+        l1Low: null,
+        l2High: null,
+        l1High: null,
+        l3Low: null,
+        l3High: null,
+      }
+      const base = screen => ({
+        status: 'ok', screen, screenCount: screens, orientation, width, height, planes: none,
+        layer3: { priority: false, reason: null },
+        screens: { main: layers ? ['l2Low', 'l3Low'] : ['l1Low'], sub: [] },
+        math: null, layer2Interactive: false, layerNotes: [], backdrop: back,
+      }) // prettier-ignore
+      // Opaque green Layer 2 over the whole screen and blue Layer 3 over its first 100 rows (chunked btoa).
+      const plane = (rows, rgb) => {
+        const b = new Uint8Array(width * height * 4)
+        for (let i = 0; i < rows * width; i++) b.set([...rgb, 255], i * 4)
+        let s = ''
+        for (let i = 0; i < b.length; i += 0x8000)
+          s += String.fromCharCode(...b.subarray(i, i + 0x8000))
+        return btoa(s)
+      }
       const canned = {
         mapStart: () => ({ status: 'ok', x: 0, y: 0 }),
-        mapScreen: (_m, _i, screen) => ({
-          status: 'ok', screen, screenCount: screens, orientation, width, height,
-          planes: { l2Low: null, l1Low: null, l2High: null, l1High: null, l3Low: null, l3High: null },
-          layer3: { priority: false, reason: null }, screens: { main: ['l1Low'], sub: [] },
-          math: null, layer2Interactive: false, layerNotes: [], backdrop: back,
-        }), // prettier-ignore
+        mapScreen: (_m, _i, screen) => base(screen),
+        mapBeyond: (_m, _i, screen) => ({
+          ...base(screen),
+          planes: { ...none, l2Low: plane(height, [30, 160, 60]), l3Low: vertical ? null : plane(100, [0, 0, 255]) }, // prettier-ignore
+        }),
         mapSprites: () => ({ status: 'ok', orientation, screenCount: screens, width, height, sprites }), // prettier-ignore
       }
       const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { index })
@@ -89,7 +134,7 @@ async function openSynthetic(
       await shell.addWidget(w, { area: 'main' })
       await shell.activateWidget(w.id)
     },
-    { index: INDEX, screens, vertical, boxes, back },
+    { index: INDEX, screens, vertical, boxes, back, layers },
   )
   await expect
     .poll(() => page.locator(`${root} .hb-map-view-screen`).count(), { timeout: 30000 })
@@ -129,25 +174,35 @@ const scrollEnd = async (page, vertical, sel = root) => {
   await page.waitForTimeout(300)
 }
 
-/** Live rects in client px, and the zoom. */
+/**
+ * Live rects in client px, and the zoom. `edge` is the map's own rectangle from the first and last rendered
+ * `.hb-map-view-screen`, the data's end, independent of the pad and of every element of this feature.
+ */
 const measure = (page, sel = root) =>
   page.evaluate(sel => {
     const q = s => document.querySelector(`${sel} ${s}`)
     const r = s => q(s)?.getBoundingClientRect().toJSON()
+    const screens = [...document.querySelectorAll(`${sel} .hb-map-view-screen`)].map(e => e.getBoundingClientRect()) // prettier-ignore
+    const [first, last] = [screens[0], screens[screens.length - 1]]
+    const edge = { left: first.left, top: first.top, right: last.right, bottom: last.bottom }
     const sc = q('[data-control="map-scroller"]')
-    const screen = r('.hb-map-view-screen')
     const vertical = sc.classList.contains('hb-vertical')
     const line = q('[data-control="map-end-line"]')
     const cs = line && getComputedStyle(line)
     const gut = q('[data-layer="gutter-layers"]')
+    // The collision overlay's z-index from its own rule: a probe element carries the class, in the strip.
+    const probe = document.createElement('div')
+    probe.className = 'hb-map-collision'
+    q('.hb-map-view-strip').append(probe)
+    const collisionZ = getComputedStyle(probe).zIndex
+    probe.remove()
     return {
-      vertical, zoom: screen.width / (vertical ? 512 : 256),
-      edge: r('[data-control="map-edge"]'), line: r('[data-control="map-end-line"]'),
+      vertical, zoom: first.width / (vertical ? 512 : 256), edge, line: r('[data-control="map-end-line"]'),
       strip: r('.hb-map-view-strip'), scroller: sc.getBoundingClientRect().toJSON(),
       view: { w: sc.clientWidth, h: sc.clientHeight },
       add: r('[data-control="add-screen"]'), addBox: r('.hb-map-add-screen-box'),
       lineStyle: cs && { size: cs.backgroundSize, zIndex: cs.zIndex, display: cs.display, visibility: cs.visibility, opacity: cs.opacity }, // prettier-ignore
-      gutterZ: gut ? getComputedStyle(gut).zIndex : null,
+      gutterZ: gut ? getComputedStyle(gut).zIndex : null, collisionZ,
     }
   }, sel) // prettier-ignore
 
@@ -172,12 +227,12 @@ async function pixels(page, x, y, n, vertical) {
     return Array.from({ length: d.length / 4 }, (_, i) => Array.from(d.subarray(i * 4, i * 4 + 3)))
   }, png.toString('base64'))
 }
-/** 13 pixels across the line (4 px of map before it, its 5 px, 4 px after), at its midpoint along its length. */
-const acrossLine = (page, m) => {
+/** 13 pixels across the line (4 px of map before it, its 5 px, 4 px after), at the middle of its length. */
+const acrossLine = (page, m, along = 0.5) => {
   const l = m.line
   return m.vertical
-    ? pixels(page, (l.left + l.right) / 2, l.top - 4, 13, true)
-    : pixels(page, l.left - 4, (l.top + l.bottom) / 2, 13, false)
+    ? pixels(page, l.left + l.width * along, l.top - 4, 13, true)
+    : pixels(page, l.left - 4, l.top + l.height * along, 13, false)
 }
 const lin = c => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
 const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
@@ -193,31 +248,31 @@ const brightest = ps => ps.reduce((a, b) => (lum(b) > lum(a) ? b : a))
 
 for (const vertical of [false, true]) {
   for (const zoomStep of ['zoom-actual', 'zoom-fit']) {
-    const shape = `${vertical ? 'vertical' : 'horizontal'}, ${zoomStep}`
-    test(`1: the end line is 5 px thick and centered on the map's far edge (${shape})`, async ({
-      page,
-    }) => {
-      await openSynthetic(page, { vertical, zoomStep })
-      await scrollEnd(page, vertical)
-      const m = await measure(page)
-      expect(onFarEdge(m)).toBe(true)
-      // 3 px amber over the 5 px dark edge, in screen px whatever the zoom.
-      expect(m.lineStyle.size).toBe(vertical ? '100% 3px' : '3px 100%')
-      // It spans the map's other axis, not the canvas.
-      if (vertical) expect(Math.abs(m.line.width - m.edge.width)).toBeLessThanOrEqual(0.5)
-      else expect(Math.abs(m.line.height - m.edge.height)).toBeLessThanOrEqual(0.5)
-    })
-
-    test(`2: a sprite past the end does not move the line (${shape})`, async ({ page }) => {
-      await openSynthetic(page, { vertical, zoomStep, boxes: vertical ? [[0, 600]] : [[600, 0]] })
-      await scrollEnd(page, vertical)
-      const m = await measure(page)
-      expect(onFarEdge(m)).toBe(true)
-      // The canvas does reach well past the line (content band plus gutter), so a line at the canvas end would differ.
-      const gap =
-        (vertical ? m.strip.bottom - m.edge.bottom : m.strip.right - m.edge.right) / m.zoom
-      expect(gap).toBeGreaterThan(256 + 100)
-    })
+    for (const band of BANDS) {
+      const shape = `${vertical ? 'vertical' : 'horizontal'}, ${zoomStep}, ${bandName(band)}`
+      test(`1+2: the end line is 5 px thick and centered on the map's far edge, whatever bands the canvas has (${shape})`, async ({
+        page,
+      }) => {
+        await openSynthetic(page, { vertical, zoomStep, boxes: bandBoxes(vertical, band) })
+        await scrollEnd(page, vertical)
+        const m = await measure(page)
+        expect(onFarEdge(m)).toBe(true)
+        // 3 px amber over the 5 px dark edge, in screen px whatever the zoom.
+        expect(m.lineStyle.size).toBe(vertical ? '100% 3px' : '3px 100%')
+        // It spans the map's other axis, not the canvas.
+        if (vertical)
+          expect(Math.abs(m.line.width - (m.edge.right - m.edge.left))).toBeLessThanOrEqual(0.5)
+        else expect(Math.abs(m.line.height - (m.edge.bottom - m.edge.top))).toBeLessThanOrEqual(0.5)
+        if (zoomStep === 'zoom-fit')
+          expect(Number.isInteger(m.zoom), `fit zoom ${m.zoom} is fractional`).toBe(false)
+        if (band.includes('far')) {
+          // The canvas reaches well past the line (content band plus gutter): a line at the canvas end would differ.
+          const gap =
+            (vertical ? m.strip.bottom - m.edge.bottom : m.strip.right - m.edge.right) / m.zoom
+          expect(gap).toBeGreaterThan(256 + 100)
+        }
+      })
+    }
   }
 }
 
@@ -293,29 +348,29 @@ test('2: on the vanilla $1B a sprite injected past the end leaves the line on th
   }
 })
 
-test('3: the line shows with the grid on and off and every layer toggle off, above the gutter layers', async ({
+test('3: the line shows with the grid on and off and every toolbar toggle off, above the collision overlay and the gutter layers', async ({
   page,
 }) => {
-  await openSynthetic(page, { screens: 2 })
+  await openSynthetic(page, { screens: 2, boxes: [[40, 40]] })
   await scrollEnd(page, false)
   const grid = page.locator(`${root} [data-control="grid-toggle"]`)
-  let z
+  // The real toolbar buttons; each is clicked until its pressed state is the wanted one. Collision is
+  // refused on a synthetic map (disabled), so its stacking is asserted from its own rule below.
+  const toggles = ['layer-l1', 'layer-l2', 'layer-l3', 'layer-sprites']
+  const setPressed = async (control, on) => {
+    const b = page.locator(`${root} [data-control="${control}"]`)
+    await expect(b).toBeEnabled()
+    if (((await b.getAttribute('aria-pressed')) === 'true') !== on) await b.click()
+    await expect(b).toHaveAttribute('aria-pressed', String(on))
+  }
+  let last
   for (const gridOn of [false, true]) {
     if (((await grid.getAttribute('aria-pressed')) === 'true') !== gridOn) await grid.click()
-    for (const off of [[], ['L2'], ['L3'], ['Sprites'], ['L2', 'L3', 'Sprites']]) {
-      await inWidget(
-        page,
-        (w, off) => {
-          w.showL2 = !off.includes('L2')
-          w.showL3 = !off.includes('L3')
-          w.showSprites = !off.includes('Sprites')
-          w.update()
-        },
-        off,
-      )
+    for (const off of [[], ['layer-l1'], ['layer-l2'], ['layer-l3'], ['layer-sprites'], toggles]) {
+      for (const t of toggles) await setPressed(t, !off.includes(t))
       await page.waitForTimeout(250)
       const m = await measure(page)
-      expect(onFarEdge(m)).toBe(true)
+      expect(onFarEdge(m), JSON.stringify({ gridOn, off })).toBe(true)
       expect(m.lineStyle).toMatchObject({ display: 'block', visibility: 'visible', opacity: '1' })
       // Amber is on screen: the line's middle pixels (the grid may take one of them).
       const px = await acrossLine(page, m)
@@ -323,93 +378,181 @@ test('3: the line shows with the grid on and off and every layer toggle off, abo
         px.slice(5, 8).some(p => dist(p, AMBER) < 30),
         JSON.stringify({ gridOn, off, px }),
       ).toBe(true)
-      z = m
+      last = m
     }
   }
-  expect(Number(z.lineStyle.zIndex)).toBeGreaterThan(Number(z.gutterZ))
-})
-
-test('4: the amber differs from the selection and warning colors and reads against a light and a dark back', async ({
-  page,
-}) => {
-  await openSynthetic(page, { back: [255, 255, 255] })
-  await scrollEnd(page, false)
-  const light = await acrossLine(page, await measure(page))
-  const colors = await page.evaluate(() => {
-    const probe = v => {
-      const e = document.createElement('div')
-      e.style.color = `var(${v}, #000)`
-      document.body.append(e)
-      const c = getComputedStyle(e).color
-      e.remove()
-      return c
-    }
-    return [
-      '--theia-focusBorder',
-      '--theia-editorWarning-foreground',
-      '--theia-list-activeSelectionBackground',
-      '--theia-editor-selectionBackground',
-    ].map(probe)
-  })
-  const [edge, amber] = [darkest(light.slice(3, 10)), brightest(light.slice(4, 9))]
-  expect(dist(amber, AMBER), 'amber pixel').toBeLessThan(30)
-  expect(contrast(edge, light[0]), 'dark edge vs light back').toBeGreaterThanOrEqual(3)
-  expect(contrast(amber, edge), 'amber vs its dark edge').toBeGreaterThanOrEqual(3)
-  for (const c of colors) expect(dist(AMBER, rgbOf(c)), `amber vs ${c}`).toBeGreaterThan(60)
-  await closeMap(page)
-  await openSynthetic(page, { back: [0, 0, 0] })
-  await scrollEnd(page, false)
-  const dark = await acrossLine(page, await measure(page))
-  expect(
-    contrast(brightest(dark.slice(4, 9)), dark[0]),
-    'amber vs dark back',
-  ).toBeGreaterThanOrEqual(3)
+  const z = Number(last.lineStyle.zIndex)
+  expect(z).toBeGreaterThan(Number(last.gutterZ))
+  expect(z, 'above the collision overlay').toBeGreaterThan(Number(last.collisionZ))
+  expect(z, 'below the grid canvas (1000)').toBeLessThan(1000)
 })
 
 for (const vertical of [false, true]) {
-  test(`5: the Add screen outline fills one gutter screen, is labeled, explains itself, and clicking changes nothing (${vertical ? 'vertical' : 'horizontal'})`, async ({
+  test(`3: the end line is drawn over Layers 2 and 3 in the gutter, by pixels (${vertical ? 'vertical' : 'horizontal'})`, async ({
     page,
   }) => {
-    await openSynthetic(page, { vertical, boxes: vertical ? [[0, 600]] : [[600, 0]] })
+    await openSynthetic(page, { vertical, layers: true })
     await scrollEnd(page, vertical)
-    let m = await measure(page)
-    const z = m.zoom
-    // One gutter screen: 256 map px along the scroll axis, ending at the strip's end (after the content band), the map's extent across.
-    const [len, cross, stripEnd, addEnd] = vertical
-      ? [m.add.height, m.add.width, m.strip.bottom, m.add.bottom]
-      : [m.add.width, m.add.height, m.strip.right, m.add.right]
-    expect(len / z).toBeCloseTo(256, 0)
-    expect(Math.abs(addEnd - stripEnd)).toBeLessThanOrEqual(0.5)
-    expect(cross / z).toBeCloseTo(vertical ? 512 : 432, 0)
-    expect(m.addBox.left - m.add.left).toBeCloseTo(6, 0) // inset 6 px
-    const look = () =>
-      page.evaluate(sel => {
-        const e = document.querySelector(`${sel} .hb-map-add-screen-box`)
-        const c = getComputedStyle(e)
-        return { text: e.textContent, border: c.borderTopStyle + ' ' + c.borderTopColor, opacity: c.opacity, cursor: getComputedStyle(e.parentElement).cursor, bg: c.backgroundColor, title: e.parentElement.title } // prettier-ignore
-      }, root)
-    const before = await look()
-    expect(before).toMatchObject({ text: 'Add screen', cursor: 'default', opacity: '0.75', title: 'Add screen is not available yet' }) // prettier-ignore
-    expect(before.border).toMatch(/^dashed rgb\(255, 255, 255\)/)
-    // A sprite is selected first, so a stray map click (which would clear it) shows.
-    await inWidget(page, w => w.selectSprite(w.sprites.sprites[0]))
-    const sel0 = await inWidget(page, w => w.selectedSprite?.index ?? null)
-    expect(sel0).toBe(900)
-    const calls0 = await page.evaluate(() => window.__calls.length)
-    const scrollOf = () => page.evaluate(sel => { const s = document.querySelector(`${sel} [data-control="map-scroller"]`); return [s.scrollLeft, s.scrollTop] }, root) // prettier-ignore
-    const scroll0 = await scrollOf()
-    m = await measure(page)
-    const [cx, cy] = [m.addBox.left + m.addBox.width / 2, m.addBox.top + m.addBox.height / 2]
-    await page.mouse.move(cx, cy)
-    await page.waitForTimeout(200)
-    expect(await look()).toEqual(before) // hover adds no highlight
-    await page.mouse.click(cx, cy)
-    await page.mouse.dblclick(cx, cy)
-    await page.waitForTimeout(400)
-    expect(await look()).toEqual(before)
-    expect(await inWidget(page, w => w.selectedSprite?.index ?? null)).toBe(sel0)
-    expect(await page.evaluate(() => window.__calls.length)).toBe(calls0)
-    expect(await scrollOf()).toEqual(scroll0)
+    const grid = page.locator(`${root} [data-control="grid-toggle"]`)
+    if ((await grid.getAttribute('aria-pressed')) === 'true') await grid.click()
+    await expect
+      .poll(() => page.evaluate(sel => !!document.querySelector(`${sel} [data-layer="gutter-layers"]`), root), { timeout: 15000 })
+      .toBe(true) // prettier-ignore
+    // Sample where Layer 2 shows (below the 100 Layer 3 rows of a horizontal map): along 0.8 of the line's length.
+    const m = await measure(page)
+    await expect // settle: the gutter canvas paints after its reply
+      .poll(async () => dist((await acrossLine(page, m, 0.8))[11], L2_GREEN) < 40, { timeout: 15000 })
+      .toBe(true) // prettier-ignore
+    const px = await acrossLine(page, m, 0.8)
+    // Past the line's 5 px the gutter shows Layer 2 green (not faded: the first px of the gutter);
+    // under the line's gutter half the amber is still on top.
+    expect(dist(px[11], L2_GREEN), JSON.stringify(px)).toBeLessThan(40)
+    expect(
+      px.slice(5, 8).some(p => dist(p, AMBER) < 30),
+      JSON.stringify(px),
+    ).toBe(true)
+    if (!vertical) {
+      // And over Layer 3's blue rows at the top of the line.
+      const top = await acrossLine(page, m, 0.1)
+      expect(
+        top.slice(5, 8).some(p => dist(p, AMBER) < 30),
+        JSON.stringify(top),
+      ).toBe(true)
+    }
+  })
+}
+
+/** Sets the Theia color theme by id and waits for it to apply. */
+const setTheme = async (page, id) => {
+  await page.evaluate(i => getSvc('ThemeService').setCurrentTheme(i), id)
+  await expect.poll(() => page.evaluate(() => getSvc('ThemeService').getCurrentTheme().id)).toBe(id)
+  await page.waitForTimeout(400)
+}
+
+for (const theme of ['light', 'dark']) {
+  test(`4: the amber differs from the selection, warning and error colors, and the line and the Add screen outline read against a light and a dark back (${theme} theme)`, async ({
+    page,
+  }) => {
+    const was = await page.evaluate(() => getSvc('ThemeService').getCurrentTheme().id)
+    await setTheme(page, theme)
+    const colors = await page.evaluate(() => {
+      const probe = v => {
+        const e = document.createElement('div')
+        e.style.color = `var(${v}, #000)`
+        document.body.append(e)
+        const c = getComputedStyle(e).color
+        e.remove()
+        return [v, c]
+      }
+      return [
+        '--theia-focusBorder',
+        '--theia-editorWarning-foreground',
+        '--theia-editorError-foreground',
+        '--theia-list-activeSelectionBackground',
+        '--theia-editor-selectionBackground',
+      ].map(probe)
+    })
+    for (const [v, c] of colors)
+      expect(dist(AMBER, rgbOf(c)), `amber vs ${v} ${c}`).toBeGreaterThan(60)
+    for (const back of [
+      [255, 255, 255],
+      [0, 0, 0],
+    ]) {
+      await openSynthetic(page, { back })
+      await scrollEnd(page, false)
+      const m = await measure(page)
+      const line = await acrossLine(page, m)
+      const [edge, amber] = [darkest(line.slice(3, 10)), brightest(line.slice(4, 9))]
+      expect(dist(amber, AMBER), 'amber pixel').toBeLessThan(30)
+      // On a light back the dark edge carries the line; on a dark back the amber does.
+      const read = Math.max(contrast(edge, line[0]), contrast(amber, line[0]))
+      expect(read, `line vs back ${back}`).toBeGreaterThanOrEqual(3)
+      expect(contrast(amber, edge), 'amber vs its dark edge').toBeGreaterThanOrEqual(3)
+      // The Add screen outline: its left border at the box's middle height, with 4 px of gutter before it.
+      const b = m.addBox
+      const o = await pixels(page, b.left - 4, b.top + b.height / 2, 9, false)
+      const reads = Math.max(...o.slice(3, 8).map(p => contrast(p, o[0])))
+      expect(
+        reads,
+        `outline vs back ${back} in the ${theme} theme: ${JSON.stringify(o)}`,
+      ).toBeGreaterThanOrEqual(3)
+      await closeMap(page)
+    }
+    await setTheme(page, was)
+  })
+}
+
+for (const vertical of [false, true]) {
+  for (const band of BANDS) {
+    test(`5: the Add screen outline fills one gutter screen, is labeled, explains itself, and clicking changes nothing (${vertical ? 'vertical' : 'horizontal'}, ${bandName(band)})`, async ({
+      page,
+    }) => {
+      const boxes = [...bandBoxes(vertical, band), vertical ? [0, 40] : [40, 40]] // a sprite on the map to select
+      await openSynthetic(page, { vertical, boxes })
+      await scrollEnd(page, vertical)
+      let m = await measure(page)
+      const z = m.zoom
+      // One gutter screen: 256 map px along the scroll axis, ending at the strip's end (after any band), the map's extent across.
+      const [len, cross, stripEnd, addEnd] = vertical
+        ? [m.add.height, m.add.width, m.strip.bottom, m.add.bottom]
+        : [m.add.width, m.add.height, m.strip.right, m.add.right]
+      expect(len / z).toBeCloseTo(256, 0)
+      expect(Math.abs(addEnd - stripEnd)).toBeLessThanOrEqual(0.5)
+      expect(cross / z).toBeCloseTo(vertical ? 512 : 432, 0)
+      // Across, it spans the map: its start is the map's first screen edge (the leading pad is not under it).
+      expect(
+        Math.abs(vertical ? m.add.left - m.edge.left : m.add.top - m.edge.top),
+      ).toBeLessThanOrEqual(0.5)
+      // Along, it begins no earlier than the map's far edge plus any band, and no band hides under it.
+      expect((vertical ? m.add.top - m.edge.bottom : m.add.left - m.edge.right) / z).toBeCloseTo(
+        band.includes('far') ? 112 : 0,
+        0,
+      )
+      expect(m.addBox.left - m.add.left).toBeCloseTo(6, 0) // inset 6 px
+      const look = () =>
+        page.evaluate(sel => {
+          const e = document.querySelector(`${sel} .hb-map-add-screen-box`)
+          const c = getComputedStyle(e)
+          return { text: e.textContent, border: c.borderTopStyle + ' ' + c.borderTopColor, opacity: c.opacity, cursor: getComputedStyle(e.parentElement).cursor, bg: c.backgroundColor, title: e.parentElement.title } // prettier-ignore
+        }, root)
+      const before = await look()
+      expect(before).toMatchObject({ text: 'Add screen', cursor: 'default', opacity: '0.75', title: 'Add screen is not available yet' }) // prettier-ignore
+      expect(before.border).toMatch(/^dashed /)
+      // A sprite is selected first, so a stray map click (which would clear it) shows.
+      const placed = boxes.length - 1
+      await inWidget(page, (w, i) => w.selectSprite(w.sprites.sprites[i]), placed)
+      const sel0 = await inWidget(page, w => w.selectedSprite?.index ?? null)
+      expect(sel0).toBe(900 + placed)
+      const calls0 = await page.evaluate(() => window.__calls.length)
+      const scrollOf = () => page.evaluate(sel => { const s = document.querySelector(`${sel} [data-control="map-scroller"]`); return [s.scrollLeft, s.scrollTop] }, root) // prettier-ignore
+      const scroll0 = await scrollOf()
+      m = await measure(page)
+      const [cx, cy] = [m.addBox.left + m.addBox.width / 2, m.addBox.top + m.addBox.height / 2]
+      await page.mouse.move(cx, cy)
+      await page.waitForTimeout(200)
+      expect(await look()).toEqual(before) // hover adds no highlight
+      await page.mouse.click(cx, cy)
+      await page.mouse.dblclick(cx, cy)
+      await page.waitForTimeout(400)
+      expect(await look()).toEqual(before)
+      expect(await inWidget(page, w => w.selectedSprite?.index ?? null)).toBe(sel0)
+      expect(await page.evaluate(() => window.__calls.length)).toBe(calls0)
+      expect(await scrollOf()).toEqual(scroll0)
+    })
+  }
+}
+
+for (const vertical of [false, true]) {
+  test(`5: a 31-screen map still has the one-screen Add screen outline (${vertical ? 'vertical' : 'horizontal'})`, async ({
+    page,
+  }) => {
+    await openSynthetic(page, { screens: 31, vertical })
+    await scrollEnd(page, vertical)
+    const m = await measure(page)
+    expect(onFarEdge(m)).toBe(true)
+    expect(m.add).toBeDefined()
+    expect((vertical ? m.add.height : m.add.width) / m.zoom).toBeCloseTo(256, 0)
+    await closeMap(page)
   })
 }
 

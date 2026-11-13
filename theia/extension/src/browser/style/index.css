@@ -413,17 +413,22 @@
 }
 
 /* The end line (#1296, owner D194): a 3 px amber line over a 5 px dark edge, centered on the map's far edge and
-   constant in screen px at every zoom. The amber is a fixed color, not a theme token: it must differ from the
-   selection (focus blue) and warning colors in every theme. The dark edge carries it on light back colors. */
+   constant in screen px at every zoom. Colors are Theia variables with literal fallbacks, so a theme may set
+   them (this repo registers no ColorContribution): the amber default differs from the selection (focus blue),
+   warning and error colors in every built-in theme (map-end-line.spec.cjs measures it), and the dark edge
+   carries it on light back colors. Stacks above the collision overlay (200) and below the grid canvas (1000). */
 .hb-map-end-line {
   position: absolute;
-  z-index: 162;
+  z-index: 205;
   pointer-events: none;
   box-sizing: border-box;
   width: 5px;
   margin-left: -2.5px;
-  background-color: rgba(0, 0, 0, 0.75);
-  background-image: linear-gradient(#ffc23d, #ffc23d);
+  background-color: var(--theia-hackbench-mapEndLineEdge, rgba(0, 0, 0, 0.75));
+  background-image: linear-gradient(
+    var(--theia-hackbench-mapEndLine, #ffc23d),
+    var(--theia-hackbench-mapEndLine, #ffc23d)
+  );
   background-repeat: no-repeat;
   background-position: center;
   background-size: 3px 100%;
@@ -448,7 +453,8 @@
 
 /* The "Add screen" outline (#1296): one gutter screen, inert until adding screens exists (#26, #950). It takes
    pointer events only to swallow clicks and show its tooltip; default cursor and no hover style, so it does not
-   read as a button. */
+   read as a button. Outline and label use the theme's foreground with a halo in its editor background, so they
+   read on a light or a dark theme and over any map back color. */
 .hb-map-add-screen {
   position: absolute;
   z-index: 155;
@@ -464,11 +470,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1.5px dashed #ffffff;
+  border: 1.5px dashed var(--theia-foreground, #cccccc);
+  box-shadow:
+    0 0 0 1px var(--theia-editor-background, #1e1e1e),
+    inset 0 0 0 1px var(--theia-editor-background, #1e1e1e);
   opacity: 0.75;
-  color: #ffffff;
+  color: var(--theia-foreground, #cccccc);
   font-size: 12px;
-  text-shadow: 0 0 3px rgba(0, 0, 0, 0.9);
+  text-shadow: 0 0 3px var(--theia-editor-background, #1e1e1e);
   user-select: none;
 }
 

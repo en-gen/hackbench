@@ -566,4 +566,39 @@ describe('the end line and the Add screen rect (#1296)', () => {
     expect(addScreenRect(W * 16, H, pad, false, MAX_SCREENS)).toBeNull()
     expect(farEdge(W * 16, H, pad, false).x0).toBe(W * 16)
   })
+
+  // A band BEFORE position 0 (a cell at tile (-2, 5) and one at (3, -1)) shifts the map right and down by
+  // 32 and 16 px, so every expected number below carries those leads as literals, never read from `pad`.
+  it.each([false, true])(
+    'shifts the end line and the Add screen rect by the near bands, every screen count (vertical %s)',
+    vertical => {
+      for (const bands of [[], [cellRect(-2, 5), cellRect(3, -1)]]) {
+        for (const far of [0, 112]) {
+          for (let n = 1; n <= MAX_SCREENS; n++) {
+            const [mw, mh] = vertical ? [512, 256 * n] : [256 * n, 432]
+            const [lx, ly] = bands.length ? [32, 16] : [0, 0]
+            const rects = [...bands]
+            if (far)
+              rects.push(vertical ? cellRect(1, (mh + 96) / 16) : cellRect((mw + 96) / 16, 1))
+            const pad = offMapPad(mw, mh, rects, vertical, n)
+            const e = farEdge(mw, mh, pad, vertical)
+            const want = vertical
+              ? { x0: lx, y0: ly + mh, x1: lx + mw, y1: ly + mh }
+              : { x0: lx + mw, y0: ly, x1: lx + mw, y1: ly + mh }
+            const tag = JSON.stringify({ vertical, n, near: bands.length, far })
+            expect(e, tag).toEqual(want)
+            const a = addScreenRect(mw, mh, pad, vertical, n)
+            if (n >= MAX_SCREENS) {
+              expect(a, tag).toBeNull()
+              continue
+            }
+            const wantAdd = vertical
+              ? { x0: lx, y0: ly + mh + far, x1: lx + mw, y1: ly + mh + far + GUTTER_PX }
+              : { x0: lx + mw + far, y0: ly, x1: lx + mw + far + GUTTER_PX, y1: ly + mh }
+            expect(a, tag).toEqual(wantAdd)
+          }
+        }
+      }
+    },
+  )
 })

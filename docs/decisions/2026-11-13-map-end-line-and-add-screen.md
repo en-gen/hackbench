@@ -15,7 +15,7 @@ D194 (owner, option D) chose a thick amber end line with a dark edge plus a dash
 
 Proposed, not ruled:
 
-- The amber line `#ffc23d` is a fixed color, not a theme token, so it differs from the selection and warning colors in every theme; the 5 px dark edge (black, opacity 0.75) carries it on light back colors. [PROP]
+- The amber line `#ffc23d` is a `--theia-hackbench-mapEndLine` variable with that literal fallback (no ColorContribution in this repo; the Add screen outline and label use the theme foreground with an editor-background halo so they read on light and dark themes), so it differs from the selection and warning colors in every theme; the 5 px dark edge (black, opacity 0.75) carries it on light back colors. [PROP]
 - Width is constant in screen pixels at every zoom; position follows the edge exactly. [PROP]
 - The "Add screen" outline fills the gutter where the layout puts it, after any off-map content band, not directly after the line. [PROP]
 - Its tooltip reads "Add screen is not available yet". [PROP]
