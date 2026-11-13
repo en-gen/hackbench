@@ -1,13 +1,13 @@
 #!/bin/bash
 # usage: run-batch.sh <n> <label> ; starts n detached containers on disjoint 10-vCPU ranges.
-export MSYS_NO_PATHCONV=1  # Git Bash otherwise rewrites -e HACKBENCH_ROMS=/corpus into C:/Program Files/Git/corpus
+export MSYS_NO_PATHCONV=1  # Git Bash otherwise rewrites -e HACKBENCH_TOOLS=/hackbench-tools -e HACKBENCH_ROMS=/hackbench-tools/roms into C:/Program Files/Git/corpus
 n=${1:-1}; label=${2:-batch}; wt=$(cd ../../.. && pwd -W 2>/dev/null || pwd)
 out=${OUT:-./results}/$label; mkdir -p "$out"
 for i in $(seq 0 $((n-1))); do
   lo=$((i*10)); hi=$((lo+9)); mkdir -p "$out/run$i"
   docker run -d --label hackbench.spike=uniform --name "uniform-$label-$i" \
-    --cpuset-cpus=$lo-$hi -e HACKBENCH_VITEST_WORKERS=5 -e HACKBENCH_ROMS=/corpus \
-    -v "$wt:/src:ro" -v "C:/Projects/hackbench-tools/roms:/corpus:ro" -v "$(cd "$out/run$i" && pwd -W 2>/dev/null || pwd):/out" -v "$wt/tools/docker/test-runs/run-unit.sh:/run-unit.sh:ro" \
+    --cpuset-cpus=$lo-$hi -e HACKBENCH_VITEST_WORKERS=5 -e HACKBENCH_TOOLS=/hackbench-tools -e HACKBENCH_ROMS=/hackbench-tools/roms \
+    -v "$wt:/src:ro" -v "C:/Projects/hackbench-tools:/hackbench-tools:ro" -v "$(cd "$out/run$i" && pwd -W 2>/dev/null || pwd):/out" -v "$wt/tools/docker/test-runs/run-unit.sh:/run-unit.sh:ro" \
     hackbench-unit:spike "${@:3}" >/dev/null
 done
 for i in $(seq 0 $((n-1))); do
