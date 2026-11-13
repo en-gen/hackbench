@@ -171,7 +171,8 @@ export function buildL3Verdict(
       none(reason, {
         cgadsub: effectiveCgadsub(layout.cgadsub, !kept),
       })
-    // Mode 0E ($018, BG3 alone on main) draws like the others: the plane lists and the math carry it (#805).
+    // A lone BG3 on the main screen (mode 0E, $018) is not a reason to refuse: the plane lists and the
+    // color math carry it like any other mode (docs/rom/layer3-world-locked.md, Map $018; #805).
     if (!kept) return refuse()
     const start = readMarioStartPos(rom, index)
     if (!start) return refuse()
