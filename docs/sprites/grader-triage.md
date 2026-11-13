@@ -134,20 +134,30 @@ write as the sprite's own part only when `$15E9` equals the sprite's slot, on ev
   (Probe, one machine, 2026-10-17: the extra writes on $1E were under slots holding $87 and $14.)
 - $B9 is not the same cause: its INIT is a bare RTS (`Return0185C2`, `bank_01.asm:890`, the shared `RTS` after
   `InitPiranha`) and it spawns nothing. Its two wrong records (map 004 at 144,336 "model drew 21", map 101 at 96,336
-  and 1840,336 "model drew 5") were OAM written under `$15E9` values 0-19 by the cluster sprite loop: `CODE_02F810`
+  and 1840,336 "model drew 5", counts from before #840) held OAM written under `$15E9` values 0-19 by the cluster sprite loop: `CODE_02F810`
   does `LDX #$13` / `STX $15E9` (`bank_02.asm:15950-15958`), and it is reached from the runner's own frame through
   `ActivateClusterSprite` -> `JSL CODE_02F808` (`bank_01.asm:128-130`). The writing PCs (one machine, 2026-10-17
   probe) are `$02:FD76` on map 004 and `$02:FA4E` on map 101. Traced from the nearest preceding label (offset in
-  bytes): `$02:FD76` is `CODE_02FD48` +46, the Boo ring's tile store (`STA OAMTileNo+$100,Y` after `BooRingTiles`,
-  `bank_02.asm:16651`); `$02:FA4E` is `CODE_02FA16` +56, the castle flame's tile store (`bank_02.asm:16255`). $B9's own
+  bytes): `$02:FD76` is `CODE_02FD48` +46, the tile store of cluster sprite $03 (`CODE_02FBC7`, tiles from
+  `BooRingTiles`; `STA OAMTileNo+$100,Y` after it, `bank_02.asm:16651`); `$02:FA4E` is `CODE_02FA16` +56, the castle flame's tile store (`bank_02.asm:16255`). $B9's own
   tiles are written under its own sprite slot (PCs `$01:9F2A`, `CODE_019E95` +149, `bank_01.asm:4083`, and `$03:8DB4`,
   `DATA_038D66` +78, `bank_03.asm:1698`; for these two only the label and offset were taken from the disassembly
   index, the exact instruction line was not traced). Whether the own-slot rule acts on $B9 was NOT shown by a test: on
   develop at `a028e0dc` the 101 records already grade exact, and a plain map-view run of $B9 on 101 (4 spots) gives 1
   part and 0 companions, so no write under another `$15E9` reached an OAM tile byte at those seeds. The map 004 claim
   that $B9 sits in sprite slot 6 and so keeps cluster index 6's write is an inference from the probe PCs, not
-  reproduced here; read its "close" grade as unverified. The synthetic id 84 (`$15E9` set to 15) is the real
-  other-slot write under test.
+  reproduced here. It graded wrong, and the cause was the capture, not the model (#1368): the recorded second piece
+  was OAM 126, tile $AA/$AE, a tile of cluster sprite $03 (`CODE_02FBC7`, `bank_02.asm:15968`, whose tiles come from
+  `BooRingTiles`, `bank_02.asm:16438-16439`, stored at 16651), written under cluster index 6 = sprite slot 6; the pre-fix
+  recorder keyed by slot (fixed in `hackbench-validation` 48d348c, #31/#32). Map 004 re-captured with bc8d1a3 holds one
+  piece and grades exact (one run per corpus, one machine, vanilla ROM, 2026-11-13).
+  Why #840 (PR #1087) missed this row: it aligned the runner's `writtenOam()` to the same `$15E9 == slot` rule the
+  recorder used, and that rule cannot remove a write the capture itself mis-credited (cluster index 6 equals sprite
+  slot 6). In the grader's mode the model runs no cluster sprites (`NO_CLUSTER_SPRITES`), so the runner's filter never
+  sees the write. Only the recorder fix (48d348c) or a re-capture removes it. The re-captured record is drawn before the
+  anchor frame, so it grades the old way, a fallback; of the 43 fallbacks, 5 are of that kind (maps 004, 101, 11b), and
+  #875 times level-start sprites again. #1386 is the full re-capture. The synthetic id 84 (`$15E9` set to 15) is the
+  real other-slot write under test.
 - $2B's former spawn-oracle extra tile was also a cluster write (`$02:F983`, `$15E9` = 9; `CODE_02F967` +28, the Sumo
   Bro flame tile store, `bank_02.asm:16145`), now filtered.
 - The map view still draws companions (owner principle D52: "We can't outright hide things from the user").
