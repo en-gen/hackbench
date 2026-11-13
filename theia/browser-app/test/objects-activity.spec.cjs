@@ -178,10 +178,36 @@ test('no tile can be tagged before a tileset is picked, and the sheet is that ti
   }, ctl('sheet-canvas'))
   expect(drawn).toBe(expected.rgba)
 
-  // Another tileset draws other pixels; the sheet follows the pick.
-  const before = await sheetChecksum(page)
-  await pickTileset(page, 7)
-  expect(await sheetChecksum(page)).not.toBe(before)
+  // Every tileset: the sheet on screen is that tileset's loadMap16 result, tile for tile.
+  const seen = new Set()
+  for (let t = 0; t < 15; t++) {
+    await pickTileset(page, t)
+    const [count, drawnT, expectedT] = await Promise.all([
+      page.locator(ctl('tile')).count(),
+      page.evaluate(sel => {
+        const c = document.querySelector(sel)
+        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+        let bin = ''
+        for (let i = 0; i < d.length; i++) bin += String.fromCharCode(d[i])
+        return btoa(bin)
+      }, ctl('sheet-canvas')),
+      page.evaluate(
+        async ({ mp, tileset }) => {
+          const r = await getSvc('Symbol(Map16Service)').loadMap16(mp, tileset, 'fg', {
+            bg: 0,
+            fg: 0,
+          })
+          return r.sheet.rgbaBase64
+        },
+        { mp: manifestPath, tileset: t },
+      ),
+    ])
+    expect(count).toBe(512)
+    expect(drawnT).toBe(expectedT)
+    seen.add(expectedT)
+  }
+  // The tilesets are not all the same picture, so the match above proves the pick took effect.
+  expect(seen.size).toBeGreaterThan(1)
 })
 
 test('a tile has one role: edge then fill leaves it in the fill list, and a second click untags it', async ({
@@ -289,7 +315,9 @@ test('the preview palette changes the drawn colors and leaves the saved file byt
   const before = await sheetChecksum(page)
   await page.selectOption(ctl('fg-variant-select'), '3')
   await expect.poll(() => sheetChecksum(page)).not.toBe(before)
+  const afterFg = await sheetChecksum(page)
   await page.selectOption(ctl('bg-variant-select'), '5')
+  await expect.poll(() => sheetChecksum(page)).not.toBe(afterFg)
   expect(fs.readFileSync(file).equals(saved)).toBe(true)
 
   // Saving again under the other colors writes the same bytes: no palette is stored.
@@ -372,4 +400,33 @@ test('a damaged file and a file from another tileset show a note, and the activi
 
   // The damaged files are exactly as planted.
   expect(fs.readFileSync(path.join(objectsDir(manifestPath), 'broken.json'), 'utf8')).toBe('{ nope')
+
+  // An unreadable file can be removed from the app: two clicks, that file only.
+  const remove = `${ctl('remove-file')}[data-file="broken.json"]`
+  await page.click(remove)
+  expect(fs.existsSync(path.join(objectsDir(manifestPath), 'broken.json'))).toBe(true)
+  await page.click(`${ctl('remove-file-confirm')}[data-file="broken.json"]`)
+  await expect(page.locator(ctl('message'))).toContainText('Deleted')
+  expect(fs.existsSync(path.join(objectsDir(manifestPath), 'broken.json'))).toBe(false)
+  expect(fs.existsSync(path.join(objectsDir(manifestPath), 'elsewhere.json'))).toBe(true)
+  await expect(page.locator(ctl('skipped-note'))).toHaveCount(1)
+})
+
+test('changing the tileset of a saved definition starts a new one and leaves the saved file alone', async ({
+  page,
+}) => {
+  const manifestPath = await openProject(page, path.join(tmp, 'Retarget'))
+  await pickTileset(page, 2)
+  await tile(page, 258).click()
+  await nameAndSave(page, 'First')
+  const [firstFile] = savedFiles(manifestPath)
+  const first = fs.readFileSync(path.join(objectsDir(manifestPath), firstFile))
+
+  await pickTileset(page, 5)
+  expect(await itemNumbers(page, 'edge')).toEqual([])
+  await tile(page, 259).click()
+  await nameAndSave(page, 'Second')
+
+  expect(savedFiles(manifestPath)).toHaveLength(2)
+  expect(fs.readFileSync(path.join(objectsDir(manifestPath), firstFile)).equals(first)).toBe(true)
 })

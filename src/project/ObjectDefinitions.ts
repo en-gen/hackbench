@@ -72,8 +72,40 @@ export function objectsDir(projectDir: string): string {
 }
 
 function isUsableId(id: string): boolean {
-  return id.length <= OBJECT_ID_MAX_LENGTH && ID_PATTERN.test(id)
+  return typeof id === 'string' && id.length <= OBJECT_ID_MAX_LENGTH && ID_PATTERN.test(id)
 }
+
+/**
+ * Names Windows will not make a file of (`con.json` opens the console), in
+ * any case. A WRITER rule only: the reader still takes a file with such an
+ * id, which cannot exist on Windows anyway.
+ */
+const RESERVED_WINDOWS_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
+
+/** Whether the writer may use `id`: the reader's pattern, and not a reserved Windows name. */
+export function isWritableId(id: string): boolean {
+  return isUsableId(id) && !RESERVED_WINDOWS_NAME.test(id)
+}
+
+/**
+ * Whether the folder holds exactly `<id>.json`. On a case-insensitive file
+ * system `abc12345.json` also opens `ABC12345.json`, which is another file the
+ * reader may have skipped; a write or delete must not reach it.
+ */
+function entryOf(dir: string, id: string): 'exact' | 'other-case' | 'absent' {
+  let names: string[]
+  try {
+    names = fs.readdirSync(dir)
+  } catch {
+    return 'absent'
+  }
+  if (names.includes(`${id}.json`)) return 'exact'
+  const lower = `${id}.json`.toLowerCase()
+  return names.some(n => n.toLowerCase() === lower) ? 'other-case' : 'absent'
+}
+
+const OTHER_CASE_REASON =
+  'A file with this id exists under different letters (capitals), so it was left alone.'
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -108,7 +140,7 @@ function validate(
   if (raw.version !== 1) {
     return typeof raw.version === 'number' && raw.version > 1
       ? 'This Object was saved by a newer HackBench.'
-      : `The file's version (${String(raw.version)}) is not one this HackBench knows.`
+      : `The file's version (${JSON.stringify(raw.version)}) is not one this HackBench knows.`
   }
   const { id, name, tileset } = raw
   if (typeof id !== 'string' || !isUsableId(id)) {
@@ -135,24 +167,32 @@ function validate(
 }
 
 type FileRead =
-  | { ok: true; definition: ObjectDefinition; extras: Record<string, unknown> }
-  | { ok: false; reason: string }
+  | { status: 'ok'; definition: ObjectDefinition; extras: Record<string, unknown> }
+  | { status: 'skipped'; reason: string }
 
 function readOne(file: string, stem: string, limits: ObjectLimits): FileRead {
   try {
     if (fs.statSync(file).size > OBJECT_FILE_MAX_BYTES) {
-      return { ok: false, reason: 'The file is larger than 64 KB.' }
+      return { status: 'skipped', reason: 'The file is larger than 64 KB.' }
+    }
+    const bytes = fs.readFileSync(file)
+    // JSON.parse refuses a byte order mark, so the file is skipped either way; this says why.
+    if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+      return {
+        status: 'skipped',
+        reason: 'The file was saved with a byte order mark; save it as UTF-8 without one.',
+      }
     }
     let raw: unknown
     try {
-      raw = JSON.parse(fs.readFileSync(file, 'utf8'))
+      raw = JSON.parse(bytes.toString('utf8'))
     } catch {
-      return { ok: false, reason: 'The file is not readable JSON.' }
+      return { status: 'skipped', reason: 'The file is not readable JSON.' }
     }
     const v = validate(raw, stem, limits)
-    return typeof v === 'string' ? { ok: false, reason: v } : { ok: true, ...v }
+    return typeof v === 'string' ? { status: 'skipped', reason: v } : { status: 'ok', ...v }
   } catch (err) {
-    return { ok: false, reason: `The file could not be opened: ${errText(err)}` }
+    return { status: 'skipped', reason: `The file could not be opened: ${errText(err)}` }
   }
 }
 
@@ -182,7 +222,7 @@ export function readObjectDefinitions(projectDir: string, limits: ObjectLimits):
   for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
     if (!e.isFile() || !e.name.endsWith('.json')) continue
     const r = readOne(path.join(dir, e.name), e.name.slice(0, -'.json'.length), limits)
-    if (r.ok) result.definitions.push(r.definition)
+    if (r.status === 'ok') result.definitions.push(r.definition)
     else result.skipped.push({ file: e.name, reason: r.reason })
   }
   result.definitions.sort(
@@ -237,20 +277,23 @@ export function saveObjectDefinition(
 ): ObjectWriteResult {
   const dir = objectsDir(projectDir)
   const id = draft.id ?? newId(dir)
-  if (!isUsableId(id)) {
+  if (!isWritableId(id)) {
     return { status: 'invalid', reason: 'That is not a usable Object id.' }
   }
-  const v = validate({ ...draft, version: 1, id, name: draft.name.trim() }, id, limits)
+  // A name that is not text is refused like a blank one, never thrown at the caller.
+  const name = typeof draft.name === 'string' ? draft.name.trim() : draft.name
+  const v = validate({ ...draft, version: 1, id, name }, id, limits)
   if (typeof v === 'string') return { status: 'invalid', reason: v }
 
   let extras: Record<string, unknown> = {}
-  const file = path.join(dir, `${id}.json`)
-  if (fs.existsSync(file)) {
-    const old = readOne(file, id, limits)
-    if (!old.ok) {
+  const where = entryOf(dir, id)
+  if (where === 'other-case') return { status: 'invalid', reason: OTHER_CASE_REASON }
+  if (where === 'exact') {
+    const old = readOne(path.join(dir, `${id}.json`), id, limits)
+    if (old.status === 'skipped') {
       return {
         status: 'invalid',
-        reason: `The saved file for this Object could not be read (${old.reason}) so it was not replaced. Delete it, or save under another name.`,
+        reason: `The saved file for this Object could not be read (${old.reason}) so it was not replaced. Remove that file from the list of unreadable files, or save under another name.`,
       }
     }
     extras = old.extras
@@ -268,12 +311,15 @@ export function renameObjectDefinition(
   if (!isUsableId(id)) {
     return { status: 'invalid', reason: 'That is not a usable Object id.' }
   }
-  if (name.trim() === '') return { status: 'invalid', reason: 'An Object needs a name.' }
+  if (typeof name !== 'string' || name.trim() === '') {
+    return { status: 'invalid', reason: 'An Object needs a name.' }
+  }
   const dir = objectsDir(projectDir)
-  const file = path.join(dir, `${id}.json`)
-  if (!fs.existsSync(file)) return { status: 'not-found', reason: 'That Object is not saved.' }
-  const old = readOne(file, id, limits)
-  if (!old.ok) {
+  const where = entryOf(dir, id)
+  if (where === 'other-case') return { status: 'invalid', reason: OTHER_CASE_REASON }
+  if (where === 'absent') return { status: 'not-found', reason: 'That Object is not saved.' }
+  const old = readOne(path.join(dir, `${id}.json`), id, limits)
+  if (old.status === 'skipped') {
     return {
       status: 'invalid',
       reason: `The saved file for this Object could not be read (${old.reason}) so it was not renamed.`,
@@ -282,15 +328,17 @@ export function renameObjectDefinition(
   return write(dir, { ...old.definition, name: name.trim() }, old.extras)
 }
 
-/** Removes the one file, readable or not; nothing else is touched. */
+/** Removes the one file, readable or not, with no ROM read; nothing else is touched. */
 export function deleteObjectDefinition(projectDir: string, id: string): ObjectDeleteResult {
   if (!isUsableId(id)) {
     return { status: 'invalid', reason: 'That is not a usable Object id.' }
   }
-  const file = path.join(objectsDir(projectDir), `${id}.json`)
-  if (!fs.existsSync(file)) return { status: 'not-found', reason: 'That Object is not saved.' }
+  const dir = objectsDir(projectDir)
+  const where = entryOf(dir, id)
+  if (where === 'other-case') return { status: 'invalid', reason: OTHER_CASE_REASON }
+  if (where === 'absent') return { status: 'not-found', reason: 'That Object is not saved.' }
   try {
-    fs.rmSync(file)
+    fs.rmSync(path.join(dir, `${id}.json`))
     return { status: 'ok' }
   } catch (err) {
     return { status: 'io-error', reason: `The Object could not be deleted: ${errText(err)}` }

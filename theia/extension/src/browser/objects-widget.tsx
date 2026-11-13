@@ -26,13 +26,19 @@ import {
 import { ObjectDefinitionDto, ObjectsService, SkippedObjectDto } from '../common/objects-protocol'
 import { cropRegion, decodeRgba, paintScaled, TILE_PX } from './map16-pixels'
 import {
-  canTag,
-  NO_TAGS,
+  applyWriteReply,
+  changeTileset,
+  draftOf,
+  EditorState,
+  EMPTY_EDITOR,
+  formatTileLabel,
+  newObjectState,
   ObjectRole,
+  openDefinition,
+  removableId,
   roleOf,
   skippedNote,
-  tagTile,
-  TagState,
+  tagEditor,
 } from './objects-view-model'
 
 export const OBJECTS_VIEW_ID = 'hackbench.objects'
@@ -50,11 +56,10 @@ export class ObjectsWidget extends ReactWidget {
   protected skipped: SkippedObjectDto[] = []
   /** Why the list could not be loaded at all, in words. */
   protected listNote: string | undefined
-  /** The saved definition being edited, or undefined for a new one. */
-  protected editId: string | undefined
-  protected name = ''
-  protected tileset: number | undefined
-  protected tags: TagState = NO_TAGS
+  /** Why nothing is listed or can be saved: the tile table cannot be read. One note for the list. */
+  protected unavailable: string | undefined
+  /** The editor's state: which saved definition (if any), name, tileset, tags. */
+  protected editor: EditorState = EMPTY_EDITOR
   protected role: ObjectRole = 'edge'
   /** Preview colors: how the sheet is drawn, never saved. */
   protected bgVariant = 0
@@ -64,6 +69,8 @@ export class ObjectsWidget extends ReactWidget {
   protected sheetNote: string | undefined
   protected message: string | undefined
   protected confirmingDelete = false
+  /** The skipped file whose Remove button is waiting for its second click. */
+  protected confirmingRemoveFile: string | undefined
   /** A stale sheet response is dropped rather than overwriting a newer pick. */
   protected sheetToken = 0
 
@@ -101,15 +108,14 @@ export class ObjectsWidget extends ReactWidget {
     this.definitions = []
     this.skipped = []
     this.listNote = undefined
+    this.unavailable = undefined
     this.resetEditor()
     this.update()
   }
 
   protected resetEditor(): void {
-    this.editId = undefined
-    this.name = ''
-    this.tileset = undefined
-    this.tags = NO_TAGS
+    this.editor = newObjectState(this.editor)
+    this.confirmingRemoveFile = undefined
     this.sheet = undefined
     this.pixels = undefined
     this.sheetNote = undefined
@@ -138,6 +144,7 @@ export class ObjectsWidget extends ReactWidget {
       if (r.status === 'ok') {
         this.definitions = r.definitions
         this.skipped = r.skipped
+        this.unavailable = r.unavailable
         this.listNote = undefined
       } else {
         this.definitions = []
@@ -154,7 +161,7 @@ export class ObjectsWidget extends ReactWidget {
 
   protected async loadSheet(): Promise<void> {
     const manifestPath = this.manifestPath
-    const tileset = this.tileset
+    const tileset = this.editor.tileset
     const token = ++this.sheetToken
     if (!manifestPath || tileset === undefined) {
       this.sheet = undefined
@@ -195,10 +202,7 @@ export class ObjectsWidget extends ReactWidget {
   }
 
   protected selectDefinition(def: ObjectDefinitionDto): void {
-    this.editId = def.id
-    this.name = def.name
-    this.tileset = def.tileset
-    this.tags = { edge: def.edge, fill: def.fill }
+    this.editor = openDefinition(this.editor, def)
     this.message = undefined
     this.confirmingDelete = false
     this.sheet = undefined
@@ -209,11 +213,11 @@ export class ObjectsWidget extends ReactWidget {
 
   protected pickTileset = (e: React.ChangeEvent<HTMLSelectElement>): void => {
     const next = e.target.value === '' ? undefined : Number(e.target.value)
-    if (next === this.tileset) return
-    this.tileset = next
-    // The same number is a different tile on another tileset, so tags do not carry over.
-    this.tags = NO_TAGS
+    if (next === this.editor.tileset) return
+    // Tags go and the editor becomes a new definition (see changeTileset).
+    this.editor = changeTileset(this.editor, next)
     this.message = undefined
+    this.confirmingDelete = false
     this.sheet = undefined
     this.pixels = undefined
     void this.loadSheet()
@@ -227,68 +231,102 @@ export class ObjectsWidget extends ReactWidget {
   }
 
   protected clickTile(tile: number): void {
-    if (!canTag(this.tileset)) return
-    this.tags = tagTile(this.tags, tile, this.role)
+    this.editor = tagEditor(this.editor, tile, this.role)
     this.message = undefined
     this.update()
   }
 
+  /** What a failed call says: plain words, never a stack or an object. */
+  protected failure(what: string, err: unknown): string {
+    return `${what} (${err instanceof Error ? err.message : String(err)}). Nothing was changed.`
+  }
+
   protected async save(): Promise<void> {
     const manifestPath = this.manifestPath
-    if (!manifestPath || this.tileset === undefined) return
-    const r = await this.objects.saveObject(manifestPath, {
-      id: this.editId,
-      name: this.name,
-      tileset: this.tileset,
-      edge: [...this.tags.edge],
-      fill: [...this.tags.fill],
-    })
-    if (r.status === 'ok') {
-      this.editId = r.definition.id
-      this.name = r.definition.name
-      this.message = `Saved "${r.definition.name}".`
-    } else {
-      this.message = 'reason' in r ? r.reason : 'Locate the ROM for this project first.'
+    const draft = draftOf(this.editor)
+    const sentToken = this.editor.token
+    if (!manifestPath || !draft) return
+    try {
+      const r = await this.objects.saveObject(manifestPath, draft)
+      if (manifestPath !== this.manifestPath) return
+      if (r.status === 'ok') {
+        // A reply for a row the user has left must not rename the row they are on.
+        this.editor = applyWriteReply(this.editor, sentToken, r.definition)
+        if (sentToken === this.editor.token) this.message = `Saved "${r.definition.name}".`
+      } else if (sentToken === this.editor.token) {
+        this.message = 'reason' in r ? r.reason : 'Locate the ROM for this project first.'
+      }
+    } catch (err) {
+      if (sentToken === this.editor.token)
+        this.message = this.failure('The Object could not be saved', err)
     }
     await this.refreshList()
   }
 
   protected async rename(): Promise<void> {
     const manifestPath = this.manifestPath
-    if (!manifestPath || !this.editId) return
-    const r = await this.objects.renameObject(manifestPath, this.editId, this.name)
-    if (r.status === 'ok') {
-      this.name = r.definition.name
-      this.message = `Renamed to "${r.definition.name}".`
-    } else {
-      this.message = 'reason' in r ? r.reason : 'Locate the ROM for this project first.'
+    const id = this.editor.editId
+    const sentToken = this.editor.token
+    if (!manifestPath || !id) return
+    try {
+      const r = await this.objects.renameObject(manifestPath, id, this.editor.name)
+      if (manifestPath !== this.manifestPath) return
+      if (r.status === 'ok') {
+        this.editor = applyWriteReply(this.editor, sentToken, r.definition)
+        if (sentToken === this.editor.token) this.message = `Renamed to "${r.definition.name}".`
+      } else if (sentToken === this.editor.token) {
+        this.message = 'reason' in r ? r.reason : 'Locate the ROM for this project first.'
+      }
+    } catch (err) {
+      if (sentToken === this.editor.token)
+        this.message = this.failure('The Object could not be renamed', err)
     }
     await this.refreshList()
   }
 
+  /** Removes a saved definition's file, or an unreadable one by its file name. */
   protected async remove(id: string): Promise<void> {
     const manifestPath = this.manifestPath
     if (!manifestPath) return
-    const r = await this.objects.deleteObject(manifestPath, id)
-    if (r.status === 'ok') {
-      if (id === this.editId) this.resetEditor()
-      this.message = 'Deleted.'
-    } else {
-      this.confirmingDelete = false
-      this.message = 'reason' in r ? r.reason : 'Locate the ROM for this project first.'
+    try {
+      const r = await this.objects.deleteObject(manifestPath, id)
+      if (manifestPath !== this.manifestPath) return
+      if (r.status === 'ok') {
+        if (id === this.editor.editId) this.resetEditor()
+        this.message = 'Deleted.'
+      } else {
+        this.message = r.reason
+      }
+    } catch (err) {
+      this.message = this.failure('The file could not be removed', err)
     }
+    this.confirmingDelete = false
+    this.confirmingRemoveFile = undefined
     await this.refreshList()
   }
 
   protected deleteClick = (): void => {
-    if (!this.editId) return
+    const id = this.editor.editId
+    if (!id) return
     if (!this.confirmingDelete) {
       this.confirmingDelete = true
       this.update()
       return
     }
     this.confirmingDelete = false
-    void this.remove(this.editId)
+    void this.remove(id)
+  }
+
+  /** Remove file on a skipped note: the same two clicks. */
+  protected removeFileClick(file: string): void {
+    const id = removableId(file)
+    if (!id) return
+    if (this.confirmingRemoveFile !== file) {
+      this.confirmingRemoveFile = file
+      this.update()
+      return
+    }
+    void this.remove(id)
   }
 
   protected paintSheet = (el: HTMLCanvasElement | null): void => {
@@ -311,7 +349,7 @@ export class ObjectsWidget extends ReactWidget {
   }
 
   protected renderTileList(role: ObjectRole, label: string): React.ReactNode {
-    const tiles = this.tags[role]
+    const tiles = this.editor.tags[role]
     return (
       <section className="hb-objects-list" data-control={`${role}-list`} data-count={tiles.length}>
         <h4>{`${label} tiles (${tiles.length})`}</h4>
@@ -322,7 +360,7 @@ export class ObjectsWidget extends ReactWidget {
             {tiles.map(t => (
               <li key={t} data-control={`${role}-item`} data-tile={t}>
                 <canvas ref={el => this.paintThumb(el, t)} className="hb-objects-thumb" />
-                <span>{`Tile ${t}`}</span>
+                <span>{formatTileLabel(t)}</span>
               </li>
             ))}
           </ul>
@@ -332,7 +370,7 @@ export class ObjectsWidget extends ReactWidget {
   }
 
   protected renderSheet(): React.ReactNode {
-    if (this.tileset === undefined) {
+    if (this.editor.tileset === undefined) {
       return (
         <div className="hb-objects-empty" data-control="sheet-empty">
           Pick a tileset to see its tiles.
@@ -369,9 +407,9 @@ export class ObjectsWidget extends ReactWidget {
               key={t.id}
               data-control="tile"
               data-tile={t.id}
-              data-role={roleOf(this.tags, t.id) ?? 'none'}
-              className={`hb-objects-tile hb-objects-${roleOf(this.tags, t.id) ?? 'none'}`}
-              title={`Tile ${t.id}. Click to give it the ${this.role} role, or to take it away.`}
+              data-role={roleOf(this.editor.tags, t.id) ?? 'none'}
+              className={`hb-objects-tile hb-objects-${roleOf(this.editor.tags, t.id) ?? 'none'}`}
+              title={`${formatTileLabel(t.id)}. Click to give it the ${this.role} role, or to take it away.`}
               onClick={() => this.clickTile(t.id)}
             />
           ))}
@@ -388,7 +426,7 @@ export class ObjectsWidget extends ReactWidget {
           data-control={`${which}-variant-select`}
           className="theia-select"
           value={which === 'bg' ? this.bgVariant : this.fgVariant}
-          disabled={this.tileset === undefined}
+          disabled={this.editor.tileset === undefined}
           onChange={e => this.pickVariant(which, Number(e.target.value))}
         >
           {Array.from({ length: MAP16_PALETTE_VARIANT_COUNT }, (_, v) => (
@@ -403,8 +441,9 @@ export class ObjectsWidget extends ReactWidget {
     if (!this.manifestPath) {
       return <div className="hb-objects-empty">Open a project to build Objects.</div>
     }
-    const saved = this.editId !== undefined
-    const canSave = this.tileset !== undefined && this.name.trim() !== ''
+    const saved = this.editor.editId !== undefined
+    const canSave =
+      !this.unavailable && this.editor.tileset !== undefined && this.editor.name.trim() !== ''
     return (
       <div className="hb-objects-body">
         <section className="hb-objects-definitions" data-control="definitions">
@@ -442,7 +481,12 @@ export class ObjectsWidget extends ReactWidget {
               {this.listNote}
             </div>
           )}
-          {this.definitions.length === 0 && !this.listNote && (
+          {this.unavailable && (
+            <div className="hb-objects-error" data-control="unavailable-note">
+              {this.unavailable}
+            </div>
+          )}
+          {this.definitions.length === 0 && !this.listNote && !this.unavailable && (
             <div className="hb-objects-empty">No Objects saved yet.</div>
           )}
           <ul>
@@ -451,7 +495,7 @@ export class ObjectsWidget extends ReactWidget {
                 key={d.id}
                 data-control="definition-row"
                 data-id={d.id}
-                className={d.id === this.editId ? 'hb-objects-selected' : undefined}
+                className={d.id === this.editor.editId ? 'hb-objects-selected' : undefined}
                 title={`Open "${d.name}" to edit its tiles.`}
                 onClick={() => this.selectDefinition(d)}
               >
@@ -462,6 +506,19 @@ export class ObjectsWidget extends ReactWidget {
           {this.skipped.map(s => (
             <div key={s.file} className="hb-objects-error" data-control="skipped-note">
               {skippedNote(s)}
+              {removableId(s.file) && (
+                <button
+                  data-control={
+                    this.confirmingRemoveFile === s.file ? 'remove-file-confirm' : 'remove-file'
+                  }
+                  data-file={s.file}
+                  className="theia-button secondary"
+                  title="Delete this file from the project. It is not read, and the ROM is not touched."
+                  onClick={() => this.removeFileClick(s.file)}
+                >
+                  {this.confirmingRemoveFile === s.file ? 'Confirm remove' : 'Remove file'}
+                </button>
+              )}
             </div>
           ))}
         </section>
@@ -475,7 +532,7 @@ export class ObjectsWidget extends ReactWidget {
             <select
               data-control="tileset-select"
               className="theia-select"
-              value={this.tileset ?? ''}
+              value={this.editor.tileset ?? ''}
               onChange={this.pickTileset}
             >
               <option value="">Pick a tileset</option>
@@ -493,7 +550,7 @@ export class ObjectsWidget extends ReactWidget {
                 data-pressed={this.role === r}
                 aria-pressed={this.role === r}
                 className={`theia-button ${this.role === r ? '' : 'secondary'}`}
-                disabled={this.tileset === undefined}
+                disabled={this.editor.tileset === undefined}
                 title={
                   r === 'edge'
                     ? 'Edge tiles sit on the outline of the Object: its ends, sides and top.'
@@ -529,10 +586,10 @@ export class ObjectsWidget extends ReactWidget {
               className="theia-input"
               type="text"
               placeholder="Name this Object"
-              value={this.name}
+              value={this.editor.name}
               title="The name this Object has in this project."
               onChange={e => {
-                this.name = e.target.value
+                this.editor = { ...this.editor, name: e.target.value }
                 this.update()
               }}
             />

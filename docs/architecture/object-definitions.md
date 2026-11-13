@@ -23,7 +23,7 @@ saving, renaming or deleting one leaves the working copy bytes identical.
 ```
 
 `meta/objects/` is created on the first save, like `meta/` itself
-(`src/project/ProjectMeta.ts:39-42`). A missing folder means "no definitions",
+(`src/project/ProjectMeta.ts:48-51`). A missing folder means "no definitions",
 not an error.
 
 One file per definition, not one list like `groups.json`. `groups.json` is read
@@ -78,14 +78,14 @@ case-insensitive file systems.
   the ROM's foreground Map16 tile count, read with `map16TileCapacity`
   (`src/rom/Map16.ts:668-682`). That is 512 on a stock ROM: pages 0 and 1,
   `$000` to `$1FF`, drawn 16 tiles to a row (`MAP16_TILES_PER_ROW`,
-  `theia/extension/src/common/map16-protocol.ts:30`). Every one of them is a
+  `theia/extension/src/common/map16-protocol.ts:27`). Every one of them is a
   valid number on every tileset: the sheet is the tileset's whole pointer table
   (`readMap16Table`, `src/rom/Map16.ts:408-448`), some entries being the
   tileset's own and some the shared `Map16Common` run (the sheet's `shared`
-  flag, `map16-protocol.ts:222`). So a number is never "outside a tileset" for
+  flag, `map16-protocol.ts:226`). So a number is never "outside a tileset" for
   being on the wrong page. Only a number at or past `count` is.
 - **Tileset** is `0` to `14` (`TILESET_COUNT`, `src/rom/Map16.ts:42`;
-  `MAP16_TILESET_COUNT`, `map16-protocol.ts:27`). The header stores four bits
+  `MAP16_TILESET_COUNT`, `map16-protocol.ts:26`). The header stores four bits
   (`src/rom/LevelParser.ts:74,186`), so `15` can be written by a hack but this
   ROM has no Map16 table for it, and neither does the Map16 view
   (`isValidTileset`, `theia/extension/src/node/map16-decode.ts:135`).
@@ -157,6 +157,21 @@ flowchart TD
   another name, and the writer never replaces what it could not parse.
 - A rename rewrites `name` in the same file and keeps `id`. A delete removes
   the one file.
+- Writer-only rules (readers stay as the section above says, and a reader
+  never refuses a file for these):
+  - Refuse an id that is a reserved Windows file name, in any case: `con`,
+    `prn`, `aux`, `nul`, `com1` to `com9`, `lpt1` to `lpt9`. Saving under one
+    is refused in plain words.
+  - Before a save, rename or delete, require a directory entry named exactly
+    `<id>.json`. On a case-insensitive file system `abc12345.json` also opens
+    `ABC12345.json`, which the reader skipped (its id differs from its file
+    name); that file is left untouched and the write is refused.
+  - A name that is not text is refused like a blank one. No call throws at its
+    caller; every refusal is a status with a reason.
+  - A delete is a file operation only: it needs no ROM, and it removes an
+    unreadable file by its file name when that stem is a usable id.
+  - A file saved with a byte order mark stays skipped (rule 1), with the
+    reason that says so, so the user knows to save it without one.
 - Never write the ROM, the working copy or `ops/`. Nothing here is a patch
   layer, so none of it is undoable through the edit stack and none of it moves
   the working copy bytes.

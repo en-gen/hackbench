@@ -26,11 +26,19 @@ import {
 
 type OkWorkingRom = { status: 'ok' } & Parameters<typeof romFileOf>[0]
 
+/**
+ * The one thing the screen says when the tile table cannot be counted. The
+ * core's own reason (map16TileCapacity) is for developers and can name an
+ * issue, so it never travels past here.
+ */
+export const OBJECTS_UNAVAILABLE_NOTE =
+  "This ROM's tile table could not be read, so Objects cannot be checked or saved."
+
 /** What a definition is checked against, from the working copy's own Map16. */
 export function limitsOfWorkingCopy(r: OkWorkingRom): ObjectLimits {
   const capacity = map16TileCapacity(romFileOf(r))
   return 'reason' in capacity
-    ? { tilesetCount: TILESET_COUNT, tileCount: 0, unavailable: capacity.reason }
+    ? { tilesetCount: TILESET_COUNT, tileCount: 0, unavailable: OBJECTS_UNAVAILABLE_NOTE }
     : { tilesetCount: TILESET_COUNT, tileCount: capacity.count }
 }
 
@@ -44,6 +52,10 @@ export class ObjectsCore {
   list(manifestPath: string): ListObjectsResult {
     const limits = this.limits(manifestPath)
     if ('status' in limits) return limits
+    // One note for the whole list, not one per file.
+    if (limits.unavailable) {
+      return { status: 'ok', definitions: [], skipped: [], unavailable: limits.unavailable }
+    }
     return { status: 'ok', ...readObjectDefinitions(path.dirname(manifestPath), limits) }
   }
 
@@ -56,12 +68,12 @@ export class ObjectsCore {
   rename(manifestPath: string, id: string, name: string): ObjectWriteResultDto {
     const limits = this.limits(manifestPath)
     if ('status' in limits) return limits
+    if (limits.unavailable) return { status: 'invalid', reason: limits.unavailable }
     return renameObjectDefinition(path.dirname(manifestPath), limits, id, name)
   }
 
+  /** A file operation only: it needs no ROM, so a project without one can still clear its files. */
   delete(manifestPath: string, id: string): DeleteObjectResultDto {
-    const limits = this.limits(manifestPath)
-    if ('status' in limits) return limits
     return deleteObjectDefinition(path.dirname(manifestPath), id)
   }
 

@@ -41,6 +41,14 @@ function workingBytes(): string {
   return crypto.createHash('sha256').update(r.working.bytes()).digest('hex')
 }
 
+/** The base ROM file on disk: the working copy is built from it, so it must not move either. */
+function baseRomOnDisk(): string {
+  return crypto
+    .createHash('sha256')
+    .update(fs.readFileSync(path.join(tmp, 'game.sfc')))
+    .digest('hex')
+}
+
 function opsTree(): string {
   const dir = path.join(path.dirname(manifestPath), 'ops')
   const h = crypto.createHash('sha256')
@@ -61,9 +69,11 @@ describe('Object definitions never touch the working copy', () => {
   it('leaves its bytes and ops/ identical across save, rename, a second save and delete', () => {
     const bytes = workingBytes()
     const ops = opsTree()
+    const rom = baseRomOnDisk()
     const same = (): void => {
       expect(workingBytes()).toBe(bytes)
       expect(opsTree()).toBe(ops)
+      expect(baseRomOnDisk()).toBe(rom)
     }
 
     const saved = core.save(manifestPath, {
@@ -109,5 +119,22 @@ describe('Object definitions never touch the working copy', () => {
     if (r.status !== 'ok') throw new Error('not ok')
     r.working.bytes()[0x100] ^= 0xff
     expect(workingBytes()).not.toBe(before)
+  })
+
+  it('would notice a file appearing under ops/: the ops fingerprint can change', () => {
+    const before = opsTree()
+    const ops = path.join(path.dirname(manifestPath), 'ops')
+    fs.mkdirSync(ops, { recursive: true })
+    fs.writeFileSync(path.join(ops, '0001-planted.json'), '{}')
+    expect(opsTree()).not.toBe(before)
+  })
+
+  it('would notice the base ROM file changing', () => {
+    const before = baseRomOnDisk()
+    const rom = path.join(tmp, 'game.sfc')
+    const bytes = fs.readFileSync(rom)
+    bytes[0x200] ^= 0xff
+    fs.writeFileSync(rom, bytes)
+    expect(baseRomOnDisk()).not.toBe(before)
   })
 })

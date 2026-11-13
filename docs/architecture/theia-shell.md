@@ -14,9 +14,9 @@ theia/
   no-native/      stubs for native modules the desktop build does not need
 ```
 
-## Six extensions, one package
+## Seven extensions, one package
 
-`extension/package.json` declares six `theiaExtensions` entries, each a
+`extension/package.json` declares seven `theiaExtensions` entries, each a
 frontend and backend pair:
 
 | Extension | Frontend                  | Backend         | Service path                   |
@@ -27,6 +27,7 @@ frontend and backend pair:
 | gfx       | graphics view             | GFX server      | `/services/hackbench-gfx`      |
 | map16     | Map16 tile editor         | Map16 server    | `/services/hackbench-map16`    |
 | emulator  | emulator view             | emulator server | `/services/hackbench-emulator` |
+| objects   | Objects view              | objects server  | `/services/hackbench-objects`  |
 
 Maps have no extension of their own: the project service serves them. A
 seventh entry holds the Electron-only OS locale hook. The extensions are
@@ -160,6 +161,7 @@ not a CloudEvent.
 | Palettes explorer                               | rebuild, keeps which groups were open | rebuild as a fresh open: nothing selected, defaults |
 | Maps, Graphics, Audio explorers                 | not subscribed (see below)            | rebuild as a fresh open                             |
 | Map, Map16, GFX, Palette-group, Overworld views | re-read                               | re-read                                             |
+| Objects view                                    | re-reads the tileset sheet only       | re-reads the list and the sheet                     |
 | Emulator, Edit menu                             | stale check / refresh                 | refresh                                             |
 
 The Maps, Graphics and Audio explorers do not subscribe to edits because their

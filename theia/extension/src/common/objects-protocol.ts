@@ -41,7 +41,13 @@ export interface ObjectDraftDto {
 }
 
 export type ListObjectsResult =
-  | { status: 'ok'; definitions: ObjectDefinitionDto[]; skipped: SkippedObjectDto[] }
+  | {
+      status: 'ok'
+      definitions: ObjectDefinitionDto[]
+      skipped: SkippedObjectDto[]
+      /** Set when the ROM's tile table cannot be read: one plain note, and nothing is listed or checked. */
+      unavailable?: string
+    }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
 /** `invalid` and `not-found` carry a reason the activity shows as is. */
@@ -54,7 +60,6 @@ export type ObjectWriteResultDto =
 
 export type DeleteObjectResultDto =
   | { status: 'ok' }
-  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
   | { status: 'invalid'; reason: string }
   | { status: 'not-found'; reason: string }
   | { status: 'io-error'; reason: string }
