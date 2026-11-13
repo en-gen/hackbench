@@ -30,18 +30,12 @@ import { FIRST_SPECIAL, shellLoad } from '../../../src/rom/sprites/ShellSprites'
 /** Largest pass index the grader will run for one record; a larger k falls back. */
 export const MAX_GRADED_PASS = 255
 
-/**
- * Passes added to `drawnFrame - gateFrame` for a level-start sprite: 0, because G is the last GM13 frame and the
- * first GM14 MAIN is G + 1 (see the header). Map 127 $16 and 1bf $15 grade exact at 0 and close at 1. One
- * constant so it is the one place to change; the tests are written against it.
- */
+/** Passes added to `drawnFrame - gateFrame`: 0, since the first GM14 MAIN is G + 1 (header). Map 127 $16 and 1bf $15 grade exact at 0 and close at 1. */
 export const LEVEL_START_PASS_OFFSET = 0
 
 /**
- * The pass a level-start sprite's drawn frame falls on (see the header), or undefined when the sprite
- * is not level-start or a field is missing. Level start means INIT ran in GM12: the loader's INIT is there
- * (SMWDisX bank_05.asm:72) and GM13 runs no sprite code (bank_00.asm:4075-4103), so no INIT is stamped
- * between GM12 and the gate frame G (the last GM13 frame): `initFrame <= gateFrame` is the whole test.
+ * The pass a level-start sprite's drawn frame falls on (header), or undefined when the sprite is not level-start
+ * or a field is missing. `initFrame <= gateFrame` is the whole test: no INIT is stamped between GM12 and G.
  * Not range-checked: `gradedPass` does that.
  */
 export function levelStartPass(
