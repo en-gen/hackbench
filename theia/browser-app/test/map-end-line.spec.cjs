@@ -41,15 +41,13 @@ test.beforeEach(async ({ page }) => {
   await page.waitForTimeout(4000)
   await page.addScriptTag({ content: GET_SVC })
 })
-test.afterEach(async ({ page }) => {
-  await page
-    .evaluate(i => getSvc('ApplicationShell').closeWidget('hackbench.map-view:' + i), INDEX)
-    .catch(() => undefined)
-  expect(pageErrors).toEqual([])
-})
-
 const closeMap = page =>
   page.evaluate(i => getSvc('ApplicationShell').closeWidget('hackbench.map-view:' + i), INDEX)
+
+test.afterEach(async ({ page }) => {
+  await closeMap(page).catch(() => undefined)
+  expect(pageErrors).toEqual([])
+})
 
 /**
  * Opens a synthetic map of `screens` screens. `boxes` are opaque 16 x 16 sprites at [x, y] map px (index 900 up);
