@@ -280,8 +280,9 @@ the pad the widget:
   `#ffc23d` line over a 5 px dark edge (`data-control="map-end-line"`), centered on the
   far edge from `farEdge` (screen count x screen size, so it never moves for content
   past the end or for the canvas end) and constant in screen px at every zoom. Its
-  z-index (205) is above the gutter layers (110), off-map sprites (120) and the collision
-  overlay (200), and below the grid canvas (1000), which draws its 1 px line over it
+  z-index (1001) is above the gutter layers (110), off-map sprites (120), the collision
+  overlay (200) and the grid canvas (1000), whose 5 px screen-boundary line it must not dim
+  (nothing else in the grid host stands above 1000)
   (evidence: `map-end-line.spec.cjs`, computed z-index and pixels, one machine, Chromium
   via the Theia browser app). Its colors are `--theia-hackbench-*` variables with literal
   fallbacks (no ColorContribution in this repo). `data-control="map-edge"` stays as the map's rectangle,

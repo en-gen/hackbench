@@ -48,8 +48,11 @@ test.beforeEach(async ({ page }) => {
   await page.waitForTimeout(4000)
   await page.addScriptTag({ content: GET_SVC })
 })
+// Returns nothing: closeWidget's result is a widget object graph Playwright cannot serialize.
 const closeMap = page =>
-  page.evaluate(i => getSvc('ApplicationShell').closeWidget('hackbench.map-view:' + i), INDEX)
+  page.evaluate(async i => {
+    await getSvc('ApplicationShell').closeWidget('hackbench.map-view:' + i)
+  }, INDEX)
 
 test.afterEach(async ({ page }) => {
   await closeMap(page).catch(() => undefined)
@@ -375,10 +378,11 @@ test('3: the line shows with the grid on and off and every toolbar toggle off, a
       const m = await measure(page)
       expect(onFarEdge(m), JSON.stringify({ gridOn, off })).toBe(true)
       expect(m.lineStyle).toMatchObject({ display: 'block', visibility: 'visible', opacity: '1' })
-      // Amber is on screen: the line's middle pixels (the grid may take one of them).
+      // The line's 3 amber pixels are all amber, grid on or off: the grid canvas draws a 5 px screen-boundary
+      // line on the far edge (SCREEN_GRID_WEIGHT), and the end line stands above it, so none may be dimmed.
       const px = await acrossLine(page, m)
       expect(
-        px.slice(5, 8).some(p => dist(p, AMBER) < 30),
+        px.slice(5, 8).every(p => dist(p, AMBER) < 30),
         JSON.stringify({ gridOn, off, px }),
       ).toBe(true)
       last = m
@@ -387,7 +391,7 @@ test('3: the line shows with the grid on and off and every toolbar toggle off, a
   const z = Number(last.lineStyle.zIndex)
   expect(z).toBeGreaterThan(Number(last.gutterZ))
   expect(z, 'above the collision overlay').toBeGreaterThan(Number(last.collisionZ))
-  expect(z, 'below the grid canvas (1000)').toBeLessThan(1000)
+  expect(z, 'above the grid canvas (1000)').toBeGreaterThan(1000)
 })
 
 for (const vertical of [false, true]) {
