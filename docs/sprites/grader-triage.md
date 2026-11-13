@@ -138,8 +138,8 @@ write as the sprite's own part only when `$15E9` equals the sprite's slot, on ev
   does `LDX #$13` / `STX $15E9` (`bank_02.asm:15950-15958`), and it is reached from the runner's own frame through
   `ActivateClusterSprite` -> `JSL CODE_02F808` (`bank_01.asm:128-130`). The writing PCs (one machine, 2026-10-17
   probe) are `$02:FD76` on map 004 and `$02:FA4E` on map 101. Traced from the nearest preceding label (offset in
-  bytes): `$02:FD76` is `CODE_02FD48` +46, the Boo ring's tile store (`STA OAMTileNo+$100,Y` after `BooRingTiles`,
-  `bank_02.asm:16651`); `$02:FA4E` is `CODE_02FA16` +56, the castle flame's tile store (`bank_02.asm:16255`). $B9's own
+  bytes): `$02:FD76` is `CODE_02FD48` +46, the tile store of cluster sprite $03 (`CODE_02FBC7`, tiles from
+  `BooRingTiles`; `STA OAMTileNo+$100,Y` after it, `bank_02.asm:16651`); `$02:FA4E` is `CODE_02FA16` +56, the castle flame's tile store (`bank_02.asm:16255`). $B9's own
   tiles are written under its own sprite slot (PCs `$01:9F2A`, `CODE_019E95` +149, `bank_01.asm:4083`, and `$03:8DB4`,
   `DATA_038D66` +78, `bank_03.asm:1698`; for these two only the label and offset were taken from the disassembly
   index, the exact instruction line was not traced). Whether the own-slot rule acts on $B9 was NOT shown by a test: on
@@ -151,9 +151,10 @@ write as the sprite's own part only when `$15E9` equals the sprite's slot, on ev
   `BooRingTiles`, `bank_02.asm:16438-16439`, stored at 16651), written under cluster index 6 = sprite slot 6; the pre-fix
   recorder keyed by slot (fixed in `hackbench-validation` 48d348c, #31/#32). Map 004 re-captured with bc8d1a3 holds one
   piece and grades exact (one run per corpus, one machine, vanilla ROM, 2026-11-13).
-  Why #840 (PR #1087) missed this row: its `writtenOam()` keys on `$15E9 == slot`, the same rule as the old recorder.
-  Cluster index 6 equals sprite slot 6, so that filter passes the cluster sprite's write, in the model and in the
-  capture alike. Only the recorder fix (48d348c) or a re-capture removes it. The re-captured record is drawn before the
+  Why #840 (PR #1087) missed this row: it aligned the runner's `writtenOam()` to the same `$15E9 == slot` rule the
+  recorder used, and that rule cannot remove a write the capture itself mis-credited (cluster index 6 equals sprite
+  slot 6). In the grader's mode the model runs no cluster sprites (`NO_CLUSTER_SPRITES`), so the runner's filter never
+  sees the write. Only the recorder fix (48d348c) or a re-capture removes it. The re-captured record is drawn before the
   anchor frame, so it grades the old way, a fallback; of the 43 fallbacks, 5 are of that kind (maps 004, 101, 11b), and
   #875 times level-start sprites again. #1386 is the full re-capture. The synthetic id 84 (`$15E9` set to 15) is the
   real other-slot write under test.
