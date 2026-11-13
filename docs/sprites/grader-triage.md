@@ -134,7 +134,7 @@ write as the sprite's own part only when `$15E9` equals the sprite's slot, on ev
   (Probe, one machine, 2026-10-17: the extra writes on $1E were under slots holding $87 and $14.)
 - $B9 is not the same cause: its INIT is a bare RTS (`Return0185C2`, `bank_01.asm:890`, the shared `RTS` after
   `InitPiranha`) and it spawns nothing. Its two wrong records (map 004 at 144,336 "model drew 21", map 101 at 96,336
-  and 1840,336 "model drew 5") were OAM written under `$15E9` values 0-19 by the cluster sprite loop: `CODE_02F810`
+  and 1840,336 "model drew 5", counts from before #840) held OAM written under `$15E9` values 0-19 by the cluster sprite loop: `CODE_02F810`
   does `LDX #$13` / `STX $15E9` (`bank_02.asm:15950-15958`), and it is reached from the runner's own frame through
   `ActivateClusterSprite` -> `JSL CODE_02F808` (`bank_01.asm:128-130`). The writing PCs (one machine, 2026-10-17
   probe) are `$02:FD76` on map 004 and `$02:FA4E` on map 101. Traced from the nearest preceding label (offset in
@@ -150,8 +150,13 @@ write as the sprite's own part only when `$15E9` equals the sprite's slot, on ev
   was OAM 126, tile $AA/$AE, a tile of cluster sprite $03 (`CODE_02FBC7`, `bank_02.asm:15968`, whose tiles come from
   `BooRingTiles`, `bank_02.asm:16438-16439`, stored at 16651), written under cluster index 6 = sprite slot 6; the pre-fix
   recorder keyed by slot (fixed in `hackbench-validation` 48d348c, #31/#32). Map 004 re-captured with bc8d1a3 holds one
-  piece and grades exact (one run per corpus, one machine, vanilla ROM, 2026-11-13). The synthetic id 84 (`$15E9` set to 15) is the real
-  other-slot write under test.
+  piece and grades exact (one run per corpus, one machine, vanilla ROM, 2026-11-13).
+  Why #840 (PR #1087) missed this row: its `writtenOam()` keys on `$15E9 == slot`, the same rule as the old recorder.
+  Cluster index 6 equals sprite slot 6, so that filter passes the cluster sprite's write, in the model and in the
+  capture alike. Only the recorder fix (48d348c) or a re-capture removes it. The re-captured record is drawn before the
+  anchor frame, so it grades the old way, a fallback; of the 43 fallbacks, 5 are of that kind (maps 004, 101, 11b), and
+  #875 times level-start sprites again. #1386 is the full re-capture. The synthetic id 84 (`$15E9` set to 15) is the
+  real other-slot write under test.
 - $2B's former spawn-oracle extra tile was also a cluster write (`$02:F983`, `$15E9` = 9; `CODE_02F967` +28, the Sumo
   Bro flame tile store, `bank_02.asm:16145`), now filtered.
 - The map view still draws companions (owner principle D52: "We can't outright hide things from the user").
