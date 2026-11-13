@@ -35,11 +35,18 @@ describe('core.objects.recognize', () => {
 })
 
 describe.skipIf(!hasRom(VANILLA))('core.objects.recognize.corpus-105', () => {
-  const inputs = readObjectInputs(new SmwRom(RomFile.load(romPath(VANILLA))), 0x105, SWITCH_FLAGS_UNCLEARED) // prettier-ignore
-  if (!inputs.ok) throw new Error(inputs.reason)
-  const counts = new Map<number, number>()
-  for (const f of inputs.footprint) counts.set(f.tile, (counts.get(f.tile) ?? 0) + 1)
-  const ranked = [...counts].sort((a, b) => b[1] - a[1]).map(([t]) => t)
-  const definition = { id: 'x', name: 'X', tileset: inputs.tileset, edge: ranked.slice(1, 8), fill: ranked.slice(0, 1) } // prettier-ignore
-  perfCase('core.objects.recognize.corpus-105', () => recognizeObjects(inputs, [definition]))
+  // Built on first use: a skipped describe body still runs, and there is no ROM to read then.
+  let ready: (() => unknown) | undefined
+  perfCase('core.objects.recognize.corpus-105', () => {
+    if (!ready) {
+      const inputs = readObjectInputs(new SmwRom(RomFile.load(romPath(VANILLA))), 0x105, SWITCH_FLAGS_UNCLEARED) // prettier-ignore
+      if (!inputs.ok) throw new Error(inputs.reason)
+      const counts = new Map<number, number>()
+      for (const f of inputs.footprint) counts.set(f.tile, (counts.get(f.tile) ?? 0) + 1)
+      const ranked = [...counts].sort((a, b) => b[1] - a[1]).map(([t]) => t)
+      const definition = { id: 'x', name: 'X', tileset: inputs.tileset, edge: ranked.slice(1, 8), fill: ranked.slice(0, 1) } // prettier-ignore
+      ready = () => recognizeObjects(inputs, [definition])
+    }
+    return ready()
+  })
 })
