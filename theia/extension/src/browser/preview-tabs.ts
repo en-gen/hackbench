@@ -158,6 +158,9 @@ export class PreviewTabs {
     else if (!behind) void this.shell.revealWidget(widget.id)
   }
 
+  /** The only path that counts as "picked a tab" for a loading preview. A
+   * tab the user clicks in the tab bar, or one another view activates, is
+   * not counted, so a preview that lands after that is still revealed. */
   protected focus(id: string): void {
     this.focusRequests++
     void this.shell.activateWidget(id)
