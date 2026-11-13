@@ -47,7 +47,12 @@ import {
   hasRom,
   romPath,
 } from '../../test/suite/support/corpus'
-import { type PlacedSprite, runnerId, timelineFor } from '../../test/suite/support/gradeTimeline'
+import {
+  type PlacedSprite,
+  requireGateFrame,
+  runnerId,
+  timelineFor,
+} from '../../test/suite/support/gradeTimeline'
 import { grade, passPieces, type RecordedPiece } from '../../test/suite/support/spriteGrade'
 import { palette } from './capture_draw'
 import { parseNum } from './capture_decode'
@@ -577,10 +582,10 @@ export function gradeCaptures(f: Filter): Graded[] {
     const entries = unzip(readFileSync(join(CAPTURE_DIR, file)))
     const jsonOf = (suffix: string): Record<string, unknown> => { const k = [...entries.keys()].find(e => e.endsWith(suffix)); return k ? JSON.parse(entries.get(k)!().toString('utf8')) : {} } // prettier-ignore
     const anchorFrame = jsonOf('capture_summary.json').anchorFrame as number | undefined
-    const gateFrame = jsonOf('capture_summary.json').gateFrame as number | undefined
     const marioStart = jsonOf('scroll_pass.json').marioStart as { x: number; y: number } | undefined
     const key = [...entries.keys()].find(k => k.endsWith('sprite_spawns.json'))
     if (!key) continue
+    const gateFrame = requireGateFrame(map, jsonOf('capture_summary.json').gateFrame)
     const spawns: Rec[] = JSON.parse(entries.get(key)!().toString('utf8')).spawns ?? []
     const samples = frameSamples(entries, anchorFrame)
     const listed = jsonOf('sprites.json').entries as PlacedSprite[] | undefined

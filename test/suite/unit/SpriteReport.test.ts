@@ -24,7 +24,7 @@ import { runSprite } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { loadLevelState, NO_CLUSTER_SPRITES } from '../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import { CAPTURE_DIR, VANILLA, freshRom, hasCaptures, hasRom } from '../support/corpus'
-import { runnerId, timelineFor } from '../support/gradeTimeline'
+import { requireGateFrame, runnerId, timelineFor } from '../support/gradeTimeline'
 import { isolatedGit, isolateProcessGit } from '../support/isolatedGit'
 import { slow, loadTimeout } from '../support/loadTimeout'
 import { grade } from '../support/spriteGrade'
@@ -888,7 +888,7 @@ describe.skipIf(!hasRom(VANILLA) || !hasCaptures())('gradeCaptures on the corpus
       const lvl = loadLevelState(rom, map)
       const jsonOf = (suffix: string): any => { const k = [...entries.keys()].find(e => e.endsWith(suffix)); return k ? JSON.parse(entries.get(k)!().toString('utf8')) : {} } // prettier-ignore
       const anchorFrame: number | undefined = jsonOf('capture_summary.json').anchorFrame
-      const gateFrame: number | undefined = jsonOf('capture_summary.json').gateFrame
+      const gateFrame = requireGateFrame(file, jsonOf('capture_summary.json').gateFrame)
       const marioStart = jsonOf('scroll_pass.json').marioStart
       for (const rec of JSON.parse(entries.get(key)!().toString('utf8')).spawns ?? []) {
         const id = parseInt(rec.id.slice(1), 16)

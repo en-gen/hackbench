@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { unzip } from '../../../tools/scripts/capture_render'
 import { CAPTURE_DIR } from './corpus'
-import type { PlacedSprite } from './gradeTimeline'
+import { requireGateFrame, type PlacedSprite } from './gradeTimeline'
 import type { RecordedPiece } from './spriteGrade'
 
 /** One sprite_spawns.json record: the placed sprite, its INIT/draw frames and the OAM tiles Mesen caught. */
@@ -35,8 +35,8 @@ export interface Loaded {
   wram: Uint8Array | null
   /** capture_summary.json anchorFrame: when PlayerAnimation reaches 0 after the entrance wait; the recorder starts here. */
   anchorFrame?: number
-  /** capture_summary.json gateFrame: the first GM14 frame, where MAIN resumes after GM12/GM13 (#875). */
-  gateFrame?: number
+  /** capture_summary.json gateFrame, required (#875): the last GM13 frame on a map without an entrance reload; on a reload map (`reloadDuringWait`) the entrance room's, so its map-start sprites are not covered (#1397). */
+  gateFrame: number
   /** scroll_pass.json marioStart: where Mario is held from the anchor on. */
   marioStart?: { x: number; y: number }
   /** sprites.json entries: the placed list ids by index. */
@@ -61,7 +61,7 @@ export function loadCaptures(): Loaded[] {
       return k ? JSON.parse(entries.get(k)!().toString('utf8')) : {}
     }
     const anchorFrame = jsonOf('capture_summary.json').anchorFrame as number | undefined
-    const gateFrame = jsonOf('capture_summary.json').gateFrame as number | undefined
+    const gateFrame = requireGateFrame(name, jsonOf('capture_summary.json').gateFrame)
     const marioStart = jsonOf('scroll_pass.json').marioStart as Loaded['marioStart']
     const listed = jsonOf('sprites.json').entries as Loaded['listed']
     for (const rec of j.spawns ?? [])

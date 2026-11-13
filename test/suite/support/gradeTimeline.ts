@@ -2,26 +2,13 @@
  * Which MAIN pass of the sprite runner corresponds to the frame Mesen caught a sprite drawing.
  * Test oracle only.
  *
- * A level-start sprite (INIT in GM12, `initFrame <= gateFrame`) is counted in passes from the capture's
- * `gateFrame`: pass `max(0, drawnFrame - gateFrame)` (#875). Why, from the code (SMWDisX plus the capture harness
- * source, one reading, checked by the verifier; the Mesen frame timing below is an inference, not verified):
- * - GM12 runs the loader's INIT and then one MAIN (bank_00.asm:4860, bank_05.asm:72, bank_02.asm:5172; 4866-4873
- *   to CODE_009860, bank_00.asm:2826): that MAIN is pass 0. GM12 and its INIT are skipped when IRQNMICommand is
- *   negative (bank_00.asm:4862-4864, bank_02.asm:5171).
- * - GM13 (GMTransitionMosaic, bank_00.asm:4075-4103) runs no sprite code: the callers of CODE_01808C are exactly
- *   bank_00.asm:2826, 2922, 4534 (GM14) and bank_02.asm:5172, and the level setup clears SpriteLock (4996).
- * - The harness stamps frames by WRAM writes to $0200-$049F, not PPU OAM (headless_capture.lua:1285-1293),
- *   frame = frame + 1 (1768) in onFrame on endFrame (2128); `drawnFrame` 1417/1421, `firstRealFrame` 1317.
- *   `gateFrame` is `levelGateFrame` (1884), set the first time onFrame reads GameMode == $14 (1797): that is
- *   the endFrame of the game frame whose INC GameMode (bank_00.asm:4094) left GM13, so G is the LAST GM13 frame
- *   and the first GM14 MAIN is stamped G + 1. A draw stamped D is therefore pass D - G.
- * Assumes Mesen fires endFrame before the NMI handler and no GM14 lag frame between G and D (one would
- * overstate the pass). No sprite code runs in GM13, so no INIT is stamped between GM12 and G: INIT at or
- * before G is GM12's. Evidence: maps 0C3 ($49), 130 ($76) and 0D0 ($6F idx 29) go from wrong to exact; of
- * 169 level-start records 126 have anchor == gate, where the anchor rule gave the same pass. Vanilla, one
- * machine. Any other sprite (spawned in play, possibly during the entrance wait) is
- * `drawnFrame - max(anchorFrame, initFrame + 1)` passes in: before the anchor Mario is held at a leftover
- * position and the level is still being set up.
+ * A map-start sprite (its INIT ran in GM12: `initFrame <= gateFrame`) is counted in passes from the capture's
+ * `gateFrame`, the last GM13 frame: pass `max(0, drawnFrame - gateFrame)` (#875). Any other sprite (spawned in
+ * play, possibly during the entrance wait) is `drawnFrame - max(anchorFrame, initFrame + 1)` passes in.
+ * Scope: maps without an entrance reload (capture_summary `reloadDuringWait` false); on a reload map `gateFrame`
+ * is the entrance room's first GM14 frame, so its map-start sprites have init > gate and keep the anchor rule
+ * (#1397). The derivation, with SMWDisX and harness line numbers, is in docs/testing.md, "Map-start sprites in the
+ * sprite grader".
  */
 
 import type { RomFile } from '../../../src/rom/RomFile'
@@ -30,36 +17,73 @@ import { FIRST_SPECIAL, shellLoad } from '../../../src/rom/sprites/ShellSprites'
 /** Largest pass index the grader will run for one record; a larger k falls back. */
 export const MAX_GRADED_PASS = 255
 
-/** Passes added to `drawnFrame - gateFrame`: 0, since the first GM14 MAIN is G + 1 (header). Map 127 $16 and 1bf $15 grade exact at 0 and close at 1. */
-export const LEVEL_START_PASS_OFFSET = 0
-
 /**
- * The pass a level-start sprite's drawn frame falls on (header), or undefined when the sprite is not level-start
- * or a field is missing. `initFrame <= gateFrame` is the whole test: no INIT is stamped between GM12 and G.
- * Not range-checked: `gradedPass` does that.
+ * A capture's gate frame, or an error naming the map. The harness writes `levelGateFrame or 0` when it never saw
+ * GM14 (headless_capture.lua:1147), so a missing or non-positive value is a broken capture, not a reason to
+ * quietly grade every sprite by the anchor rule.
  */
-export function levelStartPass(
-  initFrame: number | undefined,
-  gateFrame: number | undefined,
-  drawnFrame: number | undefined,
-): number | undefined {
-  if (![initFrame, gateFrame, drawnFrame].every(Number.isInteger)) return undefined
-  if (initFrame! > gateFrame!) return undefined
-  return Math.max(0, drawnFrame! - gateFrame! + LEVEL_START_PASS_OFFSET)
+export function requireGateFrame(map: string, gateFrame: unknown): number {
+  if (typeof gateFrame !== 'number' || !Number.isInteger(gateFrame) || gateFrame <= 0)
+    throw new Error(
+      `map ${map}: capture_summary.json has no usable gateFrame (${String(gateFrame)})`,
+    )
+  return gateFrame
 }
 
-/** The pass index to grade, or undefined when a field is missing or k is out of range. `gateFrame` is optional: without it every sprite takes the anchor rule. */
+/**
+ * The pass a map-start sprite's drawn frame falls on, or undefined when the sprite was spawned in play or a field
+ * is missing. `initFrame <= gateFrame` is the whole test: no INIT is stamped between GM12 and the gate.
+ * Not range-checked: `gradedPass` does that.
+ */
+export function mapStartPass(
+  initFrame: number | undefined,
+  gateFrame: number,
+  drawnFrame: number | undefined,
+): number | undefined {
+  if (![initFrame, drawnFrame].every(Number.isInteger)) return undefined
+  if (initFrame! > gateFrame) return undefined
+  return Math.max(0, drawnFrame! - gateFrame)
+}
+
+/** The pass index to grade, or undefined when a field is missing or k is out of range. */
 export function gradedPass(
   initFrame: number | undefined,
   anchorFrame: number | undefined,
   drawnFrame: number | undefined,
-  gateFrame?: number,
+  gateFrame: number,
 ): number | undefined {
-  const level = levelStartPass(initFrame, gateFrame, drawnFrame)
-  if (level !== undefined) return level <= MAX_GRADED_PASS ? level : undefined
+  const mapStart = mapStartPass(initFrame, gateFrame, drawnFrame)
+  if (mapStart !== undefined) return mapStart <= MAX_GRADED_PASS ? mapStart : undefined
   if (![initFrame, anchorFrame, drawnFrame].every(Number.isInteger)) return undefined
   const k = drawnFrame! - Math.max(anchorFrame!, initFrame! + 1)
   return k >= 0 && k <= MAX_GRADED_PASS ? k : undefined
+}
+
+/** Whether a record is graded on the hardware timeline (a pass k and a Mario start exist) or falls back to the first drawing pass. */
+export const isTimed = (k: number | undefined, marioStart: unknown): boolean =>
+  k !== undefined && marioStart !== undefined
+
+/** Counters the grader keeps apart so a fallback or a miss cannot hide in the wrong total. */
+export interface TimelineTally {
+  fallbacks: number
+  missAtK: number
+}
+
+/**
+ * After the run: a timed record grades at pass k (`m.chosen = k`); when that pass drew nothing it is a miss, counted
+ * apart; an untimed record is a fallback. A k past the passes run changes nothing.
+ */
+export function settleGradedPass(
+  m: { chosen?: number; passes: { parts: unknown[] }[] },
+  k: number | undefined,
+  timed: boolean,
+  tally: TimelineTally,
+): void {
+  if (!timed) tally.fallbacks++
+  else if (m.passes[k!]) {
+    m.chosen = k
+    if (!m.passes[k!]!.parts.length) tally.missAtK++
+  }
 }
 
 /** Mario's WRAM cells: $94/$96 (Next) and $D1/$D3 (Now), each 16 bit little endian. */
@@ -96,7 +120,7 @@ export function timelineFor(
   rec: TimedRec,
   anchorFrame: number | undefined,
   marioStart: { x: number; y: number } | undefined,
-  gateFrame?: number,
+  gateFrame: number,
   basePasses = 64,
 ): {
   k: number | undefined
@@ -106,7 +130,7 @@ export function timelineFor(
   probe: ((p: number, w: Uint8Array) => void) | undefined
 } {
   const k = gradedPass(rec.initFrame, anchorFrame, rec.drawnFrame, gateFrame)
-  const timed = k !== undefined && marioStart !== undefined
+  const timed = isTimed(k, marioStart)
   // Pass p runs at seed + 1 + p only when INIT takes one frame, so pass k lands on the recorded counters.
   const seedExtra =
     timed && rec.trueFrame !== undefined && rec.effFrame !== undefined

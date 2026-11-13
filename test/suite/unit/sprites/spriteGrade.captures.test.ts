@@ -4,7 +4,7 @@
  *
  * Tier 1 (graded here): the sprite's OAM shape relative to its own position.
  * Tier 2 (not graded): absolute position. The frame Mesen caught IS graded now: pass
- * k = drawnFrame - max(anchorFrame, initFrame + 1) (a level-start sprite, INIT before gateFrame, takes
+ * k = drawnFrame - max(anchorFrame, initFrame + 1) (a map-start sprite, INIT at or before gateFrame, takes
  * max(0, drawnFrame - gateFrame) instead: gradeTimeline.ts, #875), with Mario at marioAtInit for INIT
  * and marioStart for MAIN and the frame counters seeded from the record (#844). Offsets
  * are measured from the sprite's position at its first OAM write (PassResult.drawPos, the moment the
@@ -38,8 +38,10 @@ import {
 import { loadCaptures, type Loaded, type Rec } from '../../support/captures'
 import {
   gradedPass,
-  LEVEL_START_PASS_OFFSET,
+  isTimed,
   runnerId,
+  settleGradedPass,
+  type TimelineTally,
   writeMarioStart,
 } from '../../support/gradeTimeline'
 import { oracleCells, oracleImage } from '../../support/oracleImage'
@@ -97,8 +99,7 @@ function gradeAll(
   // Each map's own sprite list, for the neighbor run of a sprite that scans the slot tables (#841).
   const listByMap = new Map<string, LevelSprite[]>()
   const smw = new SmwRom(rom)
-  let fallbacks = 0
-  let missAtK = 0
+  const tally: TimelineTally = { fallbacks: 0, missAtK: 0 }
   for (const { map, rec, wram, anchorFrame, gateFrame, marioStart, listed } of all) {
     if (opts.limit !== undefined && rows.length >= opts.limit) break
     const id = parseInt(rec.id.slice(1), 16)
@@ -132,8 +133,7 @@ function gradeAll(
     const me = list.find(e => e.index === rec.listIndex)
     const neighbours = me ? neighboursOf(list, me, e => ({ x: e.x * 16, y: e.y * 16 })) : []
     const k = gradedPass(rec.initFrame, anchorFrame, rec.drawnFrame, gateFrame)
-    const timed = k !== undefined && marioStart !== undefined
-    if (!timed) fallbacks++
+    const timed = isTimed(k, marioStart)
     const seed = withSeed({
       loaded,
       // The ROM-run level's cluster sprites (map $101's castle flames) would draw into the OAM read as the
@@ -169,13 +169,7 @@ function gradeAll(
     // Nothing drawn at the hardware's pass is a runner miss, counted apart so it cannot hide in the
     // wrong total. It grades wrong when some pass draws; when none does grade()
     // returns empty whatever m.chosen is (13 records before #842, none after) (test/suite/support/spriteGrade.ts:107).
-    if (timed && m.passes[k]) {
-      if (m.passes[k].parts.length) m.chosen = k
-      else {
-        m.chosen = k
-        missAtK++
-      }
-    }
+    settleGradedPass(m, k, timed, tally)
     for (const a of m.inputs ?? []) {
       const e = inputs.get(a) ?? { reads: 0, nonzero: 0 }
       e.reads++
@@ -204,10 +198,10 @@ function gradeAll(
   }
   const by: Record<string, number> = {}
   for (const r of rows) by[r.verdict] = (by[r.verdict] ?? 0) + 1
-  return { rows, by, inputs, fallbacks, missAtK }
+  return { rows, by, inputs, fallbacks: tally.fallbacks, missAtK: tally.missAtK }
 }
 
-/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Re-measured 2026-11-13 for #875 (a level-start sprite counted from the first GM14 frame, develop 0a0dc7ba plus this change, one machine, vanilla ROM, 1955 records): exact 1928, shape 0, close 17, wrong 10, empty 0, fallback 39, missAtK 0 (before: 1925, 0, 17, 13, 0, 42, 3; the three rows fixed are maps 0c3 $49, 130 $76 and 0d0 $6F idx 29, which were the three missAtK records). Re-measured for #839/#1370 after four maps (101, 1d4, 109, 11b) were re-captured with the fixed harness (en-gen/hackbench-validation bc8d1a3): 2026-11-11, one machine, vanilla ROM, 1955 records: exact 1925, shape 0, close 17, wrong 13, empty 0, fallback 42, missAtK 3 (1957 records, exact 1917, close 17, wrong 22, empty 1, fallback 38, missAtK 7 with the old zips; the 9 wrong records on maps 101 and 1d4 were castle-flame cluster tiles the old harness attributed to sprite records; the 2 that left were of the same kind). */
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Re-measured 2026-11-13 for #875 (a map-start sprite counted from the gate frame, develop 0a0dc7ba plus this change, one machine, vanilla ROM, 1955 records): exact 1928, shape 0, close 17, wrong 10, empty 0, fallback 39, missAtK 0 (before: 1925, 0, 17, 13, 0, 42, 3; the three rows fixed are maps 0c3 $49, 130 $76 and 0d0 $6F idx 29, which were the three missAtK records). Re-measured for #839/#1370 after four maps (101, 1d4, 109, 11b) were re-captured with the fixed harness (en-gen/hackbench-validation bc8d1a3): 2026-11-11, one machine, vanilla ROM, 1955 records: exact 1925, shape 0, close 17, wrong 13, empty 0, fallback 42, missAtK 3 (1957 records, exact 1917, close 17, wrong 22, empty 1, fallback 38, missAtK 7 with the old zips; the 9 wrong records on maps 101 and 1d4 were castle-flame cluster tiles the old harness attributed to sprite records; the 2 that left were of the same kind). */
 const FLOOR = {
   graded: 1955,
   // Measured on the merge of develop a9de2145 and #842 (offsets from the draw-time position, Layer 3 handler run),
@@ -284,7 +278,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     ['102', '$A4', 912, 400], // #842: sank 32 px until the loader ran the Layer 3 handler
     // INIT spawns companions that draw in their own slots (#840): the recorded pieces are the sprite's alone, 1 and 2.
     ['10a', '$61', 160, 384],
-    // #875 and #1369: level-start sprites counted from the first GM14 frame; each drew nothing at the anchor-based pass.
+    // #875 and #1369: map-start sprites counted from the gate frame; each drew nothing at the anchor-based pass.
     ['0c3', '$49', 208, 352],
     ['130', '$76', 64, 160],
     ['0d0', '$6F', 4128, 352],
@@ -332,7 +326,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     const { rows, missAtK } = gradeAll(freshRom(), one)
     expect(missAtK).toBe(0)
     expect(rows[0].verdict).toBe('exact')
-    expect(rows[0].pass).toBe(31 + LEVEL_START_PASS_OFFSET)
+    expect(rows[0].pass).toBe(31)
   }, 120_000)
 
   it('goes red when the dispatch is planted with a defect', () => {
