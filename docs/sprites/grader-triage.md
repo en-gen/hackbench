@@ -146,7 +146,11 @@ write as the sprite's own part only when `$15E9` equals the sprite's slot, on ev
   develop at `a028e0dc` the 101 records already grade exact, and a plain map-view run of $B9 on 101 (4 spots) gives 1
   part and 0 companions, so no write under another `$15E9` reached an OAM tile byte at those seeds. The map 004 claim
   that $B9 sits in sprite slot 6 and so keeps cluster index 6's write is an inference from the probe PCs, not
-  reproduced here; read its "close" grade as unverified. Resolved by #1368: it was the capture, not the model. The recorded second piece was OAM 126, tile $AA/$AE, the Boo ring's tile table (`BooRingTiles`, `bank_02.asm:16438-16439`, stored at 16651), written under cluster index 6 = $B9's slot 6; the pre-fix recorder keyed by slot (fixed in `hackbench-validation` 48d348c, #31/#32). Map 004 re-captured with bc8d1a3 holds one piece and grades exact (one machine, 2026-11-13, vanilla ROM). The synthetic id 84 (`$15E9` set to 15) is the real
+  reproduced here; read its "close" grade as unverified. Resolved by #1368: it was the capture, not the model. The
+  recorded second piece was OAM 126, tile $AA/$AE, the Boo ring's tile table (`BooRingTiles`,
+  `bank_02.asm:16438-16439`, stored at 16651), written under cluster index 6 = $B9's slot 6; the pre-fix recorder
+  keyed by slot (fixed in `hackbench-validation` 48d348c, #31/#32). Map 004 re-captured with bc8d1a3 holds one piece
+  and grades exact (one machine, 2026-11-13, vanilla ROM). The synthetic id 84 (`$15E9` set to 15) is the real
   other-slot write under test.
 - $2B's former spawn-oracle extra tile was also a cluster write (`$02:F983`, `$15E9` = 9; `CODE_02F967` +28, the Sumo
   Bro flame tile store, `bank_02.asm:16145`), now filtered.
