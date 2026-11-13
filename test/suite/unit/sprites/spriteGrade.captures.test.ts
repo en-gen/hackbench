@@ -201,7 +201,7 @@ function gradeAll(
   return { rows, by, inputs, fallbacks, missAtK }
 }
 
-/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Re-measured for #839/#1370 after four maps (101, 1d4, 109, 11b) were re-captured with the fixed harness (en-gen/hackbench-validation bc8d1a3): 2026-11-11, one machine, vanilla ROM, 1955 records: exact 1925, shape 0, close 17, wrong 13, empty 0, fallback 42, missAtK 3 (1957 records, exact 1917, close 17, wrong 22, empty 1, fallback 38, missAtK 7 with the old zips; the 9 wrong records on maps 101 and 1d4 were castle-flame cluster tiles the old harness attributed to sprite records; the 2 that left were of the same kind). */
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Re-measured for #839/#1370 after four maps (101, 1d4, 109, 11b) were re-captured with the fixed harness (en-gen/hackbench-validation bc8d1a3): 2026-11-11, one machine, vanilla ROM, 1955 records: exact 1925, shape 0, close 17, wrong 13, empty 0, fallback 42, missAtK 3 (1957 records, exact 1917, close 17, wrong 22, empty 1, fallback 38, missAtK 7 with the old zips; the 9 wrong records on maps 101 and 1d4 were castle-flame cluster tiles the old harness attributed to sprite records; the 2 that left were of the same kind). With the #1368 map 004 re-capture (bc8d1a3, composite corpus, one run, one machine, vanilla ROM, 2026-11-13): 1955 records, exact 1926, close 17, wrong 12, empty 0, fallback 43, missAtK 3. */
 const FLOOR = {
   graded: 1955,
   // Measured on the merge of develop a9de2145 and #842 (offsets from the draw-time position, Layer 3 handler run),
@@ -215,7 +215,7 @@ const FLOOR = {
   maxEmpty: 4, // 0 measured (old slack 4 over 1)
   maxWrong: 20, // 12 measured with the #1368 re-capture (13 before it, 22 with the pre-#1370 zips), the same 8 slack
   maxMissAtK: 6, // 3 measured, same 3 slack as the old 10 over 7
-  // 43 measured (spawned records without initFrame; 38 before the #1370 re-capture, 42 before #1368); all-timed would read 0.
+  // 43 measured: 38 spawned records without initFrame, 5 drawn before the anchor on the bc8d1a3 re-captures (004, 101, 11b); all-timed would read 0.
   minFallbacks: 35, // old 30 under 38 measured: same 8 slack under 43 (the re-captured $B9 on 004 draws before its anchor)
   maxFallbacks: 45, // old hard-coded 40 over 38 measured: same 2 headroom over 43
   // 7 measured on the merge (3 on the #842 head alone, 25 before it: the 22 initFrames > 1 records missed until the
@@ -257,7 +257,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     expect(by.close ?? 0).toBeLessThanOrEqual(FLOOR.maxClose)
     expect(by.empty ?? 0).toBeLessThanOrEqual(FLOOR.maxEmpty)
     expect(by.wrong ?? 0).toBeLessThanOrEqual(FLOOR.maxWrong)
-    // 42 records carry no initFrame (the spawned ones) and grade the old way.
+    // 43 records grade the old way: 38 spawned ones carry no initFrame, 5 drew before the anchor on the bc8d1a3 re-captures (004, 101, 11b).
     expect(fallbacks).toBeGreaterThanOrEqual(FLOOR.minFallbacks)
     expect(fallbacks).toBeLessThanOrEqual(FLOOR.maxFallbacks)
     expect(missAtK).toBeLessThanOrEqual(FLOOR.maxMissAtK)
@@ -293,8 +293,8 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     120_000,
   )
 
-  // #1368: the Info Box's own piece. The first 004 capture also held a Boo ring tile (OAM 126, $AA/$AE) as its second
-  // piece: cluster index 6 equals its sprite slot 6 and the old recorder keyed by slot (hackbench-validation 48d348c
+  // #1368: the Info Box's own piece. The first 004 capture also held a tile of cluster sprite $03 (CODE_02FBC7,
+  // bank_02.asm:15968, tiles from BooRingTiles; OAM 126, $AA/$AE) as its second piece: cluster index 6 equals its sprite slot 6 and the old recorder keyed by slot (hackbench-validation 48d348c
   // fixed that, bc8d1a3 used for the re-capture). Against that capture it grades wrong, so this goes red when the old
   // 004.zip is back. Not in the table above: the re-captured record is drawn before the anchor frame, so it grades the
   // old way (a fallback), which that table forbids.
