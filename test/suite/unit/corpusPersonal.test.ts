@@ -5,7 +5,7 @@
  * content, so this runs in CI.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -72,7 +72,6 @@ describe('personal ROM list', () => {
 
   it('treats a missing folder as empty', () => {
     const gone = join(dir, 'nope')
-    mkdirSync(dir, { recursive: true })
     expect(romsOnDisk(gone)).toEqual([])
     expect(personalRomsPresent(gone)).toEqual([])
     expect(unlistedCarts(gone)).toEqual([])
