@@ -81,7 +81,7 @@ describe('the editor state (stale replies, tileset switch, what Save sends)', ()
     const a = openDefinition(EMPTY_EDITOR, defA)
     const sentToken = a.token // Save pressed on A
     const b = openDefinition(a, defB) // the user clicks row B mid-save
-    const after = applyWriteReply(b, sentToken, defA)
+    const after = applyWriteReply(b, sentToken, defA, defA.name)
     expect(after).toBe(b)
     expect(after.editId).toBe('bbbb0002')
     expect(after.name).toBe('B')
@@ -89,7 +89,7 @@ describe('the editor state (stale replies, tileset switch, what Save sends)', ()
 
   it('takes the reply when nothing moved, so a first save learns its id', () => {
     const fresh = { ...EMPTY_EDITOR, name: 'New', tileset: 3 }
-    const after = applyWriteReply(fresh, fresh.token, { ...defA, name: 'New' })
+    const after = applyWriteReply(fresh, fresh.token, { ...defA, name: 'New' }, 'New')
     expect(after.editId).toBe('aaaa0001')
     expect(after.name).toBe('New')
   })
@@ -97,8 +97,24 @@ describe('the editor state (stale replies, tileset switch, what Save sends)', ()
   it('drops a reply after New, a tileset change or a project change', () => {
     const a = openDefinition(EMPTY_EDITOR, defA)
     for (const moved of [newObjectState(a), changeTileset(a, 5), newObjectState(a)]) {
-      expect(applyWriteReply(moved, a.token, defA).editId).toBe(moved.editId)
+      expect(applyWriteReply(moved, a.token, defA, defA.name).editId).toBe(moved.editId)
     }
+  })
+
+  it('keeps what the user typed while the save was in flight', () => {
+    const typing = { ...openDefinition(EMPTY_EDITOR, defA), name: 'A' }
+    const sentName = typing.name
+    const keptTyping = { ...typing, name: 'A, longer' } // typed after Save was pressed
+    const after = applyWriteReply(keptTyping, typing.token, defA, sentName)
+    expect(after.name).toBe('A, longer')
+    expect(after.editId).toBe('aaaa0001')
+    // Nothing typed since: the reply's own (trimmed) name is shown.
+    expect(applyWriteReply(typing, typing.token, { ...defA, name: 'A' }, sentName).name).toBe('A')
+    expect(applyWriteReply({ ...typing, name: ' A ' }, typing.token, defA, ' A ').name).toBe('A')
+  })
+
+  it('does nothing when tagging with no tileset picked', () => {
+    expect(tagEditor(EMPTY_EDITOR, 5, 'edge')).toBe(EMPTY_EDITOR)
   })
 
   it('turns a tileset change into a new unsaved definition and clears the tags', () => {

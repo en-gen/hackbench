@@ -8,6 +8,7 @@
  * against (tileset count, Map16 tile count); nothing here writes it.
  */
 import * as path from 'path'
+import { openProject } from '../../../../src/project/Project'
 import { romFileOf, WorkingRomRegistry } from '../../../../src/project/WorkingRomRegistry'
 import {
   deleteObjectDefinition,
@@ -74,6 +75,8 @@ export class ObjectsCore {
 
   /** A file operation only: it needs no ROM, so a project without one can still clear its files. */
   delete(manifestPath: string, id: string): DeleteObjectResultDto {
+    // Throws for a manifest that is not a project, so no path over RPC reaches a file.
+    openProject(manifestPath)
     return deleteObjectDefinition(path.dirname(manifestPath), id)
   }
 

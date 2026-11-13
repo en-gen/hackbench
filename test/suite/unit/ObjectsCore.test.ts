@@ -70,6 +70,14 @@ describe('a ROM whose Map16 cannot be read (the real limits path)', () => {
     expect(fs.readdirSync(objects)).toEqual(['good0001.json'])
   })
 
+  it('refuses a rename with exactly the fixed note as its reason', () => {
+    const core = new ObjectsCore(new WorkingRomRegistry(romRegistry))
+    expect(core.rename(manifestPath, 'good0001', 'Y')).toEqual({ status: 'invalid', reason: NOTE })
+    expect(JSON.parse(fs.readFileSync(path.join(objects, 'good0001.json'), 'utf8')).name).toBe(
+      'Fine',
+    )
+  })
+
   it('deletes without reading the ROM', () => {
     const core = new ObjectsCore(new WorkingRomRegistry(romRegistry))
     expect(core.delete(manifestPath, 'good0001')).toEqual({ status: 'ok' })
@@ -87,5 +95,16 @@ describe('a project whose ROM is not located', () => {
     )
     expect(core.rename(manifestPath, 'good0001', 'Y').status).toBe('rom-not-located')
     expect(core.delete(manifestPath, 'good0001')).toEqual({ status: 'ok' })
+  })
+})
+
+describe('delete resolves the project before it touches a file', () => {
+  it('refuses a manifest path that is not a project, and removes nothing', () => {
+    const decoy = path.join(tmp, 'Decoy')
+    fs.mkdirSync(path.join(decoy, 'meta', 'objects'), { recursive: true })
+    fs.writeFileSync(path.join(decoy, 'meta', 'objects', 'victim01.json'), '{}')
+    const core = new ObjectsCore(new WorkingRomRegistry(romRegistry))
+    expect(() => core.delete(path.join(decoy, 'Nope.hbproj'), 'victim01')).toThrow()
+    expect(fs.existsSync(path.join(decoy, 'meta', 'objects', 'victim01.json'))).toBe(true)
   })
 })

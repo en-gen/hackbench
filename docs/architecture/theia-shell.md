@@ -29,8 +29,8 @@ frontend and backend pair:
 | emulator  | emulator view             | emulator server | `/services/hackbench-emulator` |
 | objects   | Objects view              | objects server  | `/services/hackbench-objects`  |
 
-Maps have no extension of their own: the project service serves them. A
-seventh entry holds the Electron-only OS locale hook. The extensions are
+Maps have no extension of their own: the project service serves them. An
+eighth entry holds the Electron-only OS locale hook. The extensions are
 separate because each owns a view, a protocol and a server that can
 be reasoned about on its own, not because Theia requires it.
 

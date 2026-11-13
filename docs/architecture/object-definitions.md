@@ -119,6 +119,11 @@ the reason in plain words next to the file name so the activity can show it:
    that reason.
 7. `tileset` is outside `0..14`.
 
+When the tile table is unreadable (rule 6), `readObjectDefinitions` still skips
+every file with that reason, as above; the Objects activity shows one note for
+the whole list instead of one per file. That is presentation only, and readers
+are unchanged.
+
 Two files cannot share an `id`, because the id equals the file name. A copied
 file under another name fails rule 4 (id differs from file name) and is
 skipped.

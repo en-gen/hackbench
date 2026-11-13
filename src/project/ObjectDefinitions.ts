@@ -107,6 +107,12 @@ function entryOf(dir: string, id: string): 'exact' | 'other-case' | 'absent' {
 const OTHER_CASE_REASON =
   'A file with this id exists under different letters (capitals), so it was left alone.'
 
+/** A value from a file, shown in a reason: cut, so a huge one cannot flood the screen. */
+function quoted(value: unknown): string {
+  const text = JSON.stringify(value) ?? String(value)
+  return text.length > 40 ? `${text.slice(0, 40)}...` : text
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -140,7 +146,7 @@ function validate(
   if (raw.version !== 1) {
     return typeof raw.version === 'number' && raw.version > 1
       ? 'This Object was saved by a newer HackBench.'
-      : `The file's version (${JSON.stringify(raw.version)}) is not one this HackBench knows.`
+      : `The file's version (${quoted(raw.version)}) is not one this HackBench knows.`
   }
   const { id, name, tileset } = raw
   if (typeof id !== 'string' || !isUsableId(id)) {

@@ -112,13 +112,19 @@ export function draftOf(s: EditorState): ObjectDraftDto | undefined {
   }
 }
 
-/** A save or rename reply: it names the definition only if the editor is still the one it was sent for. */
+/**
+ * A save or rename reply: it names the definition only if the editor is still
+ * the one it was sent for. The name box takes the reply's (trimmed) name only
+ * if it still holds what was sent, so typing during the save is kept.
+ */
 export function applyWriteReply(
   s: EditorState,
   sentToken: number,
   def: ObjectDefinitionDto,
+  sentName: string,
 ): EditorState {
-  return sentToken === s.token ? { ...s, editId: def.id, name: def.name } : s
+  if (sentToken !== s.token) return s
+  return { ...s, editId: def.id, name: s.name === sentName ? def.name : s.name }
 }
 
 /** Tile numbers as the Map16 editor writes them. */

@@ -245,13 +245,14 @@ export class ObjectsWidget extends ReactWidget {
     const manifestPath = this.manifestPath
     const draft = draftOf(this.editor)
     const sentToken = this.editor.token
+    const sentName = this.editor.name
     if (!manifestPath || !draft) return
     try {
       const r = await this.objects.saveObject(manifestPath, draft)
       if (manifestPath !== this.manifestPath) return
       if (r.status === 'ok') {
         // A reply for a row the user has left must not rename the row they are on.
-        this.editor = applyWriteReply(this.editor, sentToken, r.definition)
+        this.editor = applyWriteReply(this.editor, sentToken, r.definition, sentName)
         if (sentToken === this.editor.token) this.message = `Saved "${r.definition.name}".`
       } else if (sentToken === this.editor.token) {
         this.message = 'reason' in r ? r.reason : 'Locate the ROM for this project first.'
@@ -267,12 +268,13 @@ export class ObjectsWidget extends ReactWidget {
     const manifestPath = this.manifestPath
     const id = this.editor.editId
     const sentToken = this.editor.token
+    const sentName = this.editor.name
     if (!manifestPath || !id) return
     try {
       const r = await this.objects.renameObject(manifestPath, id, this.editor.name)
       if (manifestPath !== this.manifestPath) return
       if (r.status === 'ok') {
-        this.editor = applyWriteReply(this.editor, sentToken, r.definition)
+        this.editor = applyWriteReply(this.editor, sentToken, r.definition, sentName)
         if (sentToken === this.editor.token) this.message = `Renamed to "${r.definition.name}".`
       } else if (sentToken === this.editor.token) {
         this.message = 'reason' in r ? r.reason : 'Locate the ROM for this project first.'

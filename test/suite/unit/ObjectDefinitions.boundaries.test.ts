@@ -49,17 +49,6 @@ const reasonOf = (stem: string): string | undefined =>
 
 const draft = { name: 'Platform', tileset: 2, edge: [259, 256], fill: [300, 301] }
 
-/** A probe, not an assumption: Windows and macOS usually are, Linux usually is not. */
-function fileSystemIsCaseInsensitive(): boolean {
-  const probe = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-case-'))
-  try {
-    fs.writeFileSync(path.join(probe, 'Aa.txt'), '')
-    return fs.existsSync(path.join(probe, 'aa.txt'))
-  } finally {
-    fs.rmSync(probe, { recursive: true, force: true })
-  }
-}
-
 describe('file size, exactly at the cap', () => {
   it('loads a file of exactly 64 KiB and skips one a byte over', () => {
     const body = JSON.stringify(good({}, 'exact001'))
@@ -186,24 +175,33 @@ describe('unknown fields', () => {
   })
 })
 
-describe.skipIf(!fileSystemIsCaseInsensitive())(
-  'a file under different capitals (case-insensitive file system)',
-  () => {
-    it('is never overwritten, renamed or deleted through another spelling of its id', () => {
-      const planted = JSON.stringify(good({}, 'abc12345'))
-      fs.writeFileSync(path.join(objects, 'ABC12345.json'), planted)
-      // The reader skips it: its id differs from the file name.
-      expect(readObjectDefinitions(dir, LIMITS).skipped.map(s => s.file)).toEqual(['ABC12345.json'])
+describe('a file under different capitals', () => {
+  // entryOf compares directory names, so this holds on a case-sensitive file system too.
+  it('is never overwritten, renamed or deleted through another spelling of its id', () => {
+    const planted = JSON.stringify(good({}, 'abc12345'))
+    fs.writeFileSync(path.join(objects, 'ABC12345.json'), planted)
+    // The reader skips it: its id differs from the file name.
+    expect(readObjectDefinitions(dir, LIMITS).skipped.map(s => s.file)).toEqual(['ABC12345.json'])
 
-      for (const result of [
-        saveObjectDefinition(dir, LIMITS, { ...draft, id: 'abc12345' }),
-        renameObjectDefinition(dir, LIMITS, 'abc12345', 'New name'),
-        deleteObjectDefinition(dir, 'abc12345'),
-      ]) {
-        expect(result.status).toBe('invalid')
-      }
-      expect(fs.readdirSync(objects)).toEqual(['ABC12345.json'])
-      expect(fs.readFileSync(path.join(objects, 'ABC12345.json'), 'utf8')).toBe(planted)
-    })
-  },
-)
+    for (const result of [
+      saveObjectDefinition(dir, LIMITS, { ...draft, id: 'abc12345' }),
+      renameObjectDefinition(dir, LIMITS, 'abc12345', 'New name'),
+      deleteObjectDefinition(dir, 'abc12345'),
+    ]) {
+      expect(result.status).toBe('invalid')
+    }
+    expect(fs.readdirSync(objects)).toEqual(['ABC12345.json'])
+    expect(fs.readFileSync(path.join(objects, 'ABC12345.json'), 'utf8')).toBe(planted)
+  })
+})
+
+describe('a long value in a skip reason', () => {
+  it('is cut to 40 characters and an ellipsis', () => {
+    put('vlong001', good({ version: 'v'.repeat(500) }, 'vlong001'))
+    const reason = reasonOf('vlong001')!
+    expect(reason).toBe(
+      `The file's version (${JSON.stringify('v'.repeat(500)).slice(0, 40)}...) is not one this HackBench knows.`,
+    )
+    expect(reason.length).toBeLessThan(120)
+  })
+})
