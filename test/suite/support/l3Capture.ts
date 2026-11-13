@@ -1,4 +1,4 @@
-/** Shared setup for the Layer 3 corpus tests that bind the model to a layers_v5 capture (#563, #1065). */
+/** Setup for the Layer 3 corpus test that binds the model to a layers_v5 capture. */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect } from 'vitest'
@@ -7,7 +7,9 @@ import { CAPTURE_DIR, freshRom, VANILLA } from './corpus'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { parseLevelHeader } from '../../../src/rom/LevelParser'
 import { buildL3Verdict } from '../../../src/rom/model/L3Model'
-import { L3_HUD_ROW_CUTOFF } from '../../../src/rom/L3Loader'
+
+/** The first tilemap row compared: rows 0-7 are the status bar. A literal, so a wrong `L3_HUD_ROW_CUTOFF` in the code cannot move the oracle with it. */
+const FIRST_ROW = 8
 
 /** ClearOutLayer3 fills the tilemap with this blank tile (every cell the stripe image leaves alone); the model leaves those 0. */
 const BLANK = 0x38fc
@@ -34,12 +36,16 @@ export function l3CaptureCase(id: string) {
       return t === BLANK ? 0 : t
     }
     let compared = 0
-    for (let r = L3_HUD_ROW_CUTOFF; r < 64; r++)
+    let nonBlank = 0
+    for (let r = FIRST_ROW; r < 64; r++)
       for (let c = 0; c < 64; c++) {
         expect([r, c, v.l3!.tilemap[r * 64 + c]]).toEqual([r, c, at(r, c)])
         compared++
+        if (at(r, c) !== 0) nonBlank++
       }
-    expect(compared).toBe((64 - L3_HUD_ROW_CUTOFF) * 64)
+    expect(compared).toBe((64 - FIRST_ROW) * 64)
+    // The captured side must hold drawn cells, or an all-blank comparison would pass on a map drawing nothing.
+    expect(nonBlank).toBeGreaterThan(0)
   }
-  return { v, file, u16, expectTilemapMatchesFrame0 }
+  return { v, rom, index, file, u16, expectTilemapMatchesFrame0 }
 }

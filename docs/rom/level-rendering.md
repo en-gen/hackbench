@@ -197,7 +197,9 @@ byte: bit 7 clear is a tide (`$00`/`$01` start at Y `$70`, `$02`-`$7F` at
 `$C0` on Castle1 and Underground1 (`CODE_009FFA`) and **camera-locked** on every
 other tileset, which branches to `CODE_00A01F` without writing a Y
 (`bank_00.asm:4174`). The gate is that ASM condition (`l3LoadTimeY`), not the
-loader's older `=== 0x81`; a camera-locked map is drawn world-locked on `$011`, `$130` and `$1C1` (#1089, docs/rom/layer3-world-locked.md), and only `$018` (mode 0E) stays refused. A tile row R
+loader's older `=== 0x81`; on vanilla a camera-locked map is drawn world-locked on `$011`,
+`$130` and `$1C1` (#1089, docs/rom/layer3-world-locked.md), and only `$018` (mode 0E) stays
+refused. A tile row R
 is at level Y `R*8 - Layer3YPos + Layer1YPos`; a tide repeats every 256 px over
 columns 0-31 and its second copy of the tilemap is not drawn; the status-bar
 rows 0-7 are not drawn. `L3Loader.l3InitialYPx` disagrees with the ASM for

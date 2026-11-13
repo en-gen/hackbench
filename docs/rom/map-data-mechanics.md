@@ -563,16 +563,21 @@ and $1FC, all horizontal and all starting Mario at X 16, so the load camera X is
   cycle (bank_02.asm:11147-11166; state 4 returns to it), so each cycle the panel restarts 65-128 px
   right of the screen's left edge, and it pins at $100 only if the camera moves about 321-384 px
   within one cycle. Over time it follows the camera. The very first frame shows the map's placed
-  sprite X instead: $100 on $01F (a blank screen: BG3 columns 32-63 are empty) and $70 on $1D4 (capture
-  frame 0, layers_v5, one machine; BG3HOFS reads -104 on both by frame 8). $1FC has no capture; its
-  first-frame X comes from the map data only.
+  sprite X instead, pinned by CODE_00FF61: $100 on $01F (placed $120, screen 1 column 18, pinned by
+  bank_00.asm:14783-14788; a blank screen: BG3 columns 32-63 are empty) and $70 on $1D4 (capture frame 0,
+  layers_v5, vanilla, one machine; BG3HOFS reads 920, which is -104 as a 10-bit signed value, on both by
+  frame 8). $1FC has no capture; it has the same sprite bytes as $01F, so the same pin, from the map
+  data only.
 - **Y.** $A0 minus the sprite's Y, plus the shake offset. The camera is not in it, so on screen the
   layer keeps its place vertically (the sprite's Y animates between 0 and $A0 as the smasher falls
   and rises). Before the sprite is loaded, Y is $D0 (bank_00.asm:4192-4195). By capture
-  frame 0 the write has already happened: $24 is $A0 on $01F and $1D4 (#1065, layers_v5, one machine).
-  `loadLevelState` ends prep at $D0 on these maps by design; the map view takes this first-frame Y and
-  the landing X instead (`test/suite/unit/L3SmashCapture.corpus.test.ts` binds Y to frame 0 $24, X to
-  frame 8 BG3HOFS, and the BG3 tilemap to frame 0).
+  frame 0 the write has already happened: $24 is $A0 on $01F and $1D4 (#1065, layers_v5, vanilla, one
+  machine). `loadLevelState` ends prep at $D0 on these maps by design; the map view takes the landing Y,
+  which equals frame 0's $24 because the placed and the landing Y are both 0 on these maps (the test
+  asserts that from the capture and the sprite list), and the landing X
+  (`test/suite/unit/L3SmashCapture.corpus.test.ts` binds X to the smasher slot's X and frame 8
+  BG3HOFS, Y to frame 0 $24, and the BG3 tilemap to frame 0). The two captures share landing -104, Y $A0 and
+  the same tilemap (one RNG path), so they are one data point.
 - **No despawn.** The routine has no off-screen check; only SpriteWillAppear erases it
   (bank_02.asm:11148-11150).
 - **Not #563.** The $81 camera-locked case runs CODE_05C40C: Y = Layer1YPos, X adds the camera
