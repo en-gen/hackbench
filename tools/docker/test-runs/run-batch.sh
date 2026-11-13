@@ -6,7 +6,7 @@ for i in $(seq 0 $((n-1))); do
   lo=$((i*10)); hi=$((lo+9)); mkdir -p "$out/run$i"
   docker run -d --label hackbench.spike=uniform --name "uniform-$label-$i" \
     --cpuset-cpus=$lo-$hi -e HACKBENCH_VITEST_WORKERS=5 -e HACKBENCH_ROMS=/corpus \
-    -v "$wt:/src:ro" -v "C:/Projects/hackbench-tools/roms:/corpus:ro" -v "$(cd "$out/run$i" && pwd -W 2>/dev/null || pwd):/out" \
+    -v "$wt:/src:ro" -v "C:/Projects/hackbench-tools/roms:/corpus:ro" -v "$(cd "$out/run$i" && pwd -W 2>/dev/null || pwd):/out" -v "$wt/tools/docker/test-runs/run-unit.sh:/run-unit.sh:ro" \
     hackbench-unit:spike >/dev/null
 done
 for i in $(seq 0 $((n-1))); do
