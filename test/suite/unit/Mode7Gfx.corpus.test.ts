@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { CORPUS, ROM_DIR, VANILLA, freshRom, hasRom } from '../support/corpus'
+import { CORPUS, ROM_DIR, VANILLA, freshRom, hasRom, romsOnDisk } from '../support/corpus'
 import { findPattern } from '../../../src/rom/BytePattern'
 import { decodeMode7Tiles, findMode7GfxFiles } from '../../../src/rom/Mode7Gfx'
 import { readGfxFile } from '../../../src/rom/GfxLoader'
@@ -130,7 +130,10 @@ describe.skipIf(!existsSync(HACKS) || !existsSync(ROMS))('Mode7Gfx on the hack c
   it('reads 110 ROMs as Mode 7 and claims 42 unavailable, as develop did', () => {
     const tally: Record<string, number> = {}
     for (const dir of [HACKS, ROMS]) {
-      for (const f of readdirSync(dir).filter(f => /\.(sfc|smc)$/i.test(f))) {
+      // The ROM folder's own listing leaves out personal carts (#1289).
+      const carts =
+        dir === ROMS ? romsOnDisk() : readdirSync(dir).filter(f => /\.(sfc|smc)$/i.test(f))
+      for (const f of carts) {
         const rom = RomFile.load(resolve(dir, f))
         const read = readGfxFile(rom, 0x27)
         const len = read.ok ? read.bytes.length : 0
