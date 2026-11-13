@@ -74,6 +74,7 @@ import {
   drawnPass,
   findReveal,
   type RevealCondition,
+  type RevealOptions,
 } from '../../../../src/rom/sprites/interp/RevealSearch'
 import {
   castleFlames,
@@ -565,6 +566,17 @@ export function runWithUploads(
   return Object.assign(m, { uploads: m.neighbourRun === 'adopted' ? rerun.byPass : alone.byPass })
 }
 
+/**
+ * What `findReveal` is told about how this file draws a run (#1365). The graphics slots a pass pointed at are part of
+ * what the map draws (#980), so they join the picture the same-as-rest check compares. The rope's at-rest run sits in
+ * the slot the loader gives it and its reruns in slot 0, so their pictures differ in length, not in what shows: no
+ * comparison for it (12 vanilla ropes, none hidden).
+ */
+export const revealOptions = (rope: boolean): RevealOptions => ({
+  extraKey: (r, pass) => JSON.stringify((r as RunModel).uploads?.[pass] ?? []),
+  comparable: !rope,
+})
+
 /** The marker's reason code when the search found no condition that draws the sprite (`WHY_NOT_DRAWN`). */
 export const UNREVEALED = 'unrevealed'
 
@@ -1005,11 +1017,6 @@ export function interpRunner(
     // Hidden sprites take their picture from the search, whatever the at-rest run drew (a mole drawn from where Mario starts).
     if (reveal) {
       let won = seed(camera, { opening }) // the last whole rerun is the winning condition's seed
-      // The rope's at-rest run sits in the slot the loader gives it and its reruns in slot 0, so their pictures differ in
-      // length, not in what shows: no same-as-rest comparison for it (RevealOptions.comparable; 12 vanilla ropes, none hidden).
-      // The graphics slots a pass pointed at are part of what the map draws (#980), so they are part of the picture.
-      const slots = (r: BaseModel, pass: number) =>
-        JSON.stringify((r as RunModel).uploads?.[pass] ?? [])
       const rv = findReveal(
         seed(camera, { opening }),
         m,
@@ -1017,7 +1024,7 @@ export function interpRunner(
           if (!probe) won = q
           return run(rom, s.spriteId, q, { stopAtDraw: probe })
         },
-        { extraKey: slots, comparable: !rope },
+        revealOptions(rope),
       )
       if (rv.status === 'hidden') {
         const mark = scans(rv.model.scansSlots, won) ? NEIGHBOUR_EXTRA_BIT_REASON : undefined

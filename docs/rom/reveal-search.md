@@ -60,17 +60,23 @@ flowchart TD
 - The at-rest run is tracked (`RunOptions.trackInputs`: cells read before written). A sprite that drew and never read
   Mario's position, his fixed state, `$14AD` or `$14AF` is visible with no probe reruns: every probe would repeat it.
   A blank sprite always goes to the search.
-- Every hidden sprite gets all six conditions, one that drew at rest included (Ruled 2026-11-07, D199 B, #1365:
-  [the decision](../decisions/2026-11-06-reveal-search-sprites-that-drew-at-rest.md)). The more-frames, P-switch and
-  ON/OFF reruns start from the real Mario, so for a sprite that drew at rest one may draw the at-rest picture again.
-  That is not a reveal: the result lists it in `sameAsRest` and the search goes on. Compared are the tile, offset,
-  palette row, flips and size of the parts (not the OAM slot or priority). Scoped to those three; a Mario-position
-  reveal whose picture equals at rest still counts ([PROP], same decision, question 3) and is only reported by the sweep.
-- A sprite that drew from the real start, is blank under some probe, and no condition reveals (a repeat of the at-rest picture is not one) keeps its real-start
-  picture, drawn in the screen door, with the hover "is not always there, and the app could not tell what hides it".
-  No condition is claimed (`none-found`). This differs from the issue's step 6, which says marker; it is proposed, not
-  ruled (D192, [the decision](../decisions/2026-11-06-reveal-search-sprites-that-drew-at-rest.md)), and is 0 on vanilla.
-  A sprite that never drew under any run is the marker, reason `unrevealed`.
+- Every hidden sprite gets all six conditions, one that drew at rest included (D192 question 2, walked as Decision
+  199, ruled 199B, #1365; [the decision](../decisions/2026-11-06-reveal-search-sprites-that-drew-at-rest.md)). A
+  condition whose picture equals the at-rest picture is not a reveal: the result lists it in `sameAsRest` and the search
+  goes on, for all six (the moles on maps 10 and 106, whose Mario reruns draw what the real start drew, end up with
+  no reveal). The picture compared is what the map draws from the pass it takes the picture from: every part, companions
+  included, with tile, offset, palette row, priority, flips, size and door tag, then the pass's upload lists, the run's
+  net CGRAM colors and the graphics slots the pass pointed at; the OAM slot is left out (same pieces in other slots are
+  the same picture). The rope is the exception: its at-rest run sits in the loader's slot and its reruns in slot 0, so
+  they cannot be compared and a repeat counts (12 vanilla ropes, none hidden). Whether a Mario-position repeat should
+  still count is open (D207).
+- A sprite that drew from the real start, is blank under some probe, and no condition reveals (a repeat of the at-rest
+  picture is not one) keeps its real-start picture, drawn in the screen door, with the hover "is not always there, and
+  the app could not tell what hides it". No condition is claimed (`none-found`). This differs from the issue's step 6,
+  which says marker. Decision 198 (ruled 2026-11-07): Brian asked for a manifest of such sprites and the maps they are
+  on, to review before deciding (filed as #1363); 1A, as built, stands meanwhile (D192 question 1, still open). On
+  vanilla it is now the 29 moles on maps 10 and 106 (before #1365: 0). A refused rerun for such a sprite is carried
+  as `refusal` on the result. A sprite that never drew under any run is the marker, reason `unrevealed`.
 - The door: the sprite's door id carries `WHOLE_DOOR` (ColorMath), so `composeScreen` draws every pixel at the door's
   strength through the existing door map, `doorFlips` counts its swap over all its pixels, and the hover lift (#879)
   makes it solid wherever it is.
