@@ -197,14 +197,14 @@ byte: bit 7 clear is a tide (`$00`/`$01` start at Y `$70`, `$02`-`$7F` at
 `$C0` on Castle1 and Underground1 (`CODE_009FFA`) and **camera-locked** on every
 other tileset, which branches to `CODE_00A01F` without writing a Y
 (`bank_00.asm:4174`). The gate is that ASM condition (`l3LoadTimeY`), not the
-loader's older `=== 0x81`; on vanilla a camera-locked map is drawn world-locked on `$011`,
-`$130` and `$1C1` (#1089, docs/rom/layer3-world-locked.md), and only `$018` (mode 0E) stays
-refused. A tile row R
-is at level Y `R*8 - Layer3YPos + Layer1YPos`; a tide repeats every 256 px over
-columns 0-31 and its second copy of the tilemap is not drawn; the status-bar
-rows 0-7 are not drawn. `L3Loader.l3InitialYPx` disagrees with the ASM for
-`$C0`-`$FF` (0, the ASM says `$D0`) and for Castle1/Underground1 `$81` (`$D0`,
-the ASM says `$C0`); the renderer does not use it.
+loader's older `=== 0x81`; on vanilla a camera-locked map is drawn world-locked
+on `$011`, `$130` and `$1C1` (#1089, docs/rom/layer3-world-locked.md), and only
+`$018` (mode 0E) stays refused. A tile row R is at level Y `R*8 - Layer3YPos +
+Layer1YPos`; a tide repeats every 256 px over columns 0-31 and its second copy
+of the tilemap is not drawn; the status-bar rows 0-7 are not drawn.
+`L3Loader.l3InitialYPx` disagrees with the ASM for `$C0`-`$FF` (0, the ASM says
+`$D0`) and for Castle1/Underground1 `$81` (`$D0`, the ASM says `$C0`); the
+renderer does not use it.
 
 **Tide X (#808).** A tide is any settings byte `$01`-`$7F`: `CODE_009FB8` stores the raw byte as Layer3TideSetting (`bank_00.asm:4153`). While Layer3ScrollType is 0 and the game is not paused, each GM14 frame `CODE_05C40C` (`bank_05.asm:5505-5509`) sends a nonzero tide setting to `CODE_05C494`, which reaches `CODE_05C4EC` at once for every byte but `$01` and after its Y step for `$01` (`bank_05.asm:5575-5629`). In 8-bit mode that does `$22 = $22 + 1 + Layer1DXPos` and then writes 1 to `$23`. So BG3 X is `$100 | ((x0 + frames + sum of Layer1DXPos) & $FF)`: world-locked 1:1 with the camera plus a 1 px per frame drift, mod 256 (the rule is documented here and not expressed in code, by ruling). The scope is the condition above: a message box sets Layer3ScrollType and zeroes `$22`/`$23` (`bank_05.asm:3429-3434`), so does the end bonus (`bank_05.asm:6413-6418`), pause stops the ticks (`bank_00.asm:4455-4456`) and message frames return early (`bank_00.asm:4406-4409`). Bytes `$02`-`$7F` share this X path and keep Y static (`$40`); only `$01` sweeps Y. No load step writes `$22` on a tide (`bank_00.asm:4139-4164`, `bank_05.asm:4784-4798`), and `ClearMemory` runs only at reset and GM03 (`bank_00.asm:42, 2615`), so X 0 at the first tide frame is a post-clear default: re-entering a level keeps the old value (ASM only, not run). HackBench draws a tide at X 0. The picture is safe because a tide draws 32 columns on a 256 px repeat, so X 0 and `$100` draw the same.
 
@@ -230,15 +230,17 @@ level runs `CODE_00A007` (`bank_00.asm:4184-4189`), which copies
 (`bank_00.asm:4868-4870`); the level palette path applies it (`readCrusherColors`),
 so layer 3 palette 3 and any layer 1 or 2 pixel using those colors show it.
 
-**Measured, one ROM.** Over the vanilla ROM's 512 slot ids that have level
-data (one machine, `buildL3Verdict` against a straight decode, with an empty
-palette and no vertical flag; a scratch sweep of `buildL3Verdict` tallied by reason, Mode 7 taken
-from the mode's `special` table, not committed): layer 3 is drawn on 25 (the earlier 22 plus the
-world-locked `$011 $130 $1C1`, #1089), refused as camera-locked on 1 (`$018`), in a Mode 7 room on
-24, and 462 have no layer 3. `$009`, `$0E7` and `$1CE` draw; `$018` (mode 0E) is the one
-camera-locked map still refused, since its additive layer 3 over layers 1 and 2 is not verified
-(docs/rom/layer3-world-locked.md). The 24 Mode 7 rooms also have no layer 3 setting, so their verdict
-reason reads "no layer 3": the reason is reported before the Mode 7 one, the tally above is not. The corpus sweep in
+**Measured, one ROM.** Over the vanilla ROM's 512 slot ids that have level data
+(one machine, `buildL3Verdict` against a straight decode, with an empty palette
+and no vertical flag; a scratch sweep of `buildL3Verdict` tallied by reason,
+Mode 7 taken from the mode's `special` table, not committed): layer 3 is drawn
+on 25 (the earlier 22 plus the world-locked `$011 $130 $1C1`, #1089), refused as
+camera-locked on 1 (`$018`), in a Mode 7 room on 24, and 462 have no layer 3.
+`$009`, `$0E7` and `$1CE` draw; `$018` (mode 0E) is the one camera-locked map
+still refused, since its additive layer 3 over layers 1 and 2 is not verified
+(docs/rom/layer3-world-locked.md). The 24 Mode 7 rooms also have no layer 3
+setting, so their verdict reason reads "no layer 3": the reason is reported
+before the Mode 7 one, the tally above is not. The corpus sweep in
 `test/suite/unit/MapScreenL3.test.ts` compares every slot's priority bit, plane
 lists, CGADSUB and draw decision with a straight decode of the header and the
 tables.
