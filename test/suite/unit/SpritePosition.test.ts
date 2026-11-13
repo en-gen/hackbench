@@ -23,6 +23,7 @@ import { runSprite, type SpriteModel } from '../../../src/rom/sprites/interp/Spr
 import { loadLevelState } from '../../../src/rom/sprites/interp/LevelLoader'
 import { withSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import { CAPTURE_DIR, freshRom, hasCaptures, hasRom, VANILLA } from '../support/corpus'
+import { levelStartPass } from '../support/gradeTimeline'
 import {
   capturePieces,
   gradePosition,
@@ -206,6 +207,7 @@ describe('parked rule boundary (matches spriteGrade.ts passPieces)', () => {
 
 interface Rec {
   drawnFrame?: number
+  initFrame?: number
   firstRealFrame?: number
   id: string
   slot: number
@@ -219,15 +221,17 @@ interface Rec {
 }
 
 /** Same records and order as spriteGrade.captures.test.ts (its loader is private). */
-function loadAll(): { map: string; rec: Rec }[] {
-  const out: { map: string; rec: Rec }[] = []
+function loadAll(): { map: string; rec: Rec; gateFrame?: number }[] {
+  const out: { map: string; rec: Rec; gateFrame?: number }[] = []
   for (const f of readdirSync(CAPTURE_DIR).sort()) {
     if (!f.endsWith('.zip')) continue
     const entries = unzip(readFileSync(join(CAPTURE_DIR, f)))
     const key = [...entries.keys()].find(k => k.endsWith('sprite_spawns.json'))
     if (!key) continue
     const j = JSON.parse(entries.get(key)!().toString('utf8'))
-    for (const rec of j.spawns ?? []) out.push({ map: f.slice(0, -4), rec })
+    const sk = [...entries.keys()].find(k => k.endsWith('capture_summary.json'))
+    const gateFrame: number | undefined = sk ? JSON.parse(entries.get(sk)!().toString('utf8')).gateFrame : undefined // prettier-ignore
+    for (const rec of j.spawns ?? []) out.push({ map: f.slice(0, -4), rec, gateFrame })
   }
   return out
 }
@@ -262,7 +266,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
       const perId = new Map<string, Counts>()
       const tally = new Map<string, number>()
       const rows: object[] = []
-      for (const { map, rec } of loadAll()) {
+      for (const { map, rec, gateFrame } of loadAll()) {
         const id = parseInt(rec.id.slice(1), 16)
         if (!rec.frames?.some(f => f.tiles?.length) || id > 0xc8) continue
         if (rows.length >= limit) break
@@ -280,7 +284,8 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))(
           mario: rec.marioAtInit ?? { x: rec.listX, y: rec.listY },
         })
         const entries = (rec.entries ?? []).map(q => ({ ...q, y: q.y + dy }))
-        const lag = rec.drawnFrame === undefined || rec.firstRealFrame === undefined ? undefined : rec.drawnFrame - rec.firstRealFrame // prettier-ignore
+        // A level-start sprite's passes skip GM13 (#875); any other counts from its first MAIN.
+        const lag = levelStartPass(rec.initFrame, gateFrame, rec.drawnFrame) ?? (rec.drawnFrame === undefined || rec.firstRealFrame === undefined ? undefined : rec.drawnFrame - rec.firstRealFrame) // prettier-ignore
         const g = gradeRecord(runSprite(rom, id, seed), lag, entries, cam)
         by[g.verdict]++
         const c = perId.get(rec.id) ?? perId.set(rec.id, zero()).get(rec.id)!

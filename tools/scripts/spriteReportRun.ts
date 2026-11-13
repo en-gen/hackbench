@@ -577,6 +577,7 @@ export function gradeCaptures(f: Filter): Graded[] {
     const entries = unzip(readFileSync(join(CAPTURE_DIR, file)))
     const jsonOf = (suffix: string): Record<string, unknown> => { const k = [...entries.keys()].find(e => e.endsWith(suffix)); return k ? JSON.parse(entries.get(k)!().toString('utf8')) : {} } // prettier-ignore
     const anchorFrame = jsonOf('capture_summary.json').anchorFrame as number | undefined
+    const gateFrame = jsonOf('capture_summary.json').gateFrame as number | undefined
     const marioStart = jsonOf('scroll_pass.json').marioStart as { x: number; y: number } | undefined
     const key = [...entries.keys()].find(k => k.endsWith('sprite_spawns.json'))
     if (!key) continue
@@ -589,7 +590,7 @@ export function gradeCaptures(f: Filter): Graded[] {
       const want = (rec.frames ?? []).flatMap(fr => (fr.tiles?.length ? [fr.tiles] : []))
       if (!want.length || id > 0xc8 || (f.sprite !== undefined && id !== f.sprite)) continue
       // Hardware timeline (#867): mirrors gradeAll in spriteGrade.captures.test.ts (copied loop, shared gradedPass/writeMarioStart).
-      const t = timelineFor(rec, anchorFrame, marioStart)
+      const t = timelineFor(rec, anchorFrame, marioStart, gateFrame)
       const seed = withSeed({
         loaded: lvl.ok ? lvl.wram : undefined,
         ram: NO_CLUSTER_SPRITES, // as levelSeed does (#809): the level's cluster sprites would draw into the tested sprite's OAM

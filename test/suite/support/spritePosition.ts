@@ -9,13 +9,15 @@
  *
  * Pairing: the capture's `entries[]` are the drawing at `drawnFrame`, the first
  * frame with every tile complete on screen (headless_capture.lua:1372,1401),
- * not the first OAM write. `firstRealFrame` is the first MAIN after INIT
- * (headless_capture.lua:1305-1311), which is the model's pass 0
- * (SpriteRunner.ts:509-524), so the target is pass `drawnFrame - firstRealFrame`
- * itself; `chosen` (the first drawing pass) is not added. Measured lag over the
- * 1955 graded records: 1 to 116 frames. All 80 `lagged` records are
- * captures whose first draw came 31 to 89 frames after the first MAIN (likely
- * the level fade-in; not traced). Not re-aligned to the first draw.
+ * not the first OAM write. The target pass is `levelStartPass` for a level-start
+ * sprite (counted from the first GM14 frame, `gateFrame`, #875; the pass-0 offset
+ * is untraced, see gradeTimeline.ts) and `drawnFrame - firstRealFrame` for any
+ * other, where `firstRealFrame` is the first MAIN after INIT
+ * (headless_capture.lua:1305-1311), the model's pass 0 (SpriteRunner.ts:509-524);
+ * `chosen` (the first drawing pass) is not added. Before #875 every sprite used
+ * `drawnFrame - firstRealFrame`, which counted GM13's fade (no sprite code runs
+ * there, SMWDisX bank_00.asm:4075-4103) as passes: 80 records were `lagged`.
+ * Not re-aligned to the first draw.
  *   exact    every piece position matches
  *   off      both sides drew, positions differ; `delta` is the anchor (min x/y) gap
  *   missing  one side drew nothing once parked pieces are dropped, the other drew

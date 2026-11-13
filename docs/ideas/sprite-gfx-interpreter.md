@@ -618,7 +618,7 @@ The model carries `chosen`: the first pass at or after INIT that draws at least
 one tile, within a cap of 64. Since #844 the captures test overrides it on the
 hardware timeline: INIT with `marioAtInit`, MAIN with the capture's `marioStart`,
 frame counters seeded so pass k meets the recorded `trueFrame`/`effFrame`, and
-graded pass k = drawnFrame - max(anchorFrame, initFrame + 1), with the run
+graded pass k = drawnFrame - max(anchorFrame, initFrame + 1) (a level-start sprite, INIT before the capture's `gateFrame`, takes max(0, drawnFrame - gateFrame) since #875), with the run
 extended to k+1 passes (cap 255). Records with no `initFrame` (38, the spawned
 ones) keep the first-drawing-pass rule and the 64-pass cap. Grading: the chosen frame's parts must equal SOME
 frame Mesen recorded for that sprite (all recorded frames, not one).

@@ -535,10 +535,17 @@ The sprite grader has two tiers against these captures. Tier 1
 (`spriteGrade.ts`) grades OAM shape relative to the sprite. Tier 2
 (`spritePosition.ts`, `SpritePosition.test.ts`, #830) grades where the
 pieces sit on the map: the capture's drawing at `drawnFrame` (the first frame
-with every tile complete, not the first OAM write) against the model's pass
+with every tile complete, not the first OAM write) against the model's pass:
+for a level-start sprite (INIT before the capture's `gateFrame`, the first GM14
+frame) `max(0, drawnFrame - gateFrame)`, the same function Tier 1 uses
+(`levelStartPass` in `gradeTimeline.ts`, #875); for any other sprite
 `drawnFrame - firstRealFrame`, counted from the model's pass 0 (the first
-MAIN after INIT, as the capture's `firstRealFrame` is), so `chosen` is not
-added; the lag is 1 to 116 frames over the 1955 graded records. Both sides
+MAIN after INIT, as the capture's `firstRealFrame` is). `chosen` is not
+added. GM13 (the fade in) runs no sprite code (SMWDisX bank_00.asm:4075-4103,
+memo in `bank_00/MEMO.md`), so its frames are not passes; the pass-0 offset
+at the gate is not traced (the data fits pass 0 at the gate; candidates that
+it is the GM12 MAIN not running for these sprites or the runner's INIT frame
+already counting it are untested). Both sides
 are placed with the capture camera; the model is seeded with the camera at
 `drawnFrame`. Positions are compared in map coordinates. Graded captures never
 set X bit 8; the 9-bit X is synthetic-only coverage. It reports exact, off,
@@ -549,10 +556,11 @@ model had not drawn yet at the target pass, the capture had), lagged (target
 pass past the pass count, drew or not) and refused, per sprite and per id
 (`SPRITE_POSITION_OUT=<file>` dumps the records), and holds a bound per verdict
 with 1% headroom (vanilla, one machine, 2026-11-11 after the #1370 re-capture: 1424 exact, 431
-off, 1 missing, 18 parked, 1 late, 80 lagged, 0 refused of 1955; 2026-10-17 on the #842 head: 1396, 461, 1, 18, 1, 80, 0 of 1957; 1366, 469 and 23 before #842). All 80
-lagged records are captures whose first draw came 31 to 89 frames after the
-first MAIN (likely the level fade-in, not traced); it is not re-aligned to the
-first draw.
+off, 1 missing, 18 parked, 1 late, 80 lagged, 0 refused of 1955; 2026-10-17 on the #842 head: 1396, 461, 1, 18, 1, 80, 0 of 1957; 1366, 469 and 23 before #842). It is not
+re-aligned to the first draw. Before #875 every sprite used
+`drawnFrame - firstRealFrame`, which counted GM13's frames as passes; that
+was the cause of the 80 `lagged` records (the first draw came 31 to 89
+frames after the first MAIN).
 
 A map's result comes from its Foreground, Background and Effects checks;
 Sprites are informational and never decide it. Exit codes:

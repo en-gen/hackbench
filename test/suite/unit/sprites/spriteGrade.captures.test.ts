@@ -4,7 +4,8 @@
  *
  * Tier 1 (graded here): the sprite's OAM shape relative to its own position.
  * Tier 2 (not graded): absolute position. The frame Mesen caught IS graded now: pass
- * k = drawnFrame - max(anchorFrame, initFrame + 1), with Mario at marioAtInit for INIT
+ * k = drawnFrame - max(anchorFrame, initFrame + 1) (a level-start sprite, INIT before gateFrame, takes
+ * max(0, drawnFrame - gateFrame) instead: gradeTimeline.ts, #875), with Mario at marioAtInit for INIT
  * and marioStart for MAIN and the frame counters seeded from the record (#844). Offsets
  * are measured from the sprite's position at its first OAM write (PassResult.drawPos, the moment the
  * capture samples it, #842); the end-of-pass position skewed every sprite that moves after drawing.
@@ -93,7 +94,7 @@ function gradeAll(
   const smw = new SmwRom(rom)
   let fallbacks = 0
   let missAtK = 0
-  for (const { map, rec, wram, anchorFrame, marioStart, listed } of all) {
+  for (const { map, rec, wram, anchorFrame, gateFrame, marioStart, listed } of all) {
     if (opts.limit !== undefined && rows.length >= opts.limit) break
     const id = parseInt(rec.id.slice(1), 16)
     const want = recordedFrames(rec)
@@ -125,7 +126,7 @@ function gradeAll(
     const list = listByMap.get(map)!
     const me = list.find(e => e.index === rec.listIndex)
     const neighbours = me ? neighboursOf(list, me, e => ({ x: e.x * 16, y: e.y * 16 })) : []
-    const k = gradedPass(rec.initFrame, anchorFrame, rec.drawnFrame)
+    const k = gradedPass(rec.initFrame, anchorFrame, rec.drawnFrame, gateFrame)
     const timed = k !== undefined && marioStart !== undefined
     if (!timed) fallbacks++
     const seed = withSeed({

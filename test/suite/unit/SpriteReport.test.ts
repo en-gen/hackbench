@@ -888,13 +888,14 @@ describe.skipIf(!hasRom(VANILLA) || !hasCaptures())('gradeCaptures on the corpus
       const lvl = loadLevelState(rom, map)
       const jsonOf = (suffix: string): any => { const k = [...entries.keys()].find(e => e.endsWith(suffix)); return k ? JSON.parse(entries.get(k)!().toString('utf8')) : {} } // prettier-ignore
       const anchorFrame: number | undefined = jsonOf('capture_summary.json').anchorFrame
+      const gateFrame: number | undefined = jsonOf('capture_summary.json').gateFrame
       const marioStart = jsonOf('scroll_pass.json').marioStart
       for (const rec of JSON.parse(entries.get(key)!().toString('utf8')).spawns ?? []) {
         const id = parseInt(rec.id.slice(1), 16)
         const frames = (rec.frames ?? []).flatMap((f: any) => (f.tiles?.length ? [f.tiles] : []))
         if (!frames.length || id > 0xc8) continue
         // The hardware timeline, as spriteGrade.captures.test.ts grades it (#867).
-        const t = timelineFor(rec, anchorFrame, marioStart)
+        const t = timelineFor(rec, anchorFrame, marioStart, gateFrame)
         const seed = withSeed({
           loaded: lvl.ok ? lvl.wram : undefined,
           ram: NO_CLUSTER_SPRITES, // as levelSeed and gradeCaptures do (#809, #980)
