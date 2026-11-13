@@ -2,15 +2,12 @@
  * The RPC behind the Objects overlay (#1237): `mapObjects` over the working copy and the project's
  * definition files. The synthetic cases need no ROM; the corpus cases are gated with describe.skipIf.
  */
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { RomFile } from '../../../src/rom/RomFile'
-import { SmwRom } from '../../../src/rom/SmwRom'
-import { parseLevelObjects } from '../../../src/rom/LevelParser'
-import { SWITCH_FLAGS_UNCLEARED } from '../../../src/rom/ObjectExpander'
-import { PER_LEVEL_MAP16, readObjectInputs } from '../../../src/rom/objects/ObjectInputs'
+import { PER_LEVEL_MAP16 } from '../../../src/rom/objects/ObjectInputs'
+import { platformDefinition, type SavedDefinition } from '../support/objectsFixture'
 import { objectsDir } from '../../../src/project/ObjectDefinitionsStandIn'
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
 import { mapObjects } from '../../../theia/extension/src/node/map-objects'
@@ -42,18 +39,15 @@ describe('mapObjects without a ROM', () => {
 })
 
 describe.skipIf(!hasRom(VANILLA))('mapObjects on the vanilla ROM', () => {
-  const bytes = bytesOf(VANILLA)
-  const map = new SmwRom(RomFile.fromBytes(romPath(VANILLA), Buffer.from(bytes)))
-  const inputs = readObjectInputs(map, 0x103, SWITCH_FLAGS_UNCLEARED)
-  if (!inputs.ok) throw new Error(inputs.reason)
-  const { objects: pieces } = parseLevelObjects(map.getLevelRawData(0x103)!, (map.getVerticalTable() as { table: never }).table) // prettier-ignore
-  const tilesOf = (n: number) => [...new Set(inputs.footprint.filter(f => { const o = pieces[f.owner]!; return o.type === 'standard' && o.objectNumber === n && o.x < 16 && o.y < 24 }).map(f => f.tile))] // prettier-ignore
-  const edge = tilesOf(0x13)
-  const fill = tilesOf(0x14).filter(t => !edge.includes(t))
-  const ledge = { version: 1, id: 'ledge', name: 'Ledge', tileset: inputs.tileset, edge, fill }
+  // Read lazily: a skipped describe body still runs, and there is no ROM to read then.
+  let loaded: { bytes: Uint8Array; ledge: SavedDefinition } | undefined
+  const load = () => (loaded ??= { bytes: bytesOf(VANILLA), ledge: platformDefinition(romPath(VANILLA)) }) // prettier-ignore
+  beforeAll(() => void load())
+  const ledgeOf = () => load().ledge
+  const bytesNow = () => load().bytes
 
   it('finds the project definitions and describes each Object for the view', () => {
-    const r = mapObjects(new L1ModelCache(), bytes, romPath(VANILLA), project({ 'ledge.json': ledge }), 0x103) // prettier-ignore
+    const r = mapObjects(new L1ModelCache(), bytesNow(), romPath(VANILLA), project({ 'ledge.json': ledgeOf() }), 0x103) // prettier-ignore
     expect(r.status).toBe('ok')
     if (r.status !== 'ok') return
     const onScreen0 = r.objects.filter(o => o.runs.every(run => run.col + run.len <= 16))
@@ -69,30 +63,30 @@ describe.skipIf(!hasRom(VANILLA))('mapObjects on the vanilla ROM', () => {
   })
 
   it('no definitions is an ordinary empty answer, not a refusal', () => {
-    const r = mapObjects(new L1ModelCache(), bytes, romPath(VANILLA), project(), 0x103)
+    const r = mapObjects(new L1ModelCache(), bytesNow(), romPath(VANILLA), project(), 0x103)
     expect(r).toEqual({ status: 'ok', objects: [], skipped: [] })
   })
 
   it('a damaged definition is reported and the good one still works', () => {
-    const m = project({ 'ledge.json': ledge, 'broken.json': '{nope' })
-    const r = mapObjects(new L1ModelCache(), bytes, romPath(VANILLA), m, 0x103)
+    const m = project({ 'ledge.json': ledgeOf(), 'broken.json': '{nope' })
+    const r = mapObjects(new L1ModelCache(), bytesNow(), romPath(VANILLA), m, 0x103)
     expect(r.status === 'ok' && r.objects.length).toBeGreaterThan(0)
     expect(r.status === 'ok' && r.skipped).toEqual([{ file: 'broken.json', reason: expect.any(String) }]) // prettier-ignore
   })
 
   it('a definition for another tileset finds nothing on this map', () => {
-    const other = { ...ledge, tileset: (inputs.tileset + 1) % 15 }
-    const r = mapObjects(new L1ModelCache(), bytes, romPath(VANILLA), project({ 'ledge.json': other }), 0x103) // prettier-ignore
+    const other = { ...ledgeOf(), tileset: (ledgeOf().tileset + 1) % 15 }
+    const r = mapObjects(new L1ModelCache(), bytesNow(), romPath(VANILLA), project({ 'ledge.json': other }), 0x103) // prettier-ignore
     expect(r).toEqual({ status: 'ok', objects: [], skipped: [] })
   })
 
   it('reads the working copy: an edited map answers differently, the same bytes answer from the cache', () => {
     const cache = new L1ModelCache()
-    const m = project({ 'ledge.json': ledge })
-    const first = mapObjects(cache, bytes, romPath(VANILLA), m, 0x103)
-    expect(mapObjects(cache, bytes, romPath(VANILLA), m, 0x103)).toEqual(first)
+    const m = project({ 'ledge.json': ledgeOf() })
+    const first = mapObjects(cache, bytesNow(), romPath(VANILLA), m, 0x103)
+    expect(mapObjects(cache, bytesNow(), romPath(VANILLA), m, 0x103)).toEqual(first)
     // A map with another slot's data in it: slot $104 has no platform of these tiles on screen 0.
-    const other = mapObjects(cache, bytes, romPath(VANILLA), m, 0x104)
+    const other = mapObjects(cache, bytesNow(), romPath(VANILLA), m, 0x104)
     expect(other).not.toEqual(first)
   })
 })

@@ -3,7 +3,7 @@
  * Gated on the corpus with describe.skipIf: with no ROM these register as skipped, never as absent.
  * The definitions are derived at runtime from each map's own stored pieces, never typed (D127).
  */
-import { describe, it, expect } from 'vitest'
+import { beforeAll, describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { parseLevelObjects } from '../../../src/rom/LevelParser'
@@ -50,12 +50,21 @@ function tilesOfPieces(
 }
 
 describe.skipIf(!hasRom(VANILLA))('Objects on $103 screen 0 (acceptance 8)', () => {
-  const map = rom()
-  const inputs = readObjectInputs(map, 0x103, SWITCH_FLAGS_UNCLEARED)
-  if (!inputs.ok) throw new Error(inputs.reason)
-  const edge = tilesOfPieces(map, 0x103, 0x13, inputs)
-  const fill = tilesOfPieces(map, 0x103, 0x14, inputs).filter(t => !edge.includes(t))
-  const definition: FinderDefinition = { id: 'ledge', name: 'Ledge', tileset: inputs.tileset, edge, fill } // prettier-ignore
+  // Set up in beforeAll: a skipped describe body still runs, and there is no ROM to read then.
+  let map: SmwRom
+  let inputs: Extract<ReturnType<typeof readObjectInputs>, { ok: true }>
+  let edge: number[]
+  let fill: number[]
+  let definition: FinderDefinition
+  beforeAll(() => {
+    map = rom()
+    const read = readObjectInputs(map, 0x103, SWITCH_FLAGS_UNCLEARED)
+    if (!read.ok) throw new Error(read.reason)
+    inputs = read
+    edge = tilesOfPieces(map, 0x103, 0x13, inputs)
+    fill = tilesOfPieces(map, 0x103, 0x14, inputs).filter(t => !edge.includes(t))
+    definition = { id: 'ledge', name: 'Ledge', tileset: inputs.tileset, edge, fill }
+  })
 
   it('the definition came out of the map, with edge and fill tiles both present', () => {
     expect(edge.length).toBeGreaterThan(0)
