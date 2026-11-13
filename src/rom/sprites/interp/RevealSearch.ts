@@ -22,10 +22,23 @@ export type RevealCondition =
 export type RevealResult =
   /** Drew at rest and in every probe. */
   | { status: 'visible' }
-  /** Blank under some probe; `model` is the first condition's run that draws, `chosen` its first own-drawn pass. */
-  | { status: 'hidden'; condition: RevealCondition; model: SpriteModel }
-  /** Hidden, and no condition drew it. `drewAtRest`: the real-start run drew, and that picture stands in the door. */
-  | { status: 'unrevealed'; drewAtRest: boolean }
+  /**
+   * Blank under some probe; `model` is the first condition's run that draws, `chosen` its first own-drawn pass.
+   * `sameAsRest`: conditions tried before it whose picture equalled the at-rest one (#1365); empty unless it drew at rest.
+   * `samePicture`: this condition's own picture equals the at-rest one (report only; a Mario-position reveal still counts).
+   */
+  | {
+      status: 'hidden'
+      condition: RevealCondition
+      model: SpriteModel
+      sameAsRest: RevealCondition[]
+      samePicture: boolean
+    }
+  /**
+   * Hidden, and no condition drew it. `drewAtRest`: the real-start run drew, and that picture stands in the door.
+   * `sameAsRest`: the conditions that drew only the at-rest picture again, so were not counted as a reveal (#1365).
+   */
+  | { status: 'unrevealed'; drewAtRest: boolean; sameAsRest: RevealCondition[] }
   /** Not searched: the run was refused or the sprite removed itself. */
   | { status: 'skipped'; reason: string }
   /** A search rerun was refused and nothing else drew: the interpreter's own reason, not "no condition found". */
@@ -89,6 +102,25 @@ export const ownPass = (m: SpriteModel): number => m.passes.findIndex(p => p.par
 export const drawnPass = (m: SpriteModel): number | undefined =>
   m.chosen !== undefined && (m.passes[m.chosen]?.parts.length ?? 0) > 0 ? m.chosen : ownPass(m)
 
+/** The first this many `tries` move Mario; the rest keep his real position. */
+const MARIO_POSITIONS = 3
+
+/**
+ * A run's picture as a comparable string: for each part of the pass the picture is taken from, the tile, its offset
+ * from the sprite, palette row, flips and size. Those are what the eye sees; the OAM slot, priority and raw attribute
+ * byte are bookkeeping that can differ between two runs of the same picture.
+ */
+const pictureKey = (m: SpriteModel): string => {
+  const p = drawnPass(m)
+  return p === undefined
+    ? ''
+    : m.passes[p]!.parts.map(q =>
+        [q.char, q.dx, q.dy, q.palette, +q.flipX, +q.flipY, q.size].join(','),
+      )
+        .sort()
+        .join(';')
+}
+
 /** Whether a run completed and the sprite's own code drew a tile on some pass. */
 export const drew = (m: SpriteModel): boolean => !m.refusal && ownPass(m) >= 0
 
@@ -130,15 +162,27 @@ export function findReveal(
     ['p-switch', { pSwitch: P_SWITCH_ON, ram: MARIO_STATE }],
     ['on-off', { onOff, ram: MARIO_STATE }],
   ]
-  // The last three reruns keep the real Mario, so for a sprite that drew there they would repeat that frame.
+  // A sprite that drew at rest gets all six (D199 B). The last three keep the real Mario, so one may repeat the
+  // at-rest picture: that is no reveal, so it is recorded and the search goes on. [PROP] (#1365, lead call): the rule
+  // is scoped to those three. A Mario-position condition that draws the at-rest picture still counts, because the
+  // sprite is really blank with Mario far and drawn with him near: the condition is information even when the picture
+  // matches. Widening it to all six would turn the vanilla $4D/$4E/$A8 tooltips into door pictures (decision doc Q3).
   const startedDrawn = drew(first)
+  const restKey = startedDrawn ? pictureKey(first) : undefined
+  const sameAsRest: RevealCondition[] = []
   let refused: string | undefined
-  for (const [condition, o] of startedDrawn ? tries.slice(0, 3) : tries) {
+  for (const [i, [condition, o]] of tries.entries()) {
     const model = rerun(o)
     if (model.refusal) refused ??= model.refusal
-    else if (drew(model))
-      return { status: 'hidden', condition, model: { ...model, chosen: drawnPass(model), reveal: condition } } // prettier-ignore
+    else if (drew(model)) {
+      const same = restKey !== undefined && pictureKey(model) === restKey
+      if (same && i >= MARIO_POSITIONS) sameAsRest.push(condition)
+      else {
+        const revealAudit = { samePicture: same, sameAsRest }
+        return { status: 'hidden', condition, model: { ...model, chosen: drawnPass(model), reveal: condition, revealAudit }, sameAsRest, samePicture: same } // prettier-ignore
+      }
+    }
   }
   if (refused && !startedDrawn) return { status: 'refused', reason: refused }
-  return { status: 'unrevealed', drewAtRest: startedDrawn }
+  return { status: 'unrevealed', drewAtRest: startedDrawn, sameAsRest }
 }

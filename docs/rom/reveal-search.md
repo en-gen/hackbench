@@ -22,9 +22,9 @@ flowchart TD
   H --> S[search, D142 order]
   S --> S1[Mario at the sprite]
   S1 --> S2[just left] --> S3[just right]
-  S3 -->|drew at rest| N[keep the real-start picture in the door, no condition]
-  S3 -->|never drew| S4[more frames, cap 256]
+  S3 --> S4[more frames, cap 256]
   S4 --> S5[P-switch active] --> S6[ON/OFF flipped]
+  S6 -->|drew at rest, none drew a different picture| N[keep the real-start picture in the door, no condition]
   S1 -->|first run that draws wins| P[picture = first drawn frame]
   S6 -->|none drew| M[marker: could not tell what reveals it]
   S6 -->|none drew, a rerun was refused, never drew at rest| R[marker: the interpreter's refusal reason]
@@ -60,11 +60,13 @@ flowchart TD
 - The at-rest run is tracked (`RunOptions.trackInputs`: cells read before written). A sprite that drew and never read
   Mario's position, his fixed state, `$14AD` or `$14AF` is visible with no probe reruns: every probe would repeat it.
   A blank sprite always goes to the search.
-- The more-frames, P-switch and ON/OFF reruns start from the real Mario. For a sprite that drew from the real start
-  they would draw the same frame and call it a reveal, so they run only for a sprite that never drew: a hidden sprite
-  that drew at rest gets the first three conditions only (proposed, D192:
-  [the decision](../decisions/2026-11-06-reveal-search-sprites-that-drew-at-rest.md)).
-- A sprite that drew from the real start, is blank under some probe, and no Mario position reveals keeps its real-start
+- Every hidden sprite gets all six conditions, one that drew at rest included (Ruled 2026-11-07, D199 B, #1365:
+  [the decision](../decisions/2026-11-06-reveal-search-sprites-that-drew-at-rest.md)). The more-frames, P-switch and
+  ON/OFF reruns start from the real Mario, so for a sprite that drew at rest one may draw the at-rest picture again.
+  That is not a reveal: the result lists it in `sameAsRest` and the search goes on. Compared are the tile, offset,
+  palette row, flips and size of the parts (not the OAM slot or priority). Scoped to those three; a Mario-position
+  reveal whose picture equals at rest still counts ([PROP], same decision, question 3) and is only reported by the sweep.
+- A sprite that drew from the real start, is blank under some probe, and no condition reveals (a repeat of the at-rest picture is not one) keeps its real-start
   picture, drawn in the screen door, with the hover "is not always there, and the app could not tell what hides it".
   No condition is claimed (`none-found`). This differs from the issue's step 6, which says marker; it is proposed, not
   ruled (D192, [the decision](../decisions/2026-11-06-reveal-search-sprites-that-drew-at-rest.md)), and is 0 on vanilla.

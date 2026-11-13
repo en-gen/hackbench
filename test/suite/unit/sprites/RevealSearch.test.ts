@@ -243,13 +243,21 @@ describe('a sprite that drew at rest, is found hidden, and no condition reveals'
   // Id 156 draws only with Mario exactly $40 px right of it: the real start below puts him there.
   it('is reported unrevealed, remembering that it drew from the real start', () => {
     const { result } = search(156, SX, SX + 0x40)
-    expect(result).toEqual({ status: 'unrevealed', drewAtRest: true })
+    expect(result).toEqual({
+      status: 'unrevealed',
+      drewAtRest: true,
+      sameAsRest: ['more-frames', 'p-switch', 'on-off'],
+    })
   })
   it('control: a sprite that never drew is unrevealed with drewAtRest false', () => {
-    expect(search(5).result).toEqual({ status: 'unrevealed', drewAtRest: false })
+    expect(search(5).result).toEqual({ status: 'unrevealed', drewAtRest: false, sameAsRest: [] })
   })
   it('control: with Mario elsewhere at the start, the same sprite never drew', () => {
-    expect(search(156, SX, 0x80).result).toEqual({ status: 'unrevealed', drewAtRest: false })
+    expect(search(156, SX, 0x80).result).toEqual({
+      status: 'unrevealed',
+      drewAtRest: false,
+      sameAsRest: [],
+    })
   })
 })
 
@@ -282,7 +290,7 @@ describe('Mario reaches the sprite through every cell the probes move', () => {
     // 163 adds frame 100: only the more-frames rerun, which must zero the state as well.
     expect(condition(search(163, SX, 0x80, { ram }).result)).toBe('more-frames')
     // 161 draws at rest while any is set: tracked, the read makes it probed; the probe zeroes it and blanks it.
-    expect(search(161, SX, 0x80, { ram }, true).result).toEqual({ status: 'unrevealed', drewAtRest: true }) // prettier-ignore
+    expect(search(161, SX, 0x80, { ram }, true).result).toEqual({ status: 'unrevealed', drewAtRest: true, sameAsRest: [] }) // prettier-ignore
     // Control: with the cell clear 162 draws at rest and 161 is blank at rest, so the probes above changed something.
     expect(search(162).result.status).toBe('visible')
     expect(search(161).result.status).toBe('unrevealed')
@@ -409,5 +417,67 @@ describe('which pass the revealed model points at', () => {
   })
   it('moves a pick that holds only a child to the first pass with the own tile', () => {
     expect(picked(hit(model([4], 1))).chosen).toBe(4)
+  })
+})
+
+describe('a sprite that drew at rest gets all six conditions (#1365, D199 B)', () => {
+  /** Real Mario $40 px right of the sprite: the only place ids 176-178 draw without a switch. */
+  const atRest = (id: number, extra: SeedOverride = {}) => search(id, SX, SX + 0x40, extra)
+  const tile = (r: RevealResult) => firstPart(picked(r)).char
+
+  it('finds a sprite that drew at rest and is shown differently only by the P-switch', () => {
+    const { result } = atRest(176)
+    expect(condition(result)).toBe('p-switch')
+    // The picture is the switch's ($32), not the at-rest one ($24).
+    expect(tile(result)).toBe(0x32)
+    // The more-frames rerun keeps the real Mario, repeats the at-rest picture, and is recorded, not counted.
+    expect(result.status === 'hidden' && result.sameAsRest).toEqual(['more-frames'])
+  })
+
+  it('finds the ON/OFF case the same way', () => {
+    expect(condition(atRest(177).result)).toBe('on-off')
+  })
+
+  it('control: the at-rest picture is the other tile, so the P-switch picture is a different one', () => {
+    const rest = runOnce(rom, 176, seedAt(SX, SX + 0x40), { atRest: true })
+    expect(firstPart(rest).char).toBe(0x24)
+  })
+
+  it('does not count a "reveal" that repeats the at-rest picture, and lists it', () => {
+    const { result } = atRest(178)
+    expect(result).toEqual({
+      status: 'unrevealed',
+      drewAtRest: true,
+      sameAsRest: ['more-frames', 'p-switch', 'on-off'],
+    })
+  })
+
+  it('control: a sprite that never drew at rest lists nothing, and Mario-position reveals are unchanged', () => {
+    const r = search(150).result
+    expect(r.status === 'hidden' && r.sameAsRest).toEqual([])
+    expect(condition(search(140).result)).toBe('mario-at-sprite')
+  })
+
+  it('runs the three non-Mario conditions for a sprite that drew at rest', () => {
+    const { calls } = atRest(178)
+    expect(calls.some(c => c.mainPasses === MORE_FRAMES)).toBe(true)
+    expect(calls.some(c => (c.pSwitch ?? 0) !== 0)).toBe(true)
+  })
+})
+
+describe('a Mario-position reveal that repeats the at-rest picture still counts ([PROP] #1365)', () => {
+  it('id 164 draws the same piece at rest and with Mario at it: revealed, flagged samePicture, not in sameAsRest', () => {
+    const r = search(170, SX, SX).result
+    expect(r.status).toBe('hidden')
+    if (r.status !== 'hidden') return
+    expect(r.condition).toBe('mario-at-sprite')
+    expect(r.samePicture).toBe(true)
+    expect(r.sameAsRest).toEqual([])
+    expect(r.model.revealAudit).toEqual({ samePicture: true, sameAsRest: [] })
+  })
+
+  it('control: id 176 is revealed by a different picture, so samePicture is false', () => {
+    const r = search(176, SX, SX + 0x40).result
+    expect(r.status === 'hidden' && r.samePicture).toBe(false)
   })
 })

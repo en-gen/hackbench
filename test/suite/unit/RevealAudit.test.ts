@@ -141,6 +141,16 @@ describe('sweepSection (reveal-sweep)', () => {
     expect(text).toContain('Markers per reason:\nunrevealed: 1')
     expect(text).toContain('Maps not run: 1\nmap 1: no sprite data')
   })
+  it('lists the same-as-rest cases apart, and counts none when no row is flagged (#1365)', () => {
+    expect(text).toContain('still counted, [PROP] #1365): 0')
+    const flagged = [
+      { ...rows[0]!, hidden: true, condition: 'mario-at-sprite', samePicture: true as const },
+      { ...rows[0]!, index: 5, hidden: true, condition: 'none-found', sameAsRest: ['p-switch', 'on-off'] }, // prettier-ignore
+    ]
+    const t = sweepSection('ROM', flagged, [])
+    expect(t).toContain('still counted, [PROP] #1365): 1\nmap 105 #2 $74 (column 25, row 23): mario-at-sprite') // prettier-ignore
+    expect(t).toContain('at-rest picture (#1365):\np-switch: 1\non-off: 1')
+  })
   it('blanks ids and numbers in a refusal reason so one refusal counts once', () => {
     const a = { ...rows[0]!, marker: 'refused: the sprite became $FF: id $ff is past 201' }
     const b = { ...rows[0]!, index: 9, marker: 'refused: the sprite became $12: id $12 is past 77' }

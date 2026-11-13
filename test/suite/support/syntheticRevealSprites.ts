@@ -24,6 +24,8 @@
  * 171 draws from frame 200 on                              172 creates a child every pass; draws its own from frame 5
  * 173 draws; on touch becomes $FF (refused)                174 draws, but its INIT erases it (status 0)
  * 175 creates a child every pass; from frame 5 draws its own tile only with Mario exactly $40 px right of it
+ * 176 draws tile $24 only with Mario exactly $40 px right of it (the real start), but tile $32 whenever the P-switch is on
+ * 177 as 176, but the ON/OFF cell is what shows tile $32     178 as 176, but the P-switch shows the SAME tile $24 (#1365)
  */
 const RTS = 0x60
 // Writes a plain-drawer sprite into slot 1 at this sprite's spot (status 8, number 0).
@@ -75,6 +77,11 @@ const piece = (tile: number, attr: number[] = [0xa9, 0x0a]): number[] => [
 const touch = [0xa5, 0xd1, 0xd5, 0xe4] //  LDA $D1 / CMP $E4,X: equal when Mario's low X is the sprite's
 const diff = [0x38, 0xa5, 0xd1, 0xf5, 0xe4] // SEC / LDA $D1 / SBC $E4,X: Mario minus sprite, low byte
 const becomes = (id: number): number[] => [0xa9, id, 0x95, 0x9e] // LDA #id / STA $9E,X
+
+/** While the cell is nonzero, draw tile $32 and stop; otherwise fall through to whatever follows. */
+const cellGated = (cell: number): number[] => [
+  0xad, cell & 0xff, cell >> 8, BEQ, piece(0x32).length + 1, ...piece(0x32), RTS,
+] // prettier-ignore
 
 export interface RevealRoutines {
   init: Record<number, number>
@@ -202,6 +209,27 @@ export function putRevealSprites(put: (snes: number, bytes: number[]) => void): 
           ],
           piece(0x24),
         ),
+      ],
+    ],
+    // 176/177: LDA cell / BEQ over the alternate picture / its piece / RTS; then 156's test and the at-rest picture.
+    [176, [...cellGated(0x14ad), ...gated([[[...diff, 0xc9, 0x40], BNE]], piece(0x24))]],
+    [177, [...cellGated(0x14af), ...gated([[[...diff, 0xc9, 0x40], BNE]], piece(0x24))]],
+    // 178: LDA $14AD / BNE to the picture / (156's test, skipping it) / the same $24 piece as the real start draws.
+    [
+      178,
+      [
+        0xad,
+        0xad,
+        0x14,
+        BNE,
+        0x09,
+        ...diff,
+        0xc9,
+        0x40,
+        BNE,
+        piece(0x24).length,
+        ...piece(0x24),
+        RTS,
       ],
     ],
   ]

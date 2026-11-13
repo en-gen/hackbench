@@ -1016,7 +1016,7 @@ export function interpRunner(
       if (rv.status === 'refused') return { m: { ...m, chosen: undefined, refusal: rv.reason }, fixed: false } // prettier-ignore
       // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.
       if (rv.status === 'unrevealed' && rv.drewAtRest)
-        return { m: { ...m, chosen: drawnPass(m), reveal: 'none-found' }, fixed: false } // prettier-ignore
+        return { m: { ...m, chosen: drawnPass(m), reveal: 'none-found', revealAudit: { samePicture: false, sameAsRest: rv.sameAsRest } }, fixed: false } // prettier-ignore
       // No own tile at rest (so the hidden check was skipped) and none under the six reveal reruns, but the at-rest run drew
       // through a companion: that picture stands, solid and with no reveal claim, as before #1132.
       if (
