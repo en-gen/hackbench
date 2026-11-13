@@ -8,7 +8,7 @@
  *
  * Layout: screen-major, $1B0 bytes a screen (SMWDisX bank_00.asm:6595-6628, DATA_00BA60 then DATA_00BA70, 32 entries), a
  * screen row-major 16 wide (bank_00.asm:13295-13310: Y high nibble | X >> 4 | screen base).
- * The sweep below compares horizontal maps only; vertical ones are listed there (#141 pins $0E7
+ * The sweep below compares horizontal maps only; vertical ones are listed there (#144 pins $0E7
  * separately). Layer 1 is the first `levelLength` screens, up to 32 (bank_00.asm:13299-13308 indexes
  * by screen up to LevelScrLength).
  */
@@ -84,14 +84,15 @@ function expanded(
   rom: RomFile,
   smw: SmwRom,
   id: string,
-): { grid: TileGrid; screens: number; vertical: boolean } {
+): { grid: TileGrid; screens: number; vertical: boolean; unverified: string[] } {
   const table = smw.requireVerticalTable()
   const raw = smw.getLevelRawData(parseInt(id, 16))!
   const h = parseLevelHeader(raw)
   const vertical = isLevelModeVertical(h.levelMode, table)
   const { objects } = parseLevelObjects(raw, table)
-  const grid = expandMap(objects, h.levelLength, rom, h.objectTileset, vertical, h.levelMode, undefined, SWITCH_FLAGS_UNCLEARED, { unverified: [], draw: drawInterpreted, primitives: VANILLA_PRIMITIVES }) // prettier-ignore
-  return { grid, screens: h.levelLength, vertical }
+  const unverified: string[] = []
+  const grid = expandMap(objects, h.levelLength, rom, h.objectTileset, vertical, h.levelMode, undefined, SWITCH_FLAGS_UNCLEARED, { unverified, draw: drawInterpreted, primitives: VANILLA_PRIMITIVES }) // prettier-ignore
+  return { grid, screens: h.levelLength, vertical, unverified }
 }
 
 describe.skipIf(!hasRom(VANILLA))('level loader vs map-view expander: Layer 1 Map16 (#649)', () => {
@@ -106,11 +107,11 @@ describe.skipIf(!hasRom(VANILLA))('level loader vs map-view expander: Layer 1 Ma
     for (let n = 0; n < 512; n++) {
       const id = n.toString(16).padStart(3, '0')
       const e = expanded(rom, smw, id)
-      if (e.vertical) { vertical.push(id); continue } // prettier-ignore
+      if (e.vertical) vertical.push(id)
       const l = loadLevelState(rom, parseInt(id, 16))
       if (!l.ok) throw new Error(`${id}: ${l.reason}`)
       compared++
-      const cells = diffCells(l.wram, e.grid, e.screens)
+      const cells = diffCellList(l.wram, e.grid, e.screens, e.vertical).length
       if (cells) counts.push(`${id}:${cells}`)
     }
     return (cached = { counts, vertical, compared })
@@ -119,7 +120,7 @@ describe.skipIf(!hasRom(VANILLA))('level loader vs map-view expander: Layer 1 Ma
   it('the loader and the expander disagree on exactly the pinned maps, by differing-cell count', () => {
     const r = real()
     expect(r.vertical).toEqual(VERTICAL)
-    expect(r.compared).toBe(512 - VERTICAL.length)
+    expect(r.compared).toBe(512)
     expect(r.counts).toEqual(DIFFERING)
   }, 300_000)
 
@@ -162,6 +163,7 @@ describe.skipIf(!hasRom(VANILLA))(
         const l = loadLevelState(rom, parseInt(id, 16))
         if (!l.ok) throw new Error(l.reason)
         expect(e.vertical).toBe(id === '0e7')
+        expect(e.unverified).toEqual([])
         expect(diffCellList(l.wram, e.grid, e.screens, e.vertical)).toEqual([])
       }, 60_000)
 
@@ -172,7 +174,8 @@ describe.skipIf(!hasRom(VANILLA))(
         const e = expanded(rom, smw, id)
         const l = loadLevelState(rom, parseInt(id, 16))
         if (!l.ok) throw new Error(l.reason)
-        const [col, row] = [21, e.vertical ? 19 : 9]
+        // The last row of the compared band, so a short row count in diffCellList goes red.
+        const [col, row] = [21, e.vertical ? e.screens * 16 - 1 : 26]
         const w = l.wram.slice()
         w[0xc800 + cellOffset(e.vertical, col, row)] ^= 1
         expect(diffCellList(w, e.grid, e.screens, e.vertical)).toEqual([[col, row]])
@@ -199,6 +202,20 @@ describe('cellOffset on hand-picked cells', () => {
     expect(cellOffset(true, 31, 15)).toBe(0x1ff)
     expect(cellOffset(true, 0, 16)).toBe(0x200)
     expect(cellOffset(true, 17, 35)).toBe(2 * 0x200 + 0x100 + 3 * 16 + 1)
+  })
+  it('diffCellList compares every vertical row of a map longer than 2 screens', () => {
+    const g = Array.from({ length: 80 }, () => new Array(32).fill(0)) as TileGrid
+    for (const [x, y] of [
+      [31, 79],
+      [0, 40],
+      [16, 63],
+      [5, 32],
+    ] as const) {
+      const w = new Uint8Array(0x30000)
+      w[0xc800 + cellOffset(true, x, y)] = 9
+      expect(diffCellList(w, g, 5, true)).toEqual([[x, y]])
+      expect(diffCellList(w, g, 2, true)).toEqual(y < 32 ? [[x, y]] : [])
+    }
   })
   it('diffCellList reports a planted vertical cell at its coordinates', () => {
     const w = new Uint8Array(0x30000)

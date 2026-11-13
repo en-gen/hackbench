@@ -2,18 +2,18 @@
 
 > **Bottom line**
 >
-> - On vanilla, the map view's expander equals the ROM's own level loader on slots $1FE, $0E7 (vertical), $1EF and $1E3: 0 differing cells each. Across all 512 slots the only differences are the 21 boss-arena maps already pinned (576 cells). `[EST]` unit tests, vanilla ROM, one machine.
+> - On vanilla, the map view's expander equals the ROM's own level loader on slots $1FE, $0E7 (vertical), $1EF and $1E3: 0 differing cells each. Across all 512 slots, the 11 vertical maps included, the only differences are the 21 boss-arena maps already pinned (576 cells). `[EST]` unit tests, vanilla ROM, one machine. The pin does not tell the interpreter path from hand ports: hand ports alone also give 0 differing cells on these four slots, so it guards the agreement, not which implementation produced it. `[EST]`
 > - The September map-diff fixtures were hand-played Mesen dumps that carry runtime state (hit blocks, collected items). The cells they disagree on are mostly explained by blocks the player hit. `[INF]` from the fixture tooling below and the per-cell chains.
 > - There is no expansion fix. This work pins the agreement (`test/suite/unit/sprites/levelStateVsExpander.test.ts`). `[EST]`
 > - Not explained: $1FE column 72, rows 19-22. No vanilla writer of the needed value was found. `[OPEN]` a clean headless capture of $1FE would settle it.
 
-| Source                          | Identifier                                                                 | As of      | Retrieved  |
-| ------------------------------- | -------------------------------------------------------------------------- | ---------- | ---------- |
-| ROM's own level loader on core  | `src/rom/sprites/interp/LevelLoader.ts`, CODE_05801E (`bank_05.asm:20-70`) | 2026-11-13 | 2026-11-13 |
-| Expander as the map view calls  | `expandMap` as `src/rom/model/L1Model.ts:246` calls it                     | 2026-11-13 | 2026-11-13 |
-| Hardware oracle (indirect)      | `CaptureGate.corpus.test.ts` against layers_v5, 143-map roster             | 2026-11-13 | 2026-11-13 |
-| Hardware capture (direct, $1EF) | `captures/d31-sample/1ef`, headless, Mario never moved                     | 2026-11-13 | 2026-11-13 |
-| Disassembly                     | SMWDisX, cited per line below                                              | 2026-11-13 | 2026-11-13 |
+| Source                          | Identifier                                                                                                                                                                       | As of      | Retrieved  |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ---------- |
+| ROM's own level loader on core  | `src/rom/sprites/interp/LevelLoader.ts`, CODE_05801E (`bank_05.asm:20-70`)                                                                                                       | 2026-11-13 | 2026-11-13 |
+| Expander as the map view calls  | `src/rom/model/L1Model.ts:246` calls `expandMapOwned`; `expandMap` is a pass-through to it (`ObjectExpander.ts:253-275`), and the test calls `expandMap` with the same arguments | 2026-11-13 | 2026-11-13 |
+| Hardware oracle (indirect)      | `CaptureGate.corpus.test.ts` against layers_v5, 143-map roster                                                                                                                   | 2026-11-13 | 2026-11-13 |
+| Hardware capture (direct, $1EF) | `captures/d31-sample/1ef`, headless, Mario never moved                                                                                                                           | 2026-11-13 | 2026-11-13 |
+| Disassembly                     | SMWDisX, cited per line below                                                                                                                                                    | 2026-11-13 | 2026-11-13 |
 
 ## 1. Oracle used, and why
 
@@ -28,7 +28,7 @@ The Mesen fixtures for these four slots no longer exist on this machine. layers_
 ```mermaid
 flowchart LR
   A[ROM] --> B[Level loader run on core]
-  A --> C[expandMap, as the map view calls it]
+  A --> C[expandMapOwned via expandMap, as the map view calls it]
   B --> D{cell by cell}
   C --> D
   D -->|0 differing, 4 slots| E[pinned by name]
@@ -41,19 +41,21 @@ A hand-played Mesen session ran `tools/mesen/l1_dump.lua` (NORMAL and AUTO-SCROL
 
 ## 3. Cells where the fixture differed from the loaded map
 
+The fixture tile ids come from red boxes and pixel matching on the September issue diff images (rendered by `gen_diff_images.ts`, CI run 35418455599). A pixel match shows the same picture, not that the id is the same. `[INF]`
+
 Columns: cell (col, row), loaded tile, fixture tile, writer, status. Tiles are Map16 numbers.
 
 ### $1FE
 
-- Row 24, cols 17-19 and 134-137 (7 cells): match today. Fixed since September. `[EST]`
+- Row 24, cols 17-19 and 134-137 (7 cells): match today: the ids the loader writes now are pixel-equal to the September fixture picture. The commit that fixed them was not identified. `[EST]` pixel comparison only; `[OPEN]` which change fixed it.
 - Col 72, rows 19-22: loaded $11E (turn block, object 37, standard $09), fixture $048 by pixel match. **UNEXPLAINED.** `[OPEN]`
-  - $048 is index 5 of TileToGeneratePg0 (`bank_00.asm:7389-7390`), reached by GeneratedTiles entry 05, "always turning block" (`bank_00.asm:7302`, entry at 7307). An extended object $20 route through DATA_0DA548 (`bank_0D.asm:1449-1456`) is the other candidate; $48 sits at index $10 of that table (`bank_0D.asm:1451`), and the mapping from ext $20 to that index was not traced. That table path is not used by $1FE in any case.
+  - $048 is index 5 of TileToGeneratePg0 (`bank_00.asm:7389-7390`), reached by GeneratedTiles entry 05, "always turning block" (`bank_00.asm:7302`, entry at 7307). An extended object $20 route through DATA_0DA548 (`bank_0D.asm:1449-1456`) is the other candidate; $48 sits at index $10 of that table (`bank_0D.asm:1452`), and the mapping from ext $20 to that index was not traced. That table path is not used by $1FE in any case.
   - No vanilla writer of $9C=5 was found. Checked: the bounce end table DATA_00F0C8 (`bank_00.asm:12765-12770`), TileFromBounceSpr1 (`bank_02.asm:2292-2315`), MushrmScaleTiles (`bank_02.asm:13378`), GrowingPipeTiles1 and 2 (`bank_02.asm:13815-13819`), and the Magikoopa magic (MagikoopasMagic, `bank_01.asm:8205`; it sets $9C=2 at `bank_01.asm:8260-8262`, which is the "nothing" tile $25, not $048).
   - The same object at (45, 14) matches the loader. `[EST]`
 
 ### $1EF, $1E3 and $0E7: hit from below
 
-One chain covers the cells below. A block hit from below gets end value $0D from DATA_00F0C8 (`bank_00.asm:12765-12770`); CODE_00F17F (`bank_00.asm:12846-12860`) spawns a bounce sprite; at its end the bounce routine loads $0D (`bank_02.asm:2287`), stores it in $9C at TileFromBounceSpr1 (`bank_02.asm:2292-2293`), and calls GenerateTile (`bank_02.asm:2315`). GeneratedTiles routes $0D to CODE_00C0C4 (`bank_00.asm:7431-7455`), which takes TileToGeneratePg1 index $0D minus 9 = 4 and sets the high bit, giving $132 (`bank_00.asm:7425-7426`). `[EST]` read from the disassembly.
+One chain covers the cells below. A block hit from below gets end value $0D from DATA_00F0C8 (`bank_00.asm:12765-12770`); CODE_00F17F (`bank_00.asm:12846-12860`) spawns a bounce sprite; an ordinary hit loads the bounce sprite's tile (`bank_02.asm:2277`) and branches to TileFromBounceSpr1, which stores it in $9C (`bank_02.asm:2292-2293`); the $0D itself comes from DATA_00F0C8 indexed by the block's tile minus $111 (`bank_00.asm:12827-12855`), and the load at `bank_02.asm:2287` is only the multi-coin path (CODE_0291AA), and calls GenerateTile (`bank_02.asm:2315`). GeneratedTiles routes $0D to CODE_00C0C4 (`bank_00.asm:7431-7455`), which takes TileToGeneratePg1 index $0D minus 9 = 4 and sets the high bit, giving $132 (`bank_00.asm:7425-7426`). `[EST]` read from the disassembly.
 
 | Slot | Cell      | Loaded | Fixture | Status                                                               |
 | ---- | --------- | ------ | ------- | -------------------------------------------------------------------- |
