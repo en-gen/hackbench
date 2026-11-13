@@ -71,6 +71,8 @@ import {
   insideMap,
   NO_PAD,
   offMapPad,
+  farEdge,
+  addScreenRect,
   contentRects,
   offMapSpritePixels,
   samePad,
@@ -1785,6 +1787,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const fade = fadeMask(vertical, gz)
     // The strip's rect without the gutter: it reaches the near canvas edge and stops short of the far-end gutter.
     const checker = vertical ? `0 0 ${gz}px 0` : `0 ${gz}px 0 0`
+    const edge = farEdge(mapW, mapH, pad, vertical)
+    const addScreen = addScreenRect(mapW, mapH, pad, vertical, l.screenCount)
     return (
       <div className="hb-map-grid-host">
         <div
@@ -1911,10 +1915,39 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
               />
             )}
             {!this.screenError && (
+              // The map's own rectangle: no outline of its own now (the end line replaced it, #1296), kept as the
+              // geometry the view and its tests read the map's edge from.
               <div
                 className="hb-map-view-edge"
                 data-control="map-edge"
                 style={{ left: pad.left * z, top: pad.top * z, width: mapW * z, height: mapH * z }}
+              />
+            )}
+            {addScreen && !this.screenError && (
+              // Not a control yet (#26, #950): it swallows clicks so nothing under it selects, and shows no
+              // button cues. 6 px inset, in screen px, so it reads as one screen at every zoom.
+              <div
+                className="hb-map-add-screen"
+                data-control="add-screen"
+                title="Add screen is not available yet"
+                style={{ left: addScreen.x0 * z, top: addScreen.y0 * z, width: (addScreen.x1 - addScreen.x0) * z, height: (addScreen.y1 - addScreen.y0) * z }} // prettier-ignore
+                onClick={e => e.stopPropagation()}
+                onDoubleClick={e => e.stopPropagation()}
+                onContextMenu={e => e.stopPropagation()}
+              >
+                <div className="hb-map-add-screen-box">Add screen</div>
+              </div>
+            )}
+            {!this.screenError && (
+              // Fixed to the map's far edge (screen count x screen size), centered on it, constant in screen px.
+              <div
+                className={
+                  'hb-map-end-line' +
+                  (vertical ? ' hb-vertical' : '') +
+                  (addScreen ? '' : ' hb-inset')
+                } // inset when no gutter: all 5 px stay inside the strip
+                data-control="map-end-line"
+                style={{ left: edge.x0 * z, top: edge.y0 * z, ...(vertical ? { width: (edge.x1 - edge.x0) * z } : { height: (edge.y1 - edge.y0) * z }) }} // prettier-ignore
               />
             )}
             {this.selectedSprite?.stored && (

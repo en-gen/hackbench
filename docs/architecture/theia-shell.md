@@ -276,7 +276,19 @@ the pad the widget:
 - continues layers 2 and 3 through the gutter from `mapBeyond`
   (`data-layer="gutter-layers"`;
   [2026-11-05-gutter-layers-through-band.md](../decisions/2026-11-05-gutter-layers-through-band.md));
-- marks the map edge (`data-control="map-edge"`) and runs the grid across it.
+- runs the grid across it, and marks where the map ends (#1296, D194): a 3 px amber
+  `#ffc23d` line over a 5 px dark edge (`data-control="map-end-line"`), centered on the
+  far edge from `farEdge` (screen count x screen size, so it never moves for content
+  past the end or for the canvas end) and constant in screen px at every zoom. It
+  stands above the gutter layers and the grid's host stacking inside the strip; the
+  grid canvas draws over it. `data-control="map-edge"` stays as the map's rectangle,
+  with no outline. A 32-screen map has no gutter: the line is drawn inset
+  (`hb-inset`, its outer side on the edge) so all 5 px stay inside the strip;
+- fills the last gutter screen (`addScreenRect`) with a dashed "Add screen" outline
+  (`data-control="add-screen"`), inert until adding screens exists (#26, #950): default
+  cursor, no hover style, a plain-word tooltip, and it swallows clicks so nothing
+  under it selects. Proposed calls:
+  [2026-11-13-map-end-line-and-add-screen.md](../decisions/2026-11-13-map-end-line-and-add-screen.md).
 
 When a sprites reply grows the pad, `keepViewOnPadChange` refits and restores
 the view. Evidence: `map-off-map-canvas.spec.cjs` (Fit, same map pixel under

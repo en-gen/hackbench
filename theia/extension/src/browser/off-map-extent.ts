@@ -259,6 +259,37 @@ export const contentRects = (
   }),
 ]
 
+/**
+ * The map's far edge as a segment in STRIP map pixels (the canvas origin, pad included), for the end line
+ * (#1296, D194): the line lies on the screen count times the screen size, never on the content band or the
+ * canvas end, so it does not move for a sprite past the map. `x0 === x1` on a horizontal map (right edge),
+ * `y0 === y1` on a vertical one (bottom edge); the other axis spans the map's own extent.
+ */
+export function farEdge(mapW: number, mapH: number, pad: Pad, vertical: boolean): Rect {
+  return vertical
+    ? { x0: pad.left, y0: pad.top + mapH, x1: pad.left + mapW, y1: pad.top + mapH }
+    : { x0: pad.left + mapW, y0: pad.top, x1: pad.left + mapW, y1: pad.top + mapH }
+}
+
+/**
+ * The one gutter screen the "Add screen" outline fills, in strip map pixels (#1296): the LAST `farGutter`
+ * px of the strip along the scroll axis, so it sits after any off-map content band [PROP], and the map's own
+ * extent across. Null when the map has no gutter (the 32-screen ceiling).
+ */
+export function addScreenRect(
+  mapW: number,
+  mapH: number,
+  pad: Pad,
+  vertical: boolean,
+  screenCount: number,
+): Rect | null {
+  const g = farGutter(screenCount)
+  if (g <= 0) return null
+  return vertical
+    ? { x0: pad.left, y0: pad.top + mapH + pad.bottom - g, x1: pad.left + mapW, y1: pad.top + mapH + pad.bottom } // prettier-ignore
+    : { x0: pad.left + mapW + pad.right - g, y0: pad.top, x1: pad.left + mapW + pad.right, y1: pad.top + mapH } // prettier-ignore
+}
+
 /** Whether map pixel (x, y) is inside the map: positions in the pad have negative or too-large coordinates. */
 export const insideMap = (x: number, y: number, mapW: number, mapH: number): boolean =>
   x >= 0 && y >= 0 && x < mapW && y < mapH
