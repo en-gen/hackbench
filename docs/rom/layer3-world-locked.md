@@ -2,8 +2,8 @@
 
 Scope: Layer 3 on a horizontal map whose Layer 3 settings byte is $81-$BF on a tileset other than
 Castle1 or Underground1 (vanilla: maps $011, $130, $1C1 on tileset 9, plus $018 on tileset 13).
-Evidence: static trace of SMWDisX plus the `layers_v5` captures of $011, $130 and $1C1 at frames 0, 1,
-9 and 17; vanilla ROM, one machine, 2026-10-17. Code: `src/rom/model/L3Model.ts`, `entranceCameraX`
+Evidence: static trace of SMWDisX plus the `layers_v5` captures of $011, $130, $1C1 and $018 at frames 0, 1,
+9 and 17 (the tilemap comparison of #805 is at frame 0 only); vanilla ROM, one machine, 2026-10-17. Code: `src/rom/model/L3Model.ts`, `entranceCameraX`
 in `src/rom/L3Loader.ts`, `drawL3Planes` in `theia/extension/src/node/map-screen.ts`.
 
 ## Where Layer3YPos ($24) comes from at load
@@ -89,7 +89,40 @@ map properties panel.
 
 ## Not covered
 
+- A hack that changes ClearOutLayer3's blank tile (`!EmptyTile`, bank_00.asm:751, 764): the stripe parser assumes the
+  vanilla `$38FC` for the untouched half of a cell a run writes one byte of; it is not read from the ROM.
 - Vertical maps: refused as before (the entry's Layer1YPos high byte is not read).
-- Map $018 (mode 0E, BG3 alone on the main screen, tileset 13): refused; the same code path, but its
-  colour math adds BG3 onto layers 1 and 2 and the drawing is not verified against a capture.
 - Settings byte $00 off Castle1 and Underground1: refused (load Y is the tide's $70, then camera-locked).
+
+## Map $018 (mode 0E) and its 40 cells (#805)
+
+$018 (level mode 0E, tileset 13, byte $81) takes the same path: header mode 0E reads main `$04` (BG3 alone),
+sub `$13` (BG1, BG2, OBJ) and CGADSUB `$24` from the mode tables (bank_05.asm:480-504), which the compositor
+turns into BG3 on the main screen with layers 1 and 2 added from the sub screen. Nothing in the world-locked
+rule depends on what else is on the main screen, so the "BG3 alone" refusal was dropped. Captured at frame 0:
+TM `$04`, TS `$13`, CGADSUB `$24`, BG3VOFS = Layer1YPos = 0, Layer3XPos 1 (the drift), Layer1XPos 0. Its
+tilemap equals the model's on all 3584 cells below the status bar (`L3WorldLocked.corpus.test.ts`).
+
+The 40 `$FF` cells were not a runtime write. The tileset 13 stripe image holds 20 RLE entries (FLAGS bit 6) with an
+odd byte count N (7, 9, 13, 25, 37, ...), each in both halves of the 64-wide tilemap. LoadStripeImage (bank_00.asm:
+906-955) sets the DMA to mode 1 with a fixed source and runs it twice for an RLE run, once from the low byte (VMAINC
+steps after `$2118`) and once from the high byte (register `$2119`, source data+1, steps after `$2119`), each time
+with N bytes. A mode 1 unit is two bytes, so N bytes are ceil(N / 2) units; the partial last unit of an odd N writes
+only its first register in each DMA, and the two DMAs together complete that word. The run covers ceil(N / 2) words.
+`parseStripeImageInto` rounded down and lost the last word of each odd run. It now emulates the two DMAs byte by byte
+(#805 review): an even N sends the first DMA's last byte to `$2119` of the word past the run, so that word holds the
+run's low byte in its high half and keeps ClearOutLayer3's `$FC` below; a plain run advances the stream by N, an odd N
+writing only its last low byte. The parser agrees with the capture on every one of the 40 cells (tile `$20FF` or
+`$60FF`) and on all 18 captured tilemaps; no vanilla set has an even RLE N or an odd plain N, so those two cases rest
+on the ASM and the synthetic sweep (`L3Loader.test.ts`, N = 1-16), not on a capture.
+
+The same fix closes the "2 cells, row 62, tile `$398E`" that #105 saw on the tide maps $002, $0BE, $0C1, $102 and
+$127. Evidence: `layers_v5` frame 0 of the 18 maps that have a level layer 3, one machine, vanilla ROM: the tilemap
+differences went from 002:2 009:10 018:40 0BE:2 0C1:2 102:2 115:10 127:2 cells to 009:10 and 115:10. Those last 10 on
+$009 and $115 are a comparison artifact, not a difference: the cells are explicit `$38FC` tiles (ClearOutLayer3's blank)
+that the stripe image writes and the capture holds, and the corpus comparison maps the capture's `$38FC` to 0 but not
+the parser's (checked: both sides `$38FC` on 10 cells each, r45c7, r47c7, r50c13, r50c14, r51c13 and the same cells at
+c+32). They are not the half-speed difference of #105.
+
+World-locked versus camera-locked rests on the static ASM trace above: the camera never moves in these captures (frames
+0/1/9/17: Layer1XPos constant per map, 0 on $011, $130 and $018 and 652 on $1C1; Layer3XPos drift 1, 2, 4, 6), so no capture shows Layer 3 following a moving camera.

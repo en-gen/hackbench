@@ -8,8 +8,9 @@
  *
  * Layout: screen-major, $1B0 bytes a screen (SMWDisX bank_00.asm:6595-6628, DATA_00BA60 then DATA_00BA70, 32 entries), a
  * screen row-major 16 wide (bank_00.asm:13295-13310: Y high nibble | X >> 4 | screen base).
- * Horizontal maps only; vertical ones are listed, not compared. Layer 1 is the first
- * `levelLength` screens, up to 32 (bank_00.asm:13299-13308 indexes by screen up to LevelScrLength).
+ * The sweep below compares horizontal maps only; vertical ones are listed there (#144 pins $0E7
+ * separately). Layer 1 is the first `levelLength` screens, up to 32 (bank_00.asm:13299-13308 indexes
+ * by screen up to LevelScrLength).
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -31,18 +32,42 @@ import { freshRom, hasRom, VANILLA } from '../../support/corpus'
 
 const SCREEN = 0x1b0
 
-/** Loader cells (16-bit, hi table at $1C800) that differ from the expander's grid, over the first `screens` screens. */
+/**
+ * Offset of grid cell (col, row) in the loader's Map16 tables. Horizontal: screen-major, $1B0 a
+ * screen (bank_00.asm:13295-13310). Vertical: DATA_00BA80 layout, two screens side by side per 16
+ * rows (bank_00.asm:13322-13340): (row>>4)*$200 + (col>>4)*$100 + (row&15)*16 + (col&15).
+ */
+function cellOffset(vertical: boolean, col: number, row: number): number {
+  if (vertical) return (row >> 4) * 0x200 + (col >> 4) * 0x100 + (row & 15) * 16 + (col & 15)
+  return (col >> 4) * SCREEN + row * 16 + (col & 15)
+}
+
+/**
+ * Cells where the loader's wram (lo at $C800, hi at $1C800) differs from the expander's grid, as
+ * [col, row] pairs. Horizontal compares 27 rows over `screens` screens; vertical compares
+ * `screens` * 16 rows of 32 columns. A missing row or column is a difference, never a skip.
+ */
+function diffCellList(
+  wram: Uint8Array,
+  grid: TileGrid,
+  screens: number,
+  vertical: boolean,
+): [number, number][] {
+  const out: [number, number][] = []
+  const rows = vertical ? screens * 16 : 27
+  const cols = vertical ? 32 : screens * 16
+  for (let y = 0; y < rows; y++)
+    for (let x = 0; x < cols; x++) {
+      const off = cellOffset(vertical, x, y)
+      const got = (wram[0x1c800 + off]! << 8) | wram[0xc800 + off]!
+      if (got !== (grid[y]?.[x] ?? -1)) out.push([x, y])
+    }
+  return out
+}
+
+/** Count of differing cells for a horizontal map over the first `screens` screens. */
 function diffCells(wram: Uint8Array, grid: TileGrid, screens: number): number {
-  let n = 0
-  for (let s = 0; s < screens; s++)
-    for (let y = 0; y < 27; y++)
-      for (let x = 0; x < 16; x++) {
-        const off = s * SCREEN + y * 16 + x
-        const got = (wram[0x1c800 + off]! << 8) | wram[0xc800 + off]!
-        // A missing row or column is a difference, never a skip.
-        if (got !== (grid[y]?.[s * 16 + x] ?? -1)) n++
-      }
-  return n
+  return diffCellList(wram, grid, screens, false).length
 }
 
 const VERTICAL = '0c2 0db 0e7 0ea 0f7 108 109 12a 134 1ce 1ed'.split(' ')
@@ -59,14 +84,15 @@ function expanded(
   rom: RomFile,
   smw: SmwRom,
   id: string,
-): { grid: TileGrid; screens: number; vertical: boolean } {
+): { grid: TileGrid; screens: number; vertical: boolean; unverified: string[] } {
   const table = smw.requireVerticalTable()
   const raw = smw.getLevelRawData(parseInt(id, 16))!
   const h = parseLevelHeader(raw)
   const vertical = isLevelModeVertical(h.levelMode, table)
   const { objects } = parseLevelObjects(raw, table)
-  const grid = expandMap(objects, h.levelLength, rom, h.objectTileset, vertical, h.levelMode, undefined, SWITCH_FLAGS_UNCLEARED, { unverified: [], draw: drawInterpreted, primitives: VANILLA_PRIMITIVES }) // prettier-ignore
-  return { grid, screens: h.levelLength, vertical }
+  const unverified: string[] = []
+  const grid = expandMap(objects, h.levelLength, rom, h.objectTileset, vertical, h.levelMode, undefined, SWITCH_FLAGS_UNCLEARED, { unverified, draw: drawInterpreted, primitives: VANILLA_PRIMITIVES }) // prettier-ignore
+  return { grid, screens: h.levelLength, vertical, unverified }
 }
 
 describe.skipIf(!hasRom(VANILLA))('level loader vs map-view expander: Layer 1 Map16 (#649)', () => {
@@ -81,11 +107,11 @@ describe.skipIf(!hasRom(VANILLA))('level loader vs map-view expander: Layer 1 Ma
     for (let n = 0; n < 512; n++) {
       const id = n.toString(16).padStart(3, '0')
       const e = expanded(rom, smw, id)
-      if (e.vertical) { vertical.push(id); continue } // prettier-ignore
+      if (e.vertical) vertical.push(id)
       const l = loadLevelState(rom, parseInt(id, 16))
       if (!l.ok) throw new Error(`${id}: ${l.reason}`)
       compared++
-      const cells = diffCells(l.wram, e.grid, e.screens)
+      const cells = diffCellList(l.wram, e.grid, e.screens, e.vertical).length
       if (cells) counts.push(`${id}:${cells}`)
     }
     return (cached = { counts, vertical, compared })
@@ -94,7 +120,7 @@ describe.skipIf(!hasRom(VANILLA))('level loader vs map-view expander: Layer 1 Ma
   it('the loader and the expander disagree on exactly the pinned maps, by differing-cell count', () => {
     const r = real()
     expect(r.vertical).toEqual(VERTICAL)
-    expect(r.compared).toBe(512 - VERTICAL.length)
+    expect(r.compared).toBe(512)
     expect(r.counts).toEqual(DIFFERING)
   }, 300_000)
 
@@ -118,7 +144,88 @@ describe.skipIf(!hasRom(VANILLA))('level loader vs map-view expander: Layer 1 Ma
   }, 300_000)
 })
 
+// #141 (family #144 #149 #150): the Sept map-diff fixtures were hand-played Mesen dumps carrying
+// runtime state. On vanilla the expander equals the ROM's own loader on these slots, vertical $0E7 included.
+const PINNED_AGREE = [
+  ['1fe', '#141'],
+  ['0e7', '#144 (vertical)'],
+  ['1ef', '#149'],
+  ['1e3', '#150'],
+] as const
+
+describe.skipIf(!hasRom(VANILLA))(
+  'loader vs expander: slots named by #141, #144, #149, #150',
+  () => {
+    for (const [id, issue] of PINNED_AGREE)
+      it(`slot $${id} (${issue}): 0 differing cells`, () => {
+        const rom = freshRom()
+        const e = expanded(rom, new SmwRom(rom), id)
+        const l = loadLevelState(rom, parseInt(id, 16))
+        if (!l.ok) throw new Error(l.reason)
+        expect(e.vertical).toBe(id === '0e7')
+        expect(e.unverified).toEqual([])
+        expect(diffCellList(l.wram, e.grid, e.screens, e.vertical)).toEqual([])
+      }, 60_000)
+
+    it('a planted cell in the loader wram or the grid is reported as exactly that cell, on each slot', () => {
+      const rom = freshRom()
+      const smw = new SmwRom(rom)
+      for (const [id] of PINNED_AGREE) {
+        const e = expanded(rom, smw, id)
+        const l = loadLevelState(rom, parseInt(id, 16))
+        if (!l.ok) throw new Error(l.reason)
+        // The last row of the compared band, so a short row count in diffCellList goes red.
+        const [col, row] = [21, e.vertical ? e.screens * 16 - 1 : 26]
+        const w = l.wram.slice()
+        w[0xc800 + cellOffset(e.vertical, col, row)] ^= 1
+        expect(diffCellList(w, e.grid, e.screens, e.vertical)).toEqual([[col, row]])
+        const g = e.grid.map(r => r.slice())
+        g[row]![col] = (g[row]![col]! ^ 0x100) & 0x1ff
+        expect(diffCellList(l.wram, g, e.screens, e.vertical)).toEqual([[col, row]])
+      }
+    }, 120_000)
+  },
+)
+
 // No ROM needed: bytes built here, so these run in CI.
+describe('cellOffset on hand-picked cells', () => {
+  it('horizontal: screen-major, $1B0 a screen, 16 wide', () => {
+    expect(cellOffset(false, 0, 0)).toBe(0)
+    expect(cellOffset(false, 5, 3)).toBe(3 * 16 + 5)
+    expect(cellOffset(false, 16, 0)).toBe(0x1b0)
+    expect(cellOffset(false, 31, 26)).toBe(0x1b0 + 26 * 16 + 15)
+  })
+  it('vertical: 16 rows of two $100 halves per $200 block', () => {
+    expect(cellOffset(true, 0, 0)).toBe(0)
+    expect(cellOffset(true, 15, 15)).toBe(0xff)
+    expect(cellOffset(true, 16, 0)).toBe(0x100)
+    expect(cellOffset(true, 31, 15)).toBe(0x1ff)
+    expect(cellOffset(true, 0, 16)).toBe(0x200)
+    expect(cellOffset(true, 17, 35)).toBe(2 * 0x200 + 0x100 + 3 * 16 + 1)
+  })
+  it('diffCellList compares every vertical row of a map longer than 2 screens', () => {
+    const g = Array.from({ length: 80 }, () => new Array(32).fill(0)) as TileGrid
+    for (const [x, y] of [
+      [31, 79],
+      [0, 40],
+      [16, 63],
+      [5, 32],
+    ] as const) {
+      const w = new Uint8Array(0x30000)
+      w[0xc800 + cellOffset(true, x, y)] = 9
+      expect(diffCellList(w, g, 5, true)).toEqual([[x, y]])
+      expect(diffCellList(w, g, 2, true)).toEqual(y < 32 ? [[x, y]] : [])
+    }
+  })
+  it('diffCellList reports a planted vertical cell at its coordinates', () => {
+    const w = new Uint8Array(0x30000)
+    const g = Array.from({ length: 32 }, () => new Array(32).fill(0)) as TileGrid
+    expect(diffCellList(w, g, 2, true)).toEqual([])
+    w[0xc800 + cellOffset(true, 17, 20)] = 7
+    expect(diffCellList(w, g, 2, true)).toEqual([[17, 20]])
+  })
+})
+
 describe('diffCells on synthetic bytes', () => {
   const mk = () => ({ w: new Uint8Array(0x30000), g: Array.from({ length: 27 }, () => new Array(32).fill(0)) as TileGrid }) // prettier-ignore
   it('counts a planted cell in either table, in the second screen, and a missing column', () => {

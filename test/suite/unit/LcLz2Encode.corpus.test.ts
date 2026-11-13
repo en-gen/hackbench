@@ -17,9 +17,7 @@ import { describe, it, expect } from 'vitest'
 import { RomFile } from '../../../src/rom/RomFile'
 import { decompress, encode, parseStream } from '../../../src/rom/LcLz2'
 import { checkStockCompression, readGfxFileTable } from '../../../src/rom/GfxArena'
-import { CORPUS, MAGIC, hasRom, romPath, romsOnDisk } from '../support/corpus'
-
-const CARTS = romsOnDisk()
+import { CORPUS, MAGIC, hasRom, romPath, unlistedCarts } from '../support/corpus'
 
 /** Every cart the corpus may hold, named so the cases register and SKIP
  *  whether or not the files are present. */
@@ -84,7 +82,7 @@ function readableFiles(rom: RomFile): ReturnType<typeof readGfxFileTable> {
 
 describe('the corpus listing is a cross-check, never the source of cases', () => {
   it('names every cart present on this machine', () => {
-    const unlisted = CARTS.filter(f => !EXPECTED_CARTS.includes(f))
+    const unlisted = unlistedCarts()
     expect(unlisted, `add these to EXPECTED_CARTS: ${unlisted.join(', ')}`).toEqual([])
   })
 })
