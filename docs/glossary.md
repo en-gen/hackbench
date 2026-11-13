@@ -145,6 +145,21 @@ whole, every pixel, with a hover that says what shows it ([reveal-search.md](rom
 
 ## The connection words
 
+**Object.** What the user defines in the Objects activity, and what the map
+editor finds on a map: a tileset, a set of **edge** tiles and a set of **fill**
+tiles, saved in the project's `meta/objects/` and never written to the ROM
+([object-definitions.md](architecture/object-definitions.md), #1234). A
+pipe, a platform or a hillside is one Object. On a map, a connected patch of
+one Object's tiles is that Object placed. The UI says Object; it never means a
+stored piece.
+
+**Stored piece.** One entry of a map's Layer 1 object list, which the ROM holds
+and `LevelParser.ts` calls an object. A stored piece is a number, a position
+and a size that the game expands through Map16; one Object is often several of
+them, and the list does not hold everything an Object needs (the pieces a
+covering Object hides are cut short). Code and comments say "stored piece" for
+this, never bare "object", so the two cannot be confused.
+
 **Sub-screen.** One half of a screen. A horizontal map's screen (16 x 27
 tiles) splits at tile row 16 into a top half (16 rows) and a bottom half (11).
 A vertical map's screen (32 x 16 tiles) splits at column 16 into a left and a

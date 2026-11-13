@@ -66,6 +66,7 @@ MyHack/
   meta/              user metadata, one JSON file per concern
     aliases.json     user-supplied names (ROM ids to names; see Aliases.ts)
     data-banks.json  where the ROM keeps the code HackBench reads (DataBanksConfig.ts)
+    objects/         Object definitions, one <id>.json each (object-definitions.md)
 ```
 
 `ops/`, `export/`, `saves/` and `meta/` are created on first use. `levels/` and
