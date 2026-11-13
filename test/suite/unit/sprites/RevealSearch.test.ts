@@ -321,7 +321,8 @@ describe('the distances (D142)', () => {
       if (r.status !== 'hidden') missed.push(low)
     }
     expect(missed).toEqual([])
-  })
+    // 256 whole searches; a sprite that drew at rest now also runs the three real-Mario reruns (#1365), so the 5 s default is tight.
+  }, 30_000)
 
   it('control: take one step away and some 32 wide window holds no probe', () => {
     const steps = DISTANCES.filter(d => d >= 0 && d < 0x100).map(d => d & 0xff)

@@ -149,7 +149,7 @@ describe('sweepSection (reveal-sweep)', () => {
     ]
     const t = sweepSection('ROM', flagged, [])
     expect(t).toContain('still counted, [PROP] #1365): 1\nmap 105 #2 $74 (column 25, row 23): mario-at-sprite') // prettier-ignore
-    expect(t).toContain('at-rest picture (#1365):\np-switch: 1\non-off: 1')
+    expect(t).toContain('at-rest picture (#1365):\non-off: 1\np-switch: 1')
   })
   it('blanks ids and numbers in a refusal reason so one refusal counts once', () => {
     const a = { ...rows[0]!, marker: 'refused: the sprite became $FF: id $ff is past 201' }
