@@ -6,7 +6,15 @@
 
 import { describe, it, expect } from 'vitest'
 import { join } from 'node:path'
-import { CORPUS, hasRoms, resolveRomDir, resolveToolsRoot, romsOnDisk } from '../support/corpus'
+import {
+  hasRoms,
+  personalCorpusOverlap,
+  personalRomsPresent,
+  resolveRomDir,
+  resolveToolsRoot,
+  romsOnDisk,
+  unlistedCarts,
+} from '../support/corpus'
 
 /** Only these paths exist, compared case- and separator-insensitively. */
 const fs = (...paths: string[]) => {
@@ -86,11 +94,27 @@ describe('corpus resolution', () => {
   })
 })
 
+// Not behind the disk skip: listing a CORPUS cart drops it from romsOnDisk(),
+// so with only corpus carts listed the block below could skip and hide it.
+it('personal.txt never lists a CORPUS cart', () => {
+  expect(personalCorpusOverlap(), 'remove these from personal.txt').toEqual([])
+})
+
 describe.skipIf(romsOnDisk().length === 0)('corpus membership', () => {
   // Suites sweep the declared CORPUS, so a seventh cart on disk would be
   // invisible to all of them without this.
   it('every cart on this machine is named in CORPUS', () => {
-    const unlisted = romsOnDisk().filter(f => !CORPUS.includes(f))
+    const unlisted = unlistedCarts()
     expect(unlisted, 'add these to CORPUS in test/suite/support/corpus.cjs').toEqual([])
+  })
+
+  // A DISPLAY, true by construction (romsOnDisk drops exactly these carts):
+  // it exists so a run shows how many carts were left out, not to prove the
+  // filter. The filter is proved on a scratch folder in corpusPersonal.test.ts.
+  // The count is read at collection; it decides one case, never how many.
+  const left = personalRomsPresent().length
+  it.skipIf(left === 0)(`leaves out ${left} personal ROM(s) listed in personal.txt`, () => {
+    const on = romsOnDisk()
+    for (const f of personalRomsPresent()) expect(on).not.toContain(f)
   })
 })

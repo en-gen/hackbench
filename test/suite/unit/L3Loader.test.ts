@@ -169,7 +169,62 @@ describe('parseStripeImage', () => {
     const base = 0x5800 - L3_TILEMAP_BASE // 2048 = row 32, col 0
     expect(buf[base]).toBe(0x1234)
     expect(buf[base + 1]).toBe(0x1234)
-    expect(buf[base + 2]).toBe(0) // only 2 tiles written
+    expect(buf[base + 2]).toBe(0x34fc) // two words; the even-N low-byte stray lands in the next (see the sweep below)
+  })
+
+  // LoadStripeImage (bank_00.asm:906-955) runs N-byte DMAs of two-byte units to $2118/$2119; a partial last unit
+  // writes only its first register. An untouched cell holds ClearOutLayer3's $38FC (the model keeps it 0 until a run
+  // writes one of its bytes). The expected words below are worked out per byte count, not by the parser's own loop.
+  const base = 0x5800 - L3_TILEMAP_BASE
+  const cells = (buf: Uint16Array) => Array.from(buf.slice(base, base + 10))
+  const sweep = Array.from({ length: 16 }, (_, c) => c) // COUNT 0-15: N = 1-16 bytes
+
+  it('RLE runs (#805): ceil(N / 2) full words, and an even N leaves the low byte in the high half of the next word', () => {
+    for (const count of sweep) {
+      const n = count + 1
+      const buf = parseStripeImage(new Uint8Array([0x58, 0x00, 0x40, count, 0x34, 0x12, 0xff]))
+      const full = Math.ceil(n / 2)
+      const want = Array.from({ length: 10 }, (_, w) => (w < full ? 0x1234 : w === full && n % 2 === 0 ? 0x34fc : 0)) // prettier-ignore
+      expect([n, cells(buf)]).toEqual([n, want])
+    }
+  })
+
+  it('plain runs (#805): floor(N / 2) words, an odd N writes the last low byte only and the stream advances N', () => {
+    for (const count of sweep) {
+      const n = count + 1
+      const bytes = Array.from({ length: n }, (_, k) => 0x21 + 7 * k)
+      const next = [0x58, 0x20, 0x00, 0x01, 0xaa, 0xbb] // a following entry shows a desynchronized stream
+      const buf = parseStripeImage(
+        new Uint8Array([0x58, 0x00, 0x00, count, ...bytes, ...next, 0xff]),
+      )
+      const want = Array.from(
+        { length: 10 },
+        (_, w) =>
+        2 * w + 1 < n ? bytes[2 * w]! | (bytes[2 * w + 1]! << 8) : 2 * w < n ? 0x3800 | bytes[2 * w]! : 0, // prettier-ignore
+      )
+      expect([n, cells(buf)]).toEqual([n, want])
+      expect([n, buf[base + 64]]).toEqual([n, 0xbbaa])
+    }
+  })
+
+  it('a written $0000 is not an untouched cell: a later one-byte write keeps its other byte (#805)', () => {
+    // Word $5800 = $0000 by a plain run, then a one-byte plain run on it: the high byte stays 0, not ClearOutLayer3's.
+    const buf = parseStripeImage(new Uint8Array([0x58, 0x00, 0x00, 0x01, 0x00, 0x00, 0x58, 0x00, 0x00, 0x00, 0x12, 0xff])) // prettier-ignore
+    expect(buf[base]).toBe(0x0012)
+    // An untouched cell takes the blank's other byte: the same one-byte write alone gives $3812.
+    expect(parseStripeImage(new Uint8Array([0x58, 0x00, 0x00, 0x00, 0x12, 0xff]))[base]).toBe(
+      0x3812,
+    )
+  })
+
+  it('a vertical RLE run steps 32 words, not 1 (N = 3: $5800 and $5820)', () => {
+    const buf = parseStripeImage(new Uint8Array([0x58, 0x00, 0xc0, 0x02, 0x34, 0x12, 0xff]))
+    expect([buf[base], buf[base + 64], buf[base + 1]]).toEqual([0x1234, 0x1234, 0])
+  })
+
+  it('truncated plain data writes its whole tiles only and stops, with no terminator', () => {
+    const buf = parseStripeImage(new Uint8Array([0x58, 0x00, 0x00, 0x05, 0x11, 0x22, 0x33]))
+    expect([buf[base], buf[base + 1]]).toEqual([0x2211, 0])
   })
 
   it('RLE entry followed by normal entry parses both correctly', () => {
