@@ -536,16 +536,19 @@ The sprite grader has two tiers against these captures. Tier 1
 (`spritePosition.ts`, `SpritePosition.test.ts`, #830) grades where the
 pieces sit on the map: the capture's drawing at `drawnFrame` (the first frame
 with every tile complete, not the first OAM write) against the model's pass:
-for a level-start sprite (INIT before the capture's `gateFrame`, the first GM14
-frame) `max(0, drawnFrame - gateFrame)`, the same function Tier 1 uses
+for a level-start sprite (INIT at or before the capture's `gateFrame`, the last
+GM13 frame) `max(0, drawnFrame - gateFrame)`, the same function Tier 1 uses
 (`levelStartPass` in `gradeTimeline.ts`, #875); for any other sprite
 `drawnFrame - firstRealFrame`, counted from the model's pass 0 (the first
 MAIN after INIT, as the capture's `firstRealFrame` is). `chosen` is not
-added. GM13 (the fade in) runs no sprite code (SMWDisX bank_00.asm:4075-4103,
-memo in `bank_00/MEMO.md`), so its frames are not passes; the pass-0 offset
-at the gate is not traced (the data fits pass 0 at the gate; candidates that
-it is the GM12 MAIN not running for these sprites or the runner's INIT frame
-already counting it are untested). Both sides
+added. GM12 runs INIT and one MAIN (that MAIN is pass 0); GM13 (the fade in)
+runs no sprite code (SMWDisX bank_00.asm:4075-4103, memo in `bank_00/MEMO.md`),
+so its frames are not passes. The harness stamps `gateFrame` on the first
+frame it reads GameMode $14, which is the last GM13 frame, and stamps by WRAM
+writes to $0200-$049F, so a draw stamped D is pass D - gateFrame
+(`gradeTimeline.ts` has the derivation with the harness line numbers; it
+assumes Mesen fires endFrame before the NMI handler, an inference, and no GM14
+lag frame between the gate and D). Both sides
 are placed with the capture camera; the model is seeded with the camera at
 `drawnFrame`. Positions are compared in map coordinates. Graded captures never
 set X bit 8; the 9-bit X is synthetic-only coverage. It reports exact, off,
@@ -555,8 +558,9 @@ sides drew only parked pieces, at matching positions: agreement), late (the
 model had not drawn yet at the target pass, the capture had), lagged (target
 pass past the pass count, drew or not) and refused, per sprite and per id
 (`SPRITE_POSITION_OUT=<file>` dumps the records), and holds a bound per verdict
-with 1% headroom (vanilla, one machine, 2026-11-11 after the #1370 re-capture: 1424 exact, 431
-off, 1 missing, 18 parked, 1 late, 80 lagged, 0 refused of 1955; 2026-10-17 on the #842 head: 1396, 461, 1, 18, 1, 80, 0 of 1957; 1366, 469 and 23 before #842). It is not
+with 1% headroom (vanilla, one machine, 2026-11-13 for #875: 1495 exact, 404 off, 2 missing, 19
+parked, 1 late, 34 lagged, 0 refused of 1955; 2026-11-11 after the #1370 re-capture: 1424 exact, 431
+off, 1 missing, 18 parked, 1 late, 80 lagged, 0 refused; 2026-10-17 on the #842 head: 1396, 461, 1, 18, 1, 80, 0 of 1957; 1366, 469 and 23 before #842). It is not
 re-aligned to the first draw. Before #875 every sprite used
 `drawnFrame - firstRealFrame`, which counted GM13's frames as passes; that
 was the cause of the 80 `lagged` records (the first draw came 31 to 89

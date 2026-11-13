@@ -2,18 +2,26 @@
  * Which MAIN pass of the sprite runner corresponds to the frame Mesen caught a sprite drawing.
  * Test oracle only.
  *
- * A level-start sprite (INIT in GM12, `initFrame + 1 < gateFrame`) is counted in passes from the
- * capture's `gateFrame`, the first GM14 frame: pass `max(0, drawnFrame - gateFrame)` (#875). Frames
- * before it (GM13's fade, and the capture's incomplete first draw, #1382) are not passes: GM13
- * (GMTransitionMosaic, SMWDisX bank_00.asm:4075-4103) calls no sprite code, and the level setup
- * clears SpriteLock (bank_00.asm:4996). The pass-0 offset is NOT traced: the data fits pass 0 at
- * the gate, not the pass 1 the GM12 MAIN (bank_00.asm:2826, 4866) would predict; two candidates
- * (that MAIN not running for these sprites, or the runner's INIT frame already counting it) are
- * untested. Evidence scope: vanilla, one machine, Mesen captures `layers_v5`; of 169 level-start
- * records 126 have anchor == gate, where the anchor rule already gives the same pass; maps 0C3
- * ($49) and 130 ($76) go from wrong to exact. Any other sprite (spawned in play, possibly during
- * the entrance wait) is `drawnFrame - max(anchorFrame, initFrame + 1)` passes in: before the
- * anchor Mario is held at a leftover position and the level is still being set up.
+ * A level-start sprite (INIT in GM12, `initFrame <= gateFrame`) is counted in passes from the capture's
+ * `gateFrame`: pass `max(0, drawnFrame - gateFrame)` (#875). Why, from the code (SMWDisX plus the capture harness
+ * source, one reading, checked by the verifier; the Mesen frame timing below is an inference, not verified):
+ * - GM12 runs the loader's INIT and then one MAIN (bank_00.asm:4860, bank_05.asm:72, bank_02.asm:5172; 4866-4873
+ *   to CODE_009860, bank_00.asm:2826): that MAIN is pass 0. GM12 and its INIT are skipped when IRQNMICommand is
+ *   negative (bank_00.asm:4862-4864, bank_02.asm:5171).
+ * - GM13 (GMTransitionMosaic, bank_00.asm:4075-4103) runs no sprite code: the callers of CODE_01808C are exactly
+ *   bank_00.asm:2826, 2922, 4534 (GM14) and bank_02.asm:5172, and the level setup clears SpriteLock (4996).
+ * - The harness stamps frames by WRAM writes to $0200-$049F, not PPU OAM (headless_capture.lua:1285-1293),
+ *   frame = frame + 1 (1768) in onFrame on endFrame (2128); `drawnFrame` 1417/1421, `firstRealFrame` 1317.
+ *   `gateFrame` is `levelGateFrame` (1884), set the first time onFrame reads GameMode == $14 (1797): that is
+ *   the endFrame of the game frame whose INC GameMode (bank_00.asm:4094) left GM13, so G is the LAST GM13 frame
+ *   and the first GM14 MAIN is stamped G + 1. A draw stamped D is therefore pass D - G.
+ * Assumes Mesen fires endFrame before the NMI handler and no GM14 lag frame between G and D (one would
+ * overstate the pass). No sprite code runs in GM13, so no INIT is stamped between GM12 and G: INIT at or
+ * before G is GM12's. Evidence: maps 0C3 ($49), 130 ($76) and 0D0 ($6F idx 29) go from wrong to exact; of
+ * 169 level-start records 126 have anchor == gate, where the anchor rule gave the same pass. Vanilla, one
+ * machine. Any other sprite (spawned in play, possibly during the entrance wait) is
+ * `drawnFrame - max(anchorFrame, initFrame + 1)` passes in: before the anchor Mario is held at a leftover
+ * position and the level is still being set up.
  */
 
 import type { RomFile } from '../../../src/rom/RomFile'
@@ -23,8 +31,18 @@ import { FIRST_SPECIAL, shellLoad } from '../../../src/rom/sprites/ShellSprites'
 export const MAX_GRADED_PASS = 255
 
 /**
+ * Passes added to `drawnFrame - gateFrame` for a level-start sprite: 0, because G is the last GM13 frame and the
+ * first GM14 MAIN is G + 1 (see the header). Map 127 $16 and 1bf $15 grade exact at 0 and close at 1. One
+ * constant so it is the one place to change; the tests are written against it.
+ */
+export const LEVEL_START_PASS_OFFSET = 0
+
+/**
  * The pass a level-start sprite's drawn frame falls on (see the header), or undefined when the sprite
- * is not level-start or a field is missing. Not range-checked: `gradedPass` does that.
+ * is not level-start or a field is missing. Level start means INIT ran in GM12: the loader's INIT is there
+ * (SMWDisX bank_05.asm:72) and GM13 runs no sprite code (bank_00.asm:4075-4103), so no INIT is stamped
+ * between GM12 and the gate frame G (the last GM13 frame): `initFrame <= gateFrame` is the whole test.
+ * Not range-checked: `gradedPass` does that.
  */
 export function levelStartPass(
   initFrame: number | undefined,
@@ -32,8 +50,8 @@ export function levelStartPass(
   drawnFrame: number | undefined,
 ): number | undefined {
   if (![initFrame, gateFrame, drawnFrame].every(Number.isInteger)) return undefined
-  if (initFrame! + 1 >= gateFrame!) return undefined
-  return Math.max(0, drawnFrame! - gateFrame!)
+  if (initFrame! > gateFrame!) return undefined
+  return Math.max(0, drawnFrame! - gateFrame! + LEVEL_START_PASS_OFFSET)
 }
 
 /** The pass index to grade, or undefined when a field is missing or k is out of range. `gateFrame` is optional: without it every sprite takes the anchor rule. */

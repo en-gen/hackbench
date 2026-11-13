@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   gradedPass,
+  LEVEL_START_PASS_OFFSET as OFF,
   levelStartPass,
   MAX_GRADED_PASS,
   timelineFor,
@@ -83,35 +84,60 @@ describe('timelineFor (no ROM)', () => {
 })
 
 /**
- * #875: a level-start sprite (INIT before the gate) is counted from the first GM14 frame, `gateFrame`;
- * the frames before it are GM12/GM13 and not passes. The pass-0 offset is untraced (see gradeTimeline.ts).
- * Frame numbers are map 0C3 $49 (init 444, gate 488, anchor 518, drawn 519) and map 130 $76
- * (init 447, gate 503, anchor 518, drawn 552), the two rows #875 names.
+ * #875: a level-start sprite (INIT in GM12, `initFrame <= gateFrame`) is counted from `gateFrame`, the last GM13
+ * frame; the frames before it are not passes. The offset is `LEVEL_START_PASS_OFFSET` (see gradeTimeline.ts)
+ * and every expectation below is written against it. Frame numbers are map 0C3 $49
+ * (init 444, gate 488, anchor 518, drawn 519), map 130 $76 (init 447, gate 503, anchor 518, drawn 552) and
+ * map 0D0 $6F list index 29 (init 451, gate 495, anchor 526, drawn 557), the rows #875 and #1369 name.
  */
 describe('gradedPass with the gate frame (no ROM)', () => {
-  it('a level-start sprite is pass drawn - gate, not drawn - anchor', () => {
-    expect(gradedPass(444, 518, 519, 488)).toBe(31) // the anchor rule gives 1, before the pipe's first draw
-    expect(gradedPass(447, 518, 552, 503)).toBe(49) // the anchor rule gives 34
-    expect(levelStartPass(444, 488, 519)).toBe(31)
+  it.each([
+    ['0C3 $49', 444, 518, 519, 488, 31],
+    ['130 $76', 447, 518, 552, 503, 49],
+    ['0D0 $6F idx 29', 451, 526, 557, 495, 62],
+  ])('%s: pass drawn - gate, not drawn - anchor', (_n, init, anchor, drawn, gate, want) => {
+    expect(gradedPass(init, anchor, drawn, gate)).toBe(want + OFF)
+    expect(levelStartPass(init, gate, drawn)).toBe(want + OFF)
+    expect(gradedPass(init, anchor, drawn)).toBe(drawn - anchor) // the anchor rule: 1, 34, 31
   })
 
-  it('a level-start sprite drawn at or before the gate is pass 0, never out of range', () => {
+  it('a level-start sprite drawn at or before the gate is pass 0 (+ offset), never out of range', () => {
     expect(gradedPass(447, 518, 473, 503)).toBe(0) // the capture's incomplete first draw at 473, gate 503
     expect(gradedPass(447, 518, 502, 503)).toBe(0)
-    expect(gradedPass(447, 518, 503, 503)).toBe(0)
-    expect(gradedPass(447, 518, 504, 503)).toBe(1)
+    expect(gradedPass(447, 518, 503, 503)).toBe(OFF)
+    expect(gradedPass(447, 518, 504, 503)).toBe(1 + OFF)
   })
 
-  it('where the anchor is the gate both rules agree', () => {
-    expect(gradedPass(447, 492, 544, 492)).toBe(gradedPass(447, 492, 544)) // map 127 $16
+  it('where the anchor is the gate both rules agree up to the offset', () => {
+    expect(gradedPass(447, 492, 544, 492)).toBe(gradedPass(447, 492, 544) + OFF) // map 127 $16
   })
 
-  it('a sprite spawned after the gate keeps the anchor rule', () => {
-    expect(gradedPass(570, 518, 576, 488)).toBe(5) // init + 1 is past the anchor
-    expect(gradedPass(942, 992, 993, 500)).toBe(1) // spawned during a long hold: the anchor still starts it
-    expect(levelStartPass(570, 488, 576)).toBeUndefined()
-    expect(levelStartPass(487, 488, 519)).toBeUndefined() // init + 1 = gate: not level start
-    expect(levelStartPass(486, 488, 519)).toBe(31)
+  // The boundary, from the trace and not the data (no capture has an INIT within 3 frames of its gate): the
+  // loader's INIT is in GM12 (SMWDisX bank_05.asm:72) and GM13 runs no sprite code (bank_00.asm:4075-4103), so
+  // no INIT is stamped between GM12 and the gate frame G, the last GM13 frame: INIT at or before G is GM12's.
+  // From G + 1 on a sprite is spawned by GM14, its first MAIN the frame after INIT, and the anchor rule applies.
+  describe('spawn sweep around the gate (gate 500, anchor 530, drawn 560)', () => {
+    const [gate, anchor, drawn] = [500, 530, 560]
+    it('INIT at gate - 1 is level start: pass drawn - gate', () => {
+      expect(levelStartPass(gate - 1, gate, drawn)).toBe(60 + OFF)
+      expect(gradedPass(gate - 1, anchor, drawn, gate)).toBe(60 + OFF)
+    })
+    it('INIT at the gate frame is level start too: pass drawn - gate', () => {
+      expect(levelStartPass(gate, gate, drawn)).toBe(60 + OFF)
+      expect(gradedPass(gate, anchor, drawn, gate)).toBe(60 + OFF)
+    })
+    it('INIT at gate + 1 is spawned in play: the anchor rule', () => {
+      expect(levelStartPass(gate + 1, gate, drawn)).toBeUndefined()
+      expect(gradedPass(gate + 1, anchor, drawn, gate)).toBe(drawn - anchor)
+    })
+    it('INIT well before the gate (GM12) is level start', () => {
+      expect(levelStartPass(gate - 56, gate, drawn)).toBe(60 + OFF)
+    })
+    it('a sprite spawned in play after the anchor keeps the anchor rule, INIT + 1 deciding the start', () => {
+      expect(levelStartPass(570, 488, 576)).toBeUndefined()
+      expect(gradedPass(570, 518, 576, 488)).toBe(5)
+      expect(gradedPass(942, 992, 993, 500)).toBe(1) // spawned during a long hold: the anchor still starts it
+    })
   })
 
   it('without a gate frame the old rule stands', () => {
@@ -120,15 +146,21 @@ describe('gradedPass with the gate frame (no ROM)', () => {
   })
 
   it('an out-of-range level-start k falls back', () => {
-    expect(gradedPass(0, 500, 488 + MAX_GRADED_PASS + 1, 488)).toBeUndefined()
-    expect(gradedPass(0, 500, 488 + MAX_GRADED_PASS, 488)).toBe(MAX_GRADED_PASS)
+    expect(gradedPass(0, 500, 488 + MAX_GRADED_PASS - OFF + 1, 488)).toBeUndefined()
+    expect(gradedPass(0, 500, 488 + MAX_GRADED_PASS - OFF, 488)).toBe(MAX_GRADED_PASS)
   })
 
   it('timelineFor seeds the counters for the gate-based pass', () => {
-    const t = timelineFor({ initFrame: 444, drawnFrame: 519, trueFrame: 200, effFrame: 47 }, 518, { x: 24, y: 306 }, 488)
-    expect(t.k).toBe(31)
+    const t = timelineFor(
+      { initFrame: 444, drawnFrame: 519, trueFrame: 200, effFrame: 47 },
+      518,
+      { x: 24, y: 306 },
+      488,
+    )
+    const k = 31 + OFF
+    expect(t.k).toBe(k)
     expect(t.mainPasses).toBe(64)
-    expect(t.seedExtra).toEqual({ trueFrame: (200 - 1 - 31) & 0xff, effFrame: (47 - 1 - 31) & 0xff })
+    expect(t.seedExtra).toEqual({ trueFrame: (200 - 1 - k) & 0xff, effFrame: (47 - 1 - k) & 0xff })
   })
 })
 
@@ -148,9 +180,8 @@ describe('a sprite whose first draw is pass N grades at the pass the capture rec
     })),
   } as unknown as SpriteModel
 
-  it('drawn 31 frames after the gate is pass 31, which has drawn; the anchor rule graded pass 1, which has not', () => {
+  it('drawn 31 frames after the gate has drawn; the anchor rule graded pass 1, which has not', () => {
     const t = timelineFor({ initFrame: 444, drawnFrame: 519 }, 518, { x: 0, y: 0 }, 488)
-    expect(t.k).toBe(31)
     expect(grade({ ...model, chosen: t.k }, [[piece]]).verdict).toBe('exact')
     const old = timelineFor({ initFrame: 444, drawnFrame: 519 }, 518, { x: 0, y: 0 })
     expect(old.k).toBe(1)

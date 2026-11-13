@@ -10,8 +10,8 @@
  * Pairing: the capture's `entries[]` are the drawing at `drawnFrame`, the first
  * frame with every tile complete on screen (headless_capture.lua:1372,1401),
  * not the first OAM write. The target pass is `levelStartPass` for a level-start
- * sprite (counted from the first GM14 frame, `gateFrame`, #875; the pass-0 offset
- * is untraced, see gradeTimeline.ts) and `drawnFrame - firstRealFrame` for any
+ * sprite (INIT in GM12, counted from `gateFrame`, the last GM13 frame, #875: derivation in
+ * gradeTimeline.ts) and `drawnFrame - firstRealFrame` for any
  * other, where `firstRealFrame` is the first MAIN after INIT
  * (headless_capture.lua:1305-1311), the model's pass 0 (SpriteRunner.ts:509-524);
  * `chosen` (the first drawing pass) is not added. Before #875 every sprite used
