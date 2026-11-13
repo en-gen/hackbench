@@ -1375,29 +1375,31 @@ test('a map with no layer 3 disables the toggle and says why', async ({ page }) 
 })
 
 /**
- * $018 is mode 0E (BG3 alone on the main screen, BG1 and BG2 on the sub screen), where layer 3 would
- * add onto layers 1 and 2. Its layer 3 is camera-locked (settings byte $81 on tileset 13, #563), so it
- * is not drawn yet: this pins the gap. The add itself is covered by the synthetic mode 0E tests in
- * ColorMath.test.ts, until #563 draws the layer and a pixel-level check can replace this one.
+ * $018 is mode 0E (BG3 alone on the main screen, BG1 and BG2 on the sub screen), where layer 3 adds onto
+ * layers 1 and 2. Its layer 3 is camera-locked (settings byte $81 on tileset 13) and drawn world-locked like
+ * $011 since #805: the toggle is live, layer 3 has pixels, and flipping it changes the composite and restores it.
+ * The add itself is covered by the synthetic mode 0E tests in ColorMath.test.ts.
  */
-test('$018: layer 3 is camera-locked, so its toggle is disabled and says so', async ({ page }) => {
+test('$018: the camera-locked layer 3 is drawn, and its toggle changes the picture and restores it', async ({
+  page,
+}) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))
   await openMap(page, project.manifestPath, 0x018)
-  const locked = l3Toggle(page, 0x018)
-  await expect(locked).toBeDisabled()
-  await expect(locked).toHaveAttribute('aria-pressed', 'false')
-  await expect(locked).toHaveAttribute('title', 'Layer 3 not drawn yet: camera-locked layer 3')
+  const button = l3Toggle(page, 0x018)
+  await expect(button).toBeEnabled()
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  await expect(button).not.toHaveAttribute('title', /camera-locked/)
   // The plane lists still follow the mode: layers 1 and 2 on the sub screen, layer 3 alone on main,
   // and the sprites just under layer 1's priority plane (#564).
   expect(await zOrder(page, 0x018)).toEqual(['l2Low', 'l1Low', 'l2High', 'sprites', 'l1High', 'l3Low', 'l3High']) // prettier-ignore
-  // No layer 3 pixels at all.
-  expect(await findPixel(page, 0x018, 'a3 > 0')).toBeNull()
-  // A disabled toggle does nothing when forced: state and planes stay as they were.
-  await locked.click({ force: true })
-  await expect(locked).toHaveAttribute('aria-pressed', 'false')
-  expect(await findPixel(page, 0x018, 'a3 > 0')).toBeNull()
-  for (const plane of planeLocators(page, 0x018, 0, ['l2Low', 'l1Low', 'l2High', 'l1High']))
-    await expect(plane).toHaveCSS('visibility', 'visible')
+  expect(await findPixel(page, 0x018, 'a3 > 0')).not.toBeNull()
+  const on = (await readScreen(page, 0x018, 0)).checksum
+  await button.click()
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  expect((await readScreen(page, 0x018, 0)).checksum).not.toBe(on)
+  await button.click()
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  expect((await readScreen(page, 0x018, 0)).checksum).toBe(on)
 })
 
 /**

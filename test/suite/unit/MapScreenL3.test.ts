@@ -338,8 +338,8 @@ describe('buildL3Verdict: screens, math and the layer 2 role', () => {
     const r = buildL3Verdict(locked, 5, l1Of(0, 0, false), BG_OK, chars, GATE_OK, undefined, undefined, undefined, () => GATE_OK) // prettier-ignore
     expect(r.l3).not.toBeNull()
     expect(r.cgadsub! & 0x04).toBe(0x04)
-    const alone = buildL3Verdict(locked, 5, l1Of(BG3_ALONE_MODE, 0, false), BG_OK, chars, GATE_OK)
-    expect(alone.reason).toMatch(/camera-locked/)
+    const alone = buildL3Verdict(locked, 5, l1Of(BG3_ALONE_MODE, 0, false), BG_OK, chars, GATE_OK, undefined, undefined, undefined, () => GATE_OK) // prettier-ignore
+    expect(alone.l3?.worldLocked).toBeDefined()
     expect(alone.cgadsub! & 0x04).toBe(0x04)
   })
   it('settings byte $00 off tilesets 1 and 3 is camera-locked but BG3 is still cleared (CODE_00A01B)', () => {
@@ -368,9 +368,25 @@ describe('camera-locked layer 3 (synthetic settings bytes)', () => {
     }
   })
 
-  it('stays refused where BG3 is alone on the main screen (mode 0E, $018)', () => {
-    const v = buildL3Verdict(romFor(13, 0x81), 5, l1Of(BG3_ALONE_MODE, 13, false), BG_OK, chars, GATE_OK) // prettier-ignore
-    expect(v).toMatchObject({ l3: null, reason: 'Layer 3 not drawn yet: camera-locked layer 3' })
+  it('is drawn where BG3 is alone on the main screen (mode 0E, $018), added onto layers 1 and 2 (#805)', () => {
+    const rom = romFor(13, 0x81)
+    const verdict = (gate = () => GATE_OK) => buildL3Verdict(rom, 5, l1Of(BG3_ALONE_MODE, 13, false), BG_OK, chars, GATE_OK, undefined, undefined, undefined, gate) // prettier-ignore
+    const v = verdict()
+    expect(v.reason).toBeNull()
+    expect(v.l3).toMatchObject({ worldLocked: { camXPx: 0 } })
+    expect(v.l3?.yPx).toBe(v.l3?.camYPx) // Layer3YPos = Layer1YPos: row 24 sits at level Y 0
+    expect(v.screens).toEqual(screenPlanes(0x04, 0x03, false))
+    expect(v.cgadsub! & 0x04).toBe(0x04) // BG3 stays in the math (CODE_00A01F skips the clearing TRB)
+    // The wire carries the plane and the add: BG3 on the main screen, layers 1 and 2 on the sub screen.
+    const m: MapInputs = { ...inputs(hGrid(1), false, 1, 13), header: headerOf(BG3_ALONE_MODE, 13, false), l3: v } // prettier-ignore
+    const w = wireOf(m)
+    expect(w.planes.l3Low).not.toBeNull()
+    expect(w.math!.cgadsub & 0x04).toBe(0x04)
+    expect(w.screens.main).toEqual(['l3Low', 'l3High'])
+    // The camera code is still checked on this path: a hooked camera refuses, BG3 still in the math.
+    const hooked = verdict(() => ({ ok: false, reason: 'hooked' }))
+    expect(hooked.l3).toBeNull()
+    expect(hooked.cgadsub! & 0x04).toBe(0x04)
   })
 
   it('on Castle1 and Underground1 they are drawn at the fixed Y, $C0', () => {
@@ -537,13 +553,11 @@ describe('world-locked layer 3: byte $81 off Castle1 and Underground1 (synthetic
     expect(buildL3Verdict(romW(), 5, l1, BG_OK, chars, GATE_OK)).toMatchObject({ l3: null, reason: CAMERA_HOOKED }) // prettier-ignore
   })
 
-  it('draws where BG3 shares the main screen (BG1, BG2 or both) and refuses only where it is alone', () => {
-    for (const main of [0x05, 0x06, 0x07, 0x15]) {
+  it('draws whether BG3 shares the main screen (BG1, BG2 or both) or is alone on it (#805)', () => {
+    for (const main of [0x04, 0x05, 0x06, 0x07, 0x15]) {
       const layouts = sweepLayouts().map((l, m) => (m === BG3_ALONE_MODE ? { ...STANDARD, main } : l)) // prettier-ignore
       expect(verdictW(9, 544, BG3_ALONE_MODE, layouts).l3, `main ${main}`).not.toBeNull()
     }
-    const alone = sweepLayouts().map((l, m) => (m === BG3_ALONE_MODE ? { ...STANDARD, main: 0x04 } : l)) // prettier-ignore
-    expect(verdictW(9, 544, BG3_ALONE_MODE, alone).l3).toBeNull()
   })
 
   it('keeps BG3 in color math: the drawn pixel is blended with the sub screen like a tide', () => {
@@ -783,8 +797,7 @@ describe.skipIf(!hasRom(VANILLA))(
           expect([id, v.layer2Interactive]).toEqual([id, (vertical![mode]! & 0x80) !== 0])
           expect([id, v.cgadsub! & 0x04]).toEqual([id, locked ? cgadsub![mode]! & 0x04 : 0])
           expect([id, v.cgadsub! & ~0x04]).toEqual([id, cgadsub![mode]! & ~0x04])
-          const world = locked && (main![mode]! & 0x03) !== 0 // BG3 not alone on the main screen
-          expect([id, v.l3 !== null]).toEqual([id, setting > 0 && (!locked || world)])
+          expect([id, v.l3 !== null]).toEqual([id, setting > 0])
           if (v.l3?.worldLocked) worldLocked[id] = { y: v.l3.yPx, cam: v.l3.worldLocked.camXPx }
           if (setting === 0) seen.noLayer3++
           else if (locked) seen.locked++
@@ -796,17 +809,17 @@ describe.skipIf(!hasRom(VANILLA))(
       expect(seen.checked).toBeGreaterThan(400)
       expect(seen.drawn + seen.noLayer3 + seen.locked + seen.special).toBe(seen.checked)
       expect(seen.drawn).toBeGreaterThan(0)
-      // Named maps (vanilla, 2026-10-05 probe): $009, $0E7 and $1CE draw; $018 is camera-locked,
+      // Named maps (vanilla, 2026-10-05 probe): $009, $0E7, $1CE and, since #805, $018 draw;
       // $10E and $1BD have no layer 3.
-      for (const id of [0x009, 0x0e7, 0x1ce]) expect([id, drew[id]]).toEqual([id, true])
-      for (const id of [0x018, 0x10e, 0x1bd]) expect([id, drew[id]]).toEqual([id, false])
-      // #563: exactly these three newly draw, at Layer3YPos $C0 (= Layer1YPos, the CODE_05BE8A copy); $018 stays out.
+      for (const id of [0x009, 0x0e7, 0x1ce, 0x018]) expect([id, drew[id]]).toEqual([id, true])
+      for (const id of [0x10e, 0x1bd]) expect([id, drew[id]]).toEqual([id, false])
+      // #563, #805: exactly these four draw world-locked; $018's Layer3YPos is its camera Y, not $C0.
       expect(
         Object.keys(worldLocked)
           .map(Number)
           .sort((a, b) => a - b),
-      ).toEqual([0x011, 0x130, 0x1c1])
-      expect(Object.values(worldLocked).map(w => w.y)).toEqual([0xc0, 0xc0, 0xc0])
+      ).toEqual([0x011, 0x018, 0x130, 0x1c1])
+      expect(Object.values(worldLocked).map(w => w.y)).toEqual([0xc0, 0, 0xc0, 0xc0])
       console.log('layer 3 corpus sweep', JSON.stringify(seen))
     }, 60_000)
   },
