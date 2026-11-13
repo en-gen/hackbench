@@ -71,6 +71,10 @@ export function objectsDir(projectDir: string): string {
   return metaFolder(projectDir, OBJECTS_FOLDER)
 }
 
+function isUsableId(id: string): boolean {
+  return id.length <= OBJECT_ID_MAX_LENGTH && ID_PATTERN.test(id)
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -107,7 +111,7 @@ function validate(
       : `The file's version (${String(raw.version)}) is not one this HackBench knows.`
   }
   const { id, name, tileset } = raw
-  if (typeof id !== 'string' || id.length > OBJECT_ID_MAX_LENGTH || !ID_PATTERN.test(id)) {
+  if (typeof id !== 'string' || !isUsableId(id)) {
     return 'The file has no usable id.'
   }
   if (id !== stem) return `The id "${id}" does not match the file name.`
@@ -233,7 +237,7 @@ export function saveObjectDefinition(
 ): ObjectWriteResult {
   const dir = objectsDir(projectDir)
   const id = draft.id ?? newId(dir)
-  if (!ID_PATTERN.test(id) || id.length > OBJECT_ID_MAX_LENGTH) {
+  if (!isUsableId(id)) {
     return { status: 'invalid', reason: 'That is not a usable Object id.' }
   }
   const v = validate({ ...draft, version: 1, id, name: draft.name.trim() }, id, limits)
@@ -261,7 +265,7 @@ export function renameObjectDefinition(
   id: string,
   name: string,
 ): ObjectWriteResult {
-  if (!ID_PATTERN.test(id) || id.length > OBJECT_ID_MAX_LENGTH) {
+  if (!isUsableId(id)) {
     return { status: 'invalid', reason: 'That is not a usable Object id.' }
   }
   if (name.trim() === '') return { status: 'invalid', reason: 'An Object needs a name.' }
@@ -280,7 +284,7 @@ export function renameObjectDefinition(
 
 /** Removes the one file, readable or not; nothing else is touched. */
 export function deleteObjectDefinition(projectDir: string, id: string): ObjectDeleteResult {
-  if (!ID_PATTERN.test(id) || id.length > OBJECT_ID_MAX_LENGTH) {
+  if (!isUsableId(id)) {
     return { status: 'invalid', reason: 'That is not a usable Object id.' }
   }
   const file = path.join(objectsDir(projectDir), `${id}.json`)

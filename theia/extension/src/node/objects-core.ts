@@ -24,10 +24,10 @@ import {
   ObjectWriteResultDto,
 } from '../common/objects-protocol'
 
+type OkWorkingRom = { status: 'ok' } & Parameters<typeof romFileOf>[0]
+
 /** What a definition is checked against, from the working copy's own Map16. */
-export function limitsOfWorkingCopy(
-  r: { status: 'ok' } & Parameters<typeof romFileOf>[0],
-): ObjectLimits {
+export function limitsOfWorkingCopy(r: OkWorkingRom): ObjectLimits {
   const capacity = map16TileCapacity(romFileOf(r))
   return 'reason' in capacity
     ? { tilesetCount: TILESET_COUNT, tileCount: 0, unavailable: capacity.reason }
@@ -38,9 +38,7 @@ export class ObjectsCore {
   constructor(
     private readonly workingRoms: WorkingRomRegistry,
     /** Replaceable so a test can use a synthetic ROM that has no readable Map16. */
-    private readonly limitsOf: (
-      r: { status: 'ok' } & Parameters<typeof romFileOf>[0],
-    ) => ObjectLimits = limitsOfWorkingCopy,
+    private readonly limitsOf: (r: OkWorkingRom) => ObjectLimits = limitsOfWorkingCopy,
   ) {}
 
   list(manifestPath: string): ListObjectsResult {
