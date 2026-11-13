@@ -39,6 +39,7 @@ import {
   OWNER_NONE,
   SWITCH_FLAGS_UNCLEARED,
   type OwnerGrid,
+  type Footprint,
   SWITCH_BLOCK_ORDER,
   type SwitchFlags,
   type TileGrid,
@@ -560,7 +561,7 @@ export function seedFromGrid(grid: TileGrid): (addr: number) => number | undefin
 /**
  * Apply writes to a horizontal-level grid the way cursor.ts's writeTile
  * stores a tile: (high byte << 8) | low byte, rows growing up to $200 columns.
- * With `owners`, each cell written is recorded as drawn by `owner`. Returns how many writes fell
+ * With `owners`, each cell written is recorded as drawn by `owner`; `footprint` also keeps every write (#1237). Returns how many writes fell
  * outside the buffer and were not stored, so the caller can mark the object (#1034).
  */
 export function applyWrites(
@@ -568,6 +569,7 @@ export function applyWrites(
   writes: readonly BufferWrite[],
   owners: OwnerGrid | null = null,
   owner: number = OWNER_NONE,
+  footprint: Footprint | null = null,
 ): number {
   let dropped = 0
   for (const { addr, value } of writes) {
@@ -580,6 +582,7 @@ export function applyWrites(
     while (row.length < c.col) row.push(TILE_EMPTY)
     const cell = row[c.col] ?? TILE_EMPTY
     row[c.col] = c.high ? (value << 8) | (cell & 0xff) : (cell & ~0xff) | value
+    footprint?.push({ owner, row: c.row, col: c.col, tile: row[c.col]! })
     const orow = owners?.[c.row]
     if (orow) {
       while (orow.length < c.col) orow.push(OWNER_NONE)

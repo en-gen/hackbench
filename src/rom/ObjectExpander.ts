@@ -21,6 +21,7 @@ import {
   MAP16_BYTES_PER_SCREEN_H,
   OWNER_NONE,
   OwnerGrid,
+  type Footprint,
   SWITCH_FLAGS_UNCLEARED,
   SwitchFlags,
   Refusal,
@@ -57,7 +58,7 @@ export function readLayer3Setting(rom: RomFile, levelNum: number): number {
   return (byte & 0xc0) >> 6
 }
 
-export type { TileGrid, OwnerGrid, SwitchFlags, Refusal } from './objectHandlers/cursor'
+export type { TileGrid, OwnerGrid, SwitchFlags, Refusal, Footprint } from './objectHandlers/cursor'
 export { OWNER_NONE, SWITCH_FLAGS_UNCLEARED, SWITCH_FLAGS_CLEARED } from './objectHandlers/cursor'
 
 const MAP16_OW_L1_VRAM_BUFFER_OFFSET = 0x1c00 // OWLayer1VramBuffer − Map16TilesLow
@@ -144,6 +145,7 @@ export function expandObject(
   draw: InterpretedDraw | null = null,
   vertical = false,
   refusals: Refusal[] | null = null,
+  footprint: Footprint | null = null,
 ): void {
   if (obj.type === 'extended') {
     // For extended objects, LevelParser stores the extended type in `objectNumber`
@@ -164,6 +166,7 @@ export function expandObject(
     )
     cur.draw = draw
     cur.refusals = refusals
+    cur.footprint = footprint
     dispatchExtended(cur)
   } else {
     const cur = makeCursor(
@@ -181,6 +184,7 @@ export function expandObject(
     )
     cur.draw = draw
     cur.refusals = refusals
+    cur.footprint = footprint
     dispatchStandard(cur)
   }
 }
@@ -306,6 +310,7 @@ export function expandMapOwned(
   levelNum: number | undefined,
   switchFlags: SwitchFlags,
   sink: InterpretedSink | null,
+  footprint: Footprint | null = null,
 ): ExpandedMap {
   // Boss-arena modes override the header screen count.
   const effectiveScreens = levelMode === 9 || levelMode === 11 ? BOSS_ARENA_SCREENS : screens
@@ -332,7 +337,19 @@ export function expandMapOwned(
       draw: sink.draw,
       primitives: sink.primitives,
     }
-    expandObject(grid, objects[i], rom, tileset, owners, i, switchFlags, draw, isVertical, refusals)
+    expandObject(
+      grid,
+      objects[i],
+      rom,
+      tileset,
+      owners,
+      i,
+      switchFlags,
+      draw,
+      isVertical,
+      refusals,
+      footprint,
+    )
     if (!sink) continue
     for (const line of notes) {
       if (!sink.unverified.includes(line)) sink.unverified.push(line)

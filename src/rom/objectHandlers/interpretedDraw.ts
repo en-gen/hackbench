@@ -62,6 +62,7 @@ export function drawInterpreted(cur: Cursor, handler: number, ctx: InterpretedDr
   if (reached === undefined) return note('the run reached no dispatch')
   if (mirror(reached) !== mirror(handler) && mirror(reached) !== mirror(inBank(handler)))
     return note(`the ROM's dispatch reaches ${formatAddr(reached)}`)
-  if (applyWrites(cur.grid, r.writes, cur.owners, cur.owner) > 0) refuseOffBuffer(cur)
+  if (applyWrites(cur.grid, r.writes, cur.owners, cur.owner, cur.footprint) > 0)
+    refuseOffBuffer(cur)
   return true
 }

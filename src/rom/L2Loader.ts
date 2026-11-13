@@ -116,8 +116,8 @@ const MODES_WITHOUT_L2_OBJECTS: readonly number[] = [0x00, 0x09, 0x0a, 0x0b, 0x0
 // The first instruction after the L2-pointer bank load in CODE_05801E is CMP #$FF (bank_05.asm:33);
 // Lunar Magic replaces it with a JML to its per-level background check. Only the opcode is compared
 // (not a byte run), so any other byte there counts as a hijack.
-const L2_PRESET_CMP_SITE = 0x05803b
-const OPCODE_CMP_IMM = 0xc9
+export const L2_PRESET_CMP_SITE = 0x05803b
+export const OPCODE_CMP_IMM = 0xc9
 
 // LoadLevel's two mode-compare chains (bank_05.asm:431-437 and 444-457): LDA.W LevelModeSetting,
 // then CMP #mode / BEQ LoadLevelDone pairs. The second starts 28 bytes after the first (the Layer 1

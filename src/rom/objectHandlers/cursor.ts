@@ -66,6 +66,20 @@ export type TileGrid = number[][]
 export type OwnerGrid = number[][]
 
 /**
+ * One tile a stored piece wrote, overwritten cells included (the owner grid keeps only the last
+ * writer). Collected only when a caller asks (#1237): the draw path pays nothing without a collector.
+ * `tile` is the cell's whole value after the write, so a low-byte write that a later high-byte write
+ * completes appears twice; the last entry per (owner, row, col) is the piece's tile there.
+ */
+export interface FootprintCell {
+  owner: number
+  row: number
+  col: number
+  tile: number
+}
+export type Footprint = FootprintCell[]
+
+/**
  * An object the expander could not draw (#301). `handler` is the SNES address
  * the ROM's own dispatch table names, mirrored to the bank $0D-style form the
  * handler maps use (0 for an empty entry), so a reader can tell a hack's
@@ -157,6 +171,8 @@ export interface Cursor {
    * writeTile, so that one function is the entire mechanism.
    */
   owners: OwnerGrid | null
+  /** Where each write is also recorded, per stored piece, or null/unset when nobody asked (#1237). */
+  footprint?: Footprint | null
   /** Index into the level's object stream of the object being expanded. */
   owner: number
   /** Switch-palace state the switch-block handlers gate on (#567). */
@@ -345,6 +361,12 @@ export function writeTile(cur: Cursor, lowByte: number): void {
  * object really did draw, and the click on it would select nothing.
  */
 function claimCell(cur: Cursor, at: { row: number; col: number }): void {
+  cur.footprint?.push({
+    owner: cur.owner,
+    row: at.row,
+    col: at.col,
+    tile: cur.grid[at.row]![at.col]!,
+  })
   const orow = cur.owners?.[at.row]
   if (!orow) return
   while (orow.length < at.col) orow.push(OWNER_NONE)
