@@ -20,7 +20,7 @@ Proposed, not ruled:
 - The "Add screen" outline fills the gutter where the layout puts it, after any off-map content band, not directly after the line. [PROP]
 - Its tooltip reads "Add screen is not available yet". [PROP]
 - On a 32-screen map (no gutter) the line is drawn inset, its outer side on the map edge, so all 5 px sit inside the strip rather than overflowing it. [PROP]
-- The end line stacks above the grid canvas (z-index 1001 over 1000), so the grid's 5 px screen-boundary line on the far edge does not dim it: it marks where the map ends and reads the same with the grid on or off. Approved by the BA (verifier finding on #1296). [PROP]
+- The end line stacks above the grid canvas (z-index 1001 over 1000), so the grid's 5 px screen-boundary line on the far edge does not dim it: it marks where the map ends and reads the same with the grid on or off. Proceeding on Overwatch's OK, 2026-11-13. [PROP]
 
 ## Why
 
