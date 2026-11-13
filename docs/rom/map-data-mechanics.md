@@ -562,11 +562,17 @@ and $1FC, all horizontal and all starting Mario at X 16, so the load camera X is
   Layer 1's speed. State 0 sets the sprite X to $FF80 plus a random 0-63 at the start of every smash
   cycle (bank_02.asm:11147-11166; state 4 returns to it), so each cycle the panel restarts 65-128 px
   right of the screen's left edge, and it pins at $100 only if the camera moves about 321-384 px
-  within one cycle. Over time it follows the camera. The very first frame uses the map's sprite X
-  instead (the sprite's X and Y in the map's data), which is $100 on $01F and $1FC (a blank screen: BG3 columns 32-63 are empty).
+  within one cycle. Over time it follows the camera. The very first frame shows the map's placed
+  sprite X instead: $100 on $01F (a blank screen: BG3 columns 32-63 are empty) and $70 on $1D4 (capture
+  frame 0, layers_v5, one machine; BG3HOFS reads -104 on both by frame 8). $1FC has no capture; its
+  first-frame X comes from the map data only.
 - **Y.** $A0 minus the sprite's Y, plus the shake offset. The camera is not in it, so on screen the
   layer keeps its place vertically (the sprite's Y animates between 0 and $A0 as the smasher falls
-  and rises). Before the sprite is loaded, Y is $D0 (bank_00.asm:4192-4195).
+  and rises). Before the sprite is loaded, Y is $D0 (bank_00.asm:4192-4195). By capture
+  frame 0 the write has already happened: $24 is $A0 on $01F and $1D4 (#1065, layers_v5, one machine).
+  `loadLevelState` ends prep at $D0 on these maps by design; the map view takes this first-frame Y and
+  the landing X instead (`test/suite/unit/L3SmashCapture.corpus.test.ts` binds Y to frame 0 $24, X to
+  frame 8 BG3HOFS, and the BG3 tilemap to frame 0).
 - **No despawn.** The routine has no off-screen check; only SpriteWillAppear erases it
   (bank_02.asm:11148-11150).
 - **Not #563.** The $81 camera-locked case runs CODE_05C40C: Y = Layer1YPos, X adds the camera

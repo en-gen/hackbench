@@ -197,7 +197,7 @@ byte: bit 7 clear is a tide (`$00`/`$01` start at Y `$70`, `$02`-`$7F` at
 `$C0` on Castle1 and Underground1 (`CODE_009FFA`) and **camera-locked** on every
 other tileset, which branches to `CODE_00A01F` without writing a Y
 (`bank_00.asm:4174`). The gate is that ASM condition (`l3LoadTimeY`), not the
-loader's older `=== 0x81`; camera-locked maps are skipped (#563). A tile row R
+loader's older `=== 0x81`; a camera-locked map is drawn world-locked on `$011`, `$130` and `$1C1` (#1089, docs/rom/layer3-world-locked.md), and only `$018` (mode 0E) stays refused. A tile row R
 is at level Y `R*8 - Layer3YPos + Layer1YPos`; a tide repeats every 256 px over
 columns 0-31 and its second copy of the tilemap is not drawn; the status-bar
 rows 0-7 are not drawn. `L3Loader.l3InitialYPx` disagrees with the ASM for
@@ -230,11 +230,13 @@ so layer 3 palette 3 and any layer 1 or 2 pixel using those colors show it.
 
 **Measured, one ROM.** Over the vanilla ROM's 512 slot ids that have level
 data (one machine, `buildL3Verdict` against a straight decode, with an empty
-palette and no vertical flag): layer 3 is drawn on 22, skipped as camera-locked
-on 4 (`$011 $018 $130 $1C1`), refused as a Mode 7 room on 24, and 462 have no
-layer 3. `$009`, `$0E7` and `$1CE` draw; `$018` (mode 0E) is camera-locked, so
-the additive layer 3 over layers 1 and 2 shows only once #563 draws it. "No
-layer 3" is reported before the Mode 7 reason. The corpus sweep in
+palette and no vertical flag; a scratch sweep of `buildL3Verdict` tallied by reason, Mode 7 taken
+from the mode's `special` table, not committed): layer 3 is drawn on 25 (the earlier 22 plus the
+world-locked `$011 $130 $1C1`, #1089), refused as camera-locked on 1 (`$018`), in a Mode 7 room on
+24, and 462 have no layer 3. `$009`, `$0E7` and `$1CE` draw; `$018` (mode 0E) is the one
+camera-locked map still refused, since its additive layer 3 over layers 1 and 2 is not verified
+(docs/rom/layer3-world-locked.md). The 24 Mode 7 rooms also have no layer 3 setting, so their verdict
+reason reads "no layer 3": the reason is reported before the Mode 7 one, the tally above is not. The corpus sweep in
 `test/suite/unit/MapScreenL3.test.ts` compares every slot's priority bit, plane
 lists, CGADSUB and draw decision with a straight decode of the header and the
 tables.
