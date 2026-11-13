@@ -264,8 +264,8 @@ export interface SpriteModel {
   neighbourRun?: 'adopted' | 'same' | 'refused'
   /** Set by the reveal search (RevealSearch.ts): this condition made the sprite draw, or `none-found` for one that drew at rest, hides under a probe and none reveals. */
   reveal?: RevealCondition
-  /** Set with `reveal` (#1365), report only: `samePicture` when the revealing run drew the at-rest picture, `sameAsRest` the later conditions skipped for repeating it. */
-  revealAudit?: { samePicture: boolean; sameAsRest: RevealCondition[] }
+  /** Set by the reveal search for a sprite that drew at rest (#1365), report only: the conditions skipped for repeating the at-rest picture. */
+  revealAudit?: { sameAsRest: RevealCondition[] }
 }
 
 /**

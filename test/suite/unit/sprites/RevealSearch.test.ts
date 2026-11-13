@@ -10,7 +10,11 @@ import {
   MORE_FRAMES,
   type RevealResult,
 } from '../../../../src/rom/sprites/interp/RevealSearch'
-import { runOnce, type SpriteModel } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import {
+  runOnce,
+  type SpriteModel,
+  type SpritePart,
+} from '../../../../src/rom/sprites/interp/SpriteRunner'
 import {
   withSeed,
   type SeedOverride,
@@ -129,7 +133,12 @@ describe('the low byte of the distance (the mole)', () => {
     // Real Mario on the sprite: the real-start run draws, so only a probe can say it is hidden.
     const first = runOnce(rom, 152, seedAt(x, x), { atRest: true })
     expect(drew(first)).toBe(true)
-    expect(search(152, x, x).result.status).toBe('hidden')
+    // Hidden (not 'visible'), but every Mario position that draws it draws the at-rest picture again, so no
+    // condition is a reveal (#1365 acceptance 3, all six): the at-rest picture stands, `none-found` on the map.
+    const r = search(152, x, x).result
+    expect(r.status).toBe('unrevealed')
+    expect(r).toMatchObject({ drewAtRest: true })
+    expect(r.status === 'unrevealed' && r.sameAsRest).toContain('mario-at-sprite')
   })
 
   it('control: probes of the whole distance alone (0 and 256) miss it, which is why the low byte is stepped', () => {
@@ -273,7 +282,8 @@ describe('a refused run is not searched', () => {
 describe('Mario reaches the sprite through every cell the probes move', () => {
   it('Next X ($94): a sprite that reads only it is probed and found hidden, and shown by Mario at it', () => {
     // Real Mario on the sprite: it draws at rest. Tracked, the run read $94 and no other probed cell.
-    expect(condition(search(159, SX, SX, {}, true).result)).toBe('mario-at-sprite')
+    // Hidden (not 'visible'); Mario at it draws the at-rest picture again, so no reveal (#1365).
+    expect(search(159, SX, SX, {}, true).result).toMatchObject({ status: 'unrevealed', drewAtRest: true }) // prettier-ignore
     // Control: a start away from it is blank at rest and the same probe finds it.
     expect(condition(search(159, SX, 0x80, {}, true).result)).toBe('mario-at-sprite')
   })
@@ -300,9 +310,10 @@ describe('Mario reaches the sprite through every cell the probes move', () => {
 describe('the distances (D142)', () => {
   it('a sprite with a 256 px reach is found hidden by the far probes alone (low byte $80 each side)', () => {
     // Id 164 draws while Mario shares its X high byte: every probe within $E0 draws it, $180 either side does not.
-    expect(condition(search(164, SX, SX).result)).toBe('mario-at-sprite')
+    // Neither is 'visible' (the far probes found them hidden); the picture with Mario near is the at-rest one (#1365).
+    expect(search(164, SX, SX).result).toMatchObject({ status: 'unrevealed', drewAtRest: true })
     // Id 170 is blank only when Mario high byte is below its own: the -$180 probe is the one that sees it.
-    expect(search(170, SX, SX).result.status).toBe('hidden')
+    expect(search(170, SX, SX).result).toMatchObject({ status: 'unrevealed', drewAtRest: true })
   })
 
   it('does not put Mario left of the map: at x=16 the -$180 probe is clamped, so no false hiding', () => {
@@ -318,10 +329,11 @@ describe('the distances (D142)', () => {
       // The camera follows the row, so the entry is never at the $F0 the game keeps for "not drawn".
       const camera = { x: SX - 128, y: y - 0x40 }
       const r = search(165, SX, marioX, { sprite: { x: SX, y }, camera }).result
-      if (r.status !== 'hidden') missed.push(low)
+      if (r.status === 'visible') missed.push(low)
     }
     expect(missed).toEqual([])
-    // 256 whole searches; a sprite that drew at rest now also runs the three real-Mario reruns (#1365), so the 5 s default is tight.
+    // 256 whole searches: already marginal on develop (4932 ms passed, 5078 ms timed out at the 5 s default on the base), and a
+    // sprite that drew at rest now also runs the three real-Mario reruns (#1365), so it takes a timeout of its own.
   }, 30_000)
 
   it('control: take one step away and some 32 wide window holds no probe', () => {
@@ -421,8 +433,8 @@ describe('which pass the revealed model points at', () => {
   })
 })
 
-describe('a sprite that drew at rest gets all six conditions (#1365, D199 B)', () => {
-  /** Real Mario $40 px right of the sprite: the only place ids 176-178 draw without a switch. */
+describe('a sprite that drew at rest gets all six conditions (#1365, D192 question 2, ruled 199B)', () => {
+  /** Real Mario $40 px right of the sprite: the only place ids 176-179 draw without a switch. */
   const atRest = (id: number, extra: SeedOverride = {}) => search(id, SX, SX + 0x40, extra)
   const tile = (r: RevealResult) => firstPart(picked(r)).char
 
@@ -432,7 +444,7 @@ describe('a sprite that drew at rest gets all six conditions (#1365, D199 B)', (
     // The picture is the switch's ($32), not the at-rest one ($24).
     expect(tile(result)).toBe(0x32)
     // The more-frames rerun keeps the real Mario, repeats the at-rest picture, and is recorded, not counted.
-    expect(result.status === 'hidden' && result.sameAsRest).toEqual(['more-frames'])
+    expect(picked(result).revealAudit).toEqual({ sameAsRest: ['more-frames'] })
   })
 
   it('finds the ON/OFF case the same way', () => {
@@ -445,17 +457,28 @@ describe('a sprite that drew at rest gets all six conditions (#1365, D199 B)', (
   })
 
   it('does not count a "reveal" that repeats the at-rest picture, and lists it', () => {
-    const { result } = atRest(178)
-    expect(result).toEqual({
+    expect(atRest(178).result).toEqual({
       status: 'unrevealed',
       drewAtRest: true,
       sameAsRest: ['more-frames', 'p-switch', 'on-off'],
     })
   })
 
-  it('control: a sprite that never drew at rest lists nothing, and Mario-position reveals are unchanged', () => {
-    const r = search(150).result
-    expect(r.status === 'hidden' && r.sameAsRest).toEqual([])
+  it('the same rule holds for the Mario positions: a mole that looks the same near Mario is no reveal', () => {
+    // Id 156 draws only $40 right of it, so the Mario reruns draw nothing; id 152 draws in most places.
+    const r = search(152, SX, SX).result
+    expect(r.status === 'unrevealed' && r.sameAsRest).toEqual(['mario-at-sprite', 'mario-left', 'mario-right', 'more-frames', 'p-switch', 'on-off']) // prettier-ignore
+  })
+
+  it('control: a Mario position that draws a DIFFERENT picture than at rest is a reveal (id 179)', () => {
+    const { result } = atRest(179)
+    expect(condition(result)).toBe('mario-at-sprite')
+    expect(tile(result)).toBe(0x32)
+    expect(picked(result).revealAudit).toEqual({ sameAsRest: [] })
+  })
+
+  it('control: a sprite that never drew at rest has no audit, and reveals as before', () => {
+    expect(picked(search(150).result).revealAudit).toBeUndefined()
     expect(condition(search(140).result)).toBe('mario-at-sprite')
   })
 
@@ -466,19 +489,92 @@ describe('a sprite that drew at rest gets all six conditions (#1365, D199 B)', (
   })
 })
 
-describe('a Mario-position reveal that repeats the at-rest picture still counts ([PROP] #1365)', () => {
-  it('id 170 draws the same piece at rest and with Mario at it: revealed, flagged samePicture, not in sameAsRest', () => {
-    const r = search(170, SX, SX).result
-    expect(r.status).toBe('hidden')
-    if (r.status !== 'hidden') return
-    expect(r.condition).toBe('mario-at-sprite')
-    expect(r.samePicture).toBe(true)
-    expect(r.sameAsRest).toEqual([])
-    expect(r.model.revealAudit).toEqual({ samePicture: true, sameAsRest: [] })
+describe('what counts as the same picture (#1365 acceptance 3)', () => {
+  type Part = Partial<SpritePart>
+  const part = (o: Part = {}): SpritePart => ({ oam: 0, char: 0x24, size: 16, palette: 8, priority: 2, flipX: false, flipY: false, dx: 0, dy: 0, attr: 0, ox: 0, oy: 0, ...o }) as SpritePart // prettier-ignore
+  interface Look {
+    parts?: Part[]
+    companions?: Part[]
+    uploads?: string[]
+    palette?: { index: number; bgr555: number }[]
+    /** A leading pass that draws something else, so the picked pass is not pass 0. */
+    lead?: Part[]
+  }
+  /** A hand-built run: one drawn pass (after `lead` passes that draw something else), `chosen` on it. */
+  const look = (o: Look = {}): SpriteModel => {
+    const pass = (parts: Part[], x: Look = {}) => ({ parts: parts.map(part), companions: (x.companions ?? []).map(part), uploads: x.uploads ?? [], palette: x.palette ?? [] }) // prettier-ignore
+    const passes = [...(o.lead ? [pass(o.lead)] : []), pass(o.parts ?? [{}], o)]
+    return { passes, chosen: passes.length - 1 } as unknown as SpriteModel
+  }
+  /** What the search makes of a rerun that looks like `b` against a start that looked like `a`. */
+  const verdict = (a: Look, b: Look, extra: Parameters<typeof findReveal>[3] = {}) => {
+    const [first, again] = [look(a), look(b)]
+    // Blank under every probe (so the sprite is hidden), `again` under the search's reruns.
+    const blank = { passes: [{ parts: [], uploads: [], palette: [] }] } as unknown as SpriteModel
+    return findReveal(seedAt(SX, SX), first, (_q, probe) => (probe ? blank : again), extra).status
+  }
+
+  it('equal pictures are no reveal', () => {
+    expect(verdict({}, {})).toBe('unrevealed')
   })
 
-  it('control: id 176 is revealed by a different picture, so samePicture is false', () => {
-    const r = search(176, SX, SX + 0x40).result
-    expect(r.status === 'hidden' && r.samePicture).toBe(false)
+  it.each([
+    ['tile', { char: 0x26 }],
+    ['palette row', { palette: 9 }],
+    ['X flip', { flipX: true }],
+    ['Y flip', { flipY: true }],
+    ['X offset', { dx: 8 }],
+    ['Y offset', { dy: 8 }],
+    ['size', { size: 8 }],
+    ['priority', { priority: 3 }],
+    ['door tag', { door: true }],
+  ] as [string, Part][])('a different %s is a reveal', (_n, diff) => {
+    expect(verdict({}, { parts: [diff] })).toBe('hidden')
+  })
+
+  it('a different pass, companion, upload, palette write or caller key is a reveal', () => {
+    expect(verdict({}, { companions: [{ char: 0x30 }] })).toBe('hidden')
+    expect(verdict({}, { uploads: ['palette'] })).toBe('hidden')
+    expect(verdict({}, { palette: [{ index: 130, bgr555: 5 }] })).toBe('hidden')
+    let n = 0
+    expect(verdict({}, {}, { extraKey: () => String(n++) })).toBe('hidden')
+  })
+
+  it('the same pieces in other OAM slots, in any order, are the same picture', () => {
+    const [a, b] = [
+      { oam: 3, dx: 0 },
+      { oam: 7, dx: 16 },
+    ]
+    expect(verdict({ parts: [a, b] }, { parts: [{ ...b, oam: 1 }, { ...a, oam: 2 }] })).toBe('unrevealed') // prettier-ignore
+    // Control: the pieces swapped between places are another picture.
+    expect(verdict({ parts: [a, b] }, { parts: [{ ...a, dx: 16 }, { ...b, dx: 0, char: 0x26 }] })).toBe('hidden') // prettier-ignore
+  })
+
+  it('compares the pass the map draws (the run pick), not the first pass, nor the first with an own tile', () => {
+    // Both runs draw the same thing on pass 0 and different things on the picked pass 1.
+    expect(verdict({ lead: [{}], parts: [{ char: 0x30 }] }, { lead: [{}], parts: [{ char: 0x32 }] })).toBe('hidden') // prettier-ignore
+    // Control: different lead passes, the same picked pass: the same picture.
+    expect(verdict({ lead: [{ char: 0x40 }], parts: [{}] }, { lead: [{ char: 0x42 }], parts: [{}] })).toBe('unrevealed') // prettier-ignore
+  })
+
+  it('a rerun that is not comparable with the start (the rope) counts as a reveal, as before', () => {
+    expect(verdict({}, {}, { comparable: false })).toBe('hidden')
+  })
+})
+
+describe('a refused search rerun for a sprite that drew at rest', () => {
+  it('keeps the at-rest picture and carries the reason on the result', () => {
+    const seed = seedAt(SX, SX + 0x40)
+    const first = runOnce(rom, 156, seed, { atRest: true })
+    const run = (q: SpriteSeed, probe: boolean): SpriteModel => {
+      const m = runOnce(rom, 156, q, { atRest: true, stopAtDraw: probe })
+      return q.mainPasses === MORE_FRAMES ? { ...m, refusal: 'a rerun the interpreter refused' } : m
+    }
+    expect(findReveal(seed, first, run)).toEqual({
+      status: 'unrevealed',
+      drewAtRest: true,
+      sameAsRest: ['p-switch', 'on-off'],
+      refusal: 'a rerun the interpreter refused',
+    })
   })
 })

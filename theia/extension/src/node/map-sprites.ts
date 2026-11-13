@@ -1005,10 +1005,20 @@ export function interpRunner(
     // Hidden sprites take their picture from the search, whatever the at-rest run drew (a mole drawn from where Mario starts).
     if (reveal) {
       let won = seed(camera, { opening }) // the last whole rerun is the winning condition's seed
-      const rv = findReveal(seed(camera, { opening }), m, (q, probe) => {
-        if (!probe) won = q
-        return run(rom, s.spriteId, q, { stopAtDraw: probe })
-      })
+      // The rope's at-rest run sits in the slot the loader gives it and its reruns in slot 0, so their pictures differ in
+      // length, not in what shows: no same-as-rest comparison for it (RevealOptions.comparable; 12 vanilla ropes, none hidden).
+      // The graphics slots a pass pointed at are part of what the map draws (#980), so they are part of the picture.
+      const slots = (r: BaseModel, pass: number) =>
+        JSON.stringify((r as RunModel).uploads?.[pass] ?? [])
+      const rv = findReveal(
+        seed(camera, { opening }),
+        m,
+        (q, probe) => {
+          if (!probe) won = q
+          return run(rom, s.spriteId, q, { stopAtDraw: probe })
+        },
+        { extraKey: slots, comparable: !rope },
+      )
       if (rv.status === 'hidden') {
         const mark = scans(rv.model.scansSlots, won) ? NEIGHBOUR_EXTRA_BIT_REASON : undefined
         return { m: { ...rv.model, unverifiedReason: joinReasons(rv.model.unverifiedReason, atRestReason, mark) }, fixed: false } // prettier-ignore
@@ -1016,7 +1026,7 @@ export function interpRunner(
       if (rv.status === 'refused') return { m: { ...m, chosen: undefined, refusal: rv.reason }, fixed: false } // prettier-ignore
       // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.
       if (rv.status === 'unrevealed' && rv.drewAtRest)
-        return { m: { ...m, chosen: drawnPass(m), reveal: 'none-found', revealAudit: { samePicture: false, sameAsRest: rv.sameAsRest } }, fixed: false } // prettier-ignore
+        return { m: { ...m, chosen: drawnPass(m), reveal: 'none-found', revealAudit: { sameAsRest: rv.sameAsRest } }, fixed: false } // prettier-ignore
       // No own tile at rest (so the hidden check was skipped) and none under the six reveal reruns, but the at-rest run drew
       // through a companion: that picture stands, solid and with no reveal claim, as before #1132.
       if (

@@ -216,6 +216,8 @@ export function putRevealSprites(put: (snes: number, bytes: number[]) => void): 
     [177, [...cellGated(0x14af), ...gated([[[...diff, 0xc9, 0x40], BNE]], piece(0x24))]],
     // 178: LDA $14AD / BNE to the picture / (156's test, skipping it) / the same $24 piece as the real start draws.
     [178, [0xad, 0xad, 0x14, BNE, 0x09, ...diff, 0xc9, 0x40, BNE, piece(0x24).length, ...piece(0x24), RTS]], // prettier-ignore
+    // 179: Mario's low X equal to its own (diff 0) draws the $32 piece and stops; else 156's test and the $24 piece.
+    [179, [...diff, 0xc9, 0x00, BNE, piece(0x32).length + 1, ...piece(0x32), RTS, ...gated([[[...diff, 0xc9, 0x40], BNE]], piece(0x24))]], // prettier-ignore
   ]
   const main: Record<number, number> = {}
   for (const [id, bytes] of mains) {
