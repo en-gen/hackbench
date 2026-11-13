@@ -26,6 +26,7 @@ import {
 import { buildMapDetails } from './map-details'
 import { L1ModelCache, mapBeyond, mapScreen, startResult, toolbarArtOf } from './map-screen'
 import { mapCollision, mapCollisionCheck, probeStateOf } from './map-collision'
+import { mapObjects } from './map-objects'
 import { mapSpriteFrames, mapSprites } from './map-sprites'
 import { mapBlockContents } from './map-block-contents'
 import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
@@ -52,6 +53,7 @@ import {
   LoadMapsResult,
   MapCollisionCheckResult,
   MapCollisionResult,
+  MapObjectsResult,
   MapDetailsDto,
   MapDetailsNotLocated,
   MapScreenResult,
@@ -186,6 +188,13 @@ export class ProjectServiceImpl implements ProjectService {
     // An edit hands out new bytes: a probe still running for the old ones is abandoned.
     const state = probeStateOf(switchFlags, switches)
     return mapCollision(this.screens, bytes, r.romPath, index, state, () => r.working.bytes() !== bytes) // prettier-ignore
+  }
+
+  /** The saved Objects found on a map, read-only (#1237). */
+  async mapObjects(manifestPath: string, index: number): Promise<MapObjectsResult> {
+    const r = this.located(manifestPath)
+    if (r.status !== 'ok') return r
+    return mapObjects(this.screens, r.working.bytes(), r.romPath, manifestPath, index)
   }
 
   async mapBlockContents(manifestPath: string, index: number): Promise<MapBlockContentsResult> {

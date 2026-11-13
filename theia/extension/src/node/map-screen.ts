@@ -595,6 +595,11 @@ export class L1ModelCache {
     return built
   }
 
+  /** An SmwRom over these bytes with the project's data banks: what a reader outside the model needs (#1237). */
+  romOf(bytes: Uint8Array, romPath: string): SmwRom {
+    return new SmwRom(RomFile.fromBytes(romPath, Buffer.from(bytes), this.banks.get(bytes)))
+  }
+
   /** The ROM's palace art, once per working-copy bytes. */
   art(bytes: Uint8Array, romPath: string): Record<Palace, PalaceArt> {
     let art = this.arts.get(bytes)

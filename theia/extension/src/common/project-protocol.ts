@@ -8,6 +8,7 @@
 import type { EditEvent } from '../../../../src/project/EditEvent'
 import type { UndrawnChildren } from '../../../../src/rom/sprites/interp/SpawnedChildren'
 import type { ScreenPlanes } from '../../../../src/rom/model/ScreenPlanes'
+import type { ObjectDto } from '../../../../src/rom/objects/Describe'
 import type { Map16SwitchButtonImages, Map16SwitchKind } from './map16-protocol'
 
 /** Where the frontend reaches the backend. Must match the backend binding. */
@@ -432,6 +433,22 @@ export type MapCollisionResult =
   | { status: 'stale' }
   | { status: 'rom-not-located'; baseRom: RomIdentityDto }
 
+/** A definition file the finder could not use, with why in plain words (#1237). */
+export interface SkippedObjectDefinitionDto {
+  file: string
+  reason: string
+}
+
+/**
+ * The saved Objects found on a map (#1237), read-only, from the working copy and the project's
+ * definitions. `unavailable` carries plain words (per-map tiles, an unreadable map): the view says so
+ * and finds nothing, never an empty list that reads as "no Objects here".
+ */
+export type MapObjectsResult =
+  | { status: 'ok'; objects: ObjectDto[]; skipped: SkippedObjectDefinitionDto[] }
+  | { status: 'unavailable'; reason: string; detail?: string }
+  | { status: 'rom-not-located'; baseRom: RomIdentityDto }
+
 /** One block that holds an item (#566), at its map-pixel corner, drawn in the plane its bottom-right quadrant is in. */
 export interface BlockIndicatorDto {
   plane: 'l1Low' | 'l1High' | 'l2Low' | 'l2High'
@@ -666,6 +683,9 @@ export interface ProjectService {
     switchFlags: SwitchFlagsDto,
     switches: SwitchStateDto,
   ): Promise<MapCollisionResult>
+
+  /** The saved Objects found on a map, read-only (#1237). Cached per working-copy bytes; a new edit hands out new bytes. */
+  mapObjects(manifestPath: string, index: number): Promise<MapObjectsResult>
 
   /** The map toolbar's art: the palace blocks and the char switches' buttons. */
   mapPalaceIcons(manifestPath: string, index: number): Promise<PalaceIconsResult>

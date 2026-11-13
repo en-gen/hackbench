@@ -76,7 +76,7 @@ export function readObjectInputs(rom: SmwRom, index: number, flags: SwitchFlags)
   const why = objectsRefusal(rom.rom)
   if (why) return refuse(why)
   const raw = rom.getLevelRawData(index)
-  if (!raw) return refuse('Objects can not be found: this map has no readable data.')
+  if (!raw) return refuse("Objects can't be found on this map: its data could not be read.")
   const table = rom.getVerticalTable()
   if (!table.ok) return refuse(table.reason)
   try {
@@ -88,7 +88,7 @@ export function readObjectInputs(rom: SmwRom, index: number, flags: SwitchFlags)
     const { grid, owners } = expandMapOwned(objects, header.levelLength, rom.rom, header.objectTileset, vertical, header.levelMode, undefined, flags, sink, footprint) // prettier-ignore
     return { ok: true, grid, owners, footprint, tileset: header.objectTileset }
   } catch (err) {
-    return refuse(`Objects can not be found: ${(err as Error).message}`)
+    return refuse(`Objects can't be found on this map: ${(err as Error).message}`)
   }
 }
 

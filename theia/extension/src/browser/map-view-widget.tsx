@@ -63,6 +63,15 @@ import { ZoomStepper } from './zoom-stepper'
 import { MapGridOverlay } from './grid-overlay'
 import { CollisionOverlay } from './collision-overlay'
 import { RefusedOverlay } from './refused-overlay'
+import { ObjectOverlay } from './object-overlay'
+import {
+  NO_SELECTION,
+  resolveHover,
+  selectAt,
+  type ObjectHover,
+  type ObjectSelection,
+} from './object-selection'
+import type { ObjectDto } from '../../../../src/rom/objects/Describe'
 import {
   beyondScreens,
   composeGutter,
@@ -251,6 +260,16 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected hoverSprite: MapSpriteDto | undefined
   /** The clicked sprite (#984): published to the Properties panel, never drawn on the map. */
   protected selectedSprite: MapSpriteDto | undefined
+  /** The saved Objects found on this map (#1237), read-only; `objectsWhy` is why there are none to find. */
+  protected objects: readonly ObjectDto[] = []
+  protected objectsWhy: string | undefined
+  protected objectsDetail: string | undefined
+  /** Where the Objects read stands, for the strip's `data-objects` (a test waits on it, not on a timer). */
+  protected objectsState: 'pending' | 'ok' | 'unavailable' = 'pending'
+  protected objectSelection: ObjectSelection = NO_SELECTION
+  protected objectHover: ObjectHover = {}
+  /** The small box at the pointer that the hovered Object's name is placed against. */
+  protected objectAnchor: HTMLElement | undefined
   /** The invisible box over the hovered sprite that the hover is placed against. */
   protected spriteAnchor: HTMLElement | undefined
   /** Where the anchor was placed (`hoverPlacementKey`): a different zoom or strip origin moves the sprite, so the hover is asked for again. */
@@ -326,6 +345,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.node.tabIndex = 0
     this.toDispose.push({ dispose: () => this.resizes.disconnect() })
     this.toDispose.push({ dispose: () => this.setHoverSprite(undefined) })
+    this.toDispose.push({ dispose: () => this.setObjectHover({}) })
     // Keys count as user input for the late-pad restore; the tab, not the scroller, has the focus.
     this.node.addEventListener('keydown', this.countInput, true)
     this.toDispose.push({
@@ -438,6 +458,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
       delete c.dataset.drawn
     }
     this.scroller?.scrollTo(0, 0)
+    this.objects = []
+    this.objectsWhy = undefined
+    this.objectsState = 'pending'
+    this.objectSelection = NO_SELECTION
+    this.setObjectHover({})
     this.pendingStart = undefined
     this.startState = 'pending'
     this.movedBeforeStart = false
@@ -538,6 +563,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     this.hover = undefined
     this.blocksVersion++
     void this.loadSprites()
+    void this.loadObjects()
     // The probe runs the ROM's code: it runs only while the overlay is on. Off, an edit drops the stale
     // lines and the toggle's refusal is re-read (a cheap check, no probe); the next press fetches.
     if (this.showCollision) void this.loadCollision()
@@ -548,6 +574,60 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     }
     void this.loadBlocks()
     this.requestVisible()
+  }
+
+  /**
+   * Reads the saved Objects found on this map (#1237). A reply for an older map or edit is dropped (generation).
+   * The selection survives an edit when its Object is still found, else it clears; a map that cannot have
+   * Objects found says why in plain words and finds none.
+   */
+  protected async loadObjects(): Promise<void> {
+    const o = this.options
+    if (!o) return
+    const generation = this.generation
+    perfStart('map-objects')
+    const r = await this.projects.mapObjects(o.manifestPath, o.index).catch(readFailed(this.what('objects'))) // prettier-ignore
+    if (generation !== this.generation) return
+    this.objects = r.status === 'ok' ? r.objects : []
+    this.objectsState = r.status === 'ok' ? 'ok' : 'unavailable'
+    this.objectsWhy =
+      r.status === 'ok'
+        ? r.skipped.length > 0
+          ? `${r.skipped.length === 1 ? 'An Object definition was' : `${r.skipped.length} Object definitions were`} not used: ${r.skipped.map(s => `${s.file} (${s.reason})`).join('; ')}` // prettier-ignore
+          : undefined
+        : r.status === 'unavailable'
+          ? r.reason
+          : `Objects can't be found. ${romMissingMessage(r.baseRom.title)}`
+    this.objectsDetail = r.status === 'unavailable' ? r.detail : undefined
+    if (!this.objects.some(x => x.key === this.objectSelection.object))
+      this.objectSelection = NO_SELECTION
+    this.setObjectHover({})
+    this.update()
+    this.sync()
+    perfEnd('map-objects')
+  }
+
+  /** The pointer's Objects hover; the name shows in Theia's themed hover at the pointer, once per Object. */
+  protected setObjectHover(next: ObjectHover): void {
+    const before = this.objectHover
+    if (before.object === next.object && before.segment === next.segment) return
+    this.objectHover = next
+    if (before.object !== next.object) {
+      if (this.objectAnchor) this.hoverService.cancelHover()
+      this.objectAnchor?.remove()
+      this.objectAnchor = undefined
+      const name = this.objects.find(x => x.key === next.object)?.name
+      const p = this.pointer
+      if (name && p) {
+        const a = document.createElement('div')
+        a.className = 'hb-map-object-anchor'
+        Object.assign(a.style, { position: 'fixed', pointerEvents: 'none', left: `${p.x}px`, top: `${p.y}px`, width: '1px', height: '1px' }) // prettier-ignore
+        document.body.append(a)
+        this.objectAnchor = a
+        this.hoverService.requestHover({ content: name, target: a, position: 'top', cssClasses: ['hb-map-object-hover'] }) // prettier-ignore
+      }
+    }
+    this.update()
   }
 
   /** Whether collision can be probed for this map at all, without probing: the toggle's enabled state. */
@@ -1292,17 +1372,46 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     if (!strip || !l || !p || !this.isVisible) {
       this.setLift(undefined)
       this.setHoverSprite(undefined)
+      this.setObjectHover({})
       return this.setHover(undefined)
     }
     const r = strip.getBoundingClientRect()
     const pad = this.pad
     const [x, y] = [(p.x - r.left) / this.zoom - pad.left, (p.y - r.top) / this.zoom - pad.top]
     this.setLift(this.liftAt(x, y))
-    this.setHoverSprite(this.spriteUnder(x, y))
+    const sprite = this.spriteUnder(x, y)
+    this.setHoverSprite(sprite)
+    // A sprite is over the Objects: only one thing answers the pointer.
+    this.setObjectHover(sprite || !this.objectsPickable() ? {} : resolveHover(this.objects, this.objectSelection, x, y)) // prettier-ignore
     if (!this.blocks) return this.setHover(undefined)
     const order = this.layerOrder(l)
     const shown = (q: Indicator['plane']) => order.includes(q) && this.layerShown(q)
     this.setHover(hoverTarget(this.blocks.indicators, x, y, shown, q => order.indexOf(q)) ?? undefined) // prettier-ignore
+  }
+
+  /** Objects are Layer 1: found, and pickable, only while it is shown and the map drew. */
+  protected objectsPickable(): boolean {
+    return this.showL1 && !this.screenError && this.objectsState === 'ok'
+  }
+
+  /** The strip's click: a sprite goes to Properties, else an Object or one of its segments is picked (#1237); each clears the other. */
+  protected onStripClick(e: React.MouseEvent<HTMLElement>): void {
+    const strip = e.currentTarget.getBoundingClientRect()
+    const pad = this.pad
+    // Strip pixels to map pixels: the pad before screen 0 (content only) is not map.
+    const [x, y] = [(e.clientX - strip.left) / this.zoom - pad.left, (e.clientY - strip.top) / this.zoom - pad.top] // prettier-ignore
+    const sprite = this.spriteUnder(x, y)
+    this.selectSprite(sprite)
+    if (sprite || !this.objectsPickable()) return
+    this.objectSelection = selectAt(
+      this.objects,
+      this.objectSelection,
+      x,
+      y,
+      e.ctrlKey || e.metaKey,
+    )
+    this.setObjectHover(resolveHover(this.objects, this.objectSelection, x, y))
+    this.update()
   }
 
   /** The topmost drawn sprite at the strip pixel (x, y), native units; none while sprites are toggled off. */
@@ -1347,6 +1456,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected selectSprite(next: MapSpriteDto | undefined): void {
     const redraw = !!(this.selectedSprite?.stored || next?.stored)
     this.selectedSprite = next
+    // A sprite and an Object are never selected together.
+    if (next && this.objectSelection.object) {
+      this.objectSelection = NO_SELECTION
+      this.update()
+    }
     this.syncSelection()
     // The stored-tile highlight follows the selection.
     if (redraw) this.update()
@@ -1691,6 +1805,11 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             {this.sprites.note}
           </div>
         )}
+        {this.objectsWhy && (
+          <div className="hb-map-view-note" data-note="objects" title={this.objectsDetail}>
+            {this.objectsWhy}
+          </div>
+        )}
         {this.blocksWhy && (
           <div className="hb-map-view-note" data-note="block-contents" title={this.blocksDetail}>
             {this.blocksWhy}
@@ -1814,6 +1933,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             this.setHover(undefined)
             this.setLift(undefined)
             this.setHoverSprite(undefined)
+            this.setObjectHover({})
           }}
         >
           {/* Bottom to top (planes by `screens`, composited per screen): the checkerboard, the back area, then the screens,
@@ -1821,11 +1941,9 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           <div
             className="hb-map-view-strip"
             style={{ padding: `${pad.top * z}px ${pad.right * z}px ${pad.bottom * z}px ${pad.left * z}px` }} // prettier-ignore
-            onClick={e => {
-              const strip = e.currentTarget.getBoundingClientRect()
-              // Strip pixels to map pixels: the pad before screen 0 (content only) is not map.
-              this.selectSprite(this.spriteUnder((e.clientX - strip.left) / this.zoom - pad.left, (e.clientY - strip.top) / this.zoom - pad.top)) // prettier-ignore
-            }}
+            data-objects={this.objectsState}
+            data-object-count={this.objects.length}
+            onClick={e => this.onStripClick(e)}
           >
             {/* The checkerboard reaches the near canvas edge and stops at the far-end gutter, where the back color
                 fades out and the panel shows behind it (#1228). */}
@@ -1896,6 +2014,17 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             {l.refusedCells && !this.screenError && (
               <RefusedOverlay
                 cells={l.refusedCells}
+                width={mapW}
+                height={mapH}
+                zoom={this.zoom}
+                pad={pad}
+              />
+            )}
+            {this.objectsPickable() && (
+              <ObjectOverlay
+                objects={this.objects}
+                selection={this.objectSelection}
+                hover={this.objectHover}
                 width={mapW}
                 height={mapH}
                 zoom={this.zoom}

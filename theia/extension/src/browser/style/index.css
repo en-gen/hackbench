@@ -374,6 +374,65 @@
   overflow: visible;
 }
 
+/* Objects found on the map (#1237): under the refused marks, over the screens. Never takes the pointer; the strip does. */
+.hb-map-objects {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 140;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.hb-map-object-tint {
+  fill: var(--theia-focusBorder, #007fd4);
+  stroke: none;
+}
+
+.hb-map-object-outline {
+  fill: none;
+  stroke: var(--theia-focusBorder, #007fd4);
+  stroke-width: 2;
+}
+
+.hb-map-object-covered {
+  stroke-dasharray: 5 4;
+}
+
+/* Hover: a faint dashed outline and a very light tint. Selected: a solid outline in a light highlight. */
+.hb-map-objects [data-state='hover'] .hb-map-object-tint {
+  fill-opacity: 0.06;
+}
+
+.hb-map-objects [data-state='hover'] .hb-map-object-outline {
+  stroke-opacity: 0.55;
+  stroke-width: 1;
+  stroke-dasharray: 5 4;
+}
+
+.hb-map-objects [data-state='selected'] .hb-map-object-tint {
+  fill-opacity: 0.14;
+}
+
+.hb-map-objects [data-state='selected'] .hb-map-object-outline {
+  stroke-opacity: 0.85;
+}
+
+.hb-map-object-segment {
+  stroke: var(--theia-focusBorder, #007fd4);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.hb-map-object-segment[data-state='hover'] {
+  stroke-opacity: 0.45;
+}
+
+.hb-map-object-segment[data-state='selected'] {
+  stroke-opacity: 0.95;
+}
+
 /* Refused objects (#816): above the screens, below the collision lines. Only the cells take the pointer, for their tooltips. */
 .hb-map-refused {
   position: absolute;
