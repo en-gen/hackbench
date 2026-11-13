@@ -3,14 +3,17 @@
  * rules are unit tested without a browser. Read-only: nothing here changes the map.
  *
  * Hit order (the widget applies the first step): a sprite, then a segment of the SELECTED Object, then
- * the front-most Object body. A segment answers only on a selected Object: the grab zone is the strip
- * outside its outline, up to half a tile wide; inside the outline is the Object (#1234, "Edges").
+ * the front-most Object body. A segment answers only on a selected Object: the grab zone is within
+ * `EDGE_BAND` of its outline on either side; inside the edge line (further in) is the Object (#1234, "Edges").
  */
 import type { CellRun, ObjectDto, Segment } from '../../../../src/rom/objects/Describe'
 import { TILE } from './off-map-extent'
 
-/** Half a tile: how far outside the outline a pointer still grabs the edge. */
-export const GRAB = TILE / 2
+/**
+ * Half a tile, tuned in use: the edge line runs this far inside the outline (through the edge tiles), and
+ * the grab zone is this far to either side of the outline: the outer half of an edge tile, and just outside it.
+ */
+export const EDGE_BAND = TILE / 2
 
 export interface ObjectSelection {
   /** The selected Object's key, if any. */
@@ -70,17 +73,16 @@ function distanceToPolyline(points: readonly number[], x: number, y: number): nu
 }
 
 /**
- * The Object's edge segment whose line the pixel is within half a tile outside of, nearest first; none
- * when the pixel is on the Object itself (that is the Object, not its edge).
+ * The Object's edge segment whose outline the pixel is within `EDGE_BAND` of, on either side, nearest
+ * first; none when it is further in than that (the Object itself) or further out.
  */
 export function segmentAt(o: ObjectDto, x: number, y: number): Segment | undefined {
-  if (containsPoint(o, x, y)) return undefined
   let best: Segment | undefined
-  let bestD = GRAB
+  let bestD = EDGE_BAND
   for (const s of o.segments) {
     const d = distanceToPolyline(s.points, x, y)
     // A tie goes to the earlier segment, so the answer does not flip while the pointer rests on a corner.
-    if (d < bestD || (d === bestD && !best)) {
+    if (d < bestD) {
       best = s
       bestD = d
     }

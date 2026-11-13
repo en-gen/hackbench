@@ -160,9 +160,24 @@ const inCells = (o, x, y) => cellSet(o).has(`${Math.floor(y / TILE)},${Math.floo
 const onSprite = (sprites, x, y) =>
   sprites.some(s => x >= s.box.x0 - 2 && x < s.box.x1 + 2 && y >= s.box.y0 - 2 && y < s.box.y1 + 2)
 
+/** Distance from a point to a polyline given as x0,y0,x1,y1,... */
+function distToPolyline(points, [x, y]) {
+  let best = Infinity
+  for (let i = 0; i + 3 < points.length; i += 2) {
+    const [ax, ay, bx, by] = points.slice(i, i + 4)
+    const [dx, dy] = [bx - ax, by - ay]
+    const len2 = dx * dx + dy * dy
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2))
+    best = Math.min(best, Math.hypot(x - (ax + t * dx), y - (ay + t * dy)))
+  }
+  return best
+}
+
 /**
- * A point just outside one segment of the Object and a point just inside the same line, both clear of every
- * other Object and of sprites, on a segment of the given kind. `which` skips earlier candidates.
+ * Points around one segment of the Object, clear of sprites and other Objects: `out` 4 px outside the
+ * outline and `edge` 4 px inside it (the outer half of the edge tile) both grab the segment; `deep` 12 px
+ * inside (inside the edge line, half a tile in) is the Object and no segment is within reach of it.
+ * `which` skips earlier candidates.
  */
 function probe(map, object, kind, which = 0) {
   const found = []
@@ -173,15 +188,25 @@ function probe(map, object, kind, which = 0) {
       const [nx, ny] = ax === bx ? [1, 0] : [0, 1]
       for (const s of [1, -1]) {
         const out = [mx + s * nx * 4, my + s * ny * 4]
-        const inn = [mx - s * nx * 6, my - s * ny * 6]
+        const edge = [mx - s * nx * 4, my - s * ny * 4]
+        const deep = [mx - s * nx * 12, my - s * ny * 12]
         const free = p => !map.objects.some(o => inCells(o, ...p)) && !onSprite(map.sprites, ...p)
+        const mine = p =>
+          inCells(object, ...p) &&
+          !onSprite(map.sprites, ...p) &&
+          !map.objects.some(o => o !== object && inCells(o, ...p))
+        const nearest = p =>
+          object.segments.every(
+            o => o === seg || distToPolyline(o.points, p) > distToPolyline(seg.points, p),
+          )
         if (
           free(out) &&
-          inCells(object, ...inn) &&
-          !onSprite(map.sprites, ...inn) &&
-          !map.objects.some(o => o !== object && inCells(o, ...inn))
+          mine(edge) &&
+          mine(deep) &&
+          nearest(edge) &&
+          object.segments.every(o => distToPolyline(o.points, deep) > 9)
         )
-          found.push({ seg, out, inn })
+          found.push({ seg, out, edge, deep, inn: deep })
       }
     }
   }
@@ -258,7 +283,7 @@ test.describe('platforms on $103 (straight sides)', () => {
     expect(treeHash(projectDir)).toBe(before)
   })
 
-  test('on an unselected Object no segment responds; on a selected one only outside the edge line', async ({
+  test('on an unselected Object no segment responds; on a selected one only near the outline', async ({
     page,
   }) => {
     const before = treeHash(projectDir)
@@ -275,7 +300,11 @@ test.describe('platforms on $103 (straight sides)', () => {
     await expect(segments(page, SLOT, 'hover')).toHaveCount(1)
     await expect(segments(page, SLOT, 'hover')).toHaveAttribute('data-segment', p.seg.id)
     await expect(segments(page, SLOT, 'hover')).toHaveAttribute('data-kind', 'straight')
-    await pointAt(page, SLOT, map.size, ...p.inn)
+    // The outer half of the edge tile, just inside the outline, grabs it too.
+    await pointAt(page, SLOT, map.size, ...p.edge)
+    await expect(segments(page, SLOT, 'hover')).toHaveAttribute('data-segment', p.seg.id)
+    // Inside the edge line the pointer has the Object, not a segment.
+    await pointAt(page, SLOT, map.size, ...p.deep)
     await expect(segments(page, SLOT)).toHaveCount(0)
     await expect(selectedObjects(page, SLOT)).toHaveCount(1)
     expect(treeHash(projectDir)).toBe(before)
@@ -324,7 +353,9 @@ test.describe('a sloped ground Object', () => {
     await pointAt(page, SLOT, map.size, ...p.out)
     await expect(segments(page, SLOT, 'hover')).toHaveCount(1)
     await expect(segments(page, SLOT, 'hover')).toHaveAttribute('data-kind', 'slope')
-    await pointAt(page, SLOT, map.size, ...p.inn)
+    await pointAt(page, SLOT, map.size, ...p.edge)
+    await expect(segments(page, SLOT, 'hover')).toHaveAttribute('data-kind', 'slope')
+    await pointAt(page, SLOT, map.size, ...p.deep)
     await expect(segments(page, SLOT)).toHaveCount(0)
   })
 })

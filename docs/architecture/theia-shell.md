@@ -254,7 +254,7 @@ seen.
   result is `ok`, `unavailable` with plain words (a hack with per-map tiles) or `rom-not-located`. One SVG
   (`browser/object-overlay.tsx`) draws only the hovered Object (faint dashed outline, light tint) and the
   selected one (one solid outline, light tint, never a box per tile); `browser/object-selection.ts` holds the
-  hit rules (a sprite, then a segment of the selected Object outside its outline, then the front-most body).
+  hit rules (a sprite, then a segment of the selected Object within half a tile of its outline, then the front-most body).
   The strip carries `data-objects` (`pending`, `ok`, `unavailable`) for tests; the hover name is Theia's
   `HoverService`; the fetch is timed as `hb:map-objects`. Test hooks: `data-control="object-overlay"`,
   `object`, `object-tint`, `object-outline`, `object-outline-covered`, `object-segment`.

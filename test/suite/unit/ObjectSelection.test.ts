@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest'
 import { describeObject, type ObjectDto } from '../../../src/rom/objects/Describe'
 import type { ObjectCell } from '../../../src/rom/objects/Recognize'
 import {
-  GRAB,
+  EDGE_BAND,
   NO_SELECTION,
   objectAt,
   resolveHover,
@@ -28,28 +28,38 @@ const dto = (
 const PLATFORM = dto(cells(5, 3, 2, 4))
 const top = PLATFORM.segments.find(s => s.points[1] === 80 && s.points[3] === 80)!
 
+// The edge line runs EDGE_BAND inside the outline (through the edge tiles); the grab zone is the outer
+// half of an edge tile (between the line and the outline) and the same width just outside the outline.
 describe('the grab zone of an edge segment', () => {
-  it('outside the line, up to half a tile, is the segment', () => {
+  it('just outside the outline, up to half a tile, is the segment', () => {
     expect(segmentAt(PLATFORM, 80, 80 - 3)?.id).toBe(top.id)
-    expect(segmentAt(PLATFORM, 80, 80 - GRAB + 0.5)?.id).toBe(top.id)
+    expect(segmentAt(PLATFORM, 80, 80 - EDGE_BAND + 0.5)?.id).toBe(top.id)
   })
 
-  it('inside the line is the Object, not the segment', () => {
-    expect(segmentAt(PLATFORM, 80, 80 + 3)).toBeUndefined()
+  it('in the outer half of an edge tile, inside the outline, is the segment too', () => {
+    expect(segmentAt(PLATFORM, 80, 80 + 3)?.id).toBe(top.id)
+    expect(segmentAt(PLATFORM, 80, 80 + EDGE_BAND - 0.5)?.id).toBe(top.id)
+  })
+
+  it('inside the edge line, half a tile in, is the Object, not the segment', () => {
+    expect(segmentAt(PLATFORM, 80, 80 + 12)).toBeUndefined()
     expect(segmentAt(PLATFORM, 80, 96)).toBeUndefined()
   })
 
   it('farther than half a tile outside is neither', () => {
-    expect(segmentAt(PLATFORM, 80, 80 - GRAB - 1)).toBeUndefined()
+    expect(segmentAt(PLATFORM, 80, 80 - EDGE_BAND - 1)).toBeUndefined()
   })
 
-  it('works on every side, and nearer segments win at a corner', () => {
+  it('works on every side', () => {
     expect(segmentAt(PLATFORM, 48 - 3, 96)?.points).toEqual([48, 112, 48, 80])
+    expect(segmentAt(PLATFORM, 48 + 3, 96)?.points).toEqual([48, 112, 48, 80])
     expect(segmentAt(PLATFORM, 112 + 3, 96)?.points).toEqual([112, 80, 112, 112])
+    expect(segmentAt(PLATFORM, 112 - 3, 96)?.points).toEqual([112, 80, 112, 112])
     expect(segmentAt(PLATFORM, 80, 112 + 3)?.points).toEqual([112, 112, 48, 112])
+    expect(segmentAt(PLATFORM, 80, 112 - 3)?.points).toEqual([112, 112, 48, 112])
   })
 
-  it('on a slope, the zone follows the staircase of the one slope segment', () => {
+  it('on a slope, the zone follows the staircase of the one slope segment, both sides', () => {
     // A hill rising right: slope tile 9 on the diagonal, fill 4 beneath.
     const cs: ObjectCell[] = []
     for (let c = 0; c < 4; c++) {
@@ -58,10 +68,12 @@ describe('the grab zone of an edge segment', () => {
     }
     const hill = dto(cs, 0, 'd', { 9: 1 })
     const slope = hill.segments.find(s => s.kind === 'slope')!
-    // Just above-left of the second step (cell row 2, col 1 is slope; sky above it).
+    // Sky just above the second step (slope cell row 2, col 1): outside the outline.
     expect(segmentAt(hill, 1 * 16 + 8, 2 * 16 - 3)?.id).toBe(slope.id)
-    // Inside the slope tile itself: the Object.
-    expect(segmentAt(hill, 1 * 16 + 8, 2 * 16 + 8)).toBeUndefined()
+    // The outer half of that slope tile, inside the outline.
+    expect(segmentAt(hill, 1 * 16 + 8, 2 * 16 + 3)?.id).toBe(slope.id)
+    // Half a tile in, inside the edge line: the Object.
+    expect(segmentAt(hill, 1 * 16 + 12, 2 * 16 + 12)).toBeUndefined()
   })
 })
 

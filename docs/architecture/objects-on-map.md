@@ -90,8 +90,8 @@ Object uses the largest owner among its cells.
   reruns each call, so a definition changed on disk shows at once. It is separate from `mapScreen`, so the cold
   open is unchanged. The view re-reads it on the existing edit and ROM-change refresh and records `hb:map-objects`.
 - `object-selection.ts` holds the pure rules. Hit order: a sprite, then a segment of the selected Object,
-  then the front-most Object body. A segment answers only on a selected Object, in the strip outside its
-  outline up to half a tile wide; inside the outline is the Object. Click selects an Object (segments cleared)
+  then the front-most Object body. A segment answers only on a selected Object, within half a tile (EDGE_BAND) of its
+  outline on either side (the outer half of the edge tile, and just outside it); further in is the Object. Click selects an Object (segments cleared)
   or a segment (plain: just it; Ctrl: toggled among the others); a click on nothing clears. Selecting a sprite
   clears the Object and the reverse. The hover tooltip names the Object.
 - `object-overlay.tsx` draws only the hovered and the selected Object: tint as one path, one outline path,
