@@ -467,7 +467,7 @@ describe('a sprite that drew at rest gets all six conditions (#1365, D199 B)', (
 })
 
 describe('a Mario-position reveal that repeats the at-rest picture still counts ([PROP] #1365)', () => {
-  it('id 164 draws the same piece at rest and with Mario at it: revealed, flagged samePicture, not in sameAsRest', () => {
+  it('id 170 draws the same piece at rest and with Mario at it: revealed, flagged samePicture, not in sameAsRest', () => {
     const r = search(170, SX, SX).result
     expect(r.status).toBe('hidden')
     if (r.status !== 'hidden') return

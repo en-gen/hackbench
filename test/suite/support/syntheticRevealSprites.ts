@@ -215,23 +215,7 @@ export function putRevealSprites(put: (snes: number, bytes: number[]) => void): 
     [176, [...cellGated(0x14ad), ...gated([[[...diff, 0xc9, 0x40], BNE]], piece(0x24))]],
     [177, [...cellGated(0x14af), ...gated([[[...diff, 0xc9, 0x40], BNE]], piece(0x24))]],
     // 178: LDA $14AD / BNE to the picture / (156's test, skipping it) / the same $24 piece as the real start draws.
-    [
-      178,
-      [
-        0xad,
-        0xad,
-        0x14,
-        BNE,
-        0x09,
-        ...diff,
-        0xc9,
-        0x40,
-        BNE,
-        piece(0x24).length,
-        ...piece(0x24),
-        RTS,
-      ],
-    ],
+    [178, [0xad, 0xad, 0x14, BNE, 0x09, ...diff, 0xc9, 0x40, BNE, piece(0x24).length, ...piece(0x24), RTS]], // prettier-ignore
   ]
   const main: Record<number, number> = {}
   for (const [id, bytes] of mains) {
