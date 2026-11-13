@@ -6,7 +6,14 @@
 
 import { describe, it, expect } from 'vitest'
 import { join } from 'node:path'
-import { CORPUS, hasRoms, resolveRomDir, resolveToolsRoot, romsOnDisk } from '../support/corpus'
+import {
+  hasRoms,
+  personalRomsPresent,
+  resolveRomDir,
+  resolveToolsRoot,
+  romsOnDisk,
+  unlistedCarts,
+} from '../support/corpus'
 
 /** Only these paths exist, compared case- and separator-insensitively. */
 const fs = (...paths: string[]) => {
@@ -90,7 +97,15 @@ describe.skipIf(romsOnDisk().length === 0)('corpus membership', () => {
   // Suites sweep the declared CORPUS, so a seventh cart on disk would be
   // invisible to all of them without this.
   it('every cart on this machine is named in CORPUS', () => {
-    const unlisted = romsOnDisk().filter(f => !CORPUS.includes(f))
+    const unlisted = unlistedCarts()
     expect(unlisted, 'add these to CORPUS in test/suite/support/corpus.cjs').toEqual([])
+  })
+
+  // One case whose title carries the count, so the skip list is visible in a
+  // run. The count is read at collection; it decides one case, never how many.
+  const left = personalRomsPresent().length
+  it.skipIf(left === 0)(`leaves out ${left} personal ROM(s) listed in personal.txt`, () => {
+    const on = romsOnDisk()
+    for (const f of personalRomsPresent()) expect(on).not.toContain(f)
   })
 })

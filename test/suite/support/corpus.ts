@@ -49,13 +49,33 @@ export const hasRoms = (names: readonly string[] = CORPUS): boolean =>
 /** A freshly loaded copy, safe to plant bytes into. */
 export const freshRom = (name: string = VANILLA): RomFile => RomFile.load(romPath(name))
 
-/** Every cart file in the corpus directory. For membership tripwires read
- *  inside a case; iterating it to register cases is banned by the gate. */
-export function romsOnDisk(): string[] {
-  if (!existsSync(ROM_DIR)) return []
-  return readdirSync(ROM_DIR)
-    .filter(f => /\.(sfc|smc)$/i.test(f))
-    .sort()
+/** Names in `<dir>/personal.txt`: carts the owner keeps in the ROM folder that are not corpus (#1289). */
+export const parsePersonalList: (text: string) => string[] = core.parsePersonalList
+export const personalRoms: (dir?: string) => string[] = core.personalRoms
+
+const isCart = (f: string): boolean => /\.(sfc|smc)$/i.test(f)
+const cartsIn = (dir: string): string[] =>
+  existsSync(dir) ? readdirSync(dir).filter(isCart).sort() : []
+const personalSet = (dir: string): Set<string> =>
+  new Set(personalRoms(dir).map(n => n.toLowerCase()))
+
+/** Every cart file in the corpus directory, minus those listed in `personal.txt`.
+ *  For membership tripwires read inside a case; iterating it to register cases
+ *  is banned by the gate. */
+export function romsOnDisk(dir: string = ROM_DIR): string[] {
+  const personal = personalSet(dir)
+  return cartsIn(dir).filter(f => !personal.has(f.toLowerCase()))
+}
+
+/** The personal ROMs that are actually on disk: what `romsOnDisk` left out. */
+export function personalRomsPresent(dir: string = ROM_DIR): string[] {
+  const personal = personalSet(dir)
+  return cartsIn(dir).filter(f => personal.has(f.toLowerCase()))
+}
+
+/** Carts that are neither personal nor named in CORPUS: what the membership guards must flag. */
+export function unlistedCarts(dir: string = ROM_DIR): string[] {
+  return romsOnDisk(dir).filter(f => !CORPUS.includes(f))
 }
 
 /** A Mesen debugger dump, used as render ground truth. */

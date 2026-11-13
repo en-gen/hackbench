@@ -160,6 +160,31 @@ resolves the corpus directory for both the Vitest suites (through
 When none exist it returns a path that does not, so `hasRom` reads false
 and the suites SKIP rather than throwing during collection.
 
+### A personal ROM list (`personal.txt`)
+
+A cart can sit in the ROM folder without being part of the corpus: one the
+owner plays for fun. The membership guards (`corpusResolver`, `LcLz2Encode.corpus`,
+`PaletteAnimationDetect.rom`) fail on any cart on disk that `CORPUS` does not
+name, so such a cart would fail them on that machine. Mark it personal instead
+of adding it to `CORPUS`:
+
+- Where: `personal.txt` in the ROM folder itself (the folder `ROM_DIR` resolves
+  to). It is beside the carts, outside git, and is never committed. No
+  personal file name belongs anywhere in the repo.
+- Format: one file name per line. Blank lines and lines starting with `#` are
+  ignored; CRLF is fine; names match case-insensitively. A missing file is an
+  empty list.
+- Effect: `romsOnDisk()` leaves the listed carts out, so every suite that reads
+  the listing (the guards above, `Mode7Gfx.corpus`'s tally, `SpecialMaps`,
+  `Map16.tileCount`) behaves as if they were absent. A cart that is neither
+  listed nor in `CORPUS` still fails the guards (`unlistedCarts()`).
+- Visibility: `corpusResolver.test.ts` has one case titled
+  `leaves out N personal ROM(s) listed in personal.txt`; it is skipped when N
+  is 0, so the run shows how many carts were left out.
+- Proof: `corpusPersonal.test.ts` plants junk-byte carts and a list in a
+  scratch folder (no ROM content, so it runs in CI) and shows a listed cart is
+  left out while an unlisted unknown one is still reported.
+
 ## SingleStepTests data (the 65816 core)
 
 `test/suite/unit/cpu/SingleStep.test.ts` runs `src/rom/cpu/Cpu65816.ts`
