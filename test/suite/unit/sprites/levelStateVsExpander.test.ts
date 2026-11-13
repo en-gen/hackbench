@@ -8,8 +8,9 @@
  *
  * Layout: screen-major, $1B0 bytes a screen (SMWDisX bank_00.asm:6595-6628, DATA_00BA60 then DATA_00BA70, 32 entries), a
  * screen row-major 16 wide (bank_00.asm:13295-13310: Y high nibble | X >> 4 | screen base).
- * The sweep below compares horizontal maps only; vertical ones are listed there (#141 pins $0E7 separately). Layer 1 is the first
- * `levelLength` screens, up to 32 (bank_00.asm:13299-13308 indexes by screen up to LevelScrLength).
+ * The sweep below compares horizontal maps only; vertical ones are listed there (#141 pins $0E7
+ * separately). Layer 1 is the first `levelLength` screens, up to 32 (bank_00.asm:13299-13308 indexes
+ * by screen up to LevelScrLength).
  */
 import { describe, expect, it } from 'vitest'
 import {
