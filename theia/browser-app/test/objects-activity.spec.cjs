@@ -156,7 +156,7 @@ test('no tile can be tagged before a tileset is picked, and the sheet is that ti
   const manifestPath = await openProject(page, path.join(tmp, 'Pick'))
 
   expect(await page.locator(ctl('tile')).count()).toBe(0)
-  await expect(page.locator(ctl('sheet-placeholder'))).toBeVisible()
+  await expect(page.locator(ctl('sheet-empty'))).toBeVisible()
   await expect(page.locator(ctl('role-edge'))).toBeDisabled()
   await expect(page.locator(ctl('role-fill'))).toBeDisabled()
   await expect(page.locator(ctl('save'))).toBeDisabled()

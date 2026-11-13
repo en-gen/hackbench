@@ -334,7 +334,7 @@ export class ObjectsWidget extends ReactWidget {
   protected renderSheet(): React.ReactNode {
     if (this.tileset === undefined) {
       return (
-        <div className="hb-objects-empty" data-control="sheet-placeholder">
+        <div className="hb-objects-empty" data-control="sheet-empty">
           Pick a tileset to see its tiles.
         </div>
       )
