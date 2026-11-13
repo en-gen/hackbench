@@ -173,14 +173,23 @@ of adding it to `CORPUS`:
   personal file name belongs anywhere in the repo.
 - Format: one file name per line. Blank lines and lines starting with `#` are
   ignored; CRLF is fine; names match case-insensitively. A missing file is an
-  empty list.
+  empty list. The file must be UTF-8: PowerShell 5 `>` and `Out-File` write
+  UTF-16, which is not read (the list then reads as empty). Never list a
+  `CORPUS` cart: `corpusResolver` fails on that (`personalCorpusOverlap()`),
+  since it would drop the cart from every sweep.
 - Effect: `romsOnDisk()` leaves the listed carts out, so every suite that reads
   the listing (the guards above, `Mode7Gfx.corpus`'s tally, `SpecialMaps`,
   `Map16.tileCount`) behaves as if they were absent. A cart that is neither
   listed nor in `CORPUS` still fails the guards (`unlistedCarts()`).
+- Guard scope: `PaletteAnimationDetect.rom`'s guard checks its `OBSERVED` table,
+  not `CORPUS`; it uses the same filtered listing, so a listed cart is left out
+  of it too.
 - Visibility: `corpusResolver.test.ts` has one case titled
   `leaves out N personal ROM(s) listed in personal.txt`; it is skipped when N
   is 0, so the run shows how many carts were left out.
+- Evidence scope: the list is read at collection, per run, on the machine that
+  holds it; nothing records it, so a result with a list is not comparable to one
+  without.
 - Proof: `corpusPersonal.test.ts` plants junk-byte carts and a list in a
   scratch folder (no ROM content, so it runs in CI) and shows a listed cart is
   left out while an unlisted unknown one is still reported.

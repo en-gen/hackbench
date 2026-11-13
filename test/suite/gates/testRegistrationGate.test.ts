@@ -58,14 +58,16 @@ const HELPER_ASKS = String.raw`\b(?:hasRoms?|romsOnDisk|personalRomsPresent|unli
 const ASKS_DISK = new RegExp(`existsSync|readdirSync|${HELPER_ASKS}`)
 
 /** Calls that return a LISTING of the disk, not a yes/no. */
-const LISTS_DISK = /\b(?:readdirSync|romsOnDisk)\(/
+const LISTS_DISK = /\b(?:readdirSync|romsOnDisk|personalRomsPresent|unlistedCarts)\(/
 
 /** `.filter(f => existsSync(...))`: an existence test inside one filter argument. */
 const EXISTS_FILTER = new RegExp(String.raw`\.filter\([^)]*(?:` + ASKS_DISK.source + `)`)
 
 /** A loop or `.each` straight over a listing call, with no binding between. */
-const LOOP_OVER_LISTING = /\bof\s+[\w$.]*\b(?:readdirSync|romsOnDisk)\(/
-const EACH_OVER_LISTING = /\.(?:each|for)\(\s*[\w$.]*\b(?:readdirSync|romsOnDisk)\(/
+const LOOP_OVER_LISTING =
+  /\bof\s+[\w$.]*\b(?:readdirSync|romsOnDisk|personalRomsPresent|unlistedCarts)\(/
+const EACH_OVER_LISTING =
+  /\.(?:each|for)\(\s*[\w$.]*\b(?:readdirSync|romsOnDisk|personalRomsPresent|unlistedCarts)\(/
 
 interface Offence {
   file: string
@@ -451,6 +453,56 @@ describe('the registration gate can fail', () => {
       name: 'it.each(romsOnDisk())',
       rule: 'listingIteration',
       source: ["it.each(romsOnDisk())('%s', c => {})"],
+    },
+    {
+      name: 'a loop over a binding of personalRomsPresent()',
+      rule: 'listingIteration',
+      source: [
+        'const carts = personalRomsPresent()',
+        'for (const c of carts) {',
+        '  it(c, () => {})',
+        '}',
+      ],
+    },
+    {
+      name: 'a loop straight over personalRomsPresent()',
+      rule: 'listingIteration',
+      source: ['for (const c of personalRomsPresent()) {', '  it(c, () => {})', '}'],
+    },
+    {
+      name: 'it.each(personalRomsPresent())',
+      rule: 'listingIteration',
+      source: ["it.each(personalRomsPresent())('%s', c => {})"],
+    },
+    {
+      name: 'an if on personalRomsPresent() around a case',
+      rule: 'conditional',
+      source: ['if (personalRomsPresent().length) {', "  it('a', () => {})", '}'],
+    },
+    {
+      name: 'a loop over a binding of unlistedCarts()',
+      rule: 'listingIteration',
+      source: [
+        'const carts = unlistedCarts()',
+        'for (const c of carts) {',
+        '  it(c, () => {})',
+        '}',
+      ],
+    },
+    {
+      name: 'a loop straight over unlistedCarts()',
+      rule: 'listingIteration',
+      source: ['for (const c of unlistedCarts()) {', '  it(c, () => {})', '}'],
+    },
+    {
+      name: 'it.each(unlistedCarts())',
+      rule: 'listingIteration',
+      source: ["it.each(unlistedCarts())('%s', c => {})"],
+    },
+    {
+      name: 'an if on unlistedCarts() around a case',
+      rule: 'conditional',
+      source: ['if (unlistedCarts().length) {', "  it('a', () => {})", '}'],
     },
   ]
 

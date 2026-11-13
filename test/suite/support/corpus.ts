@@ -78,6 +78,13 @@ export function unlistedCarts(dir: string = ROM_DIR): string[] {
   return romsOnDisk(dir).filter(f => !CORPUS.includes(f))
 }
 
+/** Names in `personal.txt` that are also CORPUS carts, case-folded, whether or not the file
+ *  is on disk. Listing a corpus cart would silently drop it from every sweep, so it must be empty. */
+export function personalCorpusOverlap(dir: string = ROM_DIR): string[] {
+  const corpus = new Set(CORPUS.map(n => n.toLowerCase()))
+  return personalRoms(dir).filter(n => corpus.has(n.toLowerCase()))
+}
+
 /** A Mesen debugger dump, used as render ground truth. */
 export const mesenDumpPath = (name: string): string =>
   join(core.TOOLS_ROOT, 'mesen', 'Debugger', name)

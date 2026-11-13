@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import {
   CORPUS,
   parsePersonalList,
+  personalCorpusOverlap,
   personalRomsPresent,
   romsOnDisk,
   unlistedCarts,
@@ -68,6 +69,25 @@ describe('personal ROM list', () => {
     list('ghost.sfc\n')
     expect(personalRomsPresent(dir)).toEqual([])
     expect(romsOnDisk(dir)).toEqual(['x.sfc'])
+  })
+
+  it('matches names case-insensitively in both directions', () => {
+    cart('Mine.SFC')
+    list('mine.sfc\n')
+    expect(romsOnDisk(dir)).toEqual([])
+    expect(personalRomsPresent(dir)).toEqual(['Mine.SFC'])
+    rmSync(join(dir, 'Mine.SFC'))
+    cart('mine.sfc')
+    list('MINE.SFC\n')
+    expect(romsOnDisk(dir)).toEqual([])
+    expect(personalRomsPresent(dir)).toEqual(['mine.sfc'])
+  })
+
+  it('reports a CORPUS cart listed as personal, however it is cased', () => {
+    list(`${CORPUS[0]!.toUpperCase()}\nmine.sfc\n`)
+    expect(personalCorpusOverlap(dir)).toEqual([CORPUS[0]!.toUpperCase()])
+    list('mine.sfc\n')
+    expect(personalCorpusOverlap(dir)).toEqual([])
   })
 
   it('treats a missing folder as empty', () => {
