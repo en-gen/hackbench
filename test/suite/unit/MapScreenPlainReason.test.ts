@@ -8,6 +8,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { SWITCH_FLAGS_UNCLEARED as UNCLEARED } from '../../../src/rom/ObjectExpander'
+import { ADDR } from '../../../src/rom/SmwRom'
+import { loromToOffset } from '../../../src/rom/addressing'
 import { L1ModelCache, mapScreen } from '../../../theia/extension/src/node/map-screen'
 
 const PLAIN = 'This part of the map could not be read from the ROM.'
@@ -46,5 +48,26 @@ describe('mapScreen on a map whose build throws (#786)', () => {
     const cache = new L1ModelCache(() => ({ ok: false, reason: 'No VerticalTable here.' }))
     const r = mapScreen(cache, bytes, 'x.sfc', 5, 0, UNCLEARED)
     expect(r).toEqual({ status: 'unavailable', reason: PLAIN, detail: 'No VerticalTable here.' })
+  })
+})
+
+describe('mapScreen on a map whose pointer is valid but whose data cannot be read (#949, D155)', () => {
+  // The real build, no stub: $FFFFFC resolves to the last four bytes of the 4 MB image,
+  // one short of a level header. The row warns; opening it must answer this, not a blank.
+  const size = 0x400000
+  const image = new Uint8Array(size)
+  image[0x7fd5] = 0x20
+  const table = loromToOffset(ADDR.LEVEL_L1_PTR, size)!
+  for (const [slot, ptr] of [
+    [5, 0xfffffc],
+    [6, 0xfffffe],
+    [7, 0x000000],
+  ] as const) {
+    image.set([ptr & 0xff, (ptr >> 8) & 0xff, ptr >> 16], table + slot * 3)
+  }
+
+  it.each([5, 6, 7])('answers the plain reason for slot %i, never an ok reply', slot => {
+    const r = mapScreen(new L1ModelCache(), image, 'x.sfc', slot, 0, UNCLEARED)
+    expect(r).toMatchObject({ status: 'unavailable', reason: PLAIN })
   })
 })

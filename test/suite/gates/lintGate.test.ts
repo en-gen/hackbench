@@ -12,11 +12,13 @@
  * `--max-warnings 0` fails these tests instead of silently defanging CI.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import { execFileSync, spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const fixtureRoot = path.join(repoRoot, 'test/suite/gates/__fixtures__')
@@ -80,9 +82,10 @@ afterAll(() => {
  * inherited. It is a timeout, not a weakening: the assertions are unchanged.
  */
 // 102.6 s worst via npx over 10 loaded runs (two concurrent full unit runs, 32-core machine, 2026-10-09/10); 28.9 s worst direct in one full run.
-const ESLINT_TIMEOUT_MS = loadTimeout(120_000)
-// About 2x the 4.3 s loaded worst (10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10). Pure package.json cases need no timeout.
-const PRETTIER_TIMEOUT_MS = loadTimeout(10_000)
+// 126.7 s and 131.0 s at the 24-8-1 recipe (#1209 batch 2) against 55.5 s in the spike: 240 s is 1.8x the worst, about 4x the spike.
+const ESLINT_TIMEOUT_MS = loadTimeout(240_000)
+// 4.3 s loaded worst (10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10); 30 s so the file budget is not undercut.
+const PRETTIER_TIMEOUT_MS = loadTimeout(30_000)
 
 const UNUSED_VAR = 'export function f(): number {\n  const dead = 1\n  return 2\n}\n'
 

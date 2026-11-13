@@ -3,15 +3,23 @@
  *
  *   Title Screen  $0C7
  *   New Game      $0C5
- *   bonus         $000, $100, $0C8, $1C8  entered after a level, not from a tile
+ *   bonus         $000, $100              entered after a level, not from a tile
+ *                 ($0C8, $1C8 too when no map's wings block reaches them)
  *   overworld
+ *   |- $00F  entry map that holds the wings block
+ *   |   \- $0C8  sub area, Yoshi Heaven (a direct row)
  *   |- $105  entry map for a level
  *   |   |- $0C5  sub area
+ *   |   |- $0E3  sub area that holds the wings block
+ *   |   |   \- $1C8  Yoshi Heaven, nested here (#1295): the only row that nests
  *   |   \- $0C6  sub area
  *   \- $106
  *       \- $1C9
  *   unassigned
  *   \- $0D3  real map no overworld root reaches
+ *
+ * One slot can sit in both places: a root's half fixes ONE Yoshi Heaven slot, and
+ * the wings link lists it under each map of that root that holds a block.
  *
  * Terms are the glossary's (docs/glossary.md): a MAP is a slot holding real
  * data and is the editable unit, a SUB AREA is a map reachable only from
@@ -37,6 +45,7 @@ import { buildLevelCatalog } from './LevelCatalog'
 import { reachableSlots } from './LevelTree'
 import { findSpecialMaps, type SpecialMap, type SpecialRole } from './SpecialMaps'
 import { findBonusEntrances, type BonusRole } from './BonusEntrances'
+import { holdsWings, wingsColumns, wingsDestination } from './YoshiWings'
 import {
   deriveOverworldEntrances,
   STOCK_OVERWORLD_FINGERPRINTS,
@@ -54,10 +63,17 @@ export interface MapNode {
   name: string | null
   /**
    * Always 'map' in this tree: a root's sub areas are a flat list, so nothing
-   * nests, loops or truncates. 'loop' and 'truncated' are kept in the type
-   * for the wire protocol.
+   * loops or truncates, and the one thing that nests is the wings link's Yoshi
+   * Heaven row under the sub area that holds the block (#1295), one level and
+   * no deeper. 'loop' and 'truncated' are kept in the type for the wire protocol.
    */
   kind: 'map' | 'loop' | 'truncated'
+  /**
+   * Set on the Yoshi Heaven row the wings link places (#1229), under the map that holds the block (#1295): a
+   * direct row of an entry map, or the child of a sub area. It keeps Yoshi Heaven's icon and tooltip, which a
+   * bonus row carries as its `role`.
+   */
+  reachedBy?: 'yoshi-heaven'
   /**
    * Other slots holding the identical Layer-1 bytes. Not copies: an edit here
    * is an edit to all of them, because a patch is written at the offset the
@@ -68,16 +84,16 @@ export interface MapNode {
    */
   l1Aliases: number[]
   /**
-   * A slot on the shared placeholder room; `sharedCount` is how many slots
-   * share it. Always an orphan. Editing it edits every sharer, so views say so.
-   */
-  placeholder?: true
-  sharedCount?: number
-  /**
-   * A slot with no readable Layer 1 pointer (zero, or unreadable): nothing to open. Listed so
-   * every slot appears (#901), never counted as a map or a placeholder.
+   * A New slot (D155): its Layer 1 pointer is zero or does not resolve to an
+   * offset inside the ROM file, so there is no map data. Listed so every slot
+   * appears (#901), never counted as a map, and no group takes it.
    */
   noPointer?: true
+  /**
+   * A map whose pointer is valid but whose data could not be read back. It stays
+   * a map and its row warns; opening it gives the view's "could not be read" reply.
+   */
+  unreadable?: true
   children: MapNode[]
 }
 
@@ -101,11 +117,9 @@ export interface SpecialMapNode<R extends string = SpecialRole> extends MapNode 
  */
 export interface MapTreeCounts {
   entrances: number | null
-  /** Real maps nothing reaches. Placeholder slots are counted apart, below. */
+  /** Maps nothing reaches, the ones on the most common pointer included. */
   unassigned: number
-  /** Slots listed as orphans only because they use the shared placeholder room. */
-  placeholders: number
-  /** Slots listed only because their Layer 1 pointer is zero or unreadable. */
+  /** New slots: listed beside the unassigned maps but counted apart. */
   noPointer: number
 }
 
@@ -121,14 +135,16 @@ export interface MapTree {
   bonus: SpecialMapNode<BonusRole>[]
   /** Maps the overworld can start, each with its sub-areas beneath it. */
   overworld: MapNode[]
+  /** Slots the wings link placed, direct or nested under a sub area, so a groups.json that still names them is not stale. */
+  wingsPlaced?: number[]
   /**
-   * Real maps no overworld root reaches, and every placeholder slot, in slot
-   * order. Flat: see the note in build.
+   * Maps no overworld root reaches, then the New slots, in slot order. Flat:
+   * see the note in build.
    */
   unassigned: MapNode[]
   /**
-   * Real maps in the ROM, placeholders excluded (docs/glossary.md: 235 on
-   * vanilla). The tree lists mapCount + counts.placeholders + counts.noPointer slots.
+   * Maps in the ROM: every slot with a usable pointer (docs/glossary.md: 512 on
+   * vanilla). The tree lists mapCount + counts.noPointer slots.
    */
   mapCount: number
   counts: MapTreeCounts
@@ -145,7 +161,8 @@ const UNREADABLE_LISTED = 10
  * an overworld root or under unassigned. A root's sub areas are every
  * non-root slot reachable from it through the exit graph, listed once, flat
  * and in slot order (LevelTree.reachableSlots). A sub area reached from two
- * roots is listed under both.
+ * roots is listed under both. The one exception is the wings link (#1295): Yoshi
+ * Heaven is also listed beneath the sub area that holds the wings block.
  *
  * @param fingerprints Replaces the stock overworld fingerprints; for a synthetic ROM.
  */
@@ -155,9 +172,17 @@ export function buildMapTree(
 ): MapTree {
   const catalog = buildLevelCatalog(rom)
   // Listed but not a map: never a root or destination, as in the exit graph.
+  // `maps` is the hierarchy's universe. Slots on the most common pointer are
+  // maps too but stay out of it, and go straight to unassigned: they are never
+  // roots, destinations or bonus targets, so the vanilla tree keeps its shape.
   const maps = new Set(catalog.entries.filter(e => e.isReal).map(e => e.index))
-  const placeholders = catalog.entries.filter(e => e.placeholder).map(e => e.index)
-  const noPointers = catalog.entries.filter(e => !e.isReal && !e.placeholder).map(e => e.index)
+  const shared = catalog.entries.filter(e => e.sharedPointer).map(e => e.index)
+  const noPointers = catalog.entries.filter(e => !e.pointed).map(e => e.index)
+  /** Flags a slot whose pointer is valid but whose data ends in no marker, so the tree can warn instead of hiding it. */
+  const unreadable = (index: number): { unreadable?: true } =>
+    catalog.entries[index]!.pointed && !catalog.entries[index]!.terminated
+      ? { unreadable: true }
+      : {}
   const notes = [...catalog.notes]
 
   // Launch tiles the overworld grants a translevel, which is what a hacker
@@ -165,15 +190,21 @@ export function buildMapTree(
   // OverworldEntrances; unreadable on a ROM whose overworld another editor
   // rebuilt, and reported as unknown.
   const entranceIndex = deriveOverworldEntrances(rom, catalog, fingerprints)
+  /** Roots are the translevels the overworld grants, not every slot the ROM could list first. */
   const isRoot = (index: number): boolean => isOverworldLevel(index, entranceIndex.roots)
 
   const {
     graph: exitGraph,
     unavailable,
-    unreadableMaps,
+    unreadableMaps: graphCut,
+    submapFlag: flags,
+    screenHigh,
+    secondaryExit,
   } = rom.buildLevelExitGraph(entranceIndex.roots, fingerprints.entry)
 
+  /** The display name comes from the ROM's own tables; null when it has none, never a guess. */
   const name = (index: number): string | null => rom.getLevelName(index, entranceIndex)
+  /** Other slots whose Layer 1 pointer is shared with this one, so the row can name its twins. */
   const aliasesOf = (index: number): number[] => catalog.entries[index]?.l1Aliases ?? []
 
   // Roots come from the map set, not from classifyLevels, so a slot the
@@ -181,6 +212,7 @@ export function buildMapTree(
   const roots = [...maps].filter(isRoot).sort((a, b) => a - b)
 
   const placed = new Set<number>()
+  /** Records the slot as placed so the Unassigned sweep later skips it, and builds its map node. */
   const adopt = (index: number, children: MapNode[] = []): MapNode => {
     placed.add(index)
     return {
@@ -188,6 +220,7 @@ export function buildMapTree(
       name: name(index),
       kind: 'map',
       l1Aliases: aliasesOf(index),
+      ...unreadable(index),
       children,
     }
   }
@@ -196,18 +229,82 @@ export function buildMapTree(
   // non-real slot); SmwRom.classify.test.ts pins that invariant, so neither
   // half is observable here.
   const stops = (i: number): boolean => isRoot(i) || !maps.has(i)
-  const overworld = roots.map(root =>
-    adopt(
-      root,
-      reachableSlots(root, exitGraph, stops).map(i => adopt(i)),
-    ),
-  )
-
-  // Read from the ROM, and only adopted when the slot named actually holds a
-  // real map: a routine that has been repointed could name a filler slot,
-  // and listing that would invent a map.
-  const found = findSpecialMaps(rom.rom)
   const bonusRead = findBonusEntrances(rom.rom, fingerprints.bonus)
+
+  const subsOf = new Map(roots.map(r => [r, reachableSlots(r, exitGraph, stops)]))
+
+  // Yoshi Heaven joins the root whose own maps hold the wings block (#1229). The game files the
+  // destination as (OWPlayerSubmap high byte, DATA_05DBA9 low byte) exactly as a screen exit does,
+  // so the half is the root's propagated flag, never the wings map's own slot half. Yoshi Heaven's
+  // own exits are not followed (the walk never reaches it): maps only it reaches stay Unassigned.
+  const yoshiLow = bonusRead.maps.find(m => m.role === 'yoshi-heaven')?.index
+  // Per root: where Yoshi Heaven lands and which maps under it hold the block, so the row can nest
+  // under the holder (#1295). The destination stays per root because the half is the root's flag.
+  const wingsDest = new Map<number, { dest: number; holders: number[] }>()
+  const yoshiStays = 'Yoshi Heaven stays listed as a bonus map.'
+  if (flags && yoshiLow !== undefined) {
+    try {
+      const cols = wingsColumns(rom.rom, fingerprints.wings)
+      if (!('columns' in cols)) notes.push(`Yoshi wings: ${cols.note} ${yoshiStays}`)
+      else {
+        // A holder whose exits are not known to be primary is not counted: a secondary exit sends the
+        // trip through DATA_05F800 (bank_05.asm:7111-7117), and an unreadable stream hides its exits.
+        const secondary = new Set<number>()
+        const unread = new Set<number>()
+        const refusedDests = new Set<number>()
+        for (const [root, subs] of subsOf) {
+          const holders = [root, ...subs].filter(i => holdsWings(rom, i, cols.columns, fingerprints.wings)) // prettier-ignore
+          const dest = wingsDestination(!!flags.get(root), screenHigh!, yoshiLow)
+          holders.filter(i => secondaryExit?.has(i)).forEach(i => secondary.add(i))
+          holders.filter(i => graphCut?.includes(i)).forEach(i => unread.add(i))
+          const ok = holders.filter(i => !secondaryExit?.has(i) && !graphCut?.includes(i))
+          if (ok.length && !stops(dest)) wingsDest.set(root, { dest, holders: ok })
+          else if (holders.length) refusedDests.add(dest)
+        }
+        const placedNow = new Set([...wingsDest.values()].map(w => w.dest))
+        const stays = [...refusedDests].some(d => !placedNow.has(d)) ? ` ${yoshiStays}` : '' // prettier-ignore
+        const ids = (set: Set<number>): string => [...set].map(i => '$' + i.toString(16).toUpperCase().padStart(3, '0')).join(', ') // prettier-ignore
+        const say = (set: Set<number>, why: string): void => {
+          if (set.size)
+            notes.push(`Yoshi wings: ${ids(set)} ${set.size === 1 ? 'holds the wings block but has' : 'hold the wings block but have'} ${why}, so ${set.size === 1 ? 'it is' : 'they are'} not linked.${stays}`) // prettier-ignore
+        }
+        say(
+          secondary,
+          'a secondary screen exit, which the game sends through a table that is not read',
+        )
+        say(unread, 'object data that could not be read to its end, so its exits are unknown')
+      }
+    } catch (err) {
+      wingsDest.clear()
+      notes.push(`Yoshi wings: could not be read (${err instanceof Error ? err.message : String(err)}). ${yoshiStays}`) // prettier-ignore
+    }
+  }
+  const wingsPlaced = new Set([...wingsDest.values()].map(w => w.dest))
+  const overworld = roots.map(root => {
+    const subs = subsOf.get(root)!
+    const wings = wingsDest.get(root)
+    const dest = wings?.dest
+    // The link nests under the map that holds the block, not the root that reaches it (#1295): a holder
+    // that is the root lists it directly; a sub area holder lists it as its own child. A destination
+    // that holds a block itself keeps its mark, as before the nesting. Only this link
+    // nests; the exit-graph sub areas stay a flat list (#434). The row is built per place, so a
+    // destination the exit graph already listed flat keeps that row and gains the nested one.
+    const rootHolds = wings?.holders.includes(root) ?? false
+    const direct = dest !== undefined && rootHolds && !subs.includes(dest)
+    const kids = direct ? [...subs, dest].sort((a, b) => a - b) : subs
+    const yoshi = (i: number): MapNode => ({ ...adopt(i), reachedBy: 'yoshi-heaven' })
+    const children = kids.map(i => {
+      if (i === dest && (rootHolds || wings!.holders.includes(i))) return yoshi(i)
+      const nested = wings?.holders.includes(i) ? [yoshi(dest!)] : []
+      return adopt(i, nested)
+    })
+    return adopt(root, children)
+  })
+
+  // Read from the ROM, and only adopted when the slot named is in the hierarchy's
+  // map set. A repointed routine could name a New slot or one on the most common
+  // pointer; both are listed in Unassigned already, so adopting one would list it twice.
+  const found = findSpecialMaps(rom.rom)
   notes.push(...found.notes, ...bonusRead.notes)
   // One pass, so a slot named twice (by two roles, on a hack) is placed once.
   const adoptHits = <R extends string>(hits: SpecialMap<R>[]): SpecialMapNode<R>[] =>
@@ -221,6 +318,7 @@ export function buildMapTree(
           name: name(index),
           kind: 'map' as const,
           l1Aliases: aliasesOf(index),
+          ...unreadable(index),
           children: [],
         },
       ]
@@ -240,35 +338,35 @@ export function buildMapTree(
   // complete coverage.
   const realUnassignedIds = [...maps].filter(i => !placed.has(i))
   const realUnassigned = realUnassignedIds.length
-  const unassigned: MapNode[] = [...realUnassignedIds, ...placeholders, ...noPointers]
+  const unassigned: MapNode[] = [...realUnassignedIds, ...shared, ...noPointers]
     .sort((a, b) => a - b)
     .map(i => ({
       index: i,
       name: name(i),
       kind: 'map' as const,
       l1Aliases: aliasesOf(i),
-      ...(catalog.entries[i]!.placeholder
-        ? { placeholder: true as const, sharedCount: catalog.placeholderCount }
-        : catalog.entries[i]!.isReal
-          ? {}
-          : { noPointer: true as const }),
+      ...(catalog.entries[i]!.pointed ? unreadable(i) : { noPointer: true as const }),
       children: [],
     }))
+  const unassignedMaps = realUnassigned + shared.length
+  const mapCount = maps.size + shared.length
 
   if (unavailable) {
     notes.push(
       `Map hierarchy unavailable: ${unavailable} Sub areas are listed unassigned rather ` +
         'than grouped by a rule this ROM may not follow. Every map is still listed and editable.',
     )
-  } else if (realUnassigned > 0) {
+  } else if (unassignedMaps > 0) {
     notes.push(
-      `${realUnassigned} of ${maps.size} maps are unassigned: no overworld root ` +
+      `${unassignedMaps} of ${mapCount} maps are unassigned: no overworld root ` +
         'reaches them through the exit graph. They are listed flat because an ' +
-        "orphan's own exits are left unresolved by design (SmwRom.buildLevelExitGraph).",
+        "orphan's own screen exits are left unresolved by design (SmwRom.buildLevelExitGraph).",
     )
   }
 
-  if (unreadableMaps?.length) {
+  // Every map the rows warn on, shared-pointer ones included, so the note and the rows agree.
+  const unreadableMaps = catalog.entries.filter(e => e.pointed && !e.terminated).map(e => e.index)
+  if (unreadableMaps.length) {
     const n = unreadableMaps.length
     const ids = unreadableMaps
       .slice(0, UNREADABLE_LISTED)
@@ -279,14 +377,36 @@ export function buildMapTree(
     )
   }
 
+  // The graph reads less of a stream than the rows do, so it can lose a map's exits with no row warning.
+  const listed = (ids: number[]): string =>
+    ids
+      .slice(0, UNREADABLE_LISTED)
+      .map(i => `$${i.toString(16).toUpperCase().padStart(3, '0')}`)
+      .join(', ') +
+    (ids.length > UNREADABLE_LISTED ? ` and ${ids.length - UNREADABLE_LISTED} more` : '')
+  if (graphCut?.length) {
+    const n = graphCut.length
+    notes.push(
+      `${n} ${n === 1 ? 'map has' : 'maps have'} more connections than could be read, so ${n === 1 ? 'it' : 'they'} may lead to maps this tree lists as unreached: ${listed(graphCut)}.`,
+    )
+  }
+
   if (!entranceIndex.overworldReadable) notes.push(...entranceIndex.notes)
 
   const counts: MapTreeCounts = {
     entrances: entranceIndex.overworldReadable ? entranceIndex.entrances.length : null,
-    unassigned: realUnassigned,
-    placeholders: placeholders.length,
+    unassigned: unassignedMaps,
     noPointer: noPointers.length,
   }
 
-  return { special, bonus, overworld, unassigned, mapCount: maps.size, counts, notes }
+  return {
+    special,
+    bonus,
+    overworld,
+    wingsPlaced: [...wingsPlaced],
+    unassigned,
+    mapCount,
+    counts,
+    notes,
+  }
 }

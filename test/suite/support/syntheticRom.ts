@@ -3,10 +3,14 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { ADDR, LEVEL_COUNT } from '../../../src/rom/SmwRom'
 import {
   LM_ENTRY_HOOK,
+  MIDWAY_HOOK_SITE,
   OVERWORLD_ENTRY,
   OVERWORLD_INDEX_BODY,
   SCREEN_EXIT,
+  operandBytes,
   spanFingerprint,
+  type EntryFingerprints,
+  type RamTable,
   type StockSpan,
 } from '../../../src/rom/SubmapFlagGate'
 import { START_EXIT_SPAN, START_MAIN_SPAN } from '../../../src/rom/LevelStart'
@@ -50,6 +54,26 @@ function syntheticCall(): Buffer {
   return span
 }
 
+/** The cart's three branch displacements, each invented (none is vanilla's) and planted at a literal address:
+ *  the guard's BNE, the bias BCC and the high-byte BEQ. The digests of OVERWORLD_INDEX_BODY
+ *  hold them (D191 187B); SYNTHETIC_FINGERPRINTS.entry carries the cart's own. */
+export const SYNTHETIC_DISP = Object.freeze({ bne: 0x2e, bcc: 0x1b, beq: 0x4d })
+
+/**
+ * The digest bytes of OVERWORLD_INDEX_BODY as planted, in digest order: NOPs with the BNE displacement at
+ * offset 8, then the BCC displacement; then the BEQ displacement unless `lm` (the LM site hook overwrites it, so it is omitted). On a hooked
+ * cart the head MIDWAY_HOOK_SITE reads. All four are in SYNTHETIC_FINGERPRINTS.entry.
+ */
+export function syntheticIndexSpan(hooked = false, lm = false): Buffer {
+  const span = nops(93)
+  span[8] = SYNTHETIC_DISP.bne
+  if (hooked) span.set(MIDWAY_HOOK_SITE.slice(0, 4), 0)
+  return Buffer.concat([
+    span,
+    Buffer.from(lm ? [SYNTHETIC_DISP.bcc] : [SYNTHETIC_DISP.bcc, SYNTHETIC_DISP.beq]),
+  ])
+}
+
 /**
  * LevelStart's spans as planted: NOPs, plus a few opcode bytes at literal addresses (never from the span
  * constants, so a moved span or a changed length breaks the fingerprint match and goes red with no corpus):
@@ -71,13 +95,33 @@ function plantSpan(rom: RomFile, span: StockSpan, plant: typeof START_EXIT_PLANT
   for (const [at, run] of plant) rom.writeAt(at, [...run])
 }
 
+/** The cart's RAM operands, each invented, none derived from a vanilla address (D185). SYNTHETIC_FINGERPRINTS.entry carries it. */
+export const SYNTHETIC_RAM: RamTable = Object.freeze({
+  OverworldOverride: 0x1a6d,
+  TranslevelNo: 0x0c8e,
+  LoadingLevelNumber: 0x1d37,
+  OWPlayerSubmap: 0x1ce2,
+  OWLayer1Translevel: 0x7e5c40,
+  _E: 0x4b,
+  _F: 0x91,
+})
+
 /**
  * The fingerprinted spans are vanilla code and never committed (CLAUDE.md),
  * so a synthetic ROM fills them with NOPs. Pass this to the reader under test;
  * the stock defaults refuse it.
  */
 export const SYNTHETIC_FINGERPRINTS: OverworldFingerprints = Object.freeze({
-  entry: Object.freeze([fingerprint(nops(OVERWORLD_INDEX_BODY.length))!]),
+  entry: Object.freeze(
+    Object.assign(
+      [false, true].flatMap(lm =>
+        [false, true].map(h =>
+          spanFingerprint(syntheticIndexSpan(h, lm), OVERWORLD_INDEX_BODY.mask)!,
+        ),
+      ),
+      { ram: SYNTHETIC_RAM },
+    ),
+  ) as EntryFingerprints,
   walk: Object.freeze([fingerprint(nops(WALK_PROLOGUE_LENGTH))!]),
   bonus: Object.freeze([spanFingerprint(syntheticCall(), BONUS_CALL.mask)!]),
   startExit: Object.freeze([fingerprint(syntheticSpan(START_EXIT_SPAN, START_EXIT_PLANT))!]),
@@ -142,20 +186,44 @@ export function plantScreenExitFiling(rom: RomFile): void {
   }
 }
 
+/** The entry site's invented operands; the threshold is the bias plus one, as plantOverworldTiles assumes. */
+export const SYNTHETIC_BIAS = 0x2a
+export const SYNTHETIC_THRESHOLD = SYNTHETIC_BIAS + 1
+
 /**
  * The stock code SubmapFlagGate and OverworldEntrances check, at vanilla's
  * addresses, so a synthetic image is not declined. Tests that must catch a
  * wrong constant plant their own bytes at literal addresses instead.
  */
 export function plantStockSubmapCode(rom: RomFile): void {
-  for (const c of [...OVERWORLD_ENTRY, ...SCREEN_EXIT]) {
-    if ('fingerprints' in c) rom.writeAt(c.addr, nops(c.length))
-    else rom.writeAt(c.addr, [...c.bytes])
+  const stock = [...OVERWORLD_ENTRY, ...SCREEN_EXIT]
+  // Spans first: the index span covers the guard's two opcodes, which go on top.
+  for (const c of stock) {
+    if (!('fingerprints' in c)) continue
+    const bytes = c === OVERWORLD_INDEX_BODY ? syntheticIndexSpan().subarray(0, 93) : nops(c.length)
+    rom.writeAt(c.addr, bytes)
+  }
+  rom.writeAt(0x05d8a5, [SYNTHETIC_DISP.bcc])
+  rom.writeAt(0x05d8b2, [SYNTHETIC_DISP.beq])
+  for (const c of stock) {
+    if ('op' in c) {
+      rom.writeAt(c.addr, [c.op])
+      // The invented RAM operand, little-endian, so the operand is never vanilla's.
+      if (c.ram !== undefined) {
+        const value = SYNTHETIC_RAM[c.ram]
+        const operand = Array.from(
+          { length: operandBytes(c.op) },
+          (_, i) => (value >> (8 * i)) & 0xff,
+        )
+        rom.writeAt(c.addr + 1, operand)
+      }
+    } else if (!('fingerprints' in c)) rom.writeAt(c.addr, [...c.bytes])
   }
   plantScreenExitFiling(rom)
   plantSpan(rom, START_EXIT_SPAN, START_EXIT_PLANT)
   plantSpan(rom, START_MAIN_SPAN, START_MAIN_PLANT)
-  rom.writeAt(0x05d8a2, [0xc9, 0x25, 0x90, 0x03, 0x38, 0xe9, 0x24])
+  rom.writeAt(0x05d8a3, [SYNTHETIC_THRESHOLD])
+  rom.writeAt(0x05d8a8, [SYNTHETIC_BIAS])
   rom.writeAt(0x05d8b4, [0x01])
   rom.writeAt(0x05d7d1, [0x01])
   // CODE_04DC09's call, CODE_04D7F2's prologue and walk, OWPU_ABXY. Operands
@@ -188,10 +256,10 @@ export function blankStockRom(): RomFile {
 }
 
 /** Lunar Magic's JSL at $05D8B1 into its routine at `at`, with the routine's
- *  own CMP and SBC operands. The stock site keeps its stock operands. */
+ *  own CMP and SBC operands. The site's other operands are the cart's invented ones (SYNTHETIC_RAM). */
 export function plantLmEntryHook(
   rom: RomFile,
-  { at = 0x05dcd0, threshold = 0x25, bias = 0x24 } = {},
+  { at = 0x05dcd0, threshold = SYNTHETIC_THRESHOLD, bias = SYNTHETIC_BIAS } = {},
 ): void {
   rom.writeAt(0x05d8b1, [0x22, at & 0xff, (at >> 8) & 0xff, at >> 16])
   const operands = [threshold, bias]
@@ -218,12 +286,12 @@ export function plantBonusCode(rom: RomFile): void {
 }
 
 /**
- * $24 main-map and 28 sub-map launch tiles: with the stock bias the derived
- * ranges are $000-$024 and $101-$11C, past any submap root a test names and
- * short of any submap destination ($140 and up).
+ * SYNTHETIC_BIAS main-map and 28 sub-map launch tiles: the derived ranges are
+ * $000 to the bias and $101-$11C, past any submap root a test names and short
+ * of any submap destination ($140 and up).
  */
 export function plantOverworldTiles(rom: RomFile): void {
-  for (let i = 0; i < 0x24; i++) rom.writeAt(OW_ADDR.L1_TILEDATA + i, [0x6e])
+  for (let i = 0; i < SYNTHETIC_BIAS; i++) rom.writeAt(OW_ADDR.L1_TILEDATA + i, [0x6e])
   for (let i = 0; i < 28; i++) rom.writeAt(OW_ADDR.L1_TILEDATA + 0x400 + i, [0x6e])
 }
 

@@ -5,6 +5,16 @@ Prototype, since moved: `src/rom/sprites/interp/` and the core in `src/rom/cpu/`
 (the spike path was `src/rom/spriteInterp/`).
 Measurement and pins: `test/suite/unit/sprites/` (the spike's `spike.test.ts` is gone).
 
+Status (2026-11-07): built. The Theia map sprite layer draws from this
+interpreter (`theia/extension/src/node/map-sprites.ts`, section 15; decision
+[2026-10-05-sprite-table-engine.md](../decisions/2026-10-05-sprite-table-engine.md)).
+Later per-sprite work lives in `docs/sprites/`. Numbers below are as measured on
+the dates shown, not re-run. The table engine (`src/rom/model/sprites/generic/`)
+is still in the tree for the reference extension, so section 7 phase B (delete
+the descriptors) is not done. [EST] from a grep of `src/` and `theia/`.
+Two sections are numbered 11 (Prior art, The runner); left as is so section
+links keep working.
+
 ## Evidence scope
 
 Everything below was RUN, not read, unless it says "read". One machine,
@@ -284,11 +294,6 @@ parts)`, so the owner's `$4F` half-tile error disappears with no table.
 
 The "no custom renderer" ruling holds: no sprite-specific code path exists.
 
-Expected size, estimates not measurements: hardened core 500 lines; service
-(seeding, settle policy, guards, 16-bit `$13/$14`) 250; mapping to `EnginePart`
-plus palette and dynamic-GFX notes and wiring 350; tests (synthetic per opcode
-and mode, planted defects, 197-id sweep pinned, descriptor comparison) 700;
-docs 200. About 2,000 lines, about a week, plus the phase B deletion.
 Open risks: 19 sprites draw nothing in 400 passes, unexplained; the level seed
 (Mario position, Map16 under the sprite) is a UI decision `SpriteRenderContext`
 already anticipates; HiROM and SA-1; no comparison to a live core, so "matches
@@ -392,29 +397,14 @@ address are already returned per run.
 Not built: I did not transpile any routine, so nothing below about a
 transpiler is measured; the interpreter numbers are.
 
-Shared either way: the opcode decoder and operand lengths, M/X flag tracking
-(needed to size immediates; the interpreter uses live flags, a transpiler needs
-them per basic block and must fork or version a block that is reached with
-both widths), and resolving `ExecutePtr`-style jump tables (a transpiler needs
-the table at translate time; vanilla's dispatch is `JSL ExecutePtr` plus an
-inline word table, which is the recognizable shape `interpret.ts` already
-hashes).
-
-What transpiling adds: code generation per basic block; a sandbox, because a
-hack ROM is untrusted and generated JS is code execution (the interpreter's
-loop is bounded by a step budget and cannot escape its WRAM array; generated JS
-needs `Function` isolation or a worker plus a budget check at every back edge);
-and a policy for unresolved indirect jumps (`JMP (abs,X)`, `JML [dp]`), which
-the interpreter simply executes and a transpiler must either trap or
-translate lazily. It also needs self-modifying-code detection: RAM-resident
-code cannot be translated once.
-
-What it buys: speed and readable output. Speed is not a need here: the full
-201-id vanilla sweep (setup + INIT + MAIN, 942,748 instructions) took 82 ms on
-one machine including allocating 201 cores, so the interpreter already runs
-about 11 million instructions per second against a median of 609 per sprite.
-Debuggable output is real value, but a per-instruction trace
-(`Cpu.trace`) already gives a readable listing.
+A transpiler would share the opcode decoder, M/X flag tracking and
+`ExecutePtr` table resolution, and add per-block code generation, a sandbox
+for untrusted hack code, handling of indirect jumps (`JMP (abs,X)`,
+`JML [dp]`) and of self-modifying code. It would buy speed and readable
+output. Speed is not needed: the full 201-id vanilla sweep (setup + INIT +
+MAIN, 942,748 instructions) took 82 ms on one machine, about 11 million
+instructions per second against a median of 609 per sprite, and `Cpu.trace`
+already gives a readable listing.
 
 Recommendation: interpret, and keep the decoder and flag tracking in shared
 modules so a transpiler can be added later behind the same entry if a use
@@ -665,11 +655,11 @@ seven: none is a core or bus bug. After two grader fixes the status is:
 
 | Id                | Class                                                                                                                                                                                                                                                | Evidence                                                                     |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `$1E` `$61` `$82` | grader bug: sprites that spawn others log extra calls in the same frame; I had read only one call per frame                                                                                                                                          | after grouping every call of a frame, all three are exact in 16 of 16 passes |
+| `$1E` `$61`       | INIT spawns companions that draw in their own sprite slots (`$61` `bank_02.asm:14503-14534`, `$1E` `bank_01.asm:687-729`); the runner credited their tiles to the spawner (#840)                                                                                                                                          | exact once only writes made while `$15E9` is the sprite's own slot are kept (slot-0 contract) |
 | `$3E` `$80` `$2D` | grader bug: status-9 sprites log their calls as `other`, not `main`, so I was a frame early                                                                                                                                                          | exact after finding the first non-INIT call                                  |
-| `$2B`             | seed gap: Mesen enters its first MAIN with about 1,000 cells of state in `$1BB4-$1DD3` and `$1693/$1928` that our run does not have (written by code outside the sprite loop in frame 0); 15 of 16 passes draw nothing in Mesen and one tile in ours | cause of those cells not identified                                          |
+| `$2B`             | the extra tile was a cluster-sprite write (`$02:F983` is `CODE_02F967` +28, `bank_02.asm:16145`, `$15E9` = 9; static trace plus the 2026-10-17 probe), not a seed gap; the earlier gap theory is superseded | no longer wrong in the spawn tier                                          |
 
-Spawn tier now: 2,776 exact, 276 exact-empty, 15 wrong (all `$2B`), 48 refused
+Spawn tier at the #840 head merged with develop `a028e0dc` (one machine, 2026-11-04): 2,792 exact, 275 exact-empty, 0 wrong, 48 refused
 and agreeing with Mesen, 101 unrecorded; anchors 198 of 201, the other 3
 agreeing refusals. A Boo (`$37`) mismatch with the ROM seed was the Mario
 direction `$76`, found by `trackInputs` and now seeded.
@@ -768,8 +758,8 @@ measured from the capture record.
 
 Delta from the `$0200` page fix on the headline row: exact 932 to 936, empty 17
 to 13 (the four are sprites that draw only there). Spawn tier (201 ids, 16
-passes): 2,792 exact (was 2,776), 260 exact-empty (was 276), 15 wrong (all
-`$2B`), 48 refused and agreeing with Mesen, 101 unrecorded; anchors 198 of 201.
+passes), as measured at that change: 2,792 exact (was 2,776), 260 exact-empty (was 276), 15 wrong (all
+`$2B`; 0 wrong and 275 exact-empty after #840, 2026-11-04), 48 refused and agreeing with Mesen, 101 unrecorded; anchors 198 of 201.
 The ROM seed beats the generic seed on `shape` (572 against 469) and has no
 refusals; it trails the generic seed by 15 exact, a seed difference I did not
 investigate.

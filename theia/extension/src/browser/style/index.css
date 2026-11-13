@@ -397,12 +397,28 @@
   image-rendering: pixelated;
 }
 
+/* Layers 2 and 3 continuing through the far-end gutter (#1197): over the back area, under the off-map sprites. */
+.hb-map-view-gutter-layers {
+  position: absolute;
+  z-index: 110;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
 /* The map's edge, drawn on every map once its layout is known (#1004). */
 .hb-map-view-edge {
   position: absolute;
   z-index: 160;
   pointer-events: none;
   outline: 1px solid color-mix(in srgb, var(--theia-foreground, #cccccc) 35%, transparent);
+}
+
+.hb-map-stored-tile {
+  position: absolute;
+  z-index: 161;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 2px solid var(--theia-focusBorder, #007fd4);
 }
 
 .hb-map-refused rect {

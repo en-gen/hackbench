@@ -20,10 +20,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import vm from 'node:vm'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import * as core from '../support/corpus.cjs'
 import { captureFiles } from './fixtures/captureFixture'
-import { slow } from '../support/loadTimeout'
+import { slow, loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const REPO_ROOT: string = core.REPO_ROOT
 const TMP = mkdtempSync(join(tmpdir(), 'hb-page-bundle-'))

@@ -5,12 +5,15 @@
  * when it is NOT given --skip-agents-md, as gitnexus analyze does. Evidence
  * scope: the stub models the flag; the flag itself is gitnexus's own.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { execFileSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { findBash } from '../support/gitBash'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const script = path.join(repoRoot, 'tools/scripts/gitnexus-refresh.sh')

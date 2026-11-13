@@ -12,12 +12,12 @@
  *    that only make sense in their own mode.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { execFileSync, spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { slow } from '../support/loadTimeout'
+import { slow, loadTimeout } from '../support/loadTimeout'
 import {
   checkBlob,
   checkPath,
@@ -29,9 +29,12 @@ import {
   effectiveLimits,
 } from '../../../tools/scripts/check-content.mjs'
 
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
+
 const repoRoot = path.resolve(__dirname, '../../..')
 const realScript = path.join(repoRoot, 'tools/scripts/check-content.mjs')
-const CLI_TIMEOUT_MS = 30000
+// 45882 ms worst for one test (2 workers, with lintGate, ambient load; #1209 review); loadTimeout keeps CI's 60 s floor.
+const CLI_TIMEOUT_MS = loadTimeout(60_000)
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
 // ---------------------------------------------------------------------------
@@ -456,6 +459,20 @@ ${lit}`,
 // Layer 2: CLI, throwaway git repos
 // ---------------------------------------------------------------------------
 
+/** The script plus what it imports (the window lib and the corpus resolver), laid out as in the repo. */
+function installGate(into: string): void {
+  fs.mkdirSync(path.join(into, 'tools/scripts'), { recursive: true })
+  fs.mkdirSync(path.join(into, 'test/suite/support'), { recursive: true })
+  fs.copyFileSync(realScript, path.join(into, 'tools/scripts/check-content.mjs'))
+  fs.cpSync(path.join(repoRoot, 'tools/scripts/lib'), path.join(into, 'tools/scripts/lib'), {
+    recursive: true,
+  })
+  fs.copyFileSync(
+    path.join(repoRoot, 'test/suite/support/corpus.cjs'),
+    path.join(into, 'test/suite/support/corpus.cjs'),
+  )
+}
+
 let dir: string
 
 beforeEach(() => {
@@ -465,7 +482,7 @@ beforeEach(() => {
   run('git', ['config', 'user.name', 'Test'])
   run('git', ['config', 'color.ui', 'always']) // must not leak ANSI into our parsing
   fs.mkdirSync(path.join(dir, 'tools/scripts'), { recursive: true })
-  fs.copyFileSync(realScript, path.join(dir, 'tools/scripts/check-content.mjs'))
+  installGate(dir)
   writeFile('README.md', 'clean control file\n')
   run('git', ['add', 'README.md'])
   run('git', ['commit', '-q', '-m', 'base'])
@@ -764,7 +781,7 @@ describe(
       const shallow = fs.mkdtempSync(path.join(os.tmpdir(), 'contentgate-shallow-'))
       spawnSync('git', ['clone', '--quiet', '--depth', '1', `file://${dir}`, shallow])
       fs.mkdirSync(path.join(shallow, 'tools/scripts'), { recursive: true })
-      fs.copyFileSync(realScript, path.join(shallow, 'tools/scripts/check-content.mjs'))
+      installGate(shallow)
       const res = spawnSync('node', ['tools/scripts/check-content.mjs', 'history'], {
         cwd: shallow,
       })
@@ -914,7 +931,7 @@ describe(
       g(['add', 'root.asm'])
       g(['commit', '-q', '-m', 'root commit with a defect'])
       fs.mkdirSync(path.join(fresh, 'tools/scripts'), { recursive: true })
-      fs.copyFileSync(realScript, path.join(fresh, 'tools/scripts/check-content.mjs'))
+      installGate(fresh)
       const hist = spawnSync('node', ['tools/scripts/check-content.mjs', 'history'], { cwd: fresh })
       expect(hist.stdout.toString()).toMatch(/root\.asm/)
       fs.rmSync(fresh, { recursive: true, force: true })
@@ -1236,7 +1253,10 @@ describe(
       run('git', ['add', 'late.dat2'])
       run('git', ['commit', '-q', '-m', 'late'])
       const clean = gate(1000, 2000, 'history')
-      expect(clean.err).toBe('')
+      // Exactly the one history notice: a per-file or total limit refusal would add its own line.
+      expect(clean.err).toBe(
+        'check-content: rom-window rule DID NOT RUN: history mode never judges it (old files hold runs)\n',
+      )
       expect(clean.status).toBe(1) // the planted hit, not a budget refusal
       expect(clean.out).toMatch(/late\.dat2/)
     })

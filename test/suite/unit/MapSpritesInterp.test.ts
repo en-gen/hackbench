@@ -15,11 +15,16 @@ import { loadLevelState } from '../../../src/rom/sprites/interp/LevelLoader'
 import { runOnce } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed, type SpriteSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import { readMarioStartPos } from '../../../src/rom/MarioStartPos'
-import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
+import type {
+  MapSpriteDto,
+  MapSpritesResult,
+} from '../../../theia/extension/src/common/project-protocol'
 import type { SpriteModel, SpritePart } from '../../../src/rom/sprites/interp/SpriteRunner'
 import {
   cameraFor,
   drawSprites,
+  EARLIER_SPRITE_REASON,
+  withFlames,
   engineDrawer,
   interpDrawer,
   interpParts,
@@ -27,7 +32,9 @@ import {
   spriteLayer,
   modelResult,
   partKey,
+  unverifiedNote,
   type SpriteDrawer,
+  type RunModel,
 } from '../../../theia/extension/src/node/map-sprites'
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
@@ -97,7 +104,7 @@ describe('modelResult', () => {
     expect(r).toMatchObject({ ok: true, anchor: { x: 104, y: 51 } })
     expect(r.ok && r.parts.map(p => p.charNum)).toEqual([0x405])
     expect(modelResult(model({ refusal: 'step budget spent' }))).toEqual({ ok: false, reason: 'refused: step budget spent' }) // prettier-ignore
-    expect(modelResult(model({ emptyReason: 'drew no OAM tile' }))).toEqual({ ok: false, reason: 'drew no OAM tile' }) // prettier-ignore
+    expect(modelResult(model({ emptyReason: 'drew no OAM tile' }))).toEqual({ ok: false, reason: 'drew no OAM tile', empty: true }) // prettier-ignore
   })
 })
 
@@ -403,6 +410,9 @@ describe('drawSprites with runtime palette writes', () => {
   })
 })
 
+/** Only `unverified` matters to the note, so the sprite is minimal; a call without `why` is the unflagged control (#1166). */
+const mk = (n: number, why?: string) => ({ id: n, x: 0, y: 0, status: 'drawn', ...(why ? { unverified: why } : {}) }) as MapSpriteDto // prettier-ignore
+
 describe('a refused level loader marks every sprite unverified', () => {
   // A cart of zeros has no level loader: loadLevelState refuses it.
   const blank = RomFile.fromBytes('blank.sfc', Buffer.alloc(0x80000))
@@ -435,7 +445,100 @@ describe('a refused level loader marks every sprite unverified', () => {
     const r = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x10, 0xff]), { vram: chars, colors: COLORS, isVertical: true, screenCount: 3 }, draw) // prettier-ignore
     expect(seeds[0]!.loaded).toBeUndefined()
     expect(seeds[0]).toMatchObject({ level: { screenMode: 1, screens: 3 } })
-    expect(r.note).toMatch(/^Unverified: 1 sprites level loader refused/)
+    expect(r.note).toBe('Unverified: 1 sprite may not be drawn exactly as in the game.')
+    expect(r.note).not.toMatch(/loader|refused/)
+    expect(r.noteDetail).toMatch(/^level loader refused \(.+\); drawn from a placement-only seed$/)
+  })
+
+  it('keeps the note detail of a sprite beside the unverified causes on the tooltip, each once (#1254)', () => {
+    const interp = interpDrawer(blank, 0x105, { isVertical: true, screenCount: 3 }, (_r, _i, seed) => ran(true, seed)) // prettier-ignore
+    const draw: typeof interp = (...args) => ({ ...interp(...args), note: 'A plain note.', noteDetail: 'child cause' }) as ReturnType<typeof interp> // prettier-ignore
+    const r = spriteLayer(Uint8Array.from([0, 0x10, 0x01, 0x10, 0x20, 0x01, 0x10, 0xff]), { vram: chars, colors: COLORS, isVertical: true, screenCount: 3 }, draw) // prettier-ignore
+    expect(r.sprites.filter(s => s.noteDetail)).toHaveLength(2)
+    expect(r.noteDetail!.split('\n')).toEqual([expect.stringMatching(/^level loader refused/), 'child cause']) // prettier-ignore
+    expect(r.note).not.toMatch(/child cause/)
+  })
+
+  it('names the count in words, and lists every distinct cause one per line (#1166)', () => {
+    const one = unverifiedNote([mk(1, 'cause a; with semicolon'), mk(2)])
+    expect(one).toEqual({ note: 'Unverified: 1 sprite may not be drawn exactly as in the game.', detail: 'cause a; with semicolon' }) // prettier-ignore
+    const two = unverifiedNote([mk(1, 'cause a'), mk(2, 'cause b'), mk(3)])
+    expect(two).toEqual({ note: 'Unverified: 2 sprites may not be drawn exactly as in the game.', detail: 'cause a\ncause b' }) // prettier-ignore
+    const three = unverifiedNote([mk(1, 'cause a'), mk(2, 'cause b'), mk(3, 'cause a')])
+    expect(three!.note).toBe('Unverified: 3 sprites may not be drawn exactly as in the game.')
+    expect(three!.detail).toBe('cause a\ncause b')
+    expect(unverifiedNote([mk(1)])).toBeUndefined()
+  })
+
+  // The causes as the code produces them: modelResult joins the loader refusal and a runner reason with `; `.
+  // The memory-setting text is a literal copy of SpriteRunner.ts's message (it is built inline there, no shared constant).
+  const MEMORY = 'this map uses sprite memory setting 3; the bonus game blocks were only checked for setting 1, so some may be missing' // prettier-ignore
+  /** Takes the cause from `modelResult` so the test cannot drift from the strings the code really produces. */
+  const causeOf = (o: Partial<RunModel>) => {
+    const r = modelResult(model({ refusal: 'stub', ...o }) as RunModel)
+    return !r.ok ? r.unverified : undefined
+  }
+  /** One flagged sprite per case keeps the note's count fixed at "1 sprite", so only the cause varies. */
+  const noteOf = (cause: string | undefined) => unverifiedNote([mk(1, cause)])
+  const PLAIN = 'Unverified: 1 sprite may not be drawn exactly as in the game.'
+  const generic = { seedSource: 'generic', seedReason: 'planted' } as const
+
+  it.each([
+    [
+      'a refused loader alone',
+      generic,
+      /^level loader refused \(planted\); drawn from a placement-only seed$/,
+    ],
+    [
+      'the memory setting alone',
+      { unverifiedReason: MEMORY },
+      /^this map uses sprite memory setting 3; /,
+    ],
+    [
+      'the earlier-sprite reason alone',
+      { unverifiedReason: EARLIER_SPRITE_REASON },
+      /^an earlier sprite in the list/,
+    ],
+    [
+      'a refused loader and the memory setting (one sprite, joined by "; ")',
+      { ...generic, unverifiedReason: MEMORY },
+      /^level loader refused \(planted\); drawn from a placement-only seed; this map uses/,
+    ],
+    [
+      'a refused loader and the earlier-sprite reason',
+      { ...generic, unverifiedReason: EARLIER_SPRITE_REASON },
+      /; an earlier sprite in the list/,
+    ],
+  ] as const)('%s stays out of the note and fills the detail (#1166)', (_name, o, shape) => {
+    const cause = causeOf(o as Partial<RunModel>)
+    expect(cause).toMatch(shape)
+    const r = noteOf(cause)
+    expect(r!.note).toBe(PLAIN)
+    expect(r!.note).not.toMatch(/memory|earlier|loader|refused/)
+    expect(r!.detail).toBe(cause)
+  })
+})
+
+describe('withFlames keeps both details (#1166)', () => {
+  /** Only the note fields vary between the merge cases; the rest of the layer is fixed filler. */
+  const layer = (note?: string, noteDetail?: string) => ({ status: 'ok', orientation: 'horizontal', screenCount: 1, width: 1, height: 1, sprites: [mk(1)], note, noteDetail }) as Extract<MapSpritesResult, { status: 'ok' }> // prettier-ignore
+  /** Mirrors the shape `castleFlameSprites` returns, so the merge is exercised on its real input. */
+  const flames = (note?: string, noteDetail?: string) => ({ sprites: [mk(2)], note, noteDetail })
+
+  it('joins the layer detail and the flames detail, one per line, layer first', () => {
+    const r = withFlames(layer('layer note.', 'layer cause'), flames('flame note.', 'flame cause'))
+    expect(r.noteDetail).toBe('layer cause\nflame cause')
+    expect(r.note).toBe('layer note. flame note.')
+    expect(r.sprites.map(s => s.id)).toEqual([1, 2])
+  })
+  it('keeps the layer detail when only the layer has one, and the flames detail likewise', () => {
+    expect(withFlames(layer('n', 'layer cause'), flames()).noteDetail).toBe('layer cause')
+    expect(withFlames(layer(), flames('f', 'flame cause')).noteDetail).toBe('flame cause')
+  })
+  it('puts neither detail on the visible note, and sets none when neither has one', () => {
+    const r = withFlames(layer('n', 'layer cause'), flames('f', 'flame cause'))
+    expect(r.note).not.toMatch(/cause/)
+    expect(withFlames(layer('n'), flames('f')).noteDetail).toBeUndefined()
   })
 })
 
@@ -510,7 +613,8 @@ const PINNED_ROWS: Record<string, string> = {
   '106:4e@3088,304': 'same 3088,304 a890101608',
   '106:4e@3168,352': 'same 3168,352 a890101608',
   '106:4e@3424,320': 'same 3424,320 a890101608',
-  '106:4d@3760,368': 'interp-miss - -',
+  // The mole that drew nothing from Mario's start is found by the reveal search (#1132) and matches the engine's picture.
+  '106:4d@3760,368': 'same 3760,368 e53dc0877b',
   '106:4d@3952,368': 'same 3952,368 e53dc0877b',
   '8:2@128,304': 'differ 128,304 5c1daaa53f',
   '8:5@224,368': 'differ 224,368 73a3e6fff4',
@@ -578,7 +682,7 @@ const EXPECTED: Record<string, Record<string, number>> = {
   $11: { differ: 5 },
   $13: { differ: 11 },
   $1F: { differ: 1 },
-  $4D: { 'interp-miss': 1, same: 1 },
+  $4D: { same: 2 },
   $4E: { same: 3 },
 }
 
@@ -704,21 +808,25 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     expect(planted).not.toEqual(EXPECTED)
   })
 
-  it('goes red when a part changes INSIDE a row that already differs (the verdict counts stay equal)', () => {
-    const rows = compare(d => s => {
-      const r = d(s)
-      // $13 differs from the engine already; one more pixel keeps it "differ".
-      return r.ok && s.spriteId === 0x13
-        ? { ...r, parts: r.parts.map(p => ({ ...p, dy: p.dy + 1 })) }
-        : r
-    })
-    expect(tally(rows)).toEqual(EXPECTED)
-    expect(pinned(rows)).not.toEqual(PINNED_ROWS)
-  })
+  it(
+    'goes red when a part changes INSIDE a row that already differs (the verdict counts stay equal)',
+    slow(12_000),
+    () => {
+      const rows = compare(d => s => {
+        const r = d(s)
+        // $13 differs from the engine already; one more pixel keeps it "differ".
+        return r.ok && s.spriteId === 0x13
+          ? { ...r, parts: r.parts.map(p => ({ ...p, dy: p.dy + 1 })) }
+          : r
+      })
+      expect(tally(rows)).toEqual(EXPECTED)
+      expect(pinned(rows)).not.toEqual(PINNED_ROWS)
+    },
+  )
 
   // 7.3 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-09/10
   // prettier-ignore
-  it('caches an ok reply per bytes and map, at most 8 of them (least recently used out), and never an unavailable one', slow(15_000), () => {
+  it('caches an ok reply per bytes and map, at most 8 of them (least recently used out), and never an unavailable one', slow(30_000), () => {
     const b = bytes()
     const c = new L1ModelCache()
     const get = (m: number) => mapSprites(c, b, romPath(VANILLA), m)
@@ -754,16 +862,20 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     }
   })
 
-  it('$9C (Hammer Bro platform) is served with its Hammer Bro on top: the map list reaches the neighbour run (#841)', () => {
-    // Alone the platform box is 26 px tall; the neighbor run adds the Hammer Bro, 14 more.
-    for (const idx of [0x006, 0x11e, 0x127]) {
-      const r = mapSprites(new L1ModelCache(), bytes(), romPath(VANILLA), idx)
-      if (r.status !== 'ok') throw new Error(JSON.stringify(r))
-      const plats = r.sprites.filter(d => d.id === 0x9c && d.status === 'drawn')
-      expect(plats.length).toBeGreaterThan(0)
-      expect(plats.map(d => d.box.y1 - d.box.y0)).toEqual(plats.map(() => 40))
-    }
-  })
+  it(
+    '$9C (Hammer Bro platform) is served with its Hammer Bro on top: the map list reaches the neighbour run (#841)',
+    slow(15_000),
+    () => {
+      // Alone the platform box is 26 px tall; the neighbor run adds the Hammer Bro, 14 more.
+      for (const idx of [0x006, 0x11e, 0x127]) {
+        const r = mapSprites(new L1ModelCache(), bytes(), romPath(VANILLA), idx)
+        if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+        const plats = r.sprites.filter(d => d.id === 0x9c && d.status === 'drawn')
+        expect(plats.length).toBeGreaterThan(0)
+        expect(plats.map(d => d.box.y1 - d.box.y0)).toEqual(plats.map(() => 40))
+      }
+    },
+  )
 
   it('$4F on $105 is served at its stream position: the INIT move (+8, -1) is not shown at rest (D134)', () => {
     const b = bytes()
@@ -838,14 +950,15 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     const got = [0x105, 0x106].map(m => {
       const r = mapSprites(new L1ModelCache(), b, romPath(VANILLA), m)
       if (r.status !== 'ok') throw new Error(JSON.stringify(r))
-      for (const s of r.sprites.filter(s => s.status === 'placeholder')) expect(s.reason).toMatch(/^(refused: INIT: id \$[0-9a-f]+ is past|drew no OAM tile)/) // prettier-ignore
+      for (const s of r.sprites.filter(s => s.status === 'placeholder')) expect(s.reason).toMatch(/^(refused: INIT: id \$[0-9a-f]+ is past|drew no OAM tile|unrevealed$)/) // prettier-ignore
       expect(r.sprites.some(s => s.unverified)).toBe(false)
       return [r.sprites.filter(s => s.status === 'drawn').length, r.sprites.length]
     })
     // +1 on $105 and +3 on $106: the stationary shells ($DA-$DD, $DF) draw since #837; $3E draws its P-switch again now INIT runs for the picture (D139 D), so $106 is 24.
+    // Then +1 on $105 (the invisible mushroom) and +1 on $106 (a Monty Mole), both found by the reveal search (#1132).
     expect(got).toEqual([
-      [32, 34],
-      [24, 25],
+      [33, 34],
+      [25, 25],
     ])
   })
 })

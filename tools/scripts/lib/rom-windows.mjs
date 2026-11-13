@@ -16,9 +16,19 @@ export function locateVanillaRom(env, repoRoot, exists = existsSync) {
   return join(corpus.resolveRomDir(env, repoRoot, exists), corpus.VANILLA)
 }
 
-/** A window worth looking up: all-00 or all-FF runs and the like match any
- *  ROM, so fewer than MIN_DISTINCT distinct values are ignored. The one filter. */
-export const isCandidate = w => new Set(w).size >= MIN_DISTINCT
+/** A window worth looking up: all-00 or all-FF runs and the like are everywhere in the vanilla ROM
+ *  (43,597 of 524,281 positions, 2026-11-05), so fewer than MIN_DISTINCT distinct values, a constant
+ *  step or a short period are ignored. */
+export const isCandidate = w => new Set(w).size >= MIN_DISTINCT && !isPattern(w)
+
+/** A constant step (counting up or down, mod 256) or a repeat of period 2 to 4: 5,770 more positions
+ *  of the vanilla ROM (2026-11-05), no content. Costs a copied table that is itself a pure ramp or
+ *  loop (#1053). */
+const isPattern = w => {
+  const d = (w[1] - w[0]) & 255
+  if (Array.from(w).every((v, i) => i === 0 || ((v - w[i - 1]) & 255) === d)) return true
+  return [2, 3, 4].some(p => Array.from(w).every((v, i) => i < p || v === w[i - p]))
+}
 
 // Map key for a window: its bytes as a latin1 string.
 const key = w => Buffer.from(w).toString('latin1')
@@ -35,7 +45,9 @@ export function windowSet(rom, width = WINDOW_BYTES) {
 }
 
 /** Runs of `{ at, windows, end }` where consecutive windows of `bytes` are in
- *  `set`; `at` and `end` are lineOf() of the run's first and last byte. */
+ *  `set`; `at` and `end` are lineOf() of the run's first and last byte.
+ *  `set` is any lookup with `has(windowKey)`, the window as a latin1 string (a
+ *  windowSet() Set is one); the gate picks it in one place, romWindowLookup. */
 function hitRuns(bytes, lineOf, set, width) {
   const out = []
   let open = null
@@ -107,6 +119,11 @@ export function textRuns(text, base = 1, mode = 'js') {
   // An asm data directive joins the lines of a table; as a word it would read as the byte 0xDB.
   if (mode === 'asm')
     src = src.replace(/(?<![\w$])\.?(?:db|byte)(?![\w$])/gi, d => ' '.repeat(d.length))
+  // \xNN escapes and long unbroken hex strings become spaced tokens. Positions move, but the line
+  // counter below reads this same rewritten src, so line numbers hold.
+  src = src
+    .replace(/\\x([0-9a-fA-F]{2})/g, ' 0x$1 ')
+    .replace(/(?<![\w$.])(?:[0-9a-fA-F]{2}){8,}(?![\w.])/g, m => m.replace(/../g, '$& '))
   // Tokens arrive in ascending index order, so the line counter only moves forward.
   let line = base
   let nl = src.indexOf('\n')

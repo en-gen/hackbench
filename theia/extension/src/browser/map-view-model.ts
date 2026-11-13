@@ -13,12 +13,16 @@ import { BLOCK, indicatorBox, paintIndicator, type Box } from '../common/block-i
 import {
   composeScreen,
   doorFlips,
+  DOOR_PART_BIT,
+  DOOR_PART_ID,
+  WHOLE_DOOR,
   type SourceKey,
   type ScreenInput,
 } from '../../../../src/rom/model/ColorMath'
 import { SPRITE_KEYS, type FlameKey, type SpriteKey } from '../../../../src/rom/model/ScreenPlanes'
 import { decodeBase64Bytes, decodeRgba } from './map16-pixels'
 import { SWITCH_ORDER } from './map16-view-model'
+import { placeholderText, quietText } from './sprite-props'
 
 export const PALACES: readonly (keyof SwitchFlagsDto)[] = ['yellow', 'green', 'red', 'blue']
 
@@ -70,14 +74,17 @@ function bitmapOf(s: MapSpriteDto): { rgba: Uint8ClampedArray; prio: Uint8Array 
 function opaqueAt(s: MapSpriteDto, px: number, py: number): boolean {
   const { x0, y0, x1, y1 } = s.box
   if (px < x0 || px >= x1 || py < y0 || py >= y1) return false
+  // The quiet marker's ring is a thin line, so its whole 16 x 16 box answers hover, click and drag, clear interior included.
+  if (s.status === 'quiet') return true
   return bitmapOf(s).rgba[((py - y0) * (x1 - x0) + (px - x0)) * 4 + 3] !== 0
 }
 
 /**
  * The sprite that owns the map pixel (x, y), in map pixels: the topmost of the `stackOrder` `spriteLayer` draws
  * with an opaque pixel there. Transparent pixels and Layer 2 flames hit nothing (#981). A sprite its parent drew
- * (`drawnBy`) takes the hit over that parent wherever it has a pixel, whichever sorts on top, because the parent's
- * bitmap holds the same pixels (D52).
+ * (`drawnBy`) is not tested at its own stack slot, as `spriteLayer` paints nothing there; it is hit only through
+ * its parent, and takes the hit over that parent wherever it has a pixel, whichever sorts on top, because the
+ * parent's bitmap holds the same pixels (D52, #1173).
  */
 export function spriteAt(
   sprites: readonly MapSpriteDto[],
@@ -89,8 +96,8 @@ export function spriteAt(
   const order = stackOrder(sprites, g, false)
   for (let n = order.length - 1; n >= 0; n--) {
     const s = order[n]!
-    if (!opaqueAt(s, px, py)) continue
-    // A sprite its parent drew is inside the parent's bitmap, which wins here when it sorts on top: the child takes the hit (D52).
+    if (s.drawnBy !== undefined || !opaqueAt(s, px, py)) continue
+    // A sprite its parent drew is inside the parent's bitmap: the child takes the hit where it has a pixel, whichever sorts on top (D52).
     return order.find(c => c.drawnBy === s.index && opaqueAt(c, px, py)) ?? s
   }
   return undefined
@@ -100,9 +107,16 @@ export function spriteAt(
 export const hoverPlacementKey = (zoom: number, rect: { left: number; top: number }): string =>
   `${zoom}:${Math.round(rect.left)}:${Math.round(rect.top)}`
 
-/** What the hover shows for a sprite (#981): its plain name only, or nothing when the name table has none. */
-export function spriteName(s: Pick<MapSpriteDto, 'name'>): string | undefined {
-  return s.name || undefined
+/** What the hover shows for a sprite (#981): a quiet marker's words, else a failure marker's name, id and reason (#1083), else its plain name, with what makes a revealed one appear after a colon (#1132); nothing when it has neither. */
+export function spriteName(
+  s: Pick<MapSpriteDto, 'name' | 'reveal' | 'id' | 'kind'> &
+    Partial<Pick<MapSpriteDto, 'status' | 'reason'>>,
+): string | undefined {
+  if (s.status === 'quiet') return quietText(s)
+  const marker = placeholderText(s)
+  if (marker) return marker
+  if (!s.reveal) return s.name || undefined
+  return `${s.name || `Sprite $${s.id.toString(16).toUpperCase().padStart(2, '0')}`}: ${s.reveal}`
 }
 
 /**
@@ -131,6 +145,8 @@ function spriteLayer(
     const [cy0, cy1] = [Math.max(y0, top), Math.min(y1, top + g.height)]
     if (cx0 >= cx1 || cy0 >= cy1) continue
     const bmp = bitmapOf(s)
+    // A hidden sprite shown whole in the screen door carries the flag in its door id (ColorMath's WHOLE_DOOR).
+    const id = s.screenDoor ? WHOLE_DOOR : 0
     out ??= { rgba: new Uint8ClampedArray(g.width * g.height * 4), prio: new Uint8Array(g.width * g.height), door: new Uint32Array(g.width * g.height) } // prettier-ignore
     for (let y = cy0; y < cy1; y++) {
       for (let x = cx0; x < cx1; x++) {
@@ -139,8 +155,12 @@ function spriteLayer(
         const to = (y - top) * g.width + (x - left)
         out.rgba.set(bmp.rgba.subarray(from * 4, from * 4 + 4), to * 4)
         // No priority: a placeholder, at the pre-#795 slot.
-        out.prio[to] = bmp.prio ? bmp.prio[from]! : 2
-        out.door[to] = ((n + 1) << 1) | ((x - x0 + (y - y0)) & 1)
+        out.prio[to] = bmp.prio ? bmp.prio[from]! & 3 : 2
+        // A pixel of a door part (the rope's extra length) is in the door under an id of its own, so hover and the swap count see it apart.
+        const part = bmp.prio && bmp.prio[from]! & DOOR_PART_BIT ? DOOR_PART_ID | WHOLE_DOOR : 0
+        // The quiet marker is never dithered by the screen door: it is a hint on the tile, not a sprite to see through.
+        out.door[to] =
+          s.status === 'quiet' ? 0 : (((n + 1) | id | part) << 1) | ((x - x0 + (y - y0)) & 1)
       }
     }
   }
@@ -247,6 +267,8 @@ export function liftIfCovered(
   covered: Iterable<ReadonlySet<number>>,
 ): number | undefined {
   if (!id) return undefined
+  // A whole-door sprite is see-through everywhere, so it lifts wherever it is.
+  if (id & WHOLE_DOOR) return id
   for (const c of covered) if (c.has(id)) return id
   return undefined
 }

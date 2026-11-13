@@ -23,7 +23,7 @@ The sprite loop counts sprite table slots 11 down to 0. So:
 
 ## Evidence
 
-`test/suite/unit/sprites/LakituFacing.test.ts`, commit on `feature/1007-lakitu-facing`, 2026-10-17, one machine,
+`test/suite/unit/sprites/LakituFacing.test.ts`, merged as `5954fb5f` (#1026) from `feature/1007-lakitu-facing`, 2026-10-17, one machine,
 the runner as on `develop` 9a039005, vanilla ROM:
 
 - Synthetic cart (no ROM): a rider that spawns a cloud from slot 7 down, and a cloud MAIN with the real routine's

@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 // @ts-expect-error plain ESM without types
 import {
   bytesHits,
@@ -16,6 +16,9 @@ import {
   windowSet,
 } from '../../../tools/scripts/lib/rom-windows.mjs'
 import { resolveRomDir, VANILLA } from '../support/corpus'
+import { loadTimeout, slow } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const REPO = join(__dirname, '../../..')
 const CLI = join(REPO, 'tools/scripts/rom-window-probe.mjs')
@@ -124,7 +127,8 @@ const FORMS: Record<string, (w: ArrayLike<number>) => string> = {
 describe('sweep', () => {
   // A window with exactly d distinct values, planted in a fresh fake ROM.
   const planted = (d: number) => {
-    const w = Array.from({ length: 8 }, (_, i) => 0x30 + (i % d) * 0x11)
+    // Not a ramp or a short loop (those are filtered as patterns), so only the distinct count varies.
+    const w = [0, 3, 1, 6, 2, 7, 5, 4].map(x => 0x30 + (x % d) * 0x11)
     const rom = prng(1024, 99 + d)
     rom.set(w, 300)
     return { w, set: windowSet(rom) }
@@ -386,12 +390,12 @@ y
     it('catches a run that starts on an unchanged line and ends on an added one', () => {
       expect(out).toContain('HIT half.txt:1 windows=1')
     })
-    it('reads a..b, a...b and a lone rev alike', () => {
+    it('reads a..b, a...b and a lone rev alike', slow(60_000), () => {
       for (const spec of ['HEAD~1...HEAD', 'HEAD~1']) {
         const r2 = probe(['--rom', romFile, '--repo', repo, '--git-range', spec])
         expect(r2.stdout.split('\n').filter(l => l.startsWith('HIT')).length).toBe(6)
       }
-    })
+    }) // two probe runs over 8 touched files, 2 git spawns per file: 1.3 to 5.5 s alone, one Windows machine, 2026-11-05
     it('a...b diffs from the merge base, not from a', () => {
       git('checkout', '-q', '-b', 'side', 'HEAD~1')
       write(

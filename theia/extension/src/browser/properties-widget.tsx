@@ -14,7 +14,7 @@ import { ProjectService, type SpritePartDto } from '../common/project-protocol'
 import { decodeRgba } from './map16-pixels'
 import { formatCharNum } from './map16-view-model'
 import { PropertiesModel, PropertiesSubject } from './properties-model'
-import { animationText, spriteProps } from './sprite-props'
+import { animationText, spriteProps, noteTitle } from './sprite-props'
 import { FramePlayer, type FramesState } from './sprite-frames'
 import { followSubject } from './properties-follow'
 
@@ -71,6 +71,7 @@ function framesView(f: Extract<FramesState, { kind: 'playing' }>) {
   return { pixels: out, w, h }
 }
 
+/** Notes come first because they say what the picture cannot be trusted for, which a reader should know before reading the facts and preview below. */
 function SpriteSubject({
   subject,
   frames,
@@ -83,16 +84,32 @@ function SpriteSubject({
   const [w, h] = [s.box.x1 - s.box.x0, s.box.y1 - s.box.y0]
   return (
     <div className="hb-props-sprite" data-subject="sprite">
-      {p.notes.map(n => (
-        <div
-          key={n}
-          className="hb-props-note"
-          data-field="note"
-          title={n.startsWith('Not drawn') ? p.rawReason : undefined}
-        >
-          {n}
-        </div>
-      ))}
+      {p.notes.map(n => {
+        const detail = noteTitle(n, p)
+        // A note with detail is a native <details>, so keyboard, touch and screen readers can open it with no handlers:
+        // the plain line is the <summary>, the engine's text the body (#1166).
+        // The mouse tooltip is on the <summary>, not the <details>: a title on <details> becomes the group's accessible
+        // name, which would have assistive tech read the raw cause while the note is closed.
+        // The key names the sprite, not just the text: every unverified sprite has the same line, and a shared key would
+        // reuse the element and keep a previous sprite's disclosure open on the next one.
+        // A note without detail stays a plain line.
+        return detail ? (
+          <details
+            key={`${subject.source?.index ?? ''}:${s.index}:${n}`}
+            className="hb-props-note"
+            data-field="note"
+          >
+            <summary title={detail}>{n}</summary>
+            <div className="hb-props-note-detail" data-field="note-detail">
+              {detail}
+            </div>
+          </details>
+        ) : (
+          <div key={n} className="hb-props-note" data-field="note">
+            {n}
+          </div>
+        )
+      })}
       {/* #1023: the map's notes summary sits above the breadcrumb (docs design map-facts-properties.md); its "Back" link goes in the breadcrumb. */}
       <div className="hb-props-crumb" data-control="crumb">
         Sprite

@@ -4,7 +4,13 @@
  * (spawner, child sprite, count) and the per-sprite gate differ, so they stay in the two files with their citations.
  */
 import type { RomFile } from '../../RomFile'
-import { SPAWN_SHORT, type RunOptions, type SpriteModel, type SpritePart } from './SpriteRunner'
+import {
+  drawnParts,
+  SPAWN_SHORT,
+  type RunOptions,
+  type SpriteModel,
+  type SpritePart,
+} from './SpriteRunner'
 import type { SpriteSeed } from './SpriteSeed'
 
 /** SpriteLock ($9D, SMWDisX rammap.asm:914): while it is set the game's own sprite code skips its per-frame move. */
@@ -39,6 +45,18 @@ export interface SpawnedChildren {
   spawned: number
   /** First reason a spawned child did not draw; empty when all drew. */
   why: string
+}
+
+/** Children a spawner made that did not draw, kept as data so the map's note can sum them across spawners (#1281). */
+export interface UndrawnChildren {
+  noun: 'Eerie' | 'platform'
+  count: number
+}
+
+/** The one sentence for undrawn children, singular for 1 ("1 Eerie did not draw."); the reason goes in `noteDetail`. */
+export function undrawnNote(u: UndrawnChildren): string {
+  const noun = u.count === 1 ? u.noun : u.noun === 'Eerie' ? 'Eeries' : 'platforms'
+  return `${u.count} ${noun} did not draw.`
 }
 
 /**
@@ -81,7 +99,7 @@ export function runSpawnedChildren(
     children.push({
       x: pass.pos.x,
       y: pass.pos.y,
-      parts: pass.parts.map(p => ({ ...p, dx: p.dx + ox, dy: p.dy + oy })),
+      parts: drawnParts(pass).map(p => ({ ...p, dx: p.dx + ox, dy: p.dy + oy })),
     })
   }
   return { children, missing, spawned, why }

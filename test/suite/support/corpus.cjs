@@ -74,6 +74,26 @@ function resolveCaptureDir(env, toolsRoot) {
 }
 const CAPTURE_DIR = resolveCaptureDir(process.env, TOOLS_ROOT)
 
+/** The personal-ROM list (#1289), in the ROM folder and outside git. */
+const PERSONAL_FILE = 'personal.txt'
+
+/** File names from the list's text: one per line, blank lines and `#` comments ignored. */
+function parsePersonalList(text) {
+  return text
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(l => l !== '' && !l.startsWith('#'))
+}
+
+/** The names listed in `<dir>/personal.txt`; a missing or unreadable file is an empty list. */
+function personalRoms(dir = ROM_DIR) {
+  try {
+    return parsePersonalList(fs.readFileSync(path.join(dir, PERSONAL_FILE), 'utf8'))
+  } catch {
+    return []
+  }
+}
+
 module.exports = {
   CORPUS,
   VANILLA: CORPUS[0],
@@ -87,5 +107,8 @@ module.exports = {
   resolveRomDir,
   resolveToolsRoot,
   resolveCaptureDir,
+  PERSONAL_FILE,
+  parsePersonalList,
+  personalRoms,
   romPath: name => path.join(ROM_DIR, name),
 }

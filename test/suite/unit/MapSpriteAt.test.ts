@@ -79,6 +79,37 @@ describe('spriteAt', () => {
     expect(spriteAt([parent, child], H, 2, 0)).toBe(parent)
   })
 
+  it('a child is hit only through its parent: never alone where the parent has no pixel (#1173)', () => {
+    const parent = dto(0x9c, 29, [1, 0], [2, 1], [1]) // opaque at x1, hole at x2
+    const child = dto(0x9b, 28, [2, 0], [2, 1], [], { drawnBy: 29 }) // opaque at x2 and x3, beside the parent's box
+    const other = dto(0x10, 30, [2, 0], [2, 1])
+    for (const ids of [
+      [parent, child],
+      [child, parent],
+    ]) {
+      expect(spriteAt(ids, H, 2, 0)).toBeUndefined() // parent transparent here
+      expect(spriteAt(ids, H, 3, 0)).toBeUndefined() // outside the parent's box
+      expect(spriteAt([...ids, other], H, 2, 0)).toBe(other)
+      expect(spriteAt([...ids, other], H, 3, 0)).toBe(other)
+    }
+  })
+
+  it('a parent at list index 0 works the same, and a child with no parent in the list is never hit alone (#1173)', () => {
+    const parent = dto(0x9c, 0, [1, 0], [2, 1])
+    const child = dto(0x9b, 1, [1, 0], [2, 1], [], { drawnBy: 0 })
+    expect(spriteAt([parent, child], H, 1, 0)).toBe(child)
+    expect(spriteAt([child], H, 1, 0)).toBeUndefined()
+  })
+
+  it('a sprite stacked between a parent and its child keeps the hit at a shared pixel (#1173)', () => {
+    const parent = dto(0x9c, 1, [1, 0], [2, 1])
+    const c = dto(0x10, 2, [1, 0], [2, 1])
+    const child = dto(0x9b, 3, [1, 0], [2, 1], [], { drawnBy: 1 })
+    // The child is no longer tested at its own stack slot (top here): the parent's slot below C is not reached either.
+    expect(spriteAt([parent, c, child], H, 1, 0)).toBe(c)
+    expect(spriteAt([parent, c], H, 1, 0)).toBe(c)
+  })
+
   it('agrees with the door map that decides what is drawn on top', () => {
     const sprites = [dto(0x33, 0, [1, 0]), dto(0x10, 1, [2, 0]), dto(0x20, 2, [2, 0], [2, 2], [0])]
     const doors = spriteDoors({ ...H, sprites }, 0)

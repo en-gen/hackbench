@@ -21,6 +21,7 @@ You plan with the owner and distribute work across teams. You author and file ev
 - **Resume prompts.** A lead's clear for `self` runs when its turn ends, and a message that arrives first drops it. So on receiving a lead's resume prompt: (1) call get-session on that lead's desktop id until `isRunning` is false and `lastActivityAt` is later than the prompt's arrival (a few calls; the clear follows its last message within seconds); (2) then send the prompt back verbatim, and append the next assignment only after a lead's Close (after a context-cap clear, send the prompt alone); (3) never send a lead anything between its resume prompt and that idle check.
 - **The morning brief.** When `day-shift` returns after a night, follow `docs/runbooks/morning-brief.md`.
 - **Decision briefs** to the owner follow `docs/agents/decision-briefs.md`.
+- **Outside contributors.** A fork PR or outside issue is held for the owner, never assigned, merged or armed. Follow `docs/runbooks/outside-contributors.md`.
 - **Do no hands-on work.** Lookups go to a `grunt` on Haiku, briefed with the return format.
 
 ## Your state file

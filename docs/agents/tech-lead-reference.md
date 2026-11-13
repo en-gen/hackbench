@@ -110,6 +110,7 @@ from anyone with write access. In practice that is CodeRabbit, which approves
 once its comments are resolved (`.coderabbit.yaml`); GitHub cannot require
 the approval to be CodeRabbit's, so a human approval merges it too.
 
+- A fork PR never auto-merges and no agent merges it: `docs/runbooks/outside-contributors.md`.
 - Once the verifier has passed, the steward turns on auto-merge
   (`gh pr merge <n> -R en-gen/hackbench --auto --squash --author-email engenb@gmail.com`) and confirms it took
   (`gh pr view <n> --json autoMergeRequest`); the command has failed silently. An existing auto-merge request keeps its old email: run `--disable-auto` first, then re-arm (#612).

@@ -11,6 +11,8 @@ import {
   LOAD_HOOKS,
   MIDWAY_BUILDS,
   MIDWAY_HELPERS,
+  MIDWAY_HOOK_SITE,
+  OVERWORLD_INDEX_BODY,
   OVERWORLD_INDEX_GUARD,
   OVERWORLD_INDEX_LOAD,
   entryPathMismatches,
@@ -47,6 +49,7 @@ const HELPERS = [{ length: HELPER.length, fingerprint: fingerprint(Uint8Array.fr
 
 function midway(): RomFile {
   const rom = blankStockRom()
+  rom.writeAt(0x05d83e, MIDWAY_HOOK_SITE.slice(0, 4)) // the head only a hooked cart has
   rom.writeAt(0x05d842, [0x5c, ...jsl(HOOK_AT).slice(1)])
   rom.writeAt(HOOK_AT, HOOK)
   rom.writeAt(HELPER_AT, HELPER)
@@ -96,9 +99,12 @@ describe('recognized builds', () => {
 })
 
 describe('the stock test and load around the fingerprint', () => {
-  const pinned = [OVERWORLD_INDEX_GUARD, OVERWORLD_INDEX_LOAD].flatMap(c =>
-    c.bytes.map((_, i) => c.addr + i),
-  )
+  // Each opcode, the guard branch's displacement, and the head of the index digest the guard's ops sit in.
+  const pinned = [
+    ...[...OVERWORLD_INDEX_GUARD, ...OVERWORLD_INDEX_LOAD].map(c => c.addr),
+    0x05d846, // the guard's BNE displacement, in the digest
+    ...[0, 1, 2, 3].map(i => OVERWORLD_INDEX_BODY.addr + i),
+  ]
   it.each(pinned)('refuses with $%s flipped', at => {
     const rom = blankStockRom()
     flip(rom, at)

@@ -7,75 +7,143 @@ import {
   fadeMask,
   cellRect,
   centerScroll,
+  contentRects,
+  placementRect,
   insideMap,
   offMapPad,
   offMapSpritePixels,
   screensInView,
+  NO_PAD,
   type Pad,
   type Rect,
 } from '../../../theia/extension/src/browser/off-map-extent'
+import { spriteAt } from '../../../theia/extension/src/browser/map-view-model'
+import { GUTTER_PX, MAX_SCREENS, farGutter } from '../../../src/rom/model/MapGutter'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 
-// 16 x 27 tile screens side by side, or 32 x 16 stacked (LevelParser.ts), one to seven screens.
-const SHAPES = [1, 2, 5, 7].flatMap(n => [
-  { w: 256 * n, h: 432, vertical: false },
-  { w: 512, h: 256 * n, vertical: true },
+// 16 x 27 tile screens side by side, or 32 x 16 stacked (LevelParser.ts), one to 32 screens, the 5-bit ceiling.
+const SHAPES = [1, 2, 5, 7, 31, 32].flatMap(n => [
+  { n, w: 256 * n, h: 432, vertical: false },
+  { n, w: 512, h: 256 * n, vertical: true },
 ])
-const G = 128
+const G = 256
 
-describe('offMapPad: the gutter (D48 part 2, D145)', () => {
-  it('a map with nothing off it is padded by the gutter alone, at its long ends only', () => {
-    for (const { w, h, vertical } of SHAPES) {
-      const inside: Rect[] = [cellRect(0, 0), cellRect(w / 16 - 1, h / 16 - 1), { x0: 0, y0: 0, x1: w, y1: h }] // prettier-ignore
-      const want = vertical ? { left: 0, top: G, right: 0, bottom: G } : { left: G, top: 0, right: G, bottom: 0 } // prettier-ignore
-      expect(offMapPad(w, h, inside, vertical)).toEqual(want)
-      expect(offMapPad(w, h, [], vertical)).toEqual(want)
+describe('offMapPad: the far-end gutter (#1228)', () => {
+  it('a map with nothing off it is padded by one screen at its far end alone', () => {
+    for (const { n, w, h, vertical } of SHAPES) {
+      const g = n === MAX_SCREENS ? 0 : G
+      const inside: Rect[] = [
+        cellRect(0, 0),
+        cellRect(w / 16 - 1, h / 16 - 1),
+        { x0: 0, y0: 0, x1: w, y1: h },
+      ]
+      const want = vertical
+        ? { left: 0, top: 0, right: 0, bottom: g }
+        : { left: 0, top: 0, right: g, bottom: 0 }
+      expect(offMapPad(w, h, inside, vertical, n)).toEqual(want)
+      expect(offMapPad(w, h, [], vertical, n)).toEqual(want)
     }
+  })
+
+  it('the gutter is one 256 px screen', () => {
+    expect(GUTTER_PX).toBe(256)
+  })
+
+  it('32 screens, the ceiling, has no far-end pad; 31 has the full gutter, on both shapes', () => {
+    expect(MAX_SCREENS).toBe(32)
+    // Every legal count: one screen of gutter up to 31, none at the 32-screen ceiling.
+    for (let n = 1; n <= MAX_SCREENS; n++)
+      expect(farGutter(n), `${n} screens`).toBe(n === 32 ? 0 : 256)
+    expect(offMapPad(256 * 32, 432, [], false, 32)).toEqual({
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+    })
+    expect(offMapPad(256 * 31, 432, [], false, 31)).toEqual({
+      left: 0,
+      top: 0,
+      right: 256,
+      bottom: 0,
+    })
+    expect(offMapPad(512, 256 * 32, [], true, 32)).toEqual({ left: 0, top: 0, right: 0, bottom: 0 })
+    expect(offMapPad(512, 256 * 31, [], true, 31)).toEqual({
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 256,
+    })
+  })
+
+  it('a map at the ceiling still grows by its off-map content, with no gutter beyond it', () => {
+    expect(
+      offMapPad(256 * 32, 432, [cellRect(-2, 5), cellRect((256 * 32) / 16 + 1, 5)], false, 32),
+    ).toEqual({ left: 32, top: 0, right: 32, bottom: 0 })
   })
 })
 
 describe('offMapPad: content growth', () => {
   const H = { w: 256 * 5, h: 432, vertical: false }
   const V = { w: 512, h: 256 * 5, vertical: true }
-  const pad = (m: typeof H, rects: Rect[]) => offMapPad(m.w, m.h, rects, m.vertical)
+  const pad = (m: typeof H, rects: Rect[]) => offMapPad(m.w, m.h, rects, m.vertical, 5)
 
-  it('on a long end the gutter sits BEYOND the tile-rounded content', () => {
-    // Cell at tile -2 overflows by 32 px: 32 + the 128 gutter.
-    expect(pad(H, [cellRect(-2, 5)])).toEqual({ left: 32 + G, top: 0, right: G, bottom: 0 })
-    expect(pad(H, [cellRect(H.w / 16 + 1, 5)])).toEqual({ left: G, top: 0, right: 32 + G, bottom: 0 }) // prettier-ignore
-    expect(pad(V, [cellRect(5, -1)])).toEqual({ left: 0, top: 16 + G, right: 0, bottom: G })
-    expect(pad(V, [cellRect(5, V.h / 16)])).toEqual({ left: 0, top: G, right: 0, bottom: 16 + G }) // prettier-ignore
+  it('at the far end the gutter sits BEYOND the tile-rounded content; the near end is content alone', () => {
+    // Cell at tile -2 overflows by 32 px: content alone on the near end, the gutter only at the far end.
+    expect(pad(H, [cellRect(-2, 5)])).toEqual({ left: 32, top: 0, right: G, bottom: 0 })
+    expect(pad(H, [cellRect(H.w / 16 + 1, 5)])).toEqual({
+      left: 0,
+      top: 0,
+      right: 32 + G,
+      bottom: 0,
+    })
+    expect(pad(V, [cellRect(5, -1)])).toEqual({ left: 0, top: 16, right: 0, bottom: G })
+    expect(pad(V, [cellRect(5, V.h / 16)])).toEqual({ left: 0, top: 0, right: 0, bottom: 16 + G })
   })
 
-  it('on a short side the content alone, no gutter and no extra margin', () => {
-    expect(pad(H, [cellRect(5, -1)])).toEqual({ left: G, top: 16, right: G, bottom: 0 })
-    expect(pad(H, [cellRect(5, 27)])).toEqual({ left: G, top: 0, right: G, bottom: 16 })
-    expect(pad(V, [cellRect(-3, 5)])).toEqual({ left: 48, top: G, right: 0, bottom: G })
-    expect(pad(V, [cellRect(32, 5)])).toEqual({ left: 0, top: G, right: 16, bottom: G })
+  it('on the short sides the content alone, no gutter and no extra margin', () => {
+    expect(pad(H, [cellRect(5, -1)])).toEqual({ left: 0, top: 16, right: G, bottom: 0 })
+    expect(pad(H, [cellRect(5, 27)])).toEqual({ left: 0, top: 0, right: G, bottom: 16 })
+    expect(pad(V, [cellRect(-3, 5)])).toEqual({ left: 48, top: 0, right: 0, bottom: G })
+    expect(pad(V, [cellRect(32, 5)])).toEqual({ left: 0, top: 0, right: 16, bottom: G })
   })
 
   it('a partial tile of overflow rounds up to a whole tile', () => {
-    expect(pad(H, [{ x0: -1, y0: 0, x1: 8, y1: 8 }]).left).toBe(16 + G)
+    expect(pad(H, [{ x0: -1, y0: 0, x1: 8, y1: 8 }]).left).toBe(16)
     expect(pad(H, [{ x0: 0, y0: 0, x1: H.w + 1, y1: 8 }]).right).toBe(16 + G)
     expect(pad(H, [{ x0: 0, y0: 0, x1: 8, y1: 433 }]).bottom).toBe(16)
     expect(pad(H, [{ x0: 0, y0: -17, x1: 8, y1: 8 }]).top).toBe(32)
   })
 
-  it('content far beyond the old gutter still gets the gutter past it (no clamp, no cap)', () => {
-    expect(pad(H, [cellRect(-100, 5)]).left).toBe(1600 + G)
+  it('content far beyond the gutter still gets the gutter past it (no clamp, no cap)', () => {
+    expect(pad(H, [cellRect(-100, 5)]).left).toBe(1600)
     expect(pad(V, [cellRect(5, V.h / 16 + 300)]).bottom).toBe(4816 + G)
   })
 
   it('takes the farthest rect on each side, and all four sides at once', () => {
-    const p = pad(H, [cellRect(-1, 0), cellRect(-3, 0), cellRect(0, -2), cellRect(H.w / 16 + 1, 0), cellRect(0, 28)]) // prettier-ignore
-    expect(p).toEqual({ left: 48 + G, top: 32, right: 32 + G, bottom: 32 })
+    const p = pad(H, [
+      cellRect(-1, 0),
+      cellRect(-3, 0),
+      cellRect(0, -2),
+      cellRect(H.w / 16 + 1, 0),
+      cellRect(0, 28),
+    ])
+    expect(p).toEqual({ left: 48, top: 32, right: 32 + G, bottom: 32 })
   })
 })
 
-describe('fadeMask (owner R24)', () => {
-  it('fades along the scroll axis: to the right on a horizontal map, to the bottom on a vertical one', () => {
-    expect(fadeMask(false, 128)).toBe('linear-gradient(to right, transparent, #000 128px, #000 calc(100% - 128px), transparent)') // prettier-ignore
-    expect(fadeMask(true, 256)).toBe('linear-gradient(to bottom, transparent, #000 256px, #000 calc(100% - 256px), transparent)') // prettier-ignore
+describe('fadeMask (owner R24, #1228)', () => {
+  it('opaque from the near edge, fading to transparent across the far-end gutter only', () => {
+    expect(fadeMask(false, 256)).toBe(
+      'linear-gradient(to right, #000 calc(100% - 256px), transparent)',
+    )
+    expect(fadeMask(true, 512)).toBe(
+      'linear-gradient(to bottom, #000 calc(100% - 512px), transparent)',
+    )
+  })
+
+  it('with no gutter (a 32-screen map) there is no fade at all', () => {
+    expect(fadeMask(false, 0)).toBe('none')
+    expect(fadeMask(true, 0)).toBe('none')
   })
 })
 
@@ -138,7 +206,15 @@ describe('offMapSpritePixels', () => {
   }
   /** `c` is the red byte: which sprite a pixel came from. */
   const sprite = (index: number, box: Rect, c = 10, a = 255): MapSpriteDto =>
-    ({ index, id: 1, x: box.x0, y: box.y0, box, rgba: rgba((box.x1 - box.x0) * (box.y1 - box.y0), c, a), status: 'drawn' }) as MapSpriteDto // prettier-ignore
+    ({
+      index,
+      id: 1,
+      x: box.x0,
+      y: box.y0,
+      box,
+      rgba: rgba((box.x1 - box.x0) * (box.y1 - box.y0), c, a),
+      status: 'drawn',
+    }) as MapSpriteDto
 
   /** The pixel at MAP coordinates (x, y) of a padded bitmap: [r, a], or [0, 0] when the bitmap is null. */
   const reader =
@@ -148,18 +224,41 @@ describe('offMapSpritePixels', () => {
       return [out[i]!, out[i + 3]!]
     }
 
+  it('a sprite its parent drew paints nothing off the map either: the parent holds its pixels (#1173)', () => {
+    const pad = { left: 32, top: 0, right: 0, bottom: 0 }
+    // Parent 1, C 2, child 3 overlap at x -8..-1. The child's pixel would sit over C if it painted; spriteAt skips it too.
+    const parent = sprite(1, { x0: -8, y0: 4, x1: 8, y1: 6 }, 30)
+    const c = sprite(2, { x0: -8, y0: 4, x1: 0, y1: 6 }, 40)
+    const child = { ...sprite(3, { x0: -8, y0: 4, x1: 0, y1: 6 }, 50), drawnBy: 1 }
+    const out = offMapSpritePixels([parent, c, child], 256, 432, pad, false)
+    expect(reader(out, 256, pad)(-4, 4)).toEqual([40, 255]) // C over the parent, as spriteAt answers
+    expect(
+      reader(offMapSpritePixels([parent, child], 256, 432, pad, false), 256, pad)(-4, 4),
+    ).toEqual([30, 255]) // the parent's own bitmap shows
+    expect(offMapSpritePixels([child], 256, 432, pad, false)).toBeNull()
+    expect(offMapSpritePixels([{ ...child, drawnBy: 0 }], 256, 432, pad, false)).toBeNull() // parent at index 0
+  })
+
   it('keeps only the pixels outside the map, at their padded position', () => {
     const pad = { left: 32, top: 0, right: 0, bottom: 0 }
     // 16 wide, straddling the map's left edge: 8 px off the map, 8 on it.
     const s = sprite(0, { x0: -8, y0: 4, x1: 8, y1: 6 })
     const at = reader(offMapSpritePixels([s], 256, 432, pad, false), 256, pad)
-    expect([at(-8, 4)[1], at(-1, 4)[1], at(0, 4)[1], at(7, 4)[1], at(-8, 6)[1]]).toEqual([255, 255, 0, 0, 0]) // prettier-ignore
+    expect([at(-8, 4)[1], at(-1, 4)[1], at(0, 4)[1], at(7, 4)[1], at(-8, 6)[1]]).toEqual([
+      255, 255, 0, 0, 0,
+    ])
   })
 
   it('the $8D door: a box starting 8 px left of the map keeps its left-gutter pixels, and none over the map', () => {
-    // Vanilla ghost houses (#1016): sprite $8D, box (-8, 287) to (56, 383); pad 144 left (one tile plus the gutter).
-    const pad = { left: 144, top: 0, right: 128, bottom: 0 }
-    const out = offMapSpritePixels([sprite(0, { x0: -8, y0: 287, x1: 56, y1: 383 })], 256, 432, pad, false) // prettier-ignore
+    // Vanilla ghost houses (#1016): sprite $8D, box (-8, 287) to (56, 383); pad 16 left (one tile of content, no left gutter).
+    const pad = { left: 16, top: 0, right: 256, bottom: 0 }
+    const out = offMapSpritePixels(
+      [sprite(0, { x0: -8, y0: 287, x1: 56, y1: 383 })],
+      256,
+      432,
+      pad,
+      false,
+    )
     const at = reader(out, 256, pad)
     expect(at(-8, 287)).toEqual([10, 255])
     expect(at(-1, 382)).toEqual([10, 255])
@@ -170,7 +269,13 @@ describe('offMapSpritePixels', () => {
 
   it('a box above and left of the map keeps its top and left pixels at the data position', () => {
     const pad = { left: 32, top: 144, right: 0, bottom: 0 }
-    const out = offMapSpritePixels([sprite(0, { x0: -8, y0: -113, x1: 56, y1: 111 })], 256, 432, pad, false) // prettier-ignore
+    const out = offMapSpritePixels(
+      [sprite(0, { x0: -8, y0: -113, x1: 56, y1: 111 })],
+      256,
+      432,
+      pad,
+      false,
+    )
     const at = reader(out, 256, pad)
     expect(at(10, -113)).toEqual([10, 255])
     expect(at(10, -1)).toEqual([10, 255])
@@ -194,11 +299,14 @@ describe('offMapSpritePixels', () => {
         [{ x0: 40, y0: h - 4, x1: 50, y1: h + 6 }, [45, h + 3]],
       ]
       for (const [box, probe] of boxes) {
-        const pad = offMapPad(w, h, [box], vertical)
+        const pad = offMapPad(w, h, [box], vertical, 5)
         const at = reader(offMapSpritePixels([sprite(0, box)], w, h, pad, vertical), w, pad)
         expect(at(...probe)).toEqual([10, 255])
         // The in-map part of the same sprite is left to the screens.
-        const [ix, iy] = [Math.min(Math.max(probe[0], 0), w - 1), Math.min(Math.max(probe[1], 0), h - 1)] // prettier-ignore
+        const [ix, iy] = [
+          Math.min(Math.max(probe[0], 0), w - 1),
+          Math.min(Math.max(probe[1], 0), h - 1),
+        ]
         expect(at(ix, iy)[1]).toBe(0)
       }
     }
@@ -243,7 +351,13 @@ describe('offMapSpritePixels', () => {
   it('writes nothing outside the pad it is given (no wrap into the next row)', () => {
     const pad = { left: 128, top: 0, right: 128, bottom: 0 }
     // 80 px wide, 72 of them beyond the pad: only the 8 columns inside it (x -128..-121) are kept.
-    const out = offMapSpritePixels([sprite(0, { x0: -200, y0: 10, x1: -120, y1: 20 })], 256, 432, pad, false)! // prettier-ignore
+    const out = offMapSpritePixels(
+      [sprite(0, { x0: -200, y0: 10, x1: -120, y1: 20 })],
+      256,
+      432,
+      pad,
+      false,
+    )!
     let opaque = 0
     for (let i = 3; i < out.length; i += 4) if (out[i] !== 0) opaque++
     expect(opaque).toBe(8 * 10)
@@ -255,5 +369,148 @@ describe('offMapSpritePixels', () => {
     const clear = sprite(0, { x0: -8, y0: 0, x1: 0, y1: 8 }, 10, 0)
     expect(offMapSpritePixels([inside], 256, 432, pad, false)).toBeNull()
     expect(offMapSpritePixels([clear], 256, 432, pad, false)).toBeNull()
+  })
+})
+
+describe('what grows the canvas: placement, never art (#1325)', () => {
+  const SIZES = [
+    { w: 256 * 5, h: 432, vertical: false },
+    { w: 512, h: 256 * 5, vertical: true },
+  ]
+  /** A drawn sprite anchored at (x, y) whose art is `box`. */
+  const sp = (x: number, y: number, box: Rect, stored?: { x: number; y: number }): MapSpriteDto =>
+    ({ index: 0, id: 1, x, y, box, stored, rgba: '', status: 'drawn' }) as MapSpriteDto
+  const padOf = (
+    m: (typeof SIZES)[number],
+    sprites: MapSpriteDto[],
+    refused: { x: number; y: number }[] = [],
+  ) => offMapPad(m.w, m.h, contentRects(refused, sprites, m.w, m.h), m.vertical, 5)
+  /** The pad with the far-end gutter taken out, so the long side compares like the short ones. */
+  const bare = (m: (typeof SIZES)[number], p: Pad): Pad => ({
+    ...p,
+    right: p.right - (m.vertical ? 0 : G),
+    bottom: p.bottom - (m.vertical ? G : 0),
+  })
+
+  it('art overhanging each of the 4 sides by 1 to 32 px, from a placement on the map, pads nothing', () => {
+    for (const m of SIZES)
+      for (let k = 1; k <= 32; k++) {
+        const arts: Rect[] = [
+          { x0: -k, y0: 40, x1: 48 - k, y1: 88 },
+          { x0: 40, y0: -k, x1: 88, y1: 48 - k },
+          { x0: m.w - 48 + k, y0: 40, x1: m.w + k, y1: 88 },
+          { x0: 40, y0: m.h - 48 + k, x1: 88, y1: m.h + k },
+        ]
+        for (const art of arts) {
+          const s = sp(Math.max(art.x0, 0), Math.max(art.y0, 0), art)
+          expect(bare(m, padOf(m, [s])), `${k}px ${JSON.stringify(art)}`).toEqual(NO_PAD)
+        }
+      }
+  })
+
+  it('a sprite placed off each of the 4 sides pads that side AND draws there; a refused cell pads too', () => {
+    // The art (32 x 32) overlaps both its cell and the map edge, so no fallback hides a clamped cell.
+    const white = Buffer.alloc(32 * 32 * 4, 255).toString('base64')
+    for (const m of SIZES) {
+      const cases: [number, number, keyof Pad][] = [
+        [-16, 40, 'left'],
+        [40, -16, 'top'],
+        [m.w, 40, 'right'],
+        [40, m.h, 'bottom'],
+      ]
+      for (const [x, y, side] of cases) {
+        const s = { ...sp(x, y, { x0: x - 8, y0: y - 8, x1: x + 24, y1: y + 24 }), rgba: white }
+        const pad = padOf(m, [s])
+        expect(bare(m, pad)[side], `${side} pad`).toBe(16)
+        const out = offMapSpritePixels([s], m.w, m.h, pad, m.vertical)
+        const i = ((y + 8 + pad.top) * (m.w + pad.left + pad.right) + x + 8 + pad.left) * 4 + 3
+        expect(out?.[i], `${side} draws`).toBe(255)
+      }
+      const refused: [number, number, keyof Pad][] = [
+        [-1, 5, 'left'],
+        [5, -1, 'top'],
+        [m.w / 16, 5, 'right'],
+        [5, m.h / 16, 'bottom'],
+      ]
+      for (const [x, y, side] of refused)
+        expect(bare(m, padOf(m, [], [{ x, y }]))[side], `refused ${side}`).toBe(16)
+    }
+  })
+
+  it('a sprite placed just below the map pads its one cell and its art is cut past it', () => {
+    const m = SIZES[0]!
+    const art = { x0: 64, y0: m.h, x1: 96, y1: m.h + 24 }
+    const rgba = Buffer.alloc(32 * 24 * 4, 255).toString('base64')
+    const s = { ...sp(64, m.h, art), rgba }
+    const pad = padOf(m, [s])
+    expect(pad.bottom).toBe(16)
+    const out = offMapSpritePixels([s], m.w, m.h, pad, false)
+    const at = (y: number) =>
+      out?.[((y + pad.top) * (m.w + pad.left + pad.right) + 70 + pad.left) * 4 + 3]
+    expect([at(m.h + 15), at(m.h + 16)]).toEqual([255, undefined])
+  })
+
+  it('a sprite with no art on the map or its placement cell is never hidden (D52): its box pads and draws, 1 px of art on the map does not', () => {
+    const m = SIZES[0]!
+    const box = { x0: -48, y0: 8, x1: -32, y1: 24 }
+    const rgba = Buffer.alloc(16 * 16 * 4, 255).toString('base64')
+    const s = { ...sp(-48, 8, box, { x: 8, y: 8 }), rgba }
+    const pad = padOf(m, [s])
+    expect(pad.left).toBe(48)
+    const out = offMapSpritePixels([s], m.w, m.h, pad, false)
+    expect(out?.[((8 + pad.top) * (m.w + pad.left + pad.right) + pad.left - 48) * 4 + 3]).toBe(255)
+    const one = sp(-47, 8, { x0: -15, y0: 8, x1: 1, y1: 24 }, { x: 8, y: 8 })
+    expect(padOf(m, [one]).left).toBe(0)
+  })
+
+  it('a sprite placed off the map still draws there, while its art past the edge from a placed-on-map sprite is not in the pad', () => {
+    const m = SIZES[0]!
+    const off = { x0: -16, y0: 40, x1: 0, y1: 56 }
+    const onMap = { x0: 40, y0: m.h - 16, x1: 56, y1: m.h + 8 }
+    const sprites = [sp(-16, 40, off), sp(40, m.h - 16, onMap)]
+    const pad = padOf(m, sprites)
+    expect(pad.bottom).toBe(0)
+    const out = offMapSpritePixels(
+      sprites.map(s => ({ ...s, rgba: Buffer.alloc(256 * 4, 255).toString('base64') })),
+      m.w,
+      m.h,
+      pad,
+      false,
+    )
+    expect(out).not.toBeNull()
+    const i = (40 + pad.top) * (m.w + pad.left + pad.right) * 4 + (-8 + pad.left) * 4 + 3
+    expect(out![i]).toBe(255)
+  })
+
+  it('`stored` wins over the anchor, in either direction', () => {
+    const art = { x0: 0, y0: 0, x1: 16, y1: 16 }
+    expect(placementRect(sp(0, 0, art, { x: -32, y: 8 }))).toEqual({
+      x0: -32,
+      y0: 8,
+      x1: -16,
+      y1: 24,
+    })
+    const m = SIZES[0]!
+    expect(padOf(m, [sp(-48, 8, art, { x: 8, y: 8 })]).left).toBe(0)
+    expect(padOf(m, [sp(8, 8, art, { x: -32, y: 8 })]).left).toBe(32)
+  })
+
+  it('a sprite whose art is cut at the bottom still hits from the part left on the map', () => {
+    const art = { x0: 64, y0: 416, x1: 96, y1: 448 }
+    const s = { ...sp(64, 416, art), rgba: Buffer.alloc(32 * 32 * 4, 255).toString('base64') }
+    const g = { orientation: 'horizontal' as const, width: 256, height: 432 }
+    expect(padOf(SIZES[0]!, [s]).bottom).toBe(0)
+    expect(spriteAt([s], g, 80, 424)).toBe(s)
+  })
+
+  it('the far-end gutter is unchanged, with or without art past the far edge', () => {
+    for (const m of SIZES) {
+      const art = m.vertical
+        ? { x0: 40, y0: m.h - 8, x1: 56, y1: m.h + 40 }
+        : { x0: m.w - 8, y0: 40, x1: m.w + 40, y1: 56 }
+      const p = padOf(m, [sp(m.vertical ? 32 : m.w - 16, m.vertical ? m.h - 16 : 32, art)])
+      expect(m.vertical ? [p.bottom, p.right] : [p.right, p.bottom]).toEqual([G, 0])
+      expect(padOf(m, [])).toEqual(p)
+    }
   })
 })

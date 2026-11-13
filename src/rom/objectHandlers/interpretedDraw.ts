@@ -7,7 +7,7 @@
  * picture is never blank and never claims a verification it did not get.
  */
 
-import type { Cursor } from './cursor'
+import { refuseOffBuffer, type Cursor } from './cursor'
 import {
   ENTRY_STANDARD,
   applyWrites,
@@ -62,6 +62,6 @@ export function drawInterpreted(cur: Cursor, handler: number, ctx: InterpretedDr
   if (reached === undefined) return note('the run reached no dispatch')
   if (mirror(reached) !== mirror(handler) && mirror(reached) !== mirror(inBank(handler)))
     return note(`the ROM's dispatch reaches ${formatAddr(reached)}`)
-  applyWrites(cur.grid, r.writes, cur.owners, cur.owner)
+  if (applyWrites(cur.grid, r.writes, cur.owners, cur.owner) > 0) refuseOffBuffer(cur)
   return true
 }

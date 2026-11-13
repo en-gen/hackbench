@@ -63,7 +63,6 @@ function fakeTree(overworld: MapNode[], unassigned: MapNode[], bonus: MapNode[] 
     counts: {
       entrances: overworld.length,
       unassigned: unassigned.length,
-      placeholders: 0,
       noPointer: 0,
     },
     notes: [],
@@ -250,14 +249,15 @@ describe('applyGroups', () => {
 })
 
 describe('VANILLA_SEED', () => {
-  it('sorts both after the nine numbered areas', () => {
+  it('sorts Bonus Games after the nine numbered areas, and seeds no Yoshi Heaven (#1229)', () => {
     const slots = VANILLA_SEED.flatMap(g => g.slots)
     const tree = fakeTree(
       slots.map(s => mapNode(s)),
       [],
     )
     const names = applyGroups(tree, VANILLA_SEED).groups.map(g => g.name)
-    expect(names.slice(-3)).toEqual(['9. Special Zone', 'Bonus Games', 'Yoshi Heaven'])
+    expect(names.slice(-2)).toEqual(['9. Special Zone', 'Bonus Games'])
+    expect(names).not.toContain('Yoshi Heaven')
   })
 })
 
@@ -268,32 +268,30 @@ describe('topLevelSlots', () => {
   })
 })
 
-describe('placeholder slots (#901)', () => {
-  const placeholder = (index: number): MapNode => ({
-    ...mapNode(index),
-    placeholder: true,
-    sharedCount: 12,
-  })
-  const tree = (): MapTree => fakeTree([mapNode(0x105)], [mapNode(0x0d3), placeholder(0x025)])
+describe('slots on the shared pointer are ordinary unassigned maps (#949, D156)', () => {
+  // The tree marks nothing on them: they are plain unassigned rows, so a group may name one.
+  const tree = (): MapTree => fakeTree([mapNode(0x105)], [mapNode(0x0d3), mapNode(0x025)])
 
-  it('are not top-level slots, so a group may not name them', () => {
-    expect(topLevelSlots(tree())).toEqual(new Set([0x105, 0x0d3]))
+  it('are top-level slots, so a group may name them', () => {
+    expect(topLevelSlots(tree())).toEqual(new Set([0x105, 0x0d3, 0x025]))
     const result = admitGroups(
       [{ name: 'A', slots: [0x025] }],
       { status: 'ok', groups: [] },
       topLevelSlots(tree()),
     )
-    expect(result.status).toBe('invalid')
+    expect(result.status).toBe('ok')
   })
 
-  it('applyGroups leaves one a group names in Unassigned, never in the group', () => {
-    const grouped = applyGroups(tree(), [{ name: 'A', slots: [0x025, 0x0d3] }])
-    expect(grouped.groups[0]!.maps.map(m => m.index)).toEqual([0x0d3])
-    expect(grouped.unassigned.map(m => m.index)).toContain(0x025)
+  it('applyGroups moves one a group names out of Unassigned and into the group', () => {
+    const groups = [{ name: 'A', slots: [0x025, 0x0d3] }]
+    const grouped = applyGroups(tree(), groups)
+    expect(grouped.groups[0]!.maps.map(m => m.index)).toEqual([0x025, 0x0d3])
+    expect(grouped.unassigned.map(m => m.index)).not.toContain(0x025)
+    expect(staleSlots(tree(), groups)).toEqual([])
   })
 })
 
-describe('slots with no Layer 1 pointer (#901)', () => {
+describe('New slots, which no group takes (#901, D155)', () => {
   const noPointer = (index: number): MapNode => ({ ...mapNode(index), noPointer: true })
   const tree = (): MapTree => fakeTree([mapNode(0x105)], [mapNode(0x0d3), noPointer(0x031)])
 

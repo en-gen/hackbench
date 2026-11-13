@@ -16,6 +16,9 @@ import type { SmwRom } from '../../../../src/rom/SmwRom'
 import { SKIP_CHAIN_AT, SKIP_CHAIN_B_AT, writeStockSkipChain } from '../../support/skipChain'
 import { freshRom, hasRom, VANILLA } from '../../support/corpus'
 
+// No exit graph in these ROMs, so no entrance is known: Layer 2 sits at the primary entrance's F400/F600 (#1340).
+const NO_EXIT_GRAPH = undefined
+
 vi.mock('../../../../src/rom/L2Loader', async importOriginal => {
   const real = await importOriginal<typeof L2LoaderMod>()
   return { ...real, loadL2Objects: vi.fn(real.loadL2Objects) }
@@ -70,7 +73,7 @@ describe('buildL2 in level modes without a Layer 2 pass (synthetic)', () => {
     try {
       for (let mode = 0; mode < 32; mode++) expect(L2LoaderReal.l2ObjectGate(rom, mode), `mode ${mode}`).toBe('unrecognized') // prettier-ignore
       const header = parseLevelHeader(Uint8Array.from([0, 0x0a, 0, 0, 0]))
-      const res = buildL2Inputs({ rom } as unknown as SmwRom, LEVEL, { screenCount: 1, isVertical: false, header } as unknown as L1Inputs) // prettier-ignore
+      const res = buildL2Inputs({ rom } as unknown as SmwRom, LEVEL, { screenCount: 1, isVertical: false, header } as unknown as L1Inputs, NO_EXIT_GRAPH) // prettier-ignore
       expect(res.ok).toBe(false)
       expect(res.ok ? '' : res.reason).not.toMatch(/loads no layer 2 objects/i)
     } finally {
@@ -113,7 +116,7 @@ describe('buildL2 in level modes without a Layer 2 pass (synthetic)', () => {
       rom.writeAt(SKIP_CHAIN_B_AT + 5, [0xc9, 0x05]) // the mode $0A compare now names mode $05
       for (let mode = 0; mode < 32; mode++) expect(L2LoaderReal.l2ObjectGate(rom, mode), `mode ${mode}`).toBe('unrecognized') // prettier-ignore
       const header = parseLevelHeader(Uint8Array.from([0, 0x05, 0, 0, 0]))
-      const res = buildL2Inputs({ rom } as unknown as SmwRom, LEVEL, { screenCount: 1, isVertical: false, header } as unknown as L1Inputs) // prettier-ignore
+      const res = buildL2Inputs({ rom } as unknown as SmwRom, LEVEL, { screenCount: 1, isVertical: false, header } as unknown as L1Inputs, NO_EXIT_GRAPH) // prettier-ignore
       expect(res.ok ? '' : res.reason).toMatch(/not recognized/i)
       vi.mocked(L2LoaderReal.loadL2Objects).mockReturnValue({ grid: [[1]] })
       expect(l2At(0x05)).toBeNull()

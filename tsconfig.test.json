@@ -5,6 +5,9 @@
 // red on arrival. Scoped here, the stub's `import type * as vscode` earns its
 // keep: an @types/vscode signature change breaks this build instead of leaving
 // the tests asserting a shape VS Code no longer has.
+//
+// L2EntrancesRequired.synthetic.test.ts is the one unit test listed: its @ts-expect-error is the
+// compile-time proof that buildL2Inputs requires `entrances` (#1340).
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
@@ -13,5 +16,5 @@
     "declaration": false,
     "types": ["node", "vscode"]
   },
-  "include": ["test/suite/provider/**/*.ts", "test/suite/support/vscodeStub.ts"]
+  "include": ["test/suite/provider/**/*.ts", "test/suite/support/vscodeStub.ts", "test/suite/unit/L2EntrancesRequired.synthetic.test.ts"]
 }

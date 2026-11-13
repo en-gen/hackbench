@@ -36,6 +36,7 @@ import {
   readSubmapHigh,
   readTranslevelBias,
   stockCodeMismatch,
+  type EntryFingerprints,
 } from './SubmapFlagGate'
 import {
   readBossModes,
@@ -108,6 +109,12 @@ export interface LevelExitGraph {
   entrances?: Map<number, MapEntrances>
   /** Real maps whose layer 1 stream was not read to its $FF: their screen exits are dropped and may be missing (#788). Ascending; absent when unavailable. */
   unreadableMaps?: number[]
+  /** The submap half each reached map runs in, propagated from its root (absent when unavailable). */
+  submapFlag?: ReadonlyMap<number, 0 | 1>
+  /** The high byte a screen exit loads when the flag is set (bank_05.asm:7109); absent when unavailable. */
+  screenHigh?: number
+  /** Maps whose last screen exit is a secondary one: the trip out of them reads DATA_05F800 (bank_05.asm:7111-7117). Absent when unavailable. */
+  secondaryExit?: ReadonlySet<number>
 }
 
 /**
@@ -141,18 +148,28 @@ export interface RomSummary {
   isVanilla: boolean
 }
 
-/** Fewest slots that must repeat one Layer 1 pointer for it to be the shared placeholder room. */
-const PLACEHOLDER_MIN_REPEATS = 10
+/**
+ * How far a stream is walked looking for its end marker: 128 KB. The longest real
+ * stream seen on the corpus ends near 10 KB; walks desynced by custom objects went
+ * further (about 53 KB on Kaizo), which is why the window has slack. Short enough
+ * that a slot pointing into zero padding costs a few milliseconds, not the 250 ms a
+ * walk to the end of a 4 MB file does on every map open. [PROP]
+ */
+const STREAM_WALK_WINDOW = 0x20000
+
+/** Fewest slots that must repeat one Layer 1 pointer for it to be the most common (shared) pointer. */
+const COMMON_POINTER_MIN_REPEATS = 10
 
 /**
- * The shared placeholder pointer, its count and the runner-up's count (for
- * judging confidence), or null when none repeats enough. The exit graph and
- * the map tree both ask here, so they cannot disagree.
+ * The most common Layer 1 pointer, its count and the runner-up's count (for
+ * judging confidence), or null when none repeats enough. Slots on it are
+ * ordinary maps for the user; the exit graph and the map tree still ask here
+ * to keep them out of the hierarchy, so they cannot disagree.
  *
  * Equal counts go to the pointer first in slot order. A falsy pointer is
  * skipped: $000000 is the ROM header and what an all-zero slot reads as.
  */
-export function findPlaceholderPointer(
+export function findCommonPointer(
   pointers: readonly number[],
 ): { pointer: number; count: number; runnerUpCount: number } | null {
   const counts = new Map<number, number>()
@@ -163,7 +180,7 @@ export function findPlaceholderPointer(
     else if (count > best.count) best = { pointer, count, runnerUpCount: best.count }
     else if (count > best.runnerUpCount) best.runnerUpCount = count
   }
-  return best !== null && best.count >= PLACEHOLDER_MIN_REPEATS ? best : null
+  return best !== null && best.count >= COMMON_POINTER_MIN_REPEATS ? best : null
 }
 
 /**
@@ -308,13 +325,44 @@ export class SmwRom {
    * remains before EOF; parseLevelObjects/parseLevelScreenExits both stop
    * at the first $FF regardless, so over-reading is harmless.
    */
-  getLevelRawData(index: number): Buffer | null {
+  getLevelRawData(index: number, limit = 0x2000): Buffer | null {
     const ptr = this.getLevelL1Pointer(index)
     if (!ptr) return null
     // A tail shorter than 0x2000 is still level data: 4 maps on 4 hacks in
     // the SMW Central sweep sit in the ROM's last bytes. Only the header must fit.
-    const buf = this.rom.readUpTo(ptr, 0x2000)
+    const buf = this.rom.readUpTo(ptr, limit)
     return buf && buf.length >= 5 ? buf : null
+  }
+
+  /**
+   * The Layer 1 pointer of every slot, with those that name no byte of this
+   * file (zero, WRAM, registers, past the end) read as 0. Both the catalog and
+   * the exit graph pick the common pointer from this, so a pointer that makes a
+   * slot New (D155) can never be the one the other slots are measured against.
+   */
+  getResolvedL1Pointers(): number[] {
+    return Array.from({ length: LEVEL_COUNT }, (_, i) => {
+      const ptr = this.getLevelL1Pointer(i) ?? 0
+      return ptr !== 0 && this.rom.fileOffsetOf(ptr) !== null ? ptr : 0
+    })
+  }
+
+  /**
+   * True unless the stock-size walk of the slot's Layer 1 object stream reaches
+   * STREAM_WALK_WINDOW bytes, or the end of the file, without an end marker (D155).
+   * Same parser as the exit graph (parseLevelObjects) but a wider read than its
+   * 0x2000 cap: a long stream is still a good one. Custom object sizes are not
+   * modeled, so a hack's walk can desync and still end on padding; that fault is
+   * invisible here.
+   */
+  isLevelStreamTerminated(index: number): boolean {
+    const raw = this.getLevelRawData(index, STREAM_WALK_WINDOW)
+    if (!raw) return false
+    try {
+      return parseLevelObjects(raw, []).terminated
+    } catch {
+      return false
+    }
   }
 
   /**
@@ -389,7 +437,7 @@ export class SmwRom {
   }
 
   /**
-   * Detects the shared placeholder Layer-1 pointer that unused pointer-table
+   * Detects the most common Layer-1 pointer that unused pointer-table
    * slots fall back to (measured on vanilla: SNES $068000, shared by 277 of
    * 512 slots, including both $012 and $112). levelHasObjects() cannot spot
    * this -- the filler room contains real, well-formed object data -- only
@@ -399,8 +447,7 @@ export class SmwRom {
    * that observed ceiling, not at some ratio of it.
    */
   private _findFillerL1Pointer(): number | null {
-    const pointers = Array.from({ length: LEVEL_COUNT }, (_, i) => this.getLevelL1Pointer(i) ?? 0)
-    return findPlaceholderPointer(pointers)?.pointer ?? null
+    return findCommonPointer(this.getResolvedL1Pointers())?.pointer ?? null
   }
 
   /**
@@ -432,7 +479,7 @@ export class SmwRom {
    */
   buildLevelExitGraph(
     roots: OverworldRoots | null,
-    entryFingerprints?: readonly string[],
+    entryFingerprints?: EntryFingerprints,
   ): LevelExitGraph {
     const entry = readTranslevelBias(this.rom, entryFingerprints)
     if (!entry.ok) return { graph: new Map(), unavailable: entry.reason }
@@ -473,7 +520,7 @@ export class SmwRom {
     }
 
     // The map universe comes from pointer identity, the same test
-    // buildLevelCatalog applies. classifyLevels is deliberately NOT used here:
+    // buildLevelCatalog applies (a pointer naming no byte of the file is New, D155, and is left out). classifyLevels is deliberately NOT used here:
     // it dedupes by L1 pointer, and it gates on levelHasObjects(). Between them
     // those made 47 of the vanilla cart's 235 real maps ineligible as a
     // destination, leaving 59 unreachable. $0EB's pointer is shared by $0F0,
@@ -483,11 +530,11 @@ export class SmwRom {
     // around them the same way; levelHasObjects once rejected 24 boss-mode rooms (#695).
     // (Inlined rather than calling buildLevelCatalog: LevelCatalog imports
     // SmwRom for a value, so depending on it here would be a runtime cycle.)
-    const fillerPtr = this._findFillerL1Pointer()
+    const pointers = this.getResolvedL1Pointers()
+    const fillerPtr = findCommonPointer(pointers)?.pointer ?? null
     const realMaps: number[] = []
     for (let i = 0; i < LEVEL_COUNT; i++) {
-      const ptr = this.getLevelL1Pointer(i)
-      if (!ptr || ptr === fillerPtr) continue
+      if (!pointers[i] || pointers[i] === fillerPtr) continue
       realMaps.push(i)
     }
     const overworld = realMaps.filter(idx => isOverworldLevel(idx, roots))
@@ -497,6 +544,7 @@ export class SmwRom {
     // to the BFS below because it needs each level's submap flag, which is
     // only known once the BFS actually reaches that level.
     const unreadableMaps: number[] = []
+    const secondaryExit = new Set<number>()
     const realMapSet = new Set(realMaps)
     const exitsByLevel = new Map<number, Array<{ isSecondary: boolean; rawByte: number }>>()
     for (let levelIdx = 0; levelIdx < LEVEL_COUNT; levelIdx++) {
@@ -516,6 +564,7 @@ export class SmwRom {
       if (!parsed.terminated && realMapSet.has(levelIdx)) unreadableMaps.push(levelIdx)
       // The secondary flag is one global byte, so it reads the whole stream.
       const isSecondary = mapUsesSecondaryExits(exits)
+      if (isSecondary) secondaryExit.add(levelIdx)
       // ExitTableLow/High are filed per screen by a plain STA (bank_0D.asm:1428-1435),
       // so a later exit for the same screen overwrites the earlier one (#957). A Map
       // keeps first-insertion order, so delete before set to order by the surviving write.
@@ -600,7 +649,15 @@ export class SmwRom {
     }
     for (const e of entrances.values()) e.secondary.sort((a, b) => a - b)
 
-    return { graph, unavailable: null, entrances, unreadableMaps }
+    return {
+      graph,
+      unavailable: null,
+      entrances,
+      unreadableMaps,
+      submapFlag,
+      screenHigh,
+      secondaryExit,
+    }
   }
 
   /** Name for `index`, from the overworld walk's own entrances, not a bias

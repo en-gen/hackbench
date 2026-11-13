@@ -21,18 +21,30 @@ from the table and supplies bank `$07` as a literal (`bank_05.asm:7247-7258`).
 That is stock code only: hacks can replace the literal with a per-slot bank
 ([map-data-mechanics.md](rom/map-data-mechanics.md)).
 
-**Empty slot.** A slot whose L1 pointer is the ROM's placeholder value: the
-most common nonzero L1 pointer, and only when 10 or more slots share it. On
-vanilla that is `$068000`, shared by 277 slots. It is computed per ROM, never
-hardcoded. Empty slots are free space a hack author can fill. The Maps tree
-lists them under the UI name **placeholder**, counted apart from the maps: 512
-slots listed, 235 maps (#901). A placeholder is not a map, so it is not an
-orphaned map either. Every slot is a map, an empty slot, or (third case) an unpointed slot, below.
+**Empty slot.** A slot whose L1 pointer is the ROM's most common nonzero L1
+pointer, and only when 10 or more slots share it. On vanilla that is `$068000`,
+shared by 277 slots. It is computed per ROM, never hardcoded. An empty slot is
+a map like any other (owner ruling D69, #949): the Maps tree lists it under
+Unassigned with no label, counts it with the maps, opens it as a map, and a
+group may take it (D156). Free space a hack author can fill, but editing one
+edits every slot that shares the pointer (#902 will change that). The exit
+graph and the tree's hierarchy still treat these slots as non-entries, so the
+vanilla tree's shape is unchanged. Every slot is a map or an unpointed slot.
 
-**Unpointed slot.** A slot whose Layer 1 pointer is zero (or unreadable). It has no map data; the tree lists it under Unassigned as "no data"; no group can take it. None in vanilla or the corpus ROMs; covered by synthetic tests only.
+**Unpointed slot.** A slot whose Layer 1 pointer is zero, or does not resolve
+to an offset inside the ROM file (D155). It has no map data. UI name: **New**.
+The tree lists it under Unassigned as "New", counted apart from the maps; it
+opens an empty view with a one-line note until the empty editor exists (#950);
+no group can take it. A valid pointer whose level data cannot be read is not
+unpointed: it stays a map and its row warns, on any row, shared pointer included.
+"Cannot be read" means the walk over the map's objects, at the sizes the stock game uses,
+finds no end marker within 128 KB or before the file ends. A hack's custom objects
+are not modeled, so they can hide a fault: a walk that desyncs and still ends on padding shows no warning. None in vanilla or the corpus
+ROMs; covered by synthetic tests only.
 
-**Map.** A slot holding real data. The editable unit, and what a `.smwmap`
-file opens. Vanilla has 235.
+**Map.** A slot with a usable Layer 1 pointer: nonzero, and inside the ROM
+file. The editable unit, and what a `.smwmap` file opens. Vanilla has 512,
+every slot.
 
 > **A map's identity is its slot index, never its L1 pointer.**
 >
@@ -55,7 +67,9 @@ way in, and clicking a level in the tree opens it.
 
 **Sub area.** A map that is NOT reachable from the overworld but IS
 reachable from another map. There is no depth qualifier: a map three screen
-exits deep is a sub area, not a "sub sub area".
+exits deep is a sub area, not a "sub sub area". "Reachable" means a screen exit,
+or the Yoshi wings block (#1229): Yoshi Heaven is a sub area of the map that
+holds the block. The term itself is unchanged.
 
 Defined by reachability rather than by ownership, which settles two cases
 cleanly. A map reachable from two different levels is simply a sub area; no
@@ -95,6 +109,8 @@ no other map exits into it. The name is literal, it has no parent. Not a
 defect and not junk: in an editor this is work in progress, and on a stock
 ROM it is leftover data.
 
+**Quiet marker.** The map's mark for a placed item the game draws nothing for: a thin ring with a center dot, 16 x 16 at the placed spot, every other pixel clear so the tile shows through, drawn above the Layer 1 and Layer 2 tiles (a Layer 3 high tile on a map with the BG3 priority bit set still covers it). It means the item ran fine (or the game's loader never runs it as a sprite: a shooter, generator or scroll command) and has no picture. Not the failure box (the framed id box), which means the app could not draw something that should have a picture. See [map-data-mechanics.md](rom/map-data-mechanics.md).
+
 ## The overworld words
 
 **Submap.** One of the overworld's regions. The ROM's own word
@@ -114,6 +130,18 @@ walking the tile data. Converted to a slot index by two INDEPENDENT gates:
 the low byte subtracts `$24` at or above `$25`, and the high byte comes from
 the submap, NOT from the translevel (`bank_05.asm:7217-7226`). Conflating
 those two gates is correct on vanilla and wrong in principle.
+
+## The sprite words
+
+**Companion.** A piece drawn by code other than the sprite's own turn in a plain run: a sprite its INIT spawned (a
+$61 skull, the $1E Lakitu cloud), or any other write made while `$15E9` named another slot. The grader does not count
+companions as the sprite's parts; the map view draws them with it (D52). A neighbor placed from the map's list (#841)
+is not a companion.
+
+**Screen door.** The checkerboard the map view draws a sprite or tile in when it is there but not as the game shows it: on
+alternating squares of its own grid it is solid, on the others dim (D52, `hiddenPixelStrength`). A sprite a tile covers is
+drawn through that tile in it; a sprite that draws nothing at rest and is found by the reveal search (D142) is drawn in it
+whole, every pixel, with a hover that says what shows it ([reveal-search.md](rom/reveal-search.md)). Hovering lifts it to solid (#879).
 
 ## The connection words
 
@@ -139,16 +167,16 @@ tiles.
 
 ## Words to avoid
 
-| Avoid                       | Because                                 | Say                                   |
-| --------------------------- | --------------------------------------- | ------------------------------------- |
-| "Map" for the overworld     | collides with map-the-editable-unit     | "overworld"                           |
-| "Maps" for levels           | the tree's folders are levels, not maps | "levels"                              |
-| "area" for a submap         | collides with sub area                  | "submap"                              |
-| "level" for a slot or a map | a level is composed of maps             | "slot" or "map"                       |
-| "extras" or "unlinked"      | vague; says what it is not              | "orphaned map"                        |
-| bare "exit" for the object  | collides with the 96 counter            | "screen exit"                         |
-| "Effects" for layer 3       | its depth and role vary per map (#561)  | "Layer 3", role in the tooltip        |
-| bare "layer" for graphics   | collides with an op layer               | "graphics layer" or the role name     |
+| Avoid                       | Because                                 | Say                               |
+| --------------------------- | --------------------------------------- | --------------------------------- |
+| "Map" for the overworld     | collides with map-the-editable-unit     | "overworld"                       |
+| "Maps" for levels           | the tree's folders are levels, not maps | "levels"                          |
+| "area" for a submap         | collides with sub area                  | "submap"                          |
+| "level" for a slot or a map | a level is composed of maps             | "slot" or "map"                   |
+| "extras" or "unlinked"      | vague; says what it is not              | "orphaned map"                    |
+| bare "exit" for the object  | collides with the 96 counter            | "screen exit"                     |
+| "Effects" for layer 3       | its depth and role vary per map (#561)  | "Layer 3", role in the tooltip    |
+| bare "layer" for graphics   | collides with an op layer               | "graphics layer" or the role name |
 
 `Map16` is exempt. It is the standard SMW name for the tile format and does
 not collide in practice.
@@ -158,8 +186,10 @@ not collide in practice.
 |                                    |     |
 | ---------------------------------- | --- |
 | slots                              | 512 |
-| empty slots                        | 277 |
-| maps                               | 235 |
+| maps                               | 512 |
+| of those, on the common pointer    | 277 |
+| of those, not on it                | 235 |
+| New (unpointed) slots              | 0   |
 | launch tiles carrying a translevel | 92  |
 | of those, entering a level         | 86  |
 | levels                             | 77  |
@@ -182,12 +212,12 @@ A map is drawn as graphics layers. The toolbar names them by number, as framed
 digits in a fixed order: Layer 1, Layer 2, Layer 3, then Sprites. The ROLE
 goes in the tooltip, because what a layer does depends on the map.
 
-| Toolbar        | ROM name     | Role (tooltip)                                                                                                                                                                  |
-| -------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Layer 1**    | BG1          | Foreground. The terrain the player walks on, built from the map's object stream through Map16.                                                                                  |
-| **Layer 2**    | BG2          | Background, or Foreground on the level modes whose VerticalTable bit 7 is set (layer 2 interactive, `bank_00.asm:11736-11738`). Either a preset pattern that repeats across the map, or built from its own object stream like the foreground, with its own screen stride.                           |
-| **Layer 3**    | BG3          | A fixed image chosen per level (none, or one of three per tileset). Drawn 2bpp, never through Map16. Overlay when the header's BG3 priority bit is set, Background when clear.   |
-| **Sprites**    | OAM          | Objects placed at free positions rather than on a grid.                                                                                                                         |
+| Toolbar     | ROM name | Role (tooltip)                                                                                                                                                                                                                                                            |
+| ----------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Layer 1** | BG1      | Foreground. The terrain the player walks on, built from the map's object stream through Map16.                                                                                                                                                                            |
+| **Layer 2** | BG2      | Background, or Foreground on the level modes whose VerticalTable bit 7 is set (layer 2 interactive, `bank_00.asm:11736-11738`). Either a preset pattern that repeats across the map, or built from its own object stream like the foreground, with its own screen stride. |
+| **Layer 3** | BG3      | A fixed image chosen per level (none, or one of three per tileset). Drawn 2bpp, never through Map16. Overlay when the header's BG3 priority bit is set, Background when clear.                                                                                            |
+| **Sprites** | OAM      | Objects placed at free positions rather than on a grid.                                                                                                                                                                                                                   |
 
 **Why numbers in the toolbar, roles in the tooltip.** SNES numbers its layers
 by PPU channel, not by depth, and the mapping from number to depth is not one

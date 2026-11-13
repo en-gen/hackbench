@@ -141,9 +141,8 @@ async function snapshot(page) {
       // sorted by slot, there being no separate Overworld folder any more.
       unassignedSlots: unassignedChildren.map(n => n.index),
       orphans: unassignedChildren
-        // Real orphans: a placeholder slot (#901) is an orphan row too, but this suite's
-        // fixtures are about maps, so they are left to map-placeholder.spec.cjs.
-        .filter(n => n.category === 'orphan' && n.sharedCount === undefined)
+        // Every orphan row: slots on the shared pointer are ordinary orphans (#949, D156).
+        .filter(n => n.category === 'orphan')
         .map(n => ({ id: n.id, index: n.index })),
       entriesWithChildren: unassignedChildren
         .filter(n => n.children.length > 0)
@@ -351,32 +350,26 @@ test('a vanilla project seeds its groups, numbered in world order, and "8. Star 
     await expect(await rowFor(page, id)).toBeVisible()
   }
 
-  // The maps entered after a level are two groups after the nine areas, drawn
-  // as bonus rows: their role's icon and tooltip, never dimmed.
-  expect(tree.userGroups.map(g => g.name).slice(-3)).toEqual([
-    '9. Special Zone',
-    'Bonus Games',
-    'Yoshi Heaven',
-  ])
+  // The bonus room is a group after the nine areas, drawn as bonus rows: their role's icon and
+  // tooltip, never dimmed. Yoshi Heaven is not seeded (#1229): it lists under the wings maps.
+  expect(tree.userGroups.map(g => g.name).slice(-2)).toEqual(['9. Special Zone', 'Bonus Games'])
+  expect(tree.userGroups.map(g => g.name)).not.toContain('Yoshi Heaven')
   expect(tree.userGroups.find(g => g.name === 'Bonus Games').slots).toEqual([0x000, 0x100])
-  expect(tree.userGroups.find(g => g.name === 'Yoshi Heaven').slots).toEqual([0x0c8, 0x1c8])
-  for (const [folder, slots] of [
-    ['Bonus Games', ['$000', '$100']],
-    ['Yoshi Heaven', ['$0C8', '$1C8']],
-  ]) {
-    await ensureExpanded(page, folder)
-    for (const slot of slots) await expectBonusRow(page, folder, slot)
-  }
+  await ensureExpanded(page, 'Bonus Games')
+  for (const slot of ['$000', '$100']) await expectBonusRow(page, 'Bonus Games', slot)
 })
 
 /**
  * The four maps DATA_05DBA9 names on vanilla (src/rom/BonusEntrances.ts), and
- * how a bonus row must look: its role's icon and tooltip, never dimmed.
+ * how a bonus row must look: its role's icon and tooltip, never dimmed. Yoshi
+ * Heaven is a bonus row only where no map's wings block reaches it (a ROM whose
+ * wings code is edited); on vanilla it is a sub area (map-yoshi-wings.spec.cjs).
  */
 const BONUS_GAME = { icon: 'codicon-star-empty', title: 'Entered after a level' }
 const YOSHI_HEAVEN = { icon: 'codicon-arrow-up', title: 'Entered by flying up on Yoshi wings' }
 const BONUS_LOOK = { $000: BONUS_GAME, $100: BONUS_GAME, $0C8: YOSHI_HEAVEN, $1C8: YOSHI_HEAVEN }
 const BONUS_SLOTS = [0x000, 0x100, 0x0c8, 0x1c8]
+const VANILLA_BONUS_SLOTS = [0x000, 0x100]
 
 /** Asserts a bonus row's model category and its rendered icon, tooltip and (lack of) dimming. */
 async function expectBonusRow(page, folder, slot) {
@@ -402,9 +395,7 @@ async function expectBonusRow(page, folder, slot) {
   })
 }
 
-test('Bonus Games and Yoshi Heaven are ordinary groups: drag out, rename, delete', async ({
-  page,
-}) => {
+test('Bonus Games is an ordinary group: drag out, rename, delete', async ({ page }) => {
   await openProject(page, path.join(tmp, 'BonusOrdinary'), { seedEmpty: false })
   const group = async name => (await snapshot(page)).userGroups.find(g => g.name === name)
   const names = async () => (await snapshot(page)).userGroups.map(g => g.name)
@@ -424,11 +415,11 @@ test('Bonus Games and Yoshi Heaven are ordinary groups: drag out, rename, delete
   expect(await names()).not.toContain('Bonus Games')
   expect((await group('Bonus Rooms')).slots).toEqual([0x100])
 
-  await (await rowFor(page, 'group:user:Yoshi Heaven')).click({ button: 'right' })
+  await (await rowFor(page, 'group:user:Bonus Rooms')).click({ button: 'right' })
   await rightClickMenuItem(page, 'Delete Group')
-  await expect.poll(names).not.toContain('Yoshi Heaven')
-  await expectBonusRow(page, 'Unassigned', '$0C8')
-  await expectBonusRow(page, 'Unassigned', '$1C8')
+  await expect.poll(names).not.toContain('Bonus Rooms')
+  await expectBonusRow(page, 'Unassigned', '$000')
+  await expectBonusRow(page, 'Unassigned', '$100')
 })
 
 test('a groups.json written before the Bonus Games seed is left byte-identical', async ({
@@ -445,11 +436,13 @@ test('a groups.json written before the Bonus Games seed is left byte-identical',
   const tree = await snapshot(page)
   expect(fs.readFileSync(path.join(dir, 'meta', 'groups.json'), 'utf8')).toBe(old)
   expect(tree.userGroups.map(g => g.name)).toEqual(['8. Star World'])
-  // Not seeded into a group, the four maps sit in Unassigned, still bonus rows.
-  const bonus = tree.allNodes.filter(
-    n => n.id.startsWith('group:unassigned/') && BONUS_SLOTS.includes(n.index),
-  )
-  expect(bonus.map(n => n.category)).toEqual(['bonus', 'bonus', 'bonus', 'bonus'])
+  // Not seeded into a group, the bonus room sits in Unassigned, still a bonus row; the two Yoshi
+  // Heaven slots are sub areas under the wings maps, not Unassigned rows.
+  // Top-level rows only: a sub area's id is 'group:unassigned/$00F/$0C8', one segment deeper.
+  const top = tree.allNodes.filter(n => n.id.startsWith('group:unassigned/') && n.id.split('/').length === 2) // prettier-ignore
+  const bonus = top.filter(n => VANILLA_BONUS_SLOTS.includes(n.index))
+  expect(bonus.map(n => n.category)).toEqual(['bonus', 'bonus'])
+  expect(top.filter(n => [0x0c8, 0x1c8].includes(n.index))).toEqual([])
 })
 
 test('a non-vanilla corpus ROM gets no groups at load, and its refused bonus maps stay orphans', async ({
@@ -996,4 +989,37 @@ test('renaming a group to a name that clashes only in case is refused, with a me
 
   const afterCancel = await snapshot(page)
   expect(afterCancel.userGroups.map(g => g.name)).toEqual(expect.arrayContaining(['Alpha', 'Beta']))
+})
+
+/** Slots on the ROM's most common Layer 1 pointer, read from the file (the table is at SNES $05E000, no copier header assumed). */
+function sharedPointerSlots() {
+  const bytes = fs.readFileSync(ROM)
+  const base = (bytes.length % 1024 === 512 ? 512 : 0) + 0x2e000
+  const bySlot = Array.from({ length: 512 }, (_, i) => bytes.readUIntLE(base + i * 3, 3))
+  const counts = new Map()
+  for (const p of bySlot) counts.set(p, (counts.get(p) ?? 0) + 1)
+  const common = [...counts].sort((a, b) => b[1] - a[1])[0][0]
+  return new Set(bySlot.flatMap((p, i) => (p === common ? [i] : [])))
+}
+
+// Vanilla orphans are mostly slots on the shared pointer (D156), so the other tests mostly use those.
+// This one keeps an orphan that is NOT on it covered, through the real menu.
+test('a real orphan off the shared pointer is grouped through the menu and sits in the group', async ({
+  page,
+}) => {
+  const manifestPath = await openProject(page, path.join(tmp, 'RealOrphan'))
+  const shared = sharedPointerSlots()
+  const tree = await snapshot(page)
+  const orphan = tree.orphans.find(n => !shared.has(n.index))
+  expect(orphan, 'fixture: vanilla has an orphan off the shared pointer').toBeDefined()
+  await ensureExpanded(page, 'Unassigned')
+
+  const row = await rowFor(page, orphan.id)
+  await row.click()
+  await row.click({ button: 'right' })
+  await addToNewGroup(page, 'Real')
+
+  await expect.poll(() => groupSlots(page, 'Real')).toEqual([orphan.index])
+  expect((await snapshot(page)).unassignedSlots).not.toContain(orphan.index)
+  expect(groupsOnDisk(manifestPath)).toEqual([{ name: 'Real', slots: [orphan.index] }])
 })

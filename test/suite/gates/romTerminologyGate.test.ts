@@ -13,7 +13,7 @@ import { describe, it, expect } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import * as ts from 'typescript'
+import { scan, userText, type Tree } from '../support/userText'
 
 const ROOT = path.resolve(__dirname, '../../..')
 // US spelling in UI text (#273). Also catches "colours" and "recolour".
@@ -22,51 +22,6 @@ const SCANNED = ['theia/extension/src', 'src/rom', 'src/project']
 const BANNED = /cartridge|\bcarts?\b/i
 /** One row per rule: the real-tree test and the planted-tree test share it. */
 const RULES = { cart: BANNED, color: UK_COLOR }
-
-function sourceFiles(dir: string): string[] {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => {
-    const p = path.join(dir, e.name)
-    if (e.isDirectory()) return sourceFiles(p)
-    return /\.tsx?$/.test(e.name) && !e.name.endsWith('.d.ts') ? [p] : []
-  })
-}
-
-/** Every piece of literal text in `source` that could be shown to a user. */
-function userText(source: string, fileName = 'x.tsx'): string[] {
-  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true)
-  const found: string[] = []
-  const visit = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) return
-    if (ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node) || ts.isJsxText(node)) {
-      found.push(node.text)
-    }
-    ts.forEachChild(node, visit)
-  }
-  visit(sf)
-  return found
-}
-
-interface Tree {
-  /** Scanned file count per root, so one missing root cannot hide. */
-  counts: Record<string, number>
-  literals: { file: string; text: string }[]
-}
-
-/** Parse every .ts/.tsx under `roots` (relative to `base`) once. */
-function scan(base: string, roots: string[]): Tree {
-  const counts: Record<string, number> = {}
-  const literals: Tree['literals'] = []
-  for (const r of roots) {
-    const files = sourceFiles(path.join(base, r))
-    counts[r] = files.length
-    for (const f of files) {
-      for (const text of userText(fs.readFileSync(f, 'utf8'), f)) {
-        literals.push({ file: path.relative(base, f).split(path.sep).join('/'), text })
-      }
-    }
-  }
-  return { counts, literals }
-}
 
 // Parsed once: ~320 files per gate test is slow enough to hit the 5 s default under load.
 const REAL = scan(ROOT, SCANNED)

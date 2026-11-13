@@ -10,7 +10,12 @@ import { SmwRom } from '../../../src/rom/SmwRom'
 import { levelNameForSlot } from '../../../src/rom/SmwLevelNames'
 import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
 import { OW_ADDR } from '../../../src/rom/OverworldLoader'
-import { plantStockSubmapCode, SYNTHETIC_FINGERPRINTS } from '../support/syntheticRom'
+import {
+  plantStockSubmapCode,
+  SYNTHETIC_BIAS,
+  SYNTHETIC_FINGERPRINTS,
+  SYNTHETIC_THRESHOLD,
+} from '../support/syntheticRom'
 
 const BUF_SIZE = 0x80000
 
@@ -52,26 +57,26 @@ const entrancesOf = (rom: RomFile) =>
 
 describe('SmwRom.getLevelName: the walk decides, not the bias formula alone', () => {
   it('a dropped main tile: a slot the formula alone would name stays unreached', () => {
-    // 35 main tiles (one short of stock) + 1 sub tile. Main translevels
-    // 1-35 land unbiased on $001-$023; the sub tile's translevel (36, still
-    // under the $25 threshold) lands unbiased on $124, not on $024.
-    const rom = buildRom(35, 1)
-    plantName(rom, 36)
+    // BIAS-1 main tiles (one short of stock) + 1 sub tile. Main translevels
+    // land unbiased; the sub tile's translevel (BIAS, still under the
+    // threshold) lands unbiased on $100|BIAS, not on the main slot BIAS.
+    const rom = buildRom(SYNTHETIC_BIAS - 1, 1)
+    plantName(rom, SYNTHETIC_BIAS)
     const smw = new SmwRom(rom)
     const idx = entrancesOf(rom)
-    expect(smw.getLevelName(0x124, idx)).toBe('AB')
-    expect(smw.getLevelName(0x024, idx)).toBeNull()
+    expect(smw.getLevelName(0x100 | SYNTHETIC_BIAS, idx)).toBe('AB')
+    expect(smw.getLevelName(SYNTHETIC_BIAS, idx)).toBeNull()
   })
 
   it('an added main tile: a slot the formula alone would name stays unreached', () => {
-    // 37 main tiles (one more than stock) + 1 sub tile. The sub tile's
-    // translevel is now 38, biased to $102, not the $101 a fixed 36/1 split
-    // would assume. Translevel 37 is real too, but it lands on the main
-    // half (layout 0, biased to $001): naming it is the trap a bias-only
-    // reconstruction of $101 (low byte 1, "biased" to 37) falls into.
-    const rom = buildRom(37, 1)
-    plantName(rom, 38)
-    plantName(rom, 37)
+    // BIAS+1 main tiles (one more than stock) + 1 sub tile. The sub tile's
+    // translevel is now THRESHOLD+1, biased to $102, not the $101 a fixed
+    // BIAS/1 split would assume. Translevel THRESHOLD is real too, but it
+    // lands on the main half (layout 0, biased to $001): naming it is the
+    // trap a bias-only reconstruction of $101 falls into.
+    const rom = buildRom(SYNTHETIC_BIAS + 1, 1)
+    plantName(rom, SYNTHETIC_THRESHOLD + 1)
+    plantName(rom, SYNTHETIC_THRESHOLD)
     const smw = new SmwRom(rom)
     const idx = entrancesOf(rom)
     expect(smw.getLevelName(0x102, idx)).toBe('AB')
@@ -79,9 +84,9 @@ describe('SmwRom.getLevelName: the walk decides, not the bias formula alone', ()
   })
 
   it('refuses a slot reached by two translevels that decode to different names', () => {
-    // 37 main tiles: translevel 37 is biased back to $001, colliding with
-    // translevel 1's own unbiased $001.
-    const rom = buildRom(37, 0)
+    // THRESHOLD main tiles: that translevel is biased back to $001, colliding
+    // with translevel 1's own unbiased $001.
+    const rom = buildRom(SYNTHETIC_THRESHOLD, 0)
     rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x00, [0x00, 0x81]) // "AB"
     rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x30, [0x02, 0x83]) // "CD"
     rom.writeAt(ADDR_LEVEL_NAME_STRINGS + 0x10, [0x9f, 0x80])
@@ -91,25 +96,23 @@ describe('SmwRom.getLevelName: the walk decides, not the bias formula alone', ()
     writeWord(rom, ADDR_TYPE_TABLE + 0, 0x10)
     writeWord(rom, ADDR_SUFFIX_TABLE + 0, 0x20)
     writeWord(rom, ADDR_LEVEL_NAMES + 1 * 2, 0x8000) // translevel 1 -> "AB"
-    writeWord(rom, ADDR_LEVEL_NAMES + 37 * 2, 0x8100) // translevel 37 -> "CD"
+    writeWord(rom, ADDR_LEVEL_NAMES + SYNTHETIC_THRESHOLD * 2, 0x8100) // THRESHOLD -> "CD"
     const smw = new SmwRom(rom)
     expect(smw.getLevelName(0x001, entrancesOf(rom))).toBeNull()
   })
 
   it('refuses a slot reached by a named translevel and an empty one, rather than picking the name', () => {
-    // Same $001 collision as above, but translevel 37's LevelNames entry is
-    // left at $0000 (empty) instead of naming it something else.
-    const rom = buildRom(37, 0)
-    plantName(rom, 1) // translevel 1 -> "AB"; translevel 37 stays unplanted (empty)
+    // Same $001 collision as above, but the THRESHOLD translevel's LevelNames
+    // entry is left at $0000 (empty) instead of naming it something else.
+    const rom = buildRom(SYNTHETIC_THRESHOLD, 0)
+    plantName(rom, 1) // translevel 1 -> "AB"; the THRESHOLD translevel stays unplanted (empty)
     const smw = new SmwRom(rom)
     expect(smw.getLevelName(0x001, entrancesOf(rom))).toBeNull()
   })
 
   it('$139-$13B get no name even with the table filled, since the walk never reaches them', () => {
-    const rom = buildRom(36, 28) // plantOverworldTiles' own 36/28 shape
-    plantName(rom, 0x5d)
-    plantName(rom, 0x5e)
-    plantName(rom, 0x5f)
+    const rom = buildRom(SYNTHETIC_BIAS, 28) // plantOverworldTiles' own shape
+    for (const slot of [0x139, 0x13a, 0x13b]) plantName(rom, (slot & 0xff) + SYNTHETIC_BIAS)
     const smw = new SmwRom(rom)
     const idx = entrancesOf(rom)
     expect(smw.getLevelName(0x139, idx)).toBeNull()

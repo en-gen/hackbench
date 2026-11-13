@@ -123,11 +123,13 @@ describe('every pinned byte refuses when changed', () => {
 })
 
 describe('the Maps tree', () => {
+  const ROOMS = [0x000, 0x001, 0x0c5, 0x0c7, 0x0c8, 0x100, 0x1c8]
+  /** Unassigned maps that own a room, as opposed to the 505 slots sharing one pointer. */
+  const owned = (t: ReturnType<typeof buildMapTree>): number[] =>
+    t.unassigned.filter(n => ROOMS.includes(n.index)).map(n => n.index)
   const tree = (plant?: (rom: RomFile) => void): ReturnType<typeof buildMapTree> => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-bonus-'))
-    const rooms = [0x000, 0x001, 0x0c5, 0x0c7, 0x0c8, 0x100, 0x1c8].map(
-      s => [s, []] as [number, number[]],
-    )
+    const rooms = ROOMS.map(s => [s, []] as [number, number[]])
     const rom = RomFile.load(writeSyntheticRom(dir, new Map(rooms)))
     plantBonusCode(rom)
     rom.writeAt(0x01f000, [0xa9, 0xeb, 0xa0, 0x00, 0x8d, 0x09, 0x01]) // title: $EB - $24
@@ -141,12 +143,13 @@ describe('the Maps tree', () => {
     expect(t.overworld.map(n => n.index)).toEqual([0x001])
     expect(names(t.special)).toBe('title-screen c7, new-game c5')
     expect(names(t.bonus)).toBe('bonus-game 0, bonus-game 100, yoshi-heaven c8, yoshi-heaven 1c8')
-    expect(t.unassigned.filter(n => !n.placeholder)).toEqual([])
-    // The 505 unlisted slots share one pointer, so they are listed as placeholders.
-    expect(t.unassigned.filter(n => n.placeholder)).toHaveLength(505)
+    expect(owned(t)).toEqual([])
+    // The 505 unlisted slots share one pointer: ordinary unassigned maps, none New.
+    expect(t.unassigned).toHaveLength(505)
+    expect(t.counts.noPointer).toBe(0)
   })
 
-  it('the vanilla seed files them into Bonus Games and Yoshi Heaven, not orphaned', () => {
+  it('the vanilla seed files the bonus room, and leaves Yoshi Heaven to the wings link (#1229)', () => {
     const grouped = applyGroups(tree(), VANILLA_SEED)
     const group = (name: string): [number, boolean][] | undefined =>
       grouped.groups.find(g => g.name === name)?.maps.map(m => [m.index, m.orphan])
@@ -154,20 +157,20 @@ describe('the Maps tree', () => {
       [0x000, false],
       [0x100, false],
     ])
-    expect(group('Yoshi Heaven')).toEqual([
-      [0x0c8, false],
-      [0x1c8, false],
-    ])
+    expect(group('Yoshi Heaven')).toBeUndefined()
+    // No wings link on a synthetic ROM: they stay reached bonus maps, never orphans.
+    const left = grouped.unassigned.filter(m => [0x0c8, 0x1c8].includes(m.index))
+    expect(left.map(m => m.orphan)).toEqual([false, false])
   })
 
   it('lists a slot both roles name once, under the first', () => {
     const t = tree(rom => rom.writeAt(P + 8, [rom.readByte(P + 1)!])) // LDY #yoshi = LDY #bonus
     expect(names(t.bonus)).toBe('bonus-game 0, bonus-game 100')
-    expect(t.unassigned.filter(n => !n.placeholder).map(n => n.index)).toEqual([0x0c8, 0x1c8])
+    expect(owned(t)).toEqual([0x0c8, 0x1c8])
   })
 
   it('lists $000 once when the walk also roots it', () => {
-    // Threshold $10, bias $24: translevel $24 wraps to slot $000.
+    // Threshold $10, the synthetic bias: translevel BIAS wraps to slot $000.
     const t = tree(rom => rom.writeAt(0x05d8a3, [0x10]))
     const top: MapNode[] = [...t.special, ...t.bonus, ...t.overworld, ...t.unassigned]
     expect(top.filter(n => n.index === 0x000)).toHaveLength(1)
@@ -179,9 +182,7 @@ describe('the Maps tree', () => {
     expect(t.overworld.map(n => n.index)).toEqual([0x001])
     expect(names(t.special)).toBe('title-screen c7, new-game c5')
     expect(t.bonus).toEqual([])
-    expect(t.unassigned.filter(n => !n.placeholder).map(n => n.index)).toEqual([
-      0x000, 0x0c8, 0x100, 0x1c8,
-    ])
+    expect(owned(t)).toEqual([0x000, 0x0c8, 0x100, 0x1c8])
     expect(t.notes.join(' ')).toMatch(/Bonus Games and Yoshi Heaven: /)
   })
 })

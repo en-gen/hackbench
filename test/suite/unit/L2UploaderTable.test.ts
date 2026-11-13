@@ -24,6 +24,11 @@ import {
   plantedKind,
 } from '../support/l2UploaderRom'
 
+// No exit graph in these ROMs, so no entrance is known: Layer 2 sits at the primary entrance's F400/F600 (#1340).
+const NO_EXIT_GRAPH = undefined
+// Corpus sweep of the primary-entrance reading (F400/F600); the exit graph is not built here (#1340).
+const PRIMARY_ENTRANCE = undefined
+
 const fresh = (plant = true): RomFile => {
   const rom = new RomFile('t.sfc', Buffer.alloc(0x80000, 0))
   if (plant) plantUploaderTable(rom)
@@ -148,14 +153,14 @@ describe('buildL2Inputs picks the kind by level mode (synthetic)', () => {
   }
 
   it('mode 4 (an image mode) with an object-stream pointer refuses, naming the mode', () => {
-    expect(buildL2Inputs(smw(romWithPtr(0x0c)), 5, withMode(4))).toMatchObject({
+    expect(buildL2Inputs(smw(romWithPtr(0x0c)), 5, withMode(4), NO_EXIT_GRAPH)).toMatchObject({
       ok: false,
       reason: expect.stringMatching(/level mode \$04 uploads an L2 image, but .* object stream/),
     })
   })
 
   it('mode 1 (an object mode) with an image pointer refuses', () => {
-    expect(buildL2Inputs(smw(romWithPtr(0xff)), 5, withMode(1))).toMatchObject({
+    expect(buildL2Inputs(smw(romWithPtr(0xff)), 5, withMode(1), NO_EXIT_GRAPH)).toMatchObject({
       ok: false,
       reason: expect.stringMatching(/level mode \$01 uploads an L2 object stream, but .* image/),
     })
@@ -165,7 +170,7 @@ describe('buildL2Inputs picks the kind by level mode (synthetic)', () => {
     for (let mode = 0; mode < 32; mode++) {
       const kind = plantedKind(mode)
       for (const bank of [0xff, 0x0c]) {
-        const r = buildL2Inputs(smw(romWithPtr(bank)), 5, withMode(mode))
+        const r = buildL2Inputs(smw(romWithPtr(bank)), 5, withMode(mode), NO_EXIT_GRAPH)
         const agrees = (kind === 'image') === (bank === 0xff)
         const mine = r.ok ? '' : /uploads|recognizes|dispatch/.test(r.reason) ? r.reason : ''
         // A stream pointer in the ten skipped modes is the #637 gate's refusal, which runs first.
@@ -181,11 +186,11 @@ describe('buildL2Inputs picks the kind by level mode (synthetic)', () => {
   it('an unrecognized target and a missing table each refuse with a reason', () => {
     const rom = romWithPtr(0x0c)
     plantUploaderTable(rom, () => 0x079000)
-    expect(buildL2Inputs(smw(rom), 5, withMode(1))).toMatchObject({
+    expect(buildL2Inputs(smw(rom), 5, withMode(1), NO_EXIT_GRAPH)).toMatchObject({
       ok: false,
       reason: expect.stringMatching(/not a routine this reader recognizes/),
     })
-    expect(buildL2Inputs(smw(fresh(false)), 5, withMode(1))).toMatchObject({
+    expect(buildL2Inputs(smw(fresh(false)), 5, withMode(1), NO_EXIT_GRAPH)).toMatchObject({
       ok: false,
       reason: expect.stringMatching(/not present/),
     })
@@ -210,7 +215,7 @@ describe.each([VANILLA, MAGIC])('the real %s', name => {
         const built = buildL1Inputs(rom, index, UNCLEARED)
         if (!built.ok) continue
         maps++
-        const r = buildL2Inputs(rom, index, built.inputs)
+        const r = buildL2Inputs(rom, index, built.inputs, PRIMARY_ENTRANCE)
         if (!r.ok) expect(r.reason, `slot ${index}`).not.toMatch(/uploads|recognizes|dispatch/)
       }
       expect(maps).toBeGreaterThan(100)

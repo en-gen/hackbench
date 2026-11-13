@@ -119,13 +119,70 @@ and $B9 the same signature holds (extra parts from other slots), the spawn code 
 attribute parts to the slot (OAM index range from `$15EA`, as the capture does). Assert: $61 map 10a at 160,384
 returns 1 part; $1E on map 1c4 returns 2; the 12 cases grade close or better.
 
+Traced and fixed (#840). The leak was `Machine.writtenOam()` counting every OAM tile byte written during the
+pass, by any code. The game's sprite loop stores the slot it is on in `$15E9` before running it
+(`SMWDisX bank_01.asm:110-125`, `STX CurSpriteProcess` at 123) and each slot's OAM index comes from its own slot
+(`bank_01.asm:143-152`), so a write made while `$15E9` names another slot is that slot's. The runner now keeps a
+write as the sprite's own part only when `$15E9` equals the sprite's slot, on every pass and in a neighbor run alike
+(#841's neighbor run already did; the plain run's "any write" rule is gone).
+
+- $61: INIT (`CODE_02ED8A`, `bank_02.asm:14503-14534`) spawns up to 3 more $61 (status 8, `SpriteNumber,Y`), which
+  draw themselves in their own slots (`CODE_02EDD8`, `bank_02.asm:14544-14573`). Map 10a at 160,384 gives 1 part and
+  3 companions.
+- $1E: INIT (`InitLakitu`, `bank_01.asm:687-729`) spawns one $87 Lakitu cloud, which draws in its own slot
+  (`LakituCloudGfx`, `bank_01.asm:14115`). Map 1c4 at 1120,224 gives 2 parts and 5 companions. Same cause as $61.
+  (Probe, one machine, 2026-10-17: the extra writes on $1E were under slots holding $87 and $14.)
+- $B9 is not the same cause: its INIT is a bare RTS (`Return0185C2`, `bank_01.asm:890`, the shared `RTS` after
+  `InitPiranha`) and it spawns nothing. Its two wrong records (map 004 at 144,336 "model drew 21", map 101 at 96,336
+  and 1840,336 "model drew 5") were OAM written under `$15E9` values 0-19 by the cluster sprite loop: `CODE_02F810`
+  does `LDX #$13` / `STX $15E9` (`bank_02.asm:15950-15958`), and it is reached from the runner's own frame through
+  `ActivateClusterSprite` -> `JSL CODE_02F808` (`bank_01.asm:128-130`). The writing PCs (one machine, 2026-10-17
+  probe) are `$02:FD76` on map 004 and `$02:FA4E` on map 101. Traced from the nearest preceding label (offset in
+  bytes): `$02:FD76` is `CODE_02FD48` +46, the Boo ring's tile store (`STA OAMTileNo+$100,Y` after `BooRingTiles`,
+  `bank_02.asm:16651`); `$02:FA4E` is `CODE_02FA16` +56, the castle flame's tile store (`bank_02.asm:16255`). $B9's own
+  tiles are written under its own sprite slot (PCs `$01:9F2A`, `CODE_019E95` +149, `bank_01.asm:4083`, and `$03:8DB4`,
+  `DATA_038D66` +78, `bank_03.asm:1698`; for these two only the label and offset were taken from the disassembly
+  index, the exact instruction line was not traced). Whether the own-slot rule acts on $B9 was NOT shown by a test: on
+  develop at `a028e0dc` the 101 records already grade exact, and a plain map-view run of $B9 on 101 (4 spots) gives 1
+  part and 0 companions, so no write under another `$15E9` reached an OAM tile byte at those seeds. The map 004 claim
+  that $B9 sits in sprite slot 6 and so keeps cluster index 6's write is an inference from the probe PCs, not
+  reproduced here; read its "close" grade as unverified. The synthetic id 84 (`$15E9` set to 15) is the real
+  other-slot write under test.
+- $2B's former spawn-oracle extra tile was also a cluster write (`$02:F983`, `$15E9` = 9; `CODE_02F967` +28, the Sumo
+  Bro flame tile store, `bank_02.asm:16145`), now filtered.
+- The map view still draws companions (owner principle D52: "We can't outright hide things from the user").
+  `PassResult.companions` is, in a plain run, every tile write made under a `$15E9` other than the sprite's own
+  (a sprite this run spawned, a cluster index, Yoshi's OAM), so parts plus companions are exactly what the map view
+  drew before #840. A neighbor run (#841) keeps none: its picture was the sprite's own writes alone. A tile byte belongs
+  to the last slot that wrote it, so a reused OAM tile is decoded once. `drawnParts` is `parts` plus `companions`: the
+  chosen pass, the "drew no tile" test, `modelResult`, the pose frames, the screen-fixed pass and the spawn readers
+  (`SpawnedChildren`, `FiveEeries`) use it, so a spawner that draws only through its companions still draws. The grader
+  and sprite report read `parts` only. A write under a `$15E9` that names no spawned slot (id 84 in the synthetic
+  cart) is a companion, never a part, unless the value equals the sprite's own slot.
+- Ownership rule (`Machine.own` / `Machine.companion`): the game's sprite loop stores the slot it is on in `$15E9`
+  before running it (`bank_01.asm:110-125`) and each slot takes its OAM index from itself (`bank_01.asm:143-152`), so a
+  tile write made under another slot is that slot's. `own` is the writes under the sprite's slot (the grader's parts);
+  `companion` is every other write in a plain run, so `own` plus `companion` equals what the map view drew before #840.
+- Remaining limit: a cluster sprite whose index equals the sprite's slot (the loop at `bank_02.asm:15950-15958`), and
+  Yoshi's OAM (it sets `$15E9` at `bank_01.asm:14344`; `CODE_01C9E2` restores the caller's at 10051), run under
+  another `$15E9` and are still credited to the sprite when the index matches. Not a regression (the old code credited
+  all of it); the cluster OAM leak work (#809) was the follow-up; Corrected 2026-11-07: was "the follow-up", because #809 closed with #849 (`6773d8e1`), which stopped a level's cluster sprites drawing into the sprite under test.
+
+Grader, `spriteGrade.captures.test.ts` (1957 records, 'rom' seed, vanilla ROM, `layers_v5`, one machine, measured
+2026-11-05): develop `05d062f7` exact 1906, close 17, wrong 33, empty 1; the #840 branch head `33ceb3b6` exact
+1917, close 17, wrong 22, empty 1; the same counts re-run at `a275ae3f`. 11 records improved from "wrong" to "exact" (6 of $61 on map 10a, 5 of $1E on maps
+11f, 132, 1c4, 1c5) and none graded worse (compared record by record, same order). Spawn tier (201 ids, 16 passes,
+same machine and date): develop alone 2,792 exact, 260 exact-empty, 15 wrong; merged 2,792, 275, 0 (id $2B). Map view
+pictures, develop `05d062f7` against the head `33ceb3b6`: 0 of 53,415 records differ, every placed sprite on the 488 available vanilla maps plus all 256 ids at each of the 196 sprite-bearing maps' first list entry, 24 maps unavailable, one machine, 2026-11-05. (The earlier counts in this
+paragraph, exact 1063 / wrong 41, were against the pre-#842 grader and are superseded.)
+
 **H, companion absent (14).** $9C scans slots 0-9 for a $9B (Hammer Brother) and draws it on the platform
 (`bank_02.asm:12118-12148`, `PutHammerBroOnPlat`; `HammerBroGfx` 12044-12091). The $9B draws nothing in its own
 turn (`bank_02.asm:11964-11969` draws only at status 2), so the capture's 8 parts under the platform's slot are 4 of
 the platform and 4 of the bro. The runner ran the sprite alone: 4 parts, in all 14 (maps 006, 126, 127, 1c0, 1c4,
 1c5, 11e). **Fixed (#841):** a run whose own code read the number or status table at another slot while its
 slot was running (`scansSlots`) is run again with the map's neighbors (`neighboursOf`: its screen and the one
-each side, nearest first, at most 9) in the other slots, counting only OAM written under its own `$15E9`; that run
+each side, nearest first, at most 9, an entry with the extra bit left out, and a scanner beside one marked unverified, #1173) in the other slots, counting only OAM written under its own `$15E9`; that run
 is used when it adds parts and keeps the ones the run alone had (`dependsOn: neighbours`). Measured (one machine, vanilla
 cart, `spriteGrade.captures.test.ts`): base develop 6d23b7b0 against the merge head, one machine: exact 1053 to 1058, shape 810 to 819, wrong 62 to 48, close 18, empty 14, and only the 14 $9C rows changed (all better); all 14 $9C records
 leave "wrong" (5 exact, 9 shape); no record graded worse. Without the "keeps
@@ -135,7 +192,7 @@ load-bearing.
 The neighbors the sprite drew itself (it read their `$15EA` OAM index on its own turn) are recorded in
 `PassResult.drew` by list index, with the OAM entries written for each. In the map view such a sprite (the $9B) stays in
 the list, flagged `drawnBy` its parent (D52): it gets no marker, its area is the tiles the parent drew for it, it can be
-hit, named and selected (it wins the hit over its parent's bitmap, which holds the same pixels), and the view does not
+hit, named and selected, only through its parent (it wins the hit over its parent's bitmap, which holds the same pixels), and the view does not
 paint it again. A lone $9B has no drawn pass, so any placeholder the parent drew is claimed, whatever its reason; a
 sprite with extra bits keeps its marker. The group is drawn at the parent's spawn frame (D137): however far the parent
 had moved from its anchor when it drew the children comes off every part of the pass. The $9C draws before it moves
@@ -173,3 +230,5 @@ assertion above; K is the user-visible defect and should go first.
 - Cause order matters: a case needing two fixes shows under the first (G1, A, B).
 - The `initFrame` null finding is exact for this set (38 of 2,262 spawn records); why those slots lack an INIT is read from the
   ROM, not run.
+
+Corrected 2026-11-11 (#839, #1370): the four captures for maps 101, 1d4, 109 and 11b were re-captured with harness `en-gen/hackbench-validation` `bc8d1a3` (PR #47); the old zips are kept in `layers_v5-backup-2026-11-11-pre1370`. Grader on the new set (vanilla ROM, 'rom' seed, one machine): 1955 records, exact 1925, close 17, wrong 13, empty 0 (was 1957, 1917, 17, 22, 1). Record by record, by map, sprite id and verdict count: 101 $22 (2), $24 (3) and $25 (1) and 1d4 $33 (3) went wrong to exact, and 101 $54 (empty) and one 1d4 $33 record left the set. Cause for the 101 and 1d4 rows: a castle-flame cluster tile (`CODE_02FA16`, OAM 124-126) that the old harness attributed to sprite records (fixed in validation#31 and #32, then re-captured); these were capture errors, not model faults, so those rows no longer belong to any cause above. The 109 and 11b re-captures (lost early frames) changed no verdict. Their coordinates stay in the case list because the individual rows were not re-matched. Two model-side bugs surfaced by the new captures, $109 list index 16 and $11B list index 2, are being filed by Planning. The 1,957 and 164-zip counts above are the 2026-10-10 figures.

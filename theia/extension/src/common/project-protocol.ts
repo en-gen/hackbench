@@ -6,6 +6,7 @@
  * contract both ends compile against.
  */
 import type { EditEvent } from '../../../../src/project/EditEvent'
+import type { UndrawnChildren } from '../../../../src/rom/sprites/interp/SpawnedChildren'
 import type { ScreenPlanes } from '../../../../src/rom/model/ScreenPlanes'
 import type { Map16SwitchButtonImages, Map16SwitchKind } from './map16-protocol'
 
@@ -68,11 +69,12 @@ export interface MapNodeDto {
   index: number
   name: string | null
   kind: 'map' | 'loop' | 'truncated'
-  /** The slot uses the shared placeholder room, which `sharedCount` slots share. */
-  placeholder?: true
-  sharedCount?: number
-  /** The slot's Layer 1 pointer is zero or unreadable: no map data, nothing to open. */
+  /** A New slot: its Layer 1 pointer is zero or points outside the ROM file, so there is no map data. */
   noPointer?: true
+  /** A map whose data could not be read back; the row warns and opening it says so. */
+  unreadable?: true
+  /** Yoshi Heaven's row (#1229): a direct row or a child of the sub area that holds the wings block (#1295); it carries the icon and tooltip. */
+  reachedBy?: 'yoshi-heaven'
   children: MapNodeDto[]
 }
 
@@ -87,9 +89,7 @@ export interface SpecialMapNodeDto extends MapNodeDto {
 export interface MapTreeCountsDto {
   entrances: number | null
   unassigned: number
-  /** Placeholder slots, listed beside the unassigned maps but counted apart. */
-  placeholders: number
-  /** Slots with no Layer 1 pointer, listed beside the unassigned maps but counted apart. */
+  /** New slots, listed beside the unassigned maps but counted apart. */
   noPointer: number
 }
 
@@ -310,6 +310,16 @@ export interface MapSpriteDto {
   x: number
   y: number
   box: { x0: number; y0: number; x1: number; y1: number }
+  /**
+   * Where the map stores this sprite (its list position, in map pixels), present only when the picture is drawn
+   * elsewhere because the sprite's own INIT shifts it before its first frame (R16, D85 B). The map highlights this
+   * tile when the sprite is selected; `x`, `y` stay the drawn anchor.
+   */
+  stored?: { x: number; y: number }
+  /** With `stored`: where the sprite's start-up code left it, before its first step (`x`, `y` are where it is first drawn). */
+  afterInit?: { x: number; y: number }
+  /** With `stored`: how it got onto its line from there: by its first steps, or after a fall. Absent: no line was reached. */
+  onLine?: 'step' | 'fell'
   rgba: string
   /**
    * The parts the bitmap was blitted from, in the order drawn (#984): the Properties view lists them from
@@ -317,12 +327,18 @@ export interface MapSpriteDto {
    */
   parts?: SpritePartDto[]
   /**
-   * Each pixel's OAM priority 0-3 (#795), one byte per `box` pixel, base64: the
-   * attribute bits 5:4 of the part that wins the pixel. Absent on a placeholder,
+   * Each pixel's OAM priority 0-3 (#795) in bits 0-1 and the rope's door-part flag (#1230) in bit 2, one byte
+   * per `box` pixel, base64: the part that wins the pixel. Absent on a placeholder,
    * which has no OAM entry and keeps the pre-#795 slot, priority 2.
    */
   priority?: string
-  status: 'drawn' | 'placeholder'
+  /**
+   * `drawn`: a picture. `quiet`: it ran fine (or the game never runs it as a sprite) and has no picture, shown as a ring
+   * marker (#1011). `placeholder`: it failed or was refused, shown as the framed id box with `reason`.
+   */
+  status: 'drawn' | 'placeholder' | 'quiet'
+  /** With `quiet`: how the game's own loader routes the id, when it is not an ordinary sprite slot. Absent: a sprite that ran and drew nothing. */
+  kind?: 'shooter' | 'generator' | 'scroll'
   /**
    * List index of the sprite whose own code drew this one (the $9B a $9C carries, #1049). Its bitmap is the tiles
    * that parent drew for it: the view hit-tests and names it but does not paint it, the parent's bitmap already holds them.
@@ -336,13 +352,27 @@ export interface MapSpriteDto {
    */
   fixedTo?: 'layer2'
   /**
-   * Present when the sprite was run from a placement-only seed because the
-   * level loader refused this ROM: drawn, but not run from the level's state.
+   * Present when HackBench cannot vouch that the sprite is drawn exactly as in the game. The engine's own
+   * words, several causes joined by `; `, and the set grows over time. For example: the level loader refused
+   * this ROM (run from a placement-only seed), the map's memory setting differs from the one checked, or an
+   * earlier sprite may hold its slot. For tooltips only: the map's note and the Properties line say it in
+   * plain words (#1166).
    */
   unverified?: string
   /** A plain-words line about what the map shows of this sprite, not a flaw (for example fewer Eeries than the placement asks for); the map's note line carries it too. */
   note?: string
+  /** Spawned children that did not draw, as data: the map's note sums them across spawners (#1281); `note` keeps its sentence and the reason is in `noteDetail`. */
+  undrawn?: UndrawnChildren
+  /** Technical detail behind a plain note, for its tooltip. */
+  noteDetail?: string
+  /** Every pixel of the sprite is drawn in the screen door: it draws nothing in play until something happens (#1132). */
+  screenDoor?: boolean
+  /** What makes it appear ("appears when Mario gets close to this spot", with his state), or that nothing was found to; present with `screenDoor`, for the hover. */
+  reveal?: string
 }
+
+/** The frames `reason` code for a sprite its parent drew; the panel words it (`framesReasonText`), so neither side spells the sentence. */
+export const RIDES_WITH_REASON = 'ridesWith'
 
 /**
  * One sprite's distinct poses for the Properties preview (#984), each a `MapSpriteDto` bitmap measured from
@@ -594,6 +624,18 @@ export interface ProjectService {
 
   /** Draw one screen of a map's L1 (foreground) from the working copy. */
   mapScreen(
+    manifestPath: string,
+    index: number,
+    screen: number,
+    switchFlags: SwitchFlagsDto,
+    switches: SwitchStateDto,
+  ): Promise<MapScreenResult>
+
+  /**
+   * One screen PAST the map's last (screen >= screenCount), L2 and L3 planes only, for the gutter (#1197).
+   * Read from the same working-copy model as `mapScreen`; a screen number outside the screens past the end is refused.
+   */
+  mapBeyond(
     manifestPath: string,
     index: number,
     screen: number,

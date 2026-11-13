@@ -403,7 +403,7 @@ drop out by construction, because they never become entry maps.
     machine). The check is accepted only behind `LoadLevel`'s prologue (`:425-429`), with exactly one call site of the `:66-69` shape into that entry and its BEQs landing on `LoadLevelDone` (`:474-477`); the prologue, the entry, the check and the BEQ target must all sit in one bank; the chain from the game mode to that call site is not walked. On the corpus the route and destination refusals are exercised only by synthetic fixtures: all 4 hacks are refused earlier, because the check is absent. On the 4 corpus hacks Lunar Magic replaces the check's first instruction with `JSL $0FF7F0`
     plus a `NOP`, so the check is refused and those rooms keep the old result.
 
-  Between them, 47 of the ROM's 235 real maps could never be a destination.
+  Between them, 47 of the ROM's 235 slots off the common pointer could never be a destination.
   `buildLevelExitGraph` now takes its map universe from pointer identity, the
   same test `buildLevelCatalog` applies, and orphans fall from **59 to 26**.
 
@@ -529,7 +529,7 @@ code, and a hack may relocate or bypass them.
 
 ## Level names and ids
 
-- The ROM holds a level name table at `$04A0FC` (96 entries x 2 bytes); `src/rom/SmwLevelNames.ts` decodes it (`decodeLevelName`, `getAllLevelNames`, `getLevelNameByIndex`). `[EST]`
+- The ROM holds a level name table at `$04A0FC` (96 entries x 2 bytes); `src/rom/SmwLevelNames.ts` decodes it (`decodeLevelName`, `getAllLevelNames`, `levelNameForSlot`). `[EST]`
 - Three external lists (a forum post, two LLM tables) were refuted against the ROM in one session, each claiming 76 entries and disagreeing, with entries at `$019`, `$01E`, `$112` pointing at the shared filler L1 `$068000`. `[EST]`
 - Report ids as `$XXX` hex. Add a name only when it comes from the decoder or the owner said it that turn; leave unverified names off.
 - Confirmed by the owner 2026-09-13: Yoshi's House `$104`, Valley Fortress `$111`, Red Switch Palace `$11B`. `[EST]`

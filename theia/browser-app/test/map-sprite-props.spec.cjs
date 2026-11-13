@@ -15,7 +15,7 @@ const path = require('path')
 const os = require('os')
 const { romPath, VANILLA } = require('../../../test/suite/support/corpus.cjs')
 
-const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'
+const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 test.skip(!fs.existsSync(ROM), `vanilla ROM not present at ${ROM}`)
 
@@ -170,7 +170,7 @@ test('clicking a sprite opens the Properties panel with its id, name, position, 
     await expect(p.locator('[data-field="id"]')).toHaveText(hex(s.id))
     await expect(p.locator('[data-field="name"]')).toHaveText(s.name)
     await expect(p.locator('[data-field="position"]')).toHaveText(
-      `Column ${Math.floor(s.x / 16)}, row ${Math.floor(s.y / 16)}`,
+      `Column ${Math.floor((s.stored ?? s).x / 16)}, row ${Math.floor((s.stored ?? s).y / 16)}`,
     )
     // The map view's own list: same part count, same palette rows.
     await expect(p.locator('[data-field="parts"] li')).toHaveCount(s.parts.length)
@@ -254,6 +254,37 @@ test('an animated sprite loops on the panel canvas; a one-pose sprite says it is
   expect(await canvas.evaluate(c => c.toDataURL())).toBe(a)
   // Looping ran the frames RPC for every click above: still read only.
   expect(treeHash(projectDir)).toBe(hashBefore)
+})
+
+test('a sprite whose frames come back with a not-loaded reason says "Animation not shown", never "Not animated" (#1113)', async ({
+  page,
+}) => {
+  const map = await openMap(page, SLOT)
+  const s = map.stack.find(x => x.status === 'drawn' && x.parts && map.own(x))
+  expect(s, 'a clickable drawn sprite').toBeTruthy()
+  await page.evaluate(async () => {
+    await getSvc('CommandRegistry').executeCommand('hackbench.properties.toggle')
+  })
+  await expect(panel(page)).toBeVisible()
+  // No vanilla sprite draws charsNotLoaded, so the widget's service PROPERTY (not a page-side wrapper over the proxy) is a stub.
+  await page.evaluate(() => {
+    const w = getSvc('WidgetManager').getWidgets('hackbench.properties')[0]
+    window.__stubCalls = 0
+    w.projects = {
+      mapSpriteFrames: async () => {
+        window.__stubCalls++
+        return { status: 'ok', frames: [], reason: 'charsNotLoaded' }
+      },
+    }
+  })
+  const at = map.own(s)
+  await map.click(at.x, at.y)
+  const line = panel(page).locator('[data-field="animation"]')
+  await expect(line).toHaveText(
+    'Animation not shown: Some of its graphics are not loaded on this map.',
+  )
+  await expect(line).not.toContainText('Not animated')
+  expect(await page.evaluate(() => window.__stubCalls), 'the stub answered').toBeGreaterThan(0)
 })
 
 test('closing the map clears the panel; the toggle command reopens a closed panel', async ({
@@ -341,4 +372,142 @@ test('a sprite reload (an edit or refresh) clears the panel', async ({ page }) =
     getSvc('WidgetManager').tryGetWidget('hackbench.map-view', { index }).refresh()
   }, SLOT)
   await expect(panel(page).locator('[data-subject="none"]')).toHaveText('No sprite selected')
+})
+
+// Plant (spec not run by the author): shift the panel canvas draw by the frame index (travel per frame) and the left or bottom edge assertion goes red;
+// pin the player to frame 0 and the every-frame-painted assertion goes red.
+test('a chainsaw ($65) spins at one spot in the panel: the drawn left edge, bottom edge and canvas size hold across frames while the pose changes (#1128)', async ({
+  page,
+}) => {
+  const map = await openMap(page, 0x00f)
+  const saw = map.stack.find(s => s.id === 0x65 && s.status === 'drawn' && map.own(s))
+  expect(saw, 'a drawn, clickable chainsaw on map $00F').toBeTruthy()
+  const at = map.own(saw)
+  await map.click(at.x, at.y)
+  const canvas = panel(page).locator('[data-control="sprite-composite"]')
+  await expect(panel(page).locator('[data-field="id"]')).toHaveText('$65')
+  await expect(panel(page).locator('[data-field="animation"]')).toContainText('Animated')
+  // The frame count the node side computed, not just the panel's own text, so a truncated list cannot pass.
+  const count = (await framesOf(page, saw, 0x00f)).frames.length
+  expect(count, 'the saw has several frames').toBeGreaterThanOrEqual(2)
+  await expect(panel(page).locator('[data-field="animation"]')).toContainText(
+    `Animated: ${count} frames`,
+  )
+  // Each sample is one paint: which frame, the canvas size, and the first opaque column and last opaque row actually drawn.
+  const drawn = () =>
+    canvas.evaluate(async c => {
+      // data-frame commits before the paint: let two animation frames pass so the pixels are the ones for it.
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+      const { data } = c.getContext('2d').getImageData(0, 0, c.width, c.height)
+      let [left, bottom] = [c.width, -1]
+      for (let y = 0; y < c.height; y++)
+        for (let x = 0; x < c.width; x++)
+          if (data[(y * c.width + x) * 4 + 3])
+            [left, bottom] = [Math.min(left, x), Math.max(bottom, y)]
+      return { frame: c.dataset.frame, w: c.width, h: c.height, left, bottom, url: c.toDataURL() }
+    })
+  // Sample (bounded, 40 x 100 ms against a ~133 ms step) until every frame the panel announces has been painted.
+  const samples = []
+  for (let i = 0; i < 40; i++) {
+    samples.push(await drawn())
+    if (new Set(samples.map(q => q.frame)).size >= count) break
+    await page.waitForTimeout(100)
+  }
+  const distinct = k => new Set(samples.map(q => q[k])).size
+  expect(distinct('frame'), 'every announced frame was painted').toBe(count)
+  expect(distinct('url'), 'the pose changed').toBeGreaterThanOrEqual(2)
+  expect([distinct('w'), distinct('h')], 'one canvas for the loop').toEqual([1, 1])
+  // For the $65 saw the reference point is its left edge and bottom edge (its pose bobs the top by 2 px, true of
+  // this sprite only). Travel along the track would move the saw across the canvas and change them.
+  expect(distinct('left'), 'left edge of the drawn saw').toBe(1)
+  expect(distinct('bottom'), 'bottom edge of the drawn saw').toBe(1)
+})
+
+// D156: a chainsaw is drawn where the game first has it ON ITS LINE (the pass after the line step's lock), the tile the map
+// stores it on is outlined while it is selected, and the panel says it is drawn where it first sits on its line. An
+// even-column chainsaw starts behind the scroll in every spawn the loader allows, so it stays on its stored tile (no outline)
+// and the panel says it never appears in play.
+// Plant: delete the `stored-tile` element from the map view and the count assertion goes red; drop the note's "on its line"
+// wording and the first test goes red; stop setting `note` and the second goes red.
+test('a chainsaw drawn away from its stored tile outlines that tile while selected, and the panel says it is drawn where it first sits on its line', async ({
+  page,
+}) => {
+  const SAW_MAP = 0x00f
+  const map = await openMap(page, SAW_MAP)
+  const saws = map.stack.filter(s => s.id === 0x65 && s.status === 'drawn' && s.stored && map.own(s)) // prettier-ignore
+  expect(saws.length, 'drawn chainsaws with a stored tile on map $00F').toBeGreaterThan(0)
+  // Every chainsaw with a stored tile is an odd column (the even ones never appear and carry no stored tile), and it moved.
+  for (const s of saws) expect(s.stored.x & 0x10, `saw at column ${s.stored.x / 16}`).toBe(0x10)
+  const [mapW] = [map.reply.orientation === 'vertical' ? map.reply.width : map.reply.width * map.reply.screenCount] // prettier-ignore
+  for (const saw of [saws[0], saws[saws.length - 1]]) {
+    expect(saw.x !== saw.stored.x || saw.y !== saw.stored.y).toBe(true)
+    expect(saw.onLine, 'how it reached the line').toMatch(/^(step|fell)$/)
+    const at = map.own(saw)
+    await map.click(at.x, at.y)
+    const tile = page.locator(`${rootOf(SAW_MAP)} [data-control="stored-tile"]`)
+    await expect(tile).toHaveCount(1)
+    const g = await page.evaluate(
+      ({ edge, tile }) => {
+        const [e, t] = [document.querySelector(edge), document.querySelector(tile)]
+        const [er, tr] = [e.getBoundingClientRect(), t.getBoundingClientRect()]
+        return { left: tr.left - er.left, top: tr.top - er.top, w: tr.width, edgeW: er.width }
+      },
+      { edge: stripOf(SAW_MAP), tile: `${rootOf(SAW_MAP)} [data-control="stored-tile"]` },
+    )
+    const zoom = g.edgeW / mapW
+    expect(Math.abs(g.left - saw.stored.x * zoom)).toBeLessThan(2)
+    expect(Math.abs(g.top - saw.stored.y * zoom)).toBeLessThan(2)
+    expect(Math.abs(g.w - 16 * zoom)).toBeLessThan(2)
+    await expect(panel(page).locator('[data-field="note"]').filter({ hasText: 'where it first sits on its line' })).toHaveCount(1) // prettier-ignore
+  }
+  const e = map.emptyPixel()
+  await map.click(e.x, e.y)
+  await expect(page.locator(`${rootOf(SAW_MAP)} [data-control="stored-tile"]`)).toHaveCount(0)
+})
+
+test('a chainsaw that never appears stays on its stored tile, with no outline, and the panel says it never appears in play', async ({
+  page,
+}) => {
+  const SAW_MAP = 0x00f
+  const map = await openMap(page, SAW_MAP)
+  const never = map.stack.filter(s => s.id === 0x65 && s.note === 'never appears in play' && map.own(s)) // prettier-ignore
+  // The seven even-column chainsaws of map $00F (list indexes 6, 9, 12, 14, 17, 19, 21).
+  expect(never.length, 'chainsaws that never appear on map $00F').toBe(7)
+  for (const saw of never) {
+    expect(saw.stored, 'no stored tile: the picture is on it').toBeUndefined()
+    expect(saw.x & 0x10, 'an even column').toBe(0)
+  }
+  const saw = never[0]
+  const at = map.own(saw)
+  await map.click(at.x, at.y)
+  await expect(panel(page).locator('[data-field="note"]').filter({ hasText: 'never appears in play' })).toHaveCount(1) // prettier-ignore
+  await expect(page.locator(`${rootOf(SAW_MAP)} [data-control="stored-tile"]`)).toHaveCount(0)
+  await expect(panel(page).locator('[data-field="position"]')).toHaveText(
+    `Column ${Math.floor(saw.x / 16)}, row ${Math.floor(saw.y / 16)}`,
+  )
+})
+
+// #1230 (AC 7): a rope on a ROM whose sprite loader is not the original keeps its short length, and the panel itself
+// says why in plain words (not only the tooltip). The edit flips one byte inside the loader's slot search ($02:A8E4,
+// bank_02.asm:5376), so its fingerprint fails. Plant: stop setting `note` in the rope's model and this goes red.
+test('a rope on a ROM with an edited sprite loader says in the panel why it is short', async ({
+  page,
+}) => {
+  const bytes = new Uint8Array(fs.readFileSync(ROM))
+  bytes[0x128e4 + 3] ^= 1
+  const edited = path.join(tmp, 'loader.sfc')
+  fs.writeFileSync(edited, bytes)
+  const project = await page.evaluate(
+    ({ romPath, directory }) =>
+      getSvc('Symbol(ProjectService)').createProject({ romPath, name: 'Edited', directory }),
+    { romPath: edited, directory: path.join(tmp, 'Edited') },
+  )
+  manifestPath = project.manifestPath
+  const map = await openMap(page, 0x00f)
+  const rope = map.stack.find(s => s.id === 0x64 && s.status === 'drawn' && map.own(s))
+  expect(rope, 'a drawn rope on map $00F').toBeTruthy()
+  expect(rope.note).toBe('The rope is shown at its short length: the sprite loader on this ROM is not the original one.') // prettier-ignore
+  const at = map.own(rope)
+  await map.click(at.x, at.y)
+  await expect(panel(page).locator('[data-field="note"]').filter({ hasText: 'The rope is shown at its short length: the sprite loader on this ROM is not the original one.' })).toHaveCount(1) // prettier-ignore
 })

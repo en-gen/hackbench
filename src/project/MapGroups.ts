@@ -30,9 +30,10 @@ export const VANILLA_SHA256 = '0838e531fe22c077528febe14cb3ff7c492f1f5fa8de35419
  * alphabetic-by-name sort lands them in world order instead of alphabetical
  * order (Chocolate Island before Donut Plains, etc).
  *
- * Bonus Games and Yoshi Heaven are the vanilla ROM's DATA_05DBA9 read by
- * BonusEntrances, in both submap halves; unnumbered, so they sort after the
- * areas. MapGroups.corpus.test.ts checks every slot against the ROM.
+ * Bonus Games is the vanilla ROM's DATA_05DBA9 read by BonusEntrances, in both
+ * submap halves; unnumbered, so it sorts after the areas. Yoshi Heaven is not
+ * seeded: it lists under the map that holds the wings block (#1229), for every
+ * ROM. MapGroups.corpus.test.ts checks every slot against the ROM.
  */
 export const VANILLA_SEED: MapGroup[] = [
   { name: "1. Yoshi's Island", slots: [0x104, 0x105, 0x106, 0x103, 0x102, 0x101, 0x014] },
@@ -60,7 +61,6 @@ export const VANILLA_SEED: MapGroup[] = [
   { name: '8. Star World', slots: [0x134, 0x130, 0x132, 0x135, 0x136] },
   { name: '9. Special Zone', slots: [0x12a, 0x12b, 0x12c, 0x12d, 0x128, 0x127, 0x126, 0x125] },
   { name: 'Bonus Games', slots: [0x000, 0x100] },
-  { name: 'Yoshi Heaven', slots: [0x0c8, 0x1c8] },
 ]
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -173,9 +173,9 @@ export function applyGroups(tree: MapTree, groups: MapGroup[]): GroupedMapTree {
   // Bonus maps are reached (after a level), so never orphaned, like entry maps.
   const reached = [...tree.overworld, ...tree.bonus]
   const reachedByIndex = new Map(reached.map(n => [n.index, n]))
-  // A placeholder or no-pointer slot is not a map, so no group claims it (#901).
+  // A New slot has no map, so no group claims it; a slot on the shared pointer is a map and can be claimed (D156).
   const unassignedByIndex = new Map(
-    tree.unassigned.filter(n => !n.placeholder && !n.noPointer).map(n => [n.index, n]),
+    tree.unassigned.filter(n => !n.noPointer).map(n => [n.index, n]),
   )
   const claimed = new Set<number>()
 
@@ -209,19 +209,19 @@ export function applyGroups(tree: MapTree, groups: MapGroup[]): GroupedMapTree {
   return { groups: userGroups, unassigned }
 }
 
-/** Every slot that currently names a top-level map (entry, bonus or orphan), placeholders and no-pointer slots excluded. */
+/** Every slot that currently names a top-level map (entry, bonus or orphan), New slots excluded. */
 export function topLevelSlots(tree: MapTree): Set<number> {
-  const maps = [
-    ...tree.overworld,
-    ...tree.bonus,
-    ...tree.unassigned.filter(n => !n.placeholder && !n.noPointer),
-  ]
+  const maps = [...tree.overworld, ...tree.bonus, ...tree.unassigned.filter(n => !n.noPointer)]
   return new Set(maps.map(n => n.index))
 }
 
-/** Slots a group list names that `applyGroups` could not resolve against a tree. */
+/**
+ * Slots a group list names that `applyGroups` could not resolve against a tree. A slot the
+ * wings link placed, under a root or nested under a sub area (#1229, #1295), is a map, not stale: an older groups.json that
+ * still names Yoshi Heaven keeps its entry, silently, and its folder shows empty.
+ */
 export function staleSlots(tree: MapTree, groups: MapGroup[]): number[] {
-  const known = topLevelSlots(tree)
+  const known = new Set([...topLevelSlots(tree), ...(tree.wingsPlaced ?? [])])
   return groups.flatMap(g => g.slots).filter(slot => !known.has(slot))
 }
 

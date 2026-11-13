@@ -20,7 +20,7 @@ import * as vscode from 'vscode'
 import { MapsProvider } from '../../../src/providers/RomExplorerProvider'
 import { RomSession } from '../../../src/RomSession'
 import * as stub from '../support/vscodeStub'
-import { writeSyntheticRom } from '../support/syntheticRom'
+import { SYNTHETIC_FINGERPRINTS, writeSyntheticRom } from '../support/syntheticRom'
 
 type Item = ReturnType<MapsProvider['getChildren']>[number]
 
@@ -29,26 +29,21 @@ type Item = ReturnType<MapsProvider['getChildren']>[number]
 // get the synthetic ones instead; no module state is written.
 vi.mock('../../../src/rom/SubmapFlagGate', async importOriginal => {
   const real = await importOriginal<typeof import('../../../src/rom/SubmapFlagGate')>()
-  const { fingerprint } = await import('../../../src/rom/Fingerprint')
-  const entry = [fingerprint(Buffer.alloc(real.OVERWORLD_INDEX_BODY.length, 0xea))!]
   return {
     ...real,
     stockCodeMismatch: (...[rom, checks, fp]: Parameters<typeof real.stockCodeMismatch>) =>
-      real.stockCodeMismatch(rom, checks, fp ?? entry),
+      real.stockCodeMismatch(rom, checks, fp ?? SYNTHETIC_FINGERPRINTS.entry),
     readTranslevelBias: (...[rom, fp]: Parameters<typeof real.readTranslevelBias>) =>
-      real.readTranslevelBias(rom, fp ?? entry),
+      real.readTranslevelBias(rom, fp ?? SYNTHETIC_FINGERPRINTS.entry),
   }
 })
 vi.mock('../../../src/rom/OverworldEntrances', async importOriginal => {
   const real = await importOriginal<typeof import('../../../src/rom/OverworldEntrances')>()
-  const { fingerprint } = await import('../../../src/rom/Fingerprint')
-  const nopHash = (n: number): string[] => [fingerprint(Buffer.alloc(n, 0xea))!]
-  const fp = { entry: nopHash(0x54), walk: nopHash(real.WALK_PROLOGUE_LENGTH) }
   return {
     ...real,
     deriveOverworldEntrances: (
       ...[rom, catalog]: Parameters<typeof real.deriveOverworldEntrances>
-    ) => real.deriveOverworldEntrances(rom, catalog, fp),
+    ) => real.deriveOverworldEntrances(rom, catalog, SYNTHETIC_FINGERPRINTS),
   }
 })
 

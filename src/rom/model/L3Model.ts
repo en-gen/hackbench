@@ -8,8 +8,8 @@
  * plane lists (`ScreenPlanes`), the effective CGADSUB and the layer 2 role. The
  * rest are refusals carrying their reason, never a guess. Camera-locked layer 3
  * ($81-$BF) is world-locked and draws from the entrance camera (#563,
- * docs/rom/layer3-world-locked.md); $00 off Castle1 and Underground1 and mode 0E
- * still refuse. A vertical map draws only the screen-locked Y $C0 case (#806).
+ * docs/rom/layer3-world-locked.md, mode 0E's $018 too, #805); $00 off Castle1 and Underground1
+ * still refuses. A vertical map draws only the screen-locked Y $C0 case (#806).
  * The main/sub designations only mean BG1/BG2/BG3 in BG mode 1, so an unverified
  * mode keeps the old stacking and no math.
  */
@@ -34,12 +34,14 @@ import { FALLBACK_SCREENS, screenPlanes, type ScreenPlanes } from './ScreenPlane
 export const GRAPH_UNAVAILABLE = 'graph-unavailable'
 
 /**
- * Said when the exit graph could not be built (a hooked hack, #910): which entrance starts the map
- * is then unknown, so `chooseEntrance` falls back to the primary row, a guess a secondary-only map
- * would contradict. Reads after "Layer 3 position unverified: ".
+ * Said when the exit graph could not be built (#910, #1039): which entrance starts the map is then
+ * unknown, so `chooseEntrance` falls back to the primary row, a guess a secondary-only map would
+ * contradict. Shared by the Layer 3 position and the background height; reads after either
+ * "Layer 3 position unverified: " or "Background height unverified: ", or after "Background height
+ * and Layer 3 position unverified: " when both give it.
  */
 export const EXIT_GRAPH_UNAVAILABLE =
-  'HackBench could not work out which entrance starts this map, so this layer is placed as if the map were entered from its main entrance.' // prettier-ignore
+  'HackBench could not work out which entrance starts this map, so the map is shown as if it were entered from its main entrance.' // prettier-ignore
 
 /**
  * A world-locked Layer 3 is anchored at the camera of a direct load; a map entered by a screen exit starts
@@ -171,11 +173,15 @@ export function buildL3Verdict(
       none(reason, {
         cgadsub: effectiveCgadsub(layout.cgadsub, !kept),
       })
-    // The world-locked draw is verified for $81-$BF where BG3 is not alone on the main screen; mode 0E
-    // ($018) adds it onto layers 1 and 2 and stays refused. A vertical map is refused for being vertical:
-    // the world-locked trace (#563) is horizontal only, and #806 traced only the screen-locked $C0 case.
-    if (!kept || (layout.main & 0x03) === 0) return refuse()
-    if (l1.isVertical) return refuse('Layer 3 not drawn yet: vertical maps')
+    // A lone BG3 on the main screen (mode 0E, $018) is not a reason to refuse: the plane lists and the
+    // color math carry it like any other mode (docs/rom/layer3-world-locked.md, Map $018; #805).
+    if (!kept) return refuse()
+    // A vertical map is refused for being vertical: the world-locked trace (#563) is horizontal only, and
+    // #806 traced only the screen-locked $C0 case. #805 verified a lone BG3 on horizontal maps only, so a
+    // vertical one keeps the camera-locked reason it had before.
+    if (l1.isVertical) {
+      return (layout.main & 0x03) === 0 ? refuse() : refuse('Layer 3 not drawn yet: vertical maps')
+    }
     const start = readMarioStartPos(rom, index)
     if (!start) return refuse()
     if (!cameraGate(rom).ok) return refuse(CAMERA_HOOKED)

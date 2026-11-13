@@ -1,0 +1,3 @@
+### Changed
+
+- Graphics layers 2 and 3 now continue through the map view's far-end gutter and fade out with the back color (#1197, owner R41). They run from the map's edge through any off-map content band, solid across the band, then fade to clear over the 256 px gutter; Layer 2's toggle and Layer 3's toggle apply there, and a vertical map continues Layer 2 downward. A background image continues as the game lays it out; a background made of objects shows only tiles its own stream placed past the edge (usually none), so only the back color fades there. A map of 32 screens has no gutter, so nothing changes.

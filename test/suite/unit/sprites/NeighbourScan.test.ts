@@ -6,17 +6,29 @@
  * PutHammerBroOnPlat does), id 51 (draws nothing, as $9B alone), id 52 (draws its own piece in its own turn).
  * Evidence scope: the fixture's own routines; the vanilla maps are graded by spriteGrade.captures.test.ts.
  */
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { freshRom, hasRom, VANILLA } from '../../support/corpus'
 import { romWindowHits } from '../../support/romWindows'
 import { RomFile } from '../../../../src/rom/RomFile'
-import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
+import { SmwRom } from '../../../../src/rom/SmwRom'
+import { loadClasses } from '../../../../src/rom/sprites/interp/LoadClass'
+import { L1ModelCache } from '../../../../theia/extension/src/node/map-screen'
+import { mapSpriteFrames } from '../../../../theia/extension/src/node/map-sprites'
+import {
+  NEIGHBOUR_EXTRA_BIT_REASON,
+  neighboursOf,
+} from '../../../../src/rom/sprites/interp/Neighbours'
 import { Refusal } from '../../../../src/rom/cpu/call'
-import { Machine, RAM, runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { drawnParts, Machine, RAM, runOnce } from '../../../../src/rom/sprites/interp/SpriteRunner'
 import { shellLoad } from '../../../../src/rom/sprites/ShellSprites'
 import { withSeed } from '../../../../src/rom/sprites/interp/SpriteSeed'
 import type { LevelSprite } from '../../../../src/rom/LevelParser'
-import { drawSprites, interpDrawer } from '../../../../theia/extension/src/node/map-sprites'
+import {
+  drawSprites,
+  joinReasons,
+  interpDrawer,
+  interpParts,
+} from '../../../../theia/extension/src/node/map-sprites'
 import { COLORS } from '../../support/mapInputs'
 import { buildSyntheticRom, SYNTHETIC_INIT_TABLE_OFFSET } from '../../support/syntheticSpriteRom'
 
@@ -41,12 +53,20 @@ const BARE = 59
 const TRAVELS = 60
 /** Draws the companion first and its own piece after it (the order that leaves a sticky "drawing for" attribution wrong). */
 const CHILD_FIRST = 61
+/** Draws nothing and scans nothing unless Mario's X ($D1) equals its own; then draws, scans for QUIET and draws it (a scan only a reveal condition reaches). */
+const GATED_SCAN = 62
+/** The same gate and a draw, with no scan. */
+const GATED_PLAIN = 63
+/** GATED_SCAN with the gate moved to Mario 16 px left of it: the reveal search's SECOND try (RevealSearch.ts BESIDE), not its first. */
+const LATE_SCAN = 64
+/** Scans at rest (draws nothing there) and draws without scanning once Mario's X equals its own: the winning reveal run does not scan. */
+const REST_SCAN = 65
 
 /** Every byte run this file's cart plants, for the copyright check at the foot of the file. */
 const planted: number[][] = []
 
 function cart(
-  opts: { breakShellLoader?: boolean; travel?: { x: number; y: number } } = {},
+  opts: { breakShellLoader?: boolean; travel?: { x: number; y: number }; spawnInit?: boolean } = {},
 ): RomFile {
   const bytes = new Uint8Array(buildSyntheticRom().buffer)
   const off = (snes: number) => (snes >>> 16) * 0x8000 + ((snes & 0xffff) - 0x8000)
@@ -111,7 +131,26 @@ function cart(
     0x88, 0x10, 0xef, 0x20, 0x40, 0x86, 0x60, 0xda, 0xbb, 0x20, 0x40, 0x86, 0xfa, 0x20, 0x40, 0x86,
     0x60,
   ]) // prettier-ignore
-  for (const id of [TRAVELS, CHILD_FIRST]) {
+  // LDA $D1 / CMP $E4,X / BNE out / JSR draw / LDY #9 / loop: [LDA $14C8,Y / EOR #8 / BNE next] LDA $9E,Y / EOR #51 / BEQ found
+  // / next: DEY / BPL loop / out: RTS / found: PHX / TYX / JSR draw / PLX / RTS
+  put(0x01a200, [
+    0xa5, 0xd1, 0xd5, 0xe4, 0xd0, 0x16, 0x20, 0x40, 0x86, 0xa0, 0x09, 0xb9, 0xc8, 0x14, 0x49, 0x08,
+    0xd0, 0x07, 0xb9, 0x9e, 0x00, 0x49, QUIET, 0xf0, 0x04, 0x88, 0x10, 0xef, 0x60, 0xda, 0xbb, 0x20,
+    0x40, 0x86, 0xfa, 0x60,
+  ]) // prettier-ignore
+  // LDA $D1 / SEC / SBC $E4,X / CMP #$F0 / BNE out, then GATED_SCAN's body (offsets inside it are the same).
+  put(0x01a400, [
+    0xa5, 0xd1, 0x38, 0xf5, 0xe4, 0xc9, 0xf0, 0xd0, 0x16, 0x20, 0x40, 0x86, 0xa0, 0x09, 0xb9, 0xc8,
+    0x14, 0x49, 0x08, 0xd0, 0x07, 0xb9, 0x9e, 0x00, 0x49, QUIET, 0xf0, 0x04, 0x88, 0x10, 0xef, 0x60,
+    0xda, 0xbb, 0x20, 0x40, 0x86, 0xfa, 0x60,
+  ]) // prettier-ignore
+  // LDA $D1 / CMP $E4,X / BEQ draw / LDY #9 / loop: LDA $9E,Y / DEY / BPL loop / RTS / draw: JSR draw / RTS
+  put(0x01a500, [
+    0xa5, 0xd1, 0xd5, 0xe4, 0xf0, 0x09, 0xa0, 0x09, 0xb9, 0x9e, 0x00, 0x88, 0x10, 0xfa, 0x60, 0x20,
+    0x40, 0x86, 0x60,
+  ]) // prettier-ignore
+  put(0x01a300, [0xa5, 0xd1, 0xd5, 0xe4, 0xd0, 0x03, 0x20, 0x40, 0x86, 0x60]) // LDA $D1 / CMP $E4,X / BNE out / JSR draw / out: RTS
+  for (const id of [TRAVELS, CHILD_FIRST, GATED_SCAN, GATED_PLAIN, LATE_SCAN, REST_SCAN]) {
     const o = off(0x018320 + 9 + id * 2)
     bytes[o] = 0
     bytes[o + 1] = 0
@@ -129,10 +168,16 @@ function cart(
   word(0x018320 + 9, SHELLSCAN, 0x9f00)
   word(0x018320 + 9, BARE, 0x9f80)
   main(SCANNER, 0x9800)
+  // The scanner's INIT spawns id 81 into the slot below it (syntheticCompanion.ts: id 80's INIT).
+  if (opts.spawnInit) word(0x018170 + SYNTHETIC_INIT_TABLE_OFFSET, SCANNER, 0xa600)
   main(DRAWS, 0x8640)
   main(SHIFTS, 0x9900)
   main(TRAVELS, 0xa000)
   main(CHILD_FIRST, 0xa100)
+  main(GATED_SCAN, 0xa200)
+  main(GATED_PLAIN, 0xa300)
+  main(LATE_SCAN, 0xa400)
+  main(REST_SCAN, 0xa500)
   // The shell ceiling compare's opcode ($02A8C0) is what shellLoad reads for a id from $C9 up: a wrong byte refuses.
   if (opts.breakShellLoader) bytes[off(0x02a8c0)] = 0xea
   return RomFile.fromBytes('scan.sfc', bytes)
@@ -317,7 +362,117 @@ describe('a sprite its parent drew, through the real drawer (#1049)', () => {
     // The scanner draws two pieces, its own and the companion's: the companion gets the one it drew.
     expect(parent!.parts!.length).toBe(2 * child!.parts!.length)
     // Another companion, on a screen the scanner's neighbors do not reach, keeps its marker.
-    expect(far).toMatchObject({ index: 2, status: 'placeholder' })
+    expect(far).toMatchObject({ index: 2, status: 'placeholder' }) // this synthetic cart has no readable loader routing, so its empty run keeps the box (#1011)
+  })
+
+  it('an extra-bit companion is not seeded: the scanner draws as alone and the entry stays a placeholder (#1173)', () => {
+    const custom = { ...sp(1, QUIET, 9, 7), raw: [0x08] } as LevelSprite
+    const [alone] = drawn([sp(0, SCANNER, 8, 8)])
+    const [parent, child] = drawn([sp(0, SCANNER, 8, 8), custom])
+    expect(parent!.parts).toEqual(alone!.parts)
+    expect(child).toMatchObject({ index: 1, status: 'placeholder', reason: 'extraBits' })
+    expect(child!.drawnBy).toBeUndefined()
+  })
+
+  it.each([
+    [
+      'only an extra-bit companion (none left to seed)',
+      [sp(0, SCANNER, 8, 8), { ...sp(1, QUIET, 9, 7), raw: [0x08] }],
+      true,
+    ],
+    [
+      'an extra-bit and a stock companion',
+      [sp(0, SCANNER, 8, 8), { ...sp(1, QUIET, 9, 7), raw: [0x08] }, sp(2, QUIET, 7, 7)],
+      true,
+    ],
+    ['a stock companion only', [sp(0, SCANNER, 8, 8), sp(1, QUIET, 9, 7)], false],
+    [
+      'an extra-bit entry beside a sprite that does not scan',
+      [sp(0, DRAWS, 8, 8), { ...sp(1, QUIET, 9, 7), raw: [0x08] }],
+      false,
+    ],
+  ] as [string, LevelSprite[], boolean][])(
+    '%# marked unverified = %s (#1173)',
+    (_n, list, marked) => {
+      const reason = drawn(list)[0]!.unverified ?? ''
+      expect(reason.includes(NEIGHBOUR_EXTRA_BIT_REASON)).toBe(marked)
+    },
+  )
+
+  it.each([0, 1, 8, 9, 12])(
+    '%i stock neighbors beside an extra-bit one: still marked (the cap does not hide it, #1173)',
+    n => {
+      const stock = Array.from({ length: n }, (_, i) => sp(2 + i, QUIET, 1 + i, 9))
+      const list = [
+        sp(0, SCANNER, 8, 8),
+        { ...sp(1, QUIET, 15, 15), raw: [0x08] } as LevelSprite, // the farthest in range, so the cap would cut it
+        ...stock,
+      ]
+      expect(drawn(list)[0]!.unverified).toContain(NEIGHBOUR_EXTRA_BIT_REASON)
+    },
+  )
+
+  const stub = (
+    list: LevelSprite[],
+    mark: (probe: boolean | undefined) => string | undefined,
+    reveal = false,
+  ) => {
+    const run = ((r: RomFile, id: number, q: never, o?: { stopAtDraw?: boolean }) => {
+      const m = runOnce(r, id, q)
+      return { ...m, ...(reveal && o?.stopAtDraw ? { passes: [] } : {}), unverifiedReason: mark(o?.stopAtDraw) }
+    }) as typeof runOnce // prettier-ignore
+    const d = interpDrawer(rom, 0x104, { isVertical: false, screenCount: 2 }, run, () => withSeed({ loaded: new Uint8Array(0x2000) }), undefined, undefined, undefined, list, reveal) // prettier-ignore
+    return drawSprites(list, { vram, colors: COLORS } as never, d)[0]!.unverified
+  }
+  const withExtra = [sp(0, SCANNER, 8, 8), { ...sp(1, QUIET, 9, 7), raw: [0x08] } as LevelSprite]
+
+  it('a scanner that already carries another reason keeps it and gains the extra-bit one (#1173)', () => {
+    expect(stub(withExtra, () => 'earlier')).toBe(`earlier; ${NEIGHBOUR_EXTRA_BIT_REASON}`)
+  })
+
+  it("the reveal search's own reason and the carried one are both kept, once each (#1173)", () => {
+    const u = stub(withExtra, probe => (probe === false ? 'own' : undefined), true)
+    expect(u).toBe(`own; ${NEIGHBOUR_EXTRA_BIT_REASON}`)
+    expect(stub(withExtra, () => NEIGHBOUR_EXTRA_BIT_REASON, true)).toBe(NEIGHBOUR_EXTRA_BIT_REASON)
+  })
+
+  describe('a scan only a reveal condition reaches (#1173)', () => {
+    const extra = { ...sp(1, QUIET, 15, 15), raw: [0x08] } as LevelSprite
+    const stock = sp(2, QUIET, 9, 7)
+    const revealed = (list: LevelSprite[]) => {
+      const run = interpDrawer(rom, 0x104, { isVertical: false, screenCount: 2 }, runOnce, () => withSeed({ loaded: new Uint8Array(0x2000) }), undefined, undefined, undefined, list, true) // prettier-ignore
+      return drawSprites(list, { vram, colors: COLORS } as never, run)[0]!
+    }
+    it.each([
+      ['no ordinary neighbors', [sp(0, GATED_SCAN, 8, 8), extra], true],
+      [
+        'a scan only the second reveal try opens, no neighbors',
+        [sp(0, LATE_SCAN, 8, 8), extra],
+        true,
+      ],
+      ['a scan at rest that the winning run does not make', [sp(0, REST_SCAN, 8, 8), extra], false],
+      ['an ordinary neighbor too', [sp(0, GATED_SCAN, 8, 8), extra, stock], true],
+      ['no extra-bit entry', [sp(0, GATED_SCAN, 8, 8), stock], false],
+      ['a gated sprite that does not scan', [sp(0, GATED_PLAIN, 8, 8), extra], false],
+    ] as [string, LevelSprite[], boolean][])('%# marked = %s', (_n, list, marked) => {
+      const d = revealed(list)
+      expect(d.status).toBe('drawn')
+      expect((d.unverified ?? '').includes(NEIGHBOUR_EXTRA_BIT_REASON)).toBe(marked)
+    })
+  })
+
+  it('an at-rest reason that is not the neighbor one still reaches the revealed picture (#1173)', () => {
+    const list = [sp(0, REST_SCAN, 8, 8), { ...sp(1, QUIET, 15, 15), raw: [0x08] } as LevelSprite]
+    expect(stub(list, probe => (probe === undefined ? 'earlier' : undefined), true)).toBe('earlier')
+  })
+
+  it('the mark survives the reveal search, which swaps in its own model (#1173)', () => {
+    // A probe run (stopAtDraw) draws nothing, so the sprite counts as hidden and the search's rerun replaces the model.
+    const blind = ((r: RomFile, id: number, q: never, o?: { stopAtDraw?: boolean }) => o?.stopAtDraw ? { ...runOnce(r, id, q), passes: [] } : runOnce(r, id, q)) as typeof runOnce // prettier-ignore
+    const list = [sp(0, SCANNER, 8, 8), { ...sp(1, QUIET, 9, 7), raw: [0x08] } as LevelSprite]
+    const run = interpDrawer(rom, 0x104, { isVertical: false, screenCount: 2 }, blind, () => withSeed({ loaded: new Uint8Array(0x2000) }), undefined, undefined, undefined, list, true) // prettier-ignore
+    const [parent] = drawSprites(list, { vram, colors: COLORS } as never, run)
+    expect(parent!.unverified).toContain(NEIGHBOUR_EXTRA_BIT_REASON)
   })
 
   it('a parent that draws the companion before its own piece still gives the companion only its own tiles', () => {
@@ -356,6 +511,17 @@ describe('a shell neighbour is placed as the loader loads it (#837, #841)', () =
   })
 })
 
+describe('joinReasons (#1173)', () => {
+  it.each([
+    [['a', ''], 'a'],
+    [['', undefined], undefined],
+    [['a; b', 'b'], 'a; b'],
+    [['a', 'b'], 'a; b'],
+  ] as [(string | undefined)[], string | undefined][])('%j gives %j', (args, want) => {
+    expect(joinReasons(...args)).toBe(want)
+  })
+})
+
 describe('neighboursOf', () => {
   const sp = (index: number, screen: number, x: number, spriteId = 1, y = 5): LevelSprite =>
     ({ screen, x, y, spriteId, extraBit: false, raw: [0, 0, 0], index, streamOffset: index }) // prettier-ignore
@@ -374,6 +540,26 @@ describe('neighboursOf', () => {
       const kept = neighboursOf([me, sp(1, 4, 71, id)], me, px).length === 1
       expect(kept, `id $${id.toString(16)}`).toBe(keep.includes(id))
     }
+  })
+
+  it('leaves out an entry with the extra bit (raw[0] bit 3), keeps the rest whatever the other low bits (#1173)', () => {
+    const me = sp(0, 4, 70)
+    for (let raw0 = 0; raw0 < 0xff; raw0++) {
+      // YYYYEEsy; $FF ends the list (bank_02.asm:5253-5255)
+      const other = { ...sp(1, 4, 71), raw: [raw0, 0, 0] }
+      expect(neighboursOf([me, other], me, px).length, `raw[0]=${raw0}`).toBe(raw0 & 0x08 ? 0 : 1)
+    }
+    expect(neighboursOf([me, { ...sp(1, 4, 71), raw: [] }], me, px)).toHaveLength(1) // no byte: not flagged
+  })
+
+  it('filters before it caps: nine nearer extra-bit entries do not crowd out a farther stock one (#1173)', () => {
+    const me = sp(0, 4, 70)
+    const near = Array.from({ length: 9 }, (_, i) => ({
+      ...sp(i + 1, 4, 71 + i),
+      raw: [0x08, 0, 0],
+    }))
+    const far = sp(10, 4, 90)
+    expect(neighboursOf([me, ...near, far], me, px).map(n => n.index)).toEqual([10])
   })
 
   it('orders by distance in x and y together, not x alone', () => {
@@ -401,3 +587,53 @@ describe.skipIf(!hasRom(VANILLA))(
     })
   },
 )
+
+// #840: the neighbor run draws the sprite's own writes alone (#841); a companion is a plain-run notion. The map
+// view's cell count is what a viewer sees (a 16 x 16 piece is 4 cells).
+describe('companions and the neighbor run (#840)', () => {
+  const cells = (m: ReturnType<typeof runOnce>) =>
+    interpParts(drawnParts(m.passes[m.chosen!]!)).length
+  const nb = (id: number, x: number) => ({ id, x, y: 0x70 })
+
+  it('neighbors whose own INIT spawns something add no companions: 8 cells, not 12', () => {
+    const seed = withSeed({ slot: 5, sprite: { x: 0x80, y: 0x80 }, neighbours: [nb(QUIET, 0x90), nb(83, 0xa0)] }) // prettier-ignore
+    const m = runOnce(cart(), SCANNER, seed)
+    expect(m.passes[m.chosen!]!.companions ?? []).toEqual([])
+    expect(cells(m)).toBe(8)
+  })
+
+  it("a sprite's own companion keeps the run alone: the neighbor run that cannot draw it is not adopted", () => {
+    const m = runOnce(cart({ spawnInit: true }), SCANNER, withSeed({ slot: 5, sprite: { x: 0x80, y: 0x80 }, neighbours: [nb(QUIET, 0x90)] })) // prettier-ignore
+    expect(m.scansSlots).toBe(true)
+    expect(m.neighbourRun).toBe('same')
+    expect(m.passes[m.chosen!]!.companions).toHaveLength(1)
+    expect(cells(m)).toBe(8)
+  })
+})
+
+/** The served frames path, end to end on the scanner cart (its loader is unreadable): a $9C-like parent's child rides with it unless the parent is boxed. */
+describe('mapSpriteFrames: the parent fallback routes as the map does (#1011)', () => {
+  afterEach(() => vi.restoreAllMocks())
+  const served = (parentFlags: number) => {
+    const rom = cart()
+    const bytes = Uint8Array.from(rom.buffer)
+    bytes[0x7fd5] = 0x20
+    const at = bytes.length - 0x40
+    bytes.set([0, 0x80 | parentFlags, 0x80, SCANNER, 0x70, 0x90, QUIET, 0xff], at)
+    const snes = ((at >> 15) << 16) | (0x8000 + (at & 0x7fff))
+    vi.spyOn(SmwRom.prototype, 'getLevelSpritePointer').mockReturnValue(snes)
+    const vram = { sp1: Array.from({ length: 512 }, () => new Uint8Array(64).fill(1)) }
+    const inputs = { vram, colors: COLORS, isVertical: false, screenCount: 2 }
+    return { bytes, cache: new L1ModelCache(() => ({ ok: true, inputs }) as never), rom }
+  }
+  const reasonOf = (parentFlags: number) => {
+    const { bytes, cache } = served(parentFlags)
+    return (mapSpriteFrames(cache, bytes, 'x.sfc', 0x104, 1) as { reason?: string }).reason
+  }
+
+  it('a parent with no extra bit gives its child the rides-with answer; with bit 2 it is boxed and the child is not claimed', () => {
+    expect(loadClasses(served(0).rom).status).toBe('unavailable')
+    expect(reasonOf(0)).toBe('ridesWith')
+    for (const flags of [0x04, 0x08, 0x0c]) expect(reasonOf(flags), `flags ${flags}`).not.toBe('ridesWith') // prettier-ignore
+  })
+})

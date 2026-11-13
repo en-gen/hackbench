@@ -1,6 +1,6 @@
 # SMW Level Rendering Pipeline
 
-Full pipeline from ROM bytes to canvas pixels, as implemented in this extension.
+Pipeline from ROM bytes to canvas pixels. `src/rom/` is shared by the Theia app and the reference VS Code extension; the last two files in the table and the Render Order and Message Protocol sections describe the reference extension only (`src/providers/`, `src/webview/`: not shipped, no new features).
 Keep this document in sync whenever the corresponding source files change.
 
 ---
@@ -16,8 +16,8 @@ Keep this document in sync whenever the corresponding source files change.
 | `src/rom/GfxLoader.ts` | GFX file loading, VRAM slot assignment |
 | `src/rom/PaletteLoader.ts` | CGRAM assembly from ROM palette tables |
 | `src/rom/TileRenderer.ts` | Atlas build: Map16 + VRAM + CGRAM → RGBA tiles |
-| `src/providers/MapEditorProvider.ts` | Orchestrates the pipeline; sends data to webview |
-| `src/webview/mapEditor/main.ts` | Canvas renderer in the webview |
+| `src/providers/MapEditorProvider.ts` | Reference extension only: orchestrates the pipeline; sends data to webview |
+| `src/webview/mapEditor/main.ts` | Reference extension only: canvas renderer in the webview |
 
 ---
 
@@ -39,7 +39,7 @@ ROM
 │                                  │             L2UploaderTable.ts); bank byte
 │                         ┌────────┴──────┐      is cross-checked against it
 │                    objects mode        image mode (bank = $FF)
-│                  parseL2Objects()      LC_RLE1 tilemap ⚠ not yet impl.
+│                  parseL2Objects()      LC_RLE1 tilemap (L2Loader.ts)
 │                         │
 │                    expandLevel()
 │                         │
@@ -55,19 +55,17 @@ ROM
 ├─ GFX assignment tables
 │     $00A92B[tilesetId × 4] → {fg1, fg2, fg3, an1} GFX file indices
 │     $00A8C3[spriteSet × 4] → {sp1, sp2, sp3, sp4} GFX file indices
-│     always: decimal 32 → an2,  decimal 33 → bg1  (static tileset)
 │
 ├─ GFX pointer tables ($00B992 / $00B9C4 / $00B9F6)
 │     index → SNES address → LC_LZ2 decompress → detect bpp → decode
 │     → GfxSheet (array of 128 tiles × 64 palette indices)
 │
+│   Corrected 2026-11-07: was "always: decimal 32 → an2, 33 → bg1" with BG slots an2 ($200) and bg1 ($280), because `VRAM_SLOT_NAMES` in GfxLoader.ts has only sp1-sp4, fg1-fg3 and an1; GFX32/33 are DMA'd to OBJ space at runtime (MarioGFXDMA, bank_00.asm:4580) and GfxLoader does not load them.
 │   VRAM slot layout (each slot = 128 tiles of 8×8, chars = VRAM char base):
 │     fg1: chars $000–$07F    ← FG/BG tileset slot 1
 │     fg2: chars $080–$0FF    ← FG/BG tileset slot 2
 │     fg3: chars $100–$17F    ← FG/BG tileset slot 3
 │     an1: chars $180–$1FF    ← Animated FG (4th byte of FGBG table)
-│     an2: chars $200–$27F    ← GFX decimal 32 (LM GFX20), Mario sprites (3bpp)
-│     bg1: chars $280–$2FF    ← GFX decimal 33 (LM GFX21), animated tiles ⚠ slot unverified
 │     sp1–sp4: OBJ char space ← Sprite GFX (not used in BG tile atlas)
 │
 ├─ Map16 tables ($0D8000 page 0, $0DC000 page 1)
@@ -82,10 +80,8 @@ ROM
 │     Row  2: FG tile colors           ←── $B190 (variant 0; variants 1–n from $B1C0 ⚠)
 │     Row  3: FG tile colors           ←── $B1A8
 │     Rows 4–8: Sprite palettes        ←── $B348 + spriteSet × 120
-│     Row  9–12: (berry/Yoshi/misc)    ←── not yet loaded
-│     Row 13: Player palette           ←── $B2C8 + marioVariant × 20
-│     Row 14: Sprite palette E         ←── $B318
-│     Row 15: Sprite palette F         ←── $B330
+│     Rows 9–13: standard colors, player variant overlaid on row 8 (see PaletteLoader.ts header)
+│     Rows 14–15: level sprite colors ←── $B318 (variant-selected)
 │
 │   Back area color: $B0A0 + backAreaVariant × 2 (single BGR555 word)
 │   Custom per-level palette: $0EF600 + levelIndex × 3 → 514-byte block
@@ -105,14 +101,9 @@ ROM
 
 ---
 
-## Render Order (webview canvas)
+## Render Order
 
-```
-1. fillRect(backAreaColor)           ← single RGBA from back area color table
-2. bgTileGrid (L2 background)        ← rendered first (behind everything)
-3. tileGrid   (L1 foreground)        ← rendered on top of L2
-4. sprite markers                    ← colored boxes + hex ID overlays
-```
+Corrected 2026-11-07: was a fixed four-step list (back area, L2, L1, sprite markers), because `SmwMap.render` walks a priority pass table (`src/rom/model/RenderPass.ts`) that interleaves BG and OBJ priorities and includes Layer 3; the rule and its citations are in [obj-priority.md](obj-priority.md). The Theia map view stacks, bottom to top, a checkerboard, the back area, then per-screen canvases (`map-view-widget.tsx`). [EST: read both]
 
 ---
 
@@ -206,7 +197,7 @@ byte: bit 7 clear is a tide (`$00`/`$01` start at Y `$70`, `$02`-`$7F` at
 `$C0` on Castle1 and Underground1 (`CODE_009FFA`) and **camera-locked** on every
 other tileset, which branches to `CODE_00A01F` without writing a Y
 (`bank_00.asm:4174`). The gate is that ASM condition (`l3LoadTimeY`), not the
-loader's older `=== 0x81`; camera-locked maps are skipped (#563). A tile row R
+loader's older `=== 0x81`; camera-locked maps are drawn world-locked (#563, #805). A tile row R
 is at level Y `R*8 - Layer3YPos + Layer1YPos`; a tide repeats every 256 px over
 columns 0-31 and its second copy of the tilemap is not drawn; the status-bar
 rows 0-7 are not drawn. `L3Loader.l3InitialYPx` disagrees with the ASM for
@@ -255,10 +246,10 @@ so layer 3 palette 3 and any layer 1 or 2 pixel using those colors show it.
 
 **Measured, one ROM.** Over the vanilla ROM's 512 slot ids that have level
 data (one machine, `buildL3Verdict` against a straight decode, with an empty
-palette and no vertical flag): layer 3 is drawn on 22, skipped as camera-locked
-on 4 (`$011 $018 $130 $1C1`), refused as a Mode 7 room on 24, and 462 have no
-layer 3. `$009`, `$0E7` and `$1CE` draw; `$018` (mode 0E) is camera-locked, so
-the additive layer 3 over layers 1 and 2 shows only once #563 draws it. "No
+palette and no vertical flag; counted before #563 and #805): layer 3 was drawn on 22, skipped as
+camera-locked on 4 (`$011 $018 $130 $1C1`, all four draw since #563 and #805), refused as a Mode 7 room on 24,
+and 462 have no layer 3. `$009`, `$0E7` and `$1CE` draw; `$018` (mode 0E) draws as the additive layer 3 over
+layers 1 and 2 (docs/rom/layer3-world-locked.md). "No
 layer 3" is reported before the Mode 7 reason. The corpus sweep in
 `test/suite/unit/MapScreenL3.test.ts` compares every slot's priority bit, plane
 lists, CGADSUB and draw decision with a straight decode of the header and the
@@ -317,58 +308,10 @@ digest (follow-up #751).
 
 ## Known Gaps / Not Yet Implemented
 
-| Gap | File | Status |
-|---|---|---|
-| L2 bank=$FF tilemap (LC_RLE1) | LevelParser.ts, MapEditorProvider.ts | ❌ Not implemented |
-| BG/FG palette variant addresses for variants ≥ 1 | PaletteLoader.ts | ⚠ Unverified ($B0E0 region) |
-| CGRAM rows 9–12 (berry/Yoshi/misc) | PaletteLoader.ts | ❌ Not loaded |
-| Colors 13–15 per palette row | PaletteLoader.ts | ❌ Not read (only indices 1–12) |
-| Sprite GFX rendering (sp1–sp4) | TileRenderer.ts | ❌ OBJ space not in atlas |
-| GFX33 (decimal 33) VRAM slot | GfxLoader.ts | ⚠ Loaded into bg1 ($280–$2FF) - unverified |
-| L2 object type meanings | ObjectExpander.ts | ❌ All expand to TILE_UNKNOWN |
-| Screen exits (level folder links) | SmwRom.ts, RomExplorerProvider.ts | ❌ Not implemented |
+Corrected 2026-11-07: was a five-row table, because each row is false or unverifiable now. Palette variants 1-7 are read (8 variants x 24 bytes, `DATA_00ABD3`; PaletteLoader.ts header). Colors 13-15 load for the rows the header lists. Sprites are drawn by running the ROM's own code (`docs/sprites/`), not from an atlas. GFX33 is not loaded into BG space (see Pipeline Overview). `TILE_UNKNOWN` is declared in ObjectExpander.ts and referenced nowhere else, so "L2 object types all expand to TILE_UNKNOWN" does not hold. Open gaps are tracked as issues and in the module headers. [EST: `grep` over `src/` and `theia/`]
 
 ---
 
-## Message Protocol (Extension ↔ Webview)
+## Message Protocol (reference VS Code extension only)
 
-**Extension → Webview (`load` message):**
-
-```typescript
-{
-  type: 'load'
-  _initial: boolean           // true on first load, false on rerender
-  levelIndex: number
-  screens: number
-  tileGrid: number[][]        // Layer 1 tile grid [row][col] = Map16 tile ID
-  bgTileGrid: number[][]      // Layer 2 tile grid [row][col] = Map16 tile ID
-  atlasData: number[]         // serialized Uint8ClampedArray (RGBA)
-  atlasWidth: number
-  atlasHeight: number
-  tileUvMap: Record<number, { col: number; row: number }>
-  backAreaColor: [r, g, b, a]
-  paletteColors: [r, g, b, a][]  // 256 CGRAM entries, row-major
-  sprites: Array<{ x: number; y: number; spriteId: number }>
-  header: {
-    music: number
-    backAreaVariant: number   // back area color index (h[1] bits 7–5)
-    bgPaletteRow: number      // BG tile palette variant (h[0] bits 7–5)
-    fgVariant: number         // FG palette variant (= spriteSet & 0x07)
-    spritePalette: number     // sprite palette index (h[3] bits 5–4)
-    spriteSet: number         // sprite GFX set (h[3] bits 3–0)
-    gfxTilesetId: number      // from $05D760[spriteSet]
-  }
-}
-```
-
-**Extension → Webview (`error` message):**
-```typescript
-{ type: 'error'; message: string }
-```
-
-**Webview → Extension:**
-```typescript
-{ type: 'ready' }
-{ type: 'rerender'; backAreaVariant; bgPaletteRow; fgVariant; spritePalette; marioVariant; spriteSet; tilesetId }
-{ type: 'edit'; kind: 'place' | 'erase'; tileId; col; row }
-```
+Corrected 2026-11-07: was a full `load` message type (`atlasData`, `atlasWidth`, `tileUvMap`, a six-field header), because the message no longer carries an atlas. It now ships `tileGrid`, `l2TileGrid`, `map16Defs`, `map16BgDefs`, raw indexed VRAM, `romBytes`, animation and palette-animation data and more, so the live shape is the `postMessage({ type: 'load', ... })` call in `src/providers/MapEditorProvider.ts`. The other messages still exist: extension to webview `error`; webview to extension `ready`, `rerender` (palette, sprite-set, tileset and header-override fields, see `postRerender` in `src/webview/mapEditor/main.ts`) and `edit` (`kind`, `tileId`, `col`, `row`). The Theia app does not use this protocol: the map tab calls `ProjectService` over JSON-RPC (`theia/extension/src/common/project-protocol.ts`, see [theia-shell.md](../architecture/theia-shell.md)). [EST]

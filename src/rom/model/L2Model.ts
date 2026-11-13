@@ -14,7 +14,9 @@ import {
   l2ObjectGate,
   isSkippedLevelMode,
   l2PaletteOrForTileset,
+  L2_BG_PLANE_ROWS,
   L2_EMPTY_TILE,
+  L2_TILEMAP_COLS,
   loadL2Objects,
   loadL2Preset,
   readInitialLayer2YPos,
@@ -26,6 +28,8 @@ import { isLevelModeVerticalL2, SCREEN_H_VERT, SCREEN_W_VERT } from '../LevelPar
 import { readL2UploaderTable } from '../L2UploaderTable'
 import { loadMap16Tiles, readL2Map16Table, type Map16Tile } from '../Map16'
 import type { L1Inputs } from './L1Model'
+import { EXIT_GRAPH_UNAVAILABLE, GRAPH_UNAVAILABLE } from './L3Model'
+import { MAX_BEYOND_SCREENS } from './MapGutter'
 
 export interface L2Inputs {
   kind: 'image' | 'objects'
@@ -38,9 +42,16 @@ export interface L2Inputs {
    * objects alike: Layer2YPos comes from DATA_05D70C either way (bank_05.asm:7323-7328).
    */
   dy: number
+  /**
+   * Past the last screen (#1197). An image: the 32 x 32 tile plane it wraps in, so any screen number has
+   * content. An object stream: only what the stream wrote past the edge, columns (or rows, vertical)
+   * after the last screen; null where it wrote nothing. Never filled in from the map's own screens.
+   */
+  plane?: (number | null)[][]
+  beyond?: (number | null)[][]
   /** Dispatch-path notes from the object build (#493), deduped by the caller; absent for an image. */
   unverified?: string[]
-  /** Why `dy` is unverified: the entrances that reach the map start L2 at different heights (#505). */
+  /** Why `dy` is unverified: the entrances disagree on the height (#505), the exit graph is unavailable (#1039), or the entrance-position gate fails (#909). */
   note?: string
   /** The reasons `note` joins, so the map note can merge one a sibling part also gives (#926). */
   reasons?: string[]
@@ -151,13 +162,19 @@ function dyFromEntrances(
  * Read one map's L2, or why it cannot be read. Never a vanilla fallback. `entrances` is how the
  * game enters the map (`SmwRom.buildLevelExitGraph`); `startGate` names why the level-load code
  * is not stock, or null. Without entrances (graph unavailable) the position is the primary entrance's
- * F400/F600, never a secondary entrance's row.
+ * F400/F600, never a secondary entrance's row. `entrances` is required (#1340): `undefined` means
+ * "no known entrance, the primary entrance's F400/F600" and says nothing in the note, so a caller
+ * must choose it on purpose and say why; `GRAPH_UNAVAILABLE` says the graph itself failed and
+ * adds that to the unverified note (#1039).
+ * The parameter is deliberately required, not optional (#1340): a new caller must choose
+ * entrances, `GRAPH_UNAVAILABLE` or `undefined`, and `L2EntrancesRequired.synthetic.test.ts` guards
+ * that at compile time.
  */
 export function buildL2Inputs(
   rom: SmwRom,
   index: number,
   l1: L1Inputs,
-  entrances?: MapEntrances,
+  entrances: MapEntrances | typeof GRAPH_UNAVAILABLE | undefined,
   startGate: (rom: RomFile) => string | null = rom => entrancePositionGate(rom),
 ): L2Result {
   const refuse = (reason: string): L2Result => ({ ok: false, reason })
@@ -170,7 +187,8 @@ export function buildL2Inputs(
   // VerticalTable, which the header parse applies later (:552-553). With no known entrance
   // (so none is chosen), the primary entrance's F400/F600.
   const entryVertical = ((rom.rom.readByte(0x05f600 + index) ?? 0) & 0x20) !== 0
-  const known = dyFromEntrances(rom.rom, index, entrances)
+  const unavailable = entrances === GRAPH_UNAVAILABLE
+  const known = dyFromEntrances(rom.rom, index, unavailable ? undefined : entrances)
   if (known && 'cut' in known) return refuse(TABLES_CUT)
   if (!known && !fallbackReadable(rom.rom, index)) return refuse(TABLES_CUT)
   const dy = (): number => known?.dy ?? readInitialLayer1YPos(rom.rom, index, entryVertical) - readInitialLayer2YPos(rom.rom, index, entryVertical) // prettier-ignore
@@ -179,6 +197,7 @@ export function buildL2Inputs(
   const gate = startGate(rom.rom)
   const why = [
     gate,
+    unavailable ? EXIT_GRAPH_UNAVAILABLE : null,
     known?.note && gate ? `${known.note[0]!.toUpperCase()}${known.note.slice(1)}` : known?.note,
   ].filter((r): r is string => !!r)
   const note = why.length ? `Background height unverified: ${why.join(' ')}` : undefined
@@ -226,7 +245,7 @@ export function buildL2Inputs(
       const rows = isVertical ? screens * SCREEN_H_VERT : 27
       return {
         ok: true,
-        l2: { kind: 'image', grid: tilePresetGrid(image, cols, rows), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy(), note, reasons: why }, // prettier-ignore
+        l2: { kind: 'image', grid: tilePresetGrid(image, cols, rows), plane: tilePresetGrid(image, L2_TILEMAP_COLS, L2_BG_PLANE_ROWS), tiles: loadMap16Tiles(rom.rom, table.value), dy: dy(), note, reasons: why }, // prettier-ignore
       }
     }
     // After the gate and the table, before the orientation check: modes $0A and $0D would otherwise be refused for a layout mismatch the game never meets.
@@ -236,13 +255,21 @@ export function buildL2Inputs(
     if (l2Vertical !== isVertical) {
       return refuse(`L2 is ${l2Vertical ? 'vertical' : 'horizontal'} but L1 is ${isVertical ? 'vertical' : 'horizontal'}; the two cannot share one screen layout`) // prettier-ignore
     }
-    const objects = loadL2Objects(rom.rom, ptr, screens, header.objectTileset, l2Vertical)
+    const objects = loadL2Objects(
+      rom.rom,
+      ptr,
+      screens,
+      header.objectTileset,
+      l2Vertical,
+      MAX_BEYOND_SCREENS,
+    )
     if (!objects) return refuse(`The L2 object stream of ${hex3(index)} cannot be read`)
     return {
       ok: true,
       l2: {
         kind: 'objects',
         grid: objects.grid.map(row => row.map(id => (id === L2_EMPTY_TILE ? null : id))),
+        beyond: objects.beyond?.map(row => row.map(id => (id === L2_EMPTY_TILE ? null : id))),
         tiles: withPaletteOr(l1.map16.tiles, l2PaletteOrForTileset(header.objectTileset)),
         dy: dy(),
         unverified: objects.unverified,

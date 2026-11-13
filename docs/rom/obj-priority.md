@@ -19,8 +19,8 @@ SMW runs BG mode 1. Traceable:
 
 The priority ORDER itself is not in the disassembly and cannot be: it is PPU
 silicon, not code. It is taken from
-[`snes-superfamicom-selected.md:501-518`](snes-superfamicom-selected.md),
-which is hardware documentation and the one link in this chain with no
+the Super Famicom Development Wiki's rendering-the-screen page
+([references.md](../references.md)), which is hardware documentation and the one link in this chain with no
 `SMWDisX` citation. Front to back with the BG3-priority bit SET:
 
 | | layer |
@@ -164,7 +164,11 @@ stream index) picks the winner, as before #795; the game's OAM slot
 assignment between sprites is not modelled.
 
 A marker (a sprite the interpreter refused) has no OAM entry and keeps
-priority 2.
+priority 2. The quiet marker (#1011), a ring with a clear interior, is the exception: it
+is set to priority 3 (above every Layer 1 and Layer 2 tile, including Layer 1 high), because it is see-through and
+hides nothing. The one exception is a map whose BG3 priority bit is set (`BG3_PRI_SET`): Layer 3 high tiles then draw over
+every sprite, the ring included. A check of the 130 vanilla rings found all 130 fully showing (reviewer's check, one machine,
+2026-11-05). It is exempt from the screen door below, so it is never dithered.
 
 ## A covered sprite pixel is not hidden (editor ruling D52, not hardware)
 

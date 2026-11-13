@@ -146,6 +146,19 @@ describe('filterTree', () => {
     expect([...r.shown].sort()).toEqual(['inner', 'leaf', 'root', 'top'])
   })
 
+  it('a match two maps deep (Yoshi Heaven under $1E3 under $115, #1295) shows and opens its whole chain', () => {
+    const yoshi = node('y', undefined, { row: { id: 0x1c8, texts: ['Yoshi Heaven'] } })
+    const e3 = node('e3', [yoshi], { row: { id: 0x1e3, texts: [] } })
+    const sibling = node('sib', undefined, { row: { id: 0x1e4, texts: [] } })
+    const m115 = node('m115', [e3, sibling], { row: { id: 0x115, texts: [] } })
+    const root = node('root', [
+      node('grp', [m115], { row: { folder: true, texts: ['Unassigned'] } }),
+    ])
+    const r = filterTree(root, parseQuery('$1c8'), rowOf)
+    expect(r.matches).toEqual([yoshi])
+    expect([...r.shown].sort()).toEqual(['e3', 'grp', 'm115', 'root', 'y'])
+  })
+
   it('a matching folder shows everything under it, and its own match does not need a leaf', () => {
     const { root } = build()
     const r = filterTree(root, parseQuery('unassigned'), rowOf)

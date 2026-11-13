@@ -16,92 +16,85 @@ This affects how the test suite is organized:
 - **Small vanilla tables are not committed either.** A test that needs vanilla
   behaviour asserts the decoded result in a corpus-gated test (`describe.skipIf`)
   and uses made-up tables everywhere else.
-- **Tests that need real ROM data are developer-local only.** They are
-  either skipped automatically when no ROM is present, or depend on fixtures
-  that live under `test/fixtures/` (gitignored).
-- **Everything under `test/fixtures/` is gitignored** by default. If you
-  regenerate fixtures locally, they stay on your machine. See
-  [.gitignore](../.gitignore) for the specific rule.
+- **Tests that need real ROM data are developer-local only.** They skip
+  automatically when no ROM is present, or read fixtures under
+  `test/fixtures/`, which is gitignored (see [.gitignore](../.gitignore)).
 
 Do not submit PRs that add ROM data, decompressed game resources, or
 fixtures derived from the ROM. These will be rejected.
 
 ## The content gate
 
-`tools/scripts/check-content.mjs` (issue #678) blocks: ROM/save/patch and
-native/wasm extensions, `.asm`-family disassembly, and any binary file (a
-NUL byte, or content that isn't valid UTF-8, anywhere in the blob) except
-a `build/icons/**` PNG/ICO/ICNS whose magic bytes match its extension and
-is 512 KB or smaller; plus, on text content, base64 blobs, `data:...;
-base64,` payloads, oversized hex/byte-token counts (xxd dumps, `db`/`dw`/
-`.byte` directives, `\x` escapes), and disassembly-shaped listings. Text
-over 8 MB is blocked outright as `oversize`, never sniffed. Commit
-messages and annotated tag bodies get the same text-content rules. An
-in-file `content-gate: allow <rule> -- <reason>` pragma, only at the
-start of a comment line, exempts one file from one content rule.
+`tools/scripts/check-content.mjs` (issue #678) keeps ROM-derived bytes out of
+the repo. `.gitignore` alone is defeated by `git add -f`. Rules, by what they
+read:
 
-`rom-provenance` (#812): a comment that says nearby data was copied from the
-game (`vanilla $<address>` or `0x<address>`, `copied|taken|lifted|dumped
-from`, `from the ROM at $<address>`, `ROM bytes`, `real ROM
-bytes|data|values`), either leading and followed within 3 lines by a CODE
-line, or trailing on the literal's own line, blocks when that code holds a
-numeric array literal opening of 2+ elements (decimal, `0x`, `$`, mixed). A
-literal inside a comment is a citation and never counts. Comments are `//`
-(trailing too, spaced or not), `/* */` (open blocks carry across lines),
-and a leading `#` or `*`; delimiters inside quoted strings are skipped. In
-`.md` files a leading `#` or `*` is a heading or bullet, not a comment;
-`<!-- -->` is one, and `/*` opens a block only at line start. A 4-byte copy
-cannot be told from invented values by content, so the claim is the signal;
-say "invented values" instead, or add the pragma. A decimal array with `0x`
-elements mixed in counts toward `byte-tokens` too.
+- **Paths.** ROM, save and patch extensions, native and wasm extensions,
+  `.asm`-family disassembly, Mesen traces, fixtures, and any binary file
+  (a NUL byte or invalid UTF-8) except a `build/icons/**` PNG, ICO or ICNS of
+  512 KB or less whose magic bytes match its extension.
+- **Text content.** Base64 blobs and `data:` payloads, oversized hex or
+  byte-token counts (`byte-tokens`: xxd dumps, `db`/`dw`/`.byte`, `\x`
+  escapes), and disassembly-shaped listings. Text over 8 MB is blocked as
+  `oversize`, never sniffed. Commit messages and annotated tag bodies get the
+  same text rules.
+- **`rom-provenance` (#812).** A comment claiming nearby data was copied from
+  the game (`vanilla $<address>`, `copied|taken|lifted|dumped from`, `ROM
+  bytes`, ...) over a numeric array literal of 2+ elements. A claim is the
+  signal because 4 copied bytes cannot be told from invented ones; write
+  "invented values" instead, or add a pragma.
+- **`rom-window` (#1053).** A non-`.md` text file a commit adds holding a run
+  of byte notation that contains an 8-byte window of the vanilla ROM. Local
+  only: the windows come from the real vanilla ROM found by `corpus.cjs`; CI
+  has no ROM, no hash set is committed (D155), and with no ROM every mode
+  except `history` prints `rom-window rule DID NOT RUN`. Windows with fewer
+  than 3 distinct values, a constant step or a short repeat are ignored.
+  Known gaps (a file added clean then filled in later, edits to existing
+  files, `.md`, masked arrays) are tracked in #1253 and #1280.
+  The probe that shares its parser is
+  [ROM-window probe](#rom-window-probe). Proof it can fail:
+  `test/suite/gates/contentGateRomWindows.test.ts`.
+- **Pragma.** `content-gate: allow <rule> -- <reason>` at the start of a
+  comment line exempts one file from one content rule.
 
 Modes: `staged` (no hook runs it since #1183), `range BASE HEAD` (CI),
-`push REMOTE`
-(`.githooks/pre-push`, reading stdin ref-updates and querying the remote
-live via `git ls-remote` rather than trusting local, possibly stale,
-remote-tracking refs), and `history [REF]` (the repo-migration oracle, run
-in CI only once public: every blob reachable from `REF`, default `HEAD`,
-plus tags, never other branches, so an unmerged branch cannot fail an
-unrelated ref (unless tagged) (D59 A); a ref
-that does not resolve exits 2; it also refuses a shallow clone, a grafts file,
-and a tag pointing at a blob or tree outside any commit's tree). Trade-off of
-D59 A: a branch pushed with no PR, or a PR whose base is not develop, main or
-feature/\*\*, gets no server-side scan until it is merged or PR'd; the
-pre-push hook is the only check there.
+`push REMOTE` (`.githooks/pre-push`), and `history [REF]` (every blob reachable
+from `REF`, default `HEAD`, plus tags; run in CI on the public repo; it refuses
+a shallow clone or a grafts file). A branch pushed with no PR gets no
+server-side scan; the pre-push hook is the only check there (D59 A).
 
-Read budget (#461): before any content is buffered, object sizes are
-checked with `git cat-file --batch-check`. A blob over 32 MiB, or (in
-`staged`, `range` and a per-ref `push`) a set whose total exceeds 128 MiB,
-exits 2 naming the path; path-rule hits (such as a staged `.smc`) are still
-printed alongside the refusal. `history`, and a `push` to an empty remote,
-skip the total refusal and read in chunks of at most 128 MiB instead, so
-memory stays bounded as history grows. A size exactly at a limit passes.
-The largest tracked file today is 340 KB. The limits can be overridden with
-`CONTENT_GATE_MAX_BLOB_BYTES` and `CONTENT_GATE_MAX_TOTAL_BYTES`; these exist
-so tests need not write megabytes, not for normal use.
+Before any content is buffered, object sizes are checked with `git cat-file
+--batch-check`: a blob over 32 MiB, or in `staged`, `range` and per-ref `push`
+a set over 128 MiB, exits 2 naming the path (`CONTENT_GATE_MAX_BLOB_BYTES` and
+`CONTENT_GATE_MAX_TOTAL_BYTES` override this for tests). `history` and a push
+to an empty remote read in chunks instead.
 
-A commit MESSAGE already on protected `develop` cannot be amended, so a false
-positive there would red `history` mode forever. Such a message goes in
-`tools/scripts/content-gate-reviewed.txt` as `<sha> <rule> -- <reason>`,
-after a person checks it. It exempts that message for that rule only; file
-content is never exempt, and a malformed line or unknown rule exits 2.
+A commit message already on protected `develop` cannot be amended, so a false
+positive there would red `history` forever. A person who has checked it adds
+`<sha> <rule> -- <reason>` to `tools/scripts/content-gate-reviewed.txt`. That
+exempts the message for that rule only; file content is never exempt.
 
-`npm install` sets `core.hooksPath` to `.githooks` automatically
-(`tools/scripts/set-hooks-path.cjs`). The only local bypass is
-`git push --no-verify`, which skips the pre-push hook only; CI has no bypass.
+`npm install` points `core.hooksPath` at `.githooks`. The only local bypass is
+`git push --no-verify` (pre-push only); CI has no bypass, so say why in the PR.
 
 ### The 8-byte window rule (synthetic carts)
 
 A synthetic cart must not carry the game's code. The rule is mechanical: no 8 consecutive bytes with at least 3
 distinct values may also occur anywhere in the vanilla ROM. `test/suite/support/vanillaWindows.ts` holds the
 checker (it reports each hit as an SNES address) and `test/suite/unit/sprites/SyntheticSpriteRomNoVanilla.test.ts`
-applies it to the sprite cart, the default and each `SyntheticOptions` value on its own; it needs the vanilla ROM and
-skips without it. `CastleFlames.test.ts` applies it to the bytes its fixtures write over the plain cart.
+applies it to the sprite cart: the default and one variant set per `SyntheticOptions` field (`BY_OPTION`; a no-ROM check reads the
+`SyntheticOptions` interface as text and fails on a field with no entry, since the test tree is not typechecked in CI, with `grinderInitDelta` at every value real tests use, with and without
+`grinderAliases`), not combinations of options; `spawnTimer` and `initShift` are swept over 0..255. The scan needs the
+vanilla ROM and skips without it; CI has no ROM, so a vanilla window there stays green. The allow list ratchet, the
+planted cases and the variant coverage check need no ROM and run in CI. `CastleFlames.test.ts` applies it to the bytes its fixtures write over the plain cart.
 
-Where a reader in `src/` fixes the game's opcodes (or a fixture keeps the game's operand values on purpose), the
-window stays and the gate's allow list names the region and why. Each region spans at most 64 bytes and lists its
-exact hit count: a count that rises, drops or reaches zero fails until the list is updated, and planted cases prove
-those checks go red.
+The sprite cart's allow list (`ALLOWED` in that test) is empty and held there: a test that needs no ROM fails if it
+has any entry, and a planted entry proves it goes red (#1073). Some readers in `src/` still fix the game's own bytes
+(`ShellSprites.ts` SITES and the stored arrays in `SpriteDispatch.ts`, tracked in #1109); the cart keeps those
+opcodes in the game's order, with operands of its own, until #1109 removes the reader arrays. When a reader forces a window, change the
+fixture to an equivalent sequence with the same effect (a different operand pair with the same difference, or
+different instructions for the same state; never the game's instructions reordered or split), or make the reader run or fingerprint the code; do not add an
+allow list entry, which the ratchet refuses.
 
 ExecutePtr, CallSpriteInit and the grinder handler (#1082) were removed by running them instead: a stock-code
 SHA-256 needs at least 24 unknown bytes (not masked, not stated elsewhere in the working tree), and each of those had
@@ -125,9 +118,6 @@ pointer table.
 - The block spawn dispatcher, slot search and status write are one 81-byte span (`BLOCK_SPAWN_DISPATCHER`).
 
 Planted defects for each are in `test/suite/unit/sprites/ShapeRuns.test.ts`.
-
-The fix for an allowed region is to make the reader recognize the code by SHA-256 (as
-`CastleFlames.ts` and `SubmapFlagGate.ts` do), then delete the region.
 
 Source-text probes read the file text only, so they miss runs built from helpers, named opcodes or spread
 arrays. The assembled gate, run against the built cart, is the oracle; a clean probe alone proves nothing.
@@ -169,6 +159,40 @@ resolves the corpus directory for both the Vitest suites (through
 
 When none exist it returns a path that does not, so `hasRom` reads false
 and the suites SKIP rather than throwing during collection.
+
+### A personal ROM list (`personal.txt`)
+
+A cart can sit in the ROM folder without being part of the corpus: one the
+owner plays for fun. The membership guards (`corpusResolver`, `LcLz2Encode.corpus`,
+`PaletteAnimationDetect.rom`) fail on any cart on disk that `CORPUS` does not
+name, so such a cart would fail them on that machine. Mark it personal instead
+of adding it to `CORPUS`:
+
+- Where: `personal.txt` in the ROM folder itself (the folder `ROM_DIR` resolves
+  to). It is beside the carts, outside git, and is never committed. No
+  personal file name belongs anywhere in the repo.
+- Format: one file name per line. Blank lines and lines starting with `#` are
+  ignored; CRLF is fine; names match case-insensitively. A missing file is an
+  empty list. The file must be UTF-8: PowerShell 5 `>` and `Out-File` write
+  UTF-16, which is not read (the list then reads as empty). Never list a
+  `CORPUS` cart: `corpusResolver` fails on that (`personalCorpusOverlap()`),
+  since it would drop the cart from every sweep.
+- Effect: `romsOnDisk()` leaves the listed carts out, so every suite that reads
+  the listing (the guards above, `Mode7Gfx.corpus`'s tally, `SpecialMaps`,
+  `Map16.tileCount`) behaves as if they were absent. A cart that is neither
+  listed nor in `CORPUS` still fails the guards (`unlistedCarts()`).
+- Guard scope: `PaletteAnimationDetect.rom`'s guard checks its `OBSERVED` table,
+  not `CORPUS`; it uses the same filtered listing, so a listed cart is left out
+  of it too.
+- Visibility: `corpusResolver.test.ts` has one case titled
+  `leaves out N personal ROM(s) listed in personal.txt`; it is skipped when N
+  is 0, so the run shows how many carts were left out.
+- Evidence scope: the list is read at collection, per run, on the machine that
+  holds it; nothing records it, so a result with a list is not comparable to one
+  without.
+- Proof: `corpusPersonal.test.ts` plants junk-byte carts and a list in a
+  scratch folder (no ROM content, so it runs in CI) and shows a listed cart is
+  left out while an unlisted unknown one is still reported.
 
 ## SingleStepTests data (the 65816 core)
 
@@ -335,9 +359,23 @@ in it.
 
 `lintGate.test.ts` creates and deletes files under `test/suite/gates/__fixtures__`
 while other workers run, so any walker over `test/` must skip that directory
-(#754). The three walkers that do: `sourceFiles` in `controlBytesGate.test.ts`,
-`testFiles` in `testRegistrationGate.test.ts`, and `walk` in
-`perfConfigSeparation.test.ts`.
+(#754). The four walkers that do: `sourceFiles` in `controlBytesGate.test.ts`,
+`testFiles` in `testRegistrationGate.test.ts`, `walk` in
+`perfConfigSeparation.test.ts`, and `testFiles` in `processTimeoutGate.ts`.
+
+A test file that starts a process (a value import of `spawn`, `exec`, `execFile`
+or `fork` families from `child_process`, or of `support/isolatedGit` or
+`support/gitBash`) carries, at module scope before its first test or hook,
+`vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })`.
+Under a build-like load the 5 s default failed 10 process-starting tests across 3
+full runs (4, 3, 3), one machine, develop a9de2145 (#485). On CI the budget line keeps the
+60 s floor of `loadTimeout`. A per-test `slow()` or number wins over the file
+budget whether it is larger or smaller, so a per-test value under 30 s undercuts
+it. `processTimeoutGate.test.ts` walks the directory, skips `*.timing.test.ts`
+and `*.nightly.test.ts` (which `test:unit` does not collect) and `__fixtures__`,
+and refuses a file without the line (#1209). A file that mocks `child_process` is
+exempt, as is a type-only import. The gate reads text, exempts a partial mock,
+and does not see a starter reached through a helper other than those two.
 
 ## Proving an oracle can fail
 
@@ -350,9 +388,6 @@ How to run one: change the single line the defect targets, run only that
 file's suite, confirm the expected number of failures, revert. Anchor on a
 single line - these files use CRLF, so a multi-line search string will not
 match and the "mutation" silently becomes a no-op that looks like a pass.
-
-Three of the entries below were added only after a first pass showed the
-test could not fail. That is the point of doing it.
 
 ### `src/rom/L2UploaderTable.ts` - L2 uploader by level mode
 
@@ -478,35 +513,24 @@ the run:
 | Make the clamp return the slot CAPACITY, so a short sheet over-offers     | 2         |
 | Take the edit axis from the picker rather than the sheet on screen        | 2         |
 
-`*` This one is the exception to the corpus-absent rule: both cases that
-catch it are `describe.skipIf(!romPresent)`, so with no cartridge the
-mutation runs GREEN. That is stated rather than hidden. The claim is that
-the atlas and the character palettes composite from the same VRAM, which is
-a fact about a CALL SITE in `decodeMap16Sheet` rather than about any one
-function, so no synthetic fixture reaches it; the alternative was a
-source-text tripwire, which fails on a rename and passes on a respelling.
-It is proven wherever a cartridge exists, and the figure it asserts (75 of
-80 animated characters differing on vanilla tileset 0) is a tripwire on the
-fixture itself.
+`*` The exception to the corpus-absent rule: both cases that catch it are
+`describe.skipIf(!romPresent)`, so with no cartridge the mutation runs
+GREEN. The claim is a fact about a call site in `decodeMap16Sheet` (atlas and
+character palettes composite from the same VRAM), which no synthetic fixture
+reaches; a source-text tripwire would fail on a rename and pass on a
+respelling. The figure it asserts (75 of 80 animated characters differing on
+vanilla tileset 0) is a tripwire on the fixture itself.
 
-A fourteenth is planted by the Playwright suite itself rather than by hand.
-`map16-view.spec.cjs`'s hover-reflow oracle adds a hover rule that changes
-`padding` instead of painting, confirms the same comparison catches it, and
-removes the rule again. It is inline because the first version of that
-oracle measured viewport coordinates and so fired on a SCROLL while saying
-nothing about a reflow: an oracle that can only be trusted after someone
-remembers to plant a defect by hand is one that goes untrusted.
+A fourteenth is planted by the Playwright suite itself: `map16-view.spec.cjs`'s
+hover-reflow oracle adds a hover rule that changes `padding`, confirms the
+comparison catches it, and removes the rule. It is inline because the first
+version measured viewport coordinates and fired on a SCROLL, not a reflow.
 
-Two of these exist because the first pass showed no test could fail. The
-palette/VRAM one, because nothing compared a palette cell against the
-quadrant citing it. And the edit-axis one, which began as a source-text
-tripwire on the reasoning that `Map16ViewWidget` extends `ReactWidget` and
-cannot be constructed in node: true, and beside the point, because the
-DECISION is a pure function of the sheet and the picker. Extracting it as
-`editAxisFor` turned an untestable coupling into five ordinary cases, the
-same move `previewId` and `gateQuadrantWrite` made. A grep over source text
-passes when the bug returns under a different spelling and fails on an
-innocent rename, which is the wrong failure mode twice over.
+Two rows exist because a first pass showed no test could fail: the
+palette/VRAM one (nothing compared a palette cell against the quadrant citing
+it) and the edit-axis one. `Map16ViewWidget` extends `ReactWidget` and cannot
+be constructed in node, so the decision was extracted as the pure
+`editAxisFor`, the same move `previewId` and `gateQuadrantWrite` made.
 
 ### `eslint.config.mjs` - cloudevents is imported for types only
 
@@ -548,7 +572,7 @@ pieces sit on the map: the capture's drawing at `drawnFrame` (the first frame
 with every tile complete, not the first OAM write) against the model's pass
 `drawnFrame - firstRealFrame`, counted from the model's pass 0 (the first
 MAIN after INIT, as the capture's `firstRealFrame` is), so `chosen` is not
-added; the lag is 1 to 116 frames over the 1957 graded records. Both sides
+added; the lag is 1 to 116 frames over the 1955 graded records. Both sides
 are placed with the capture camera; the model is seeded with the camera at
 `drawnFrame`. Positions are compared in map coordinates. Graded captures never
 set X bit 8; the 9-bit X is synthetic-only coverage. It reports exact, off,
@@ -558,8 +582,8 @@ sides drew only parked pieces, at matching positions: agreement), late (the
 model had not drawn yet at the target pass, the capture had), lagged (target
 pass past the pass count, drew or not) and refused, per sprite and per id
 (`SPRITE_POSITION_OUT=<file>` dumps the records), and holds a bound per verdict
-with 1% headroom (vanilla, one machine, 2026-10-17 measured on the #842 head: 1396 exact, 461
-off, 1 missing, 18 parked, 1 late, 80 lagged, 0 refused of 1957; 1366, 469 and 23 before #842). All 80
+with 1% headroom (vanilla, one machine, 2026-11-11 after the #1370 re-capture: 1424 exact, 431
+off, 1 missing, 18 parked, 1 late, 80 lagged, 0 refused of 1955; 2026-10-17 on the #842 head: 1396, 461, 1, 18, 1, 80, 0 of 1957; 1366, 469 and 23 before #842). All 80
 lagged records are captures whose first draw came 31 to 89 frames after the
 first MAIN (likely the level fade-in, not traced); it is not re-aligned to the
 first draw.
@@ -644,46 +668,37 @@ directly.
 ## Sweeping the hack store
 
 `tools/scripts/hack-sweep.ts` runs the readers behind each view (map tree,
-map details for every real map (the level mode, plus the object parser, name lookup and graphics notes behind the future Properties panel, and the sprite parser on maps with readable level data and a readable sprite pointer), overworld, graphics, Map16, palettes, music,
-SFX) over every patched ROM in the hack store, and records `ok`, `unavailable`
-with every failing gate it can see, or `crash` with the error and its top
-frame. The summary ranks each gate by how many hacks it alone blocks. It also
-applies each patch to vanilla (`applyBps`, or `decodeIps` for IPS) and compares
-the SHA-256 with the store's index.
+map details, overworld, graphics, Map16, palettes, music, SFX) over every
+patched ROM in the hack store and records `ok`, `unavailable` (with every
+failing gate it can see) or `crash` (error and top frame). The summary ranks
+each gate by how many hacks it alone blocks, and checks each patch's SHA-256
+against the store's index after applying it to vanilla.
 
 ```bash
 npx tsx tools/scripts/hack-sweep.ts
 ```
 
-`HACKBENCH_HACKS` names the store (default `C:/Projects/hackbench-tools/hacks`),
-which the sweep only reads. `HACKBENCH_SWEEP_OUT` names the output directory
-(default `C:/Projects/hackbench-tools/sweep`), which gets `results.json` and
-`summary.md`. Both hold hashes, ids, names, verdicts and counts. A reason may
-quote one instruction's bytes; any longer run is elided. Neither file is
-committed. The sweep is hand-run, since CI has no store; its verdict and
-summary code is tested in `HackSweep.synthetic.test.ts`.
+`HACKBENCH_HACKS` names the store (default `C:/Projects/hackbench-tools/hacks`,
+read only). `HACKBENCH_SWEEP_OUT` names the output directory (default
+`C:/Projects/hackbench-tools/sweep`), which gets `results.json`, `summary.md`
+and `tracking-issue.md`. They hold hashes, ids, names, verdicts and counts; a
+reason may quote one instruction's bytes, never a longer run. None is
+committed, and CI has no store, so the sweep is hand-run.
 
-Each run covers `HACKBENCH_SWEEP_BATCH` hacks (default 50, a positive integer),
-taken in id order from the cursor and wrapping at the end, so repeated runs
-rotate through the store. The cursor is the next smwc_id, not a position, so
-adding or removing a hack does not skip or repeat another. `results.json` holds
-`{ cursor, records }`; it is read and checked before any sweeping (a truncated
-file stops the run with a message and nothing is overwritten), the previous one
-is copied to `results.prev.json`, and every file is written through a temp file
-and a rename, `results.json` last, so a killed run leaves the old state and the
-next run repeats the batch. `tracking-issue.md` is written beside the summary:
-new and cleared crashes, verdict changes, works-on % and blocker-rank moves for
-hacks swept this run, the hacks added, and the hacks removed from the store.
-Records for hacks outside the batch that are still in the store are carried
-forward with `carried: true`, so `summary.md` covers the whole store and says
-how many records are fresh; a carried record is never reported as changed, and
-a record for a hack no longer in the store is dropped. A bare-array
-`results.json` from before the cursor is read as a cursor of 0 and converted
-on the next write. Evidence scope for all of the above: 51 synthetic-fixture
-cases in `HackSweep.synthetic.test.ts` and `HackSweepRun.synthetic.test.ts`
-(in-memory and temp-directory stores, none skipped), including a planted
-mid-run death and a failing earlier write; not yet observed on a run against
-the real hack store.
+Each run covers `HACKBENCH_SWEEP_BATCH` hacks (default 50) in id order from a
+cursor (the next smwc_id, so adding or removing a hack skips or repeats
+nothing), wrapping at the end. Records for hacks outside the batch are carried
+forward with `carried: true` and never reported as changed. `results.json` is
+checked before sweeping (a truncated file stops the run, nothing overwritten),
+the previous one is copied to `results.prev.json`, and every file is written
+through a temp file and a rename, `results.json` last, so a killed run leaves
+the old state. `tracking-issue.md` lists new and cleared crashes, verdict
+changes, works-on % and blocker-rank moves, and hacks added or removed.
+
+Evidence scope: 51 synthetic-fixture cases in `HackSweep.synthetic.test.ts`
+and `HackSweepRun.synthetic.test.ts` (in-memory and temp-directory stores, none
+skipped), including a planted mid-run death and a failing earlier write. Not
+yet observed on a run against the real store.
 
 ## Unit tests cannot reach an authenticated gh
 
@@ -776,9 +791,9 @@ Two tests judge wall-clock time and flake when another vitest file runs beside t
 
 ## Commands
 
+Everyday commands are in [CONTRIBUTING.md](../CONTRIBUTING.md#commands). Also:
+
 ```bash
-npm run lint           # ESLint on src/
-npm run test:unit      # Vitest, single run
 npm run test:unit -- --coverage    # + v8 coverage
 npx vitest run test/suite/unit/LcLz2.synthetic.test.ts   # one file
 ```
@@ -787,19 +802,13 @@ npx vitest run test/suite/unit/LcLz2.synthetic.test.ts   # one file
 
 ## Perf gates
 
-Settled by the owner 2026-09-28; design calls delegated to the orchestrator. Spec: `superpowers/specs/2026-09-28-perf-gates-design.md`.
+Settled by the owner 2026-09-28. Spec: `superpowers/specs/2026-09-28-perf-gates-design.md`.
 
-- Nightly paired benchmarks on GitHub-hosted runners, baseline and candidate in one job, every other night. `[EST]`
-- Measures core microbenchmarks, app timings, startup and heap; not emulator fps. `[EST]`
-- A local scheduled Claude session fixes regressions, with a PR under normal merge rules. `[EST]`
-- An intended cost is proposed through `accept.sh`; only the owner runs it. `[EST]`
+- Nightly paired benchmarks on GitHub-hosted runners, baseline and candidate in one job, every other night. Measures core microbenchmarks, app timings, startup and heap; not emulator fps. `[EST]`
+- A local scheduled Claude session fixes regressions via PR under normal merge rules. An intended cost goes through `accept.sh`, which only the owner runs. `[EST]`
 - Rules in the spec: the base advances only on an unflagged run; `perf-nightly-infra` for no-verdict runs; a plant run is green only when detected. `[EST]`
-- Issues: #413 core/detector, #414 app marks/specs, #415 `perf-nightly.yml` in hackbench-validation, #416 scheduled fixer and docs. #415 waits for the self-hosted runner. `[EST]`
-- Status as of 2026-09-29: the owner paused; #424 and PR #430 (#414) merged since. Re-check #415 (hackbench-validation PR 24) and #416 before assuming progress. `[OPEN]`
-- Known flakes #438, #443; leak #429. Numbers before 2026-09-27 are archive numbers; verify. `[OPEN]`
-- Guard against forged statuses: unit tests once reached the real authenticated `gh` and posted forged `perf-nightly` success statuses on develop. PR #539 (merged 2026-10-04) added the vitest globalSetup guard `test/suite/support/noRealGh.ts`; the suite no longer needs `--exclude perfAccept.test.ts`. `[EST]`
-- Statuses cannot be deleted, only superseded with `error`. A forged success is indistinguishable from a real `accept.sh` accept until #538 adds a marker. `[OPEN]`
-- A stray `perf-nightly` success: compare its description with the unit-test strings ("a reason", "a valid reason", "an intended cost") before trusting it. `[EST]`
+- Issues: #413 core/detector, #414 app marks/specs, #415 `perf-nightly.yml` in hackbench-validation (waits for the self-hosted runner), #416 scheduled fixer and docs. As of 2026-11-07 #415 and #416 are open. Known flake #438 and leak #429 are open (#443 is closed). Numbers before 2026-09-27 are archive numbers; verify. `[OPEN]`
+- Forged statuses: unit tests once reached the real authenticated `gh` and posted `perf-nightly` successes on develop. PR #539 (2026-10-04) added the `noRealGh.ts` guard. Statuses cannot be deleted, only superseded with `error`, so a forged success looks like a real `accept.sh` accept until #538 adds a marker. Compare its description with the unit-test strings ("a reason", "a valid reason", "an intended cost") before trusting it. `[EST]` `[OPEN]`
 - Never print a gh credential in test output; assert with booleans.
 
 ## Playwright and RPC
@@ -828,6 +837,20 @@ npm run sprite:report -- --validation <dir>                  # or HACKBENCH_VALI
 npm run sprite:report -- --out <dir> --no-commit             # same tree, nothing committed
 npm run sprite:report -- --sheet --map 105 --out <dir>       # one contact-sheet PNG (or --sprite 1b)
 ```
+
+### The reveal audit (#1132)
+
+`npm run sprite:report -- --reveal --map <hex> [--out <file>]` lists, for each placed sprite of one map, what the at-rest
+run did (drew, blank, refused, special), whether the reveal search found it hidden, and what reveals it; sprites that drew
+at rest and are now hidden are listed apart, and so are those no condition reveals (`none-found`, kept in the screen
+door). It needs only the vanilla ROM. `npx tsx tools/scripts/reveal-sweep.ts --rom <file> [--rom <file>...] --out
+<report.txt> [--solid <list.txt>]` runs it over every map of one or more ROMs and counts sprites per condition and
+markers per reason; the report is sorted and has no times, so two runs are byte-identical. Like the sprite report it
+holds ids and places of a copyrighted ROM, so `reveal-sweep` refuses an `--out` or `--solid` path inside the checkout.
+`RevealAudit.test.ts` covers the report text and the `--reveal` command on synthetic rows, and `RevealSweep.test.ts` covers
+`revealRowsOf` (the rows from two runners) and the `--out` refusal on a synthetic cart. The `revealRows` wiring (level model,
+sprite list, seed) is covered by `RevealC7.corpus.test.ts` only, which needs the vanilla ROM; the `reveal-sweep` main loop
+over maps is not run by any test.
 
 ROM and captures come from `corpus.ts` (`HACKBENCH_ROMS`, `HACKBENCH_CAPTURES`);
 a missing one exits non-zero naming it. The hardware side shows the recorded
@@ -858,6 +881,7 @@ private to the test file.
 
 ## The validation repository
 
+- Provenance of the `layers_v5` capture set (#839, #1370): the zips for maps 101, 1d4, 109 and 11b were re-captured in 2026-11 with harness `en-gen/hackbench-validation` `bc8d1a3` (PR #47; the 101 and 1d4 change is a castle-flame cluster tile, `CODE_02FA16`, OAM 124-126, that the old harness attributed to sprite records, fixed in validation#31 and #32; 109 and 11b lost early frames and changed no grader verdict); every other zip is from an older harness commit. The four zips they replaced are kept in `layers_v5-backup-2026-11-11-pre1370` beside the set. Effect on the sprite grader (vanilla ROM, one machine, 2026-11-11): 1957 to 1955 graded records, exact 1917 to 1925, wrong 22 to 13, empty 1 to 0. One limit of the harness is recorded in `docs/decisions/2026-11-11-capture-double-reload-limit.md` `[PROP]`. `[EST]`
 - `en-gen/hackbench-validation` is private and holds the Playwright e2e workflow (`e2e-playwright.yml`; builds the Theia browser shell and runs `theia/browser-app/test` against the requested ref, manually or via hackbench's manual-only `e2e-dispatch.yml`), the nightly run, the corpus nightly (`corpus-nightly.yml`, manually via `corpus-dispatch.yml`), the perf nightly (#415) and the Mesen per-graphics-layer capture harness (`capture/`). `[EST]`
 - map-diff was deleted 2026-09-25. `[EST]`
 - The CI secrets live there; `en-gen` is a Free org, so secrets are duplicated per repo. The ROM is pulled from OneDrive at run time. `[EST]`
@@ -872,8 +896,8 @@ private to the test file.
 `node tools/scripts/rom-window-probe.mjs` reports 8-byte windows of text or
 assembled bytes that also occur in the vanilla ROM, so a synthetic ROM,
 fixture or detection pattern can be checked before pushing. It is
-report-only and local-only: no hook, CI job or `check-content.mjs` runs it,
-and CI has no ROM to run it against.
+report-only: no hook or CI job runs it (the content gate's `rom-window` rule shares
+its parser and window finder, and runs where a ROM is present).
 
 ```
 node tools/scripts/rom-window-probe.mjs <files...>        text scan (PARTIAL, below)
@@ -894,7 +918,7 @@ never scanned, but a touched file whose post-image cannot be read is an error.
 decimal 0-255 tokens, with comments blanked: `//` and block comments in
 JS/TS files, `;` in `.asm`/`.inc`/`.s` files, nothing in any other file
 type (no Lua `--`, no markdown). Quoted strings are skipped when blanking, so
-`'http://x'` hides nothing. It does not see 16-bit words, hex strings,
+`'http://x'` hides nothing. It reads `\x` escapes and unbroken hex strings of 8+ bytes, but not 16-bit words,
 quoted-byte arrays, per-byte writes (`buf[a] = 0xa9`), split strings, or values
 behind `as number`. Comment blanking can desync on a regex literal with an escaped slash or an
 unterminated backtick, and `.c`/`.h` files get none. A comma-separated list of bare hex pairs (also in asm, e.g. `.db a9, 10, 85`), or a
@@ -906,7 +930,8 @@ check:** have the fixture builder write its bytes to a scratch file
 (`writeFileSync(scratch, builder())`), then run
 `rom-window-probe.mjs --bin <scratch>`.
 
-Windows with fewer than 3 distinct values are ignored (they match any ROM):
+Windows with fewer than 3 distinct values, a constant step or a short repeat are ignored
+(they match any ROM; the counts below are for the distinct-values filter alone):
 43,597 of 524,281 positions and 2,982 of 442,994 distinct windows in the
 vanilla ROM (one machine). A 512-byte copier header is stripped, so no window
 straddles it. Output is `HIT path:line windows=N` (`offset=0x..` for bytes) and

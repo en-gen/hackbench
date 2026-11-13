@@ -17,18 +17,30 @@
  * loader entries ($05:D8B7, $00:A635, $05:801E and the rest) are small routines of our own,
  * with the few single instructions the loader checks (LevelLoader.ts SITES) at their offsets. Ids 20, 21 and 22 draw like id 0 and set one CGRAM color
  * in INIT: 20 through the NMI upload list ($0681/$0682), 21 through a MainPalette list
- * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 34 draws, moves X by +4, then draws again; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move. Options plant a defect for the oracle tests.
+ * ($0703, with $0680 = 6), 22 through $2121/$2122; 23 sets one color directly then by the list, 24 appends a list color and requests the MainPalette upload in one frame, 25 sets two colors with one CGADD, 26 writes id 21's MainPalette list without requesting the upload, 28 writes mirror colors with no list header, 29 uploads a two-color list entry, 27 appends a list color in every MAIN pass, 30 burns ~196k steps per INIT and never leaves status 1; 31 draws at X then moves X by +4 each MAIN; 34 draws, moves X by +4, then draws again; 32 is 31 but draws only from its second MAIN; 103 is the line-guided grinder's id: its MAIN has the vanilla SHAPE the runner's gate reads (bank_01.asm:11837-11846, 12182-12204) around a draw then a +4 move; 98 and 104 (JMP entry) and 101 and 102 (prelude entry) reach the same dispatch, 100 has the prelude but is not admitted; 80's INIT spawns id 81 into the slot below (both draw one piece like id 0), 82 draws two pieces itself, 83 is 80 but spawns id 81 into the slot above, 84 writes one OAM entry under a $15E9 that names no slot, 85 spawns as 80 does and draws nothing itself, 86 is 80 but its companion stands 96 px to the right. Options plant a defect for the oracle tests.
  */
 import { RomFile } from '../../../src/rom/RomFile'
 import type { DispatcherSpan } from '../../../src/rom/sprites/interp/SpriteDispatch'
 
 import { putGm11Spans } from './syntheticGm11Spans'
+import { putCompanionRoutines } from './syntheticCompanion'
 import { putDrawPosProbes } from './syntheticDrawProbes'
 import { EERIE_HANDLER, putEeries } from './syntheticEeries'
 import { putLoaderStandIns } from './syntheticLoaderStandIns'
 import { putGrinderRoutines } from './syntheticGrinder'
+import { putRevealSprites } from './syntheticRevealSprites'
 
 export interface SyntheticOptions {
+  /** Ids 31 and 103 get id 0's INIT (adds `initShift` to X), so the line-guided id moves before its first frame. */
+  grinderInitShifts?: boolean
+  /** Ids 31 and 103 get an INIT of our own that adds this signed 16-bit [dx, dy] to the sprite, with carry into the high bytes. */
+  grinderInitDelta?: readonly [number, number]
+  /** Ids 98, 100, 101, 102 and 104 (list ids $62, $64-$66, $68) run the grinder handler, so the pass pick can be tried per id. */
+  grinderAliases?: boolean
+  /** The grinder handler starts with a JSR to a prelude routine, as the chainsaw ids' LineRope_Chainsaw does. */
+  grinderPrelude?: boolean
+  /** The grinder handler reads a WRAM cell ($0DF0) only when X is 3 (`At3`) or only when X is not 3 (`Not3`) and, when it is non-zero, calls the interact routine first. */
+  grinderCell?: 'At3' | 'Not3'
   /** ADC operand of id 0's INIT shift. */
   initShift?: number
   /** Id 0's INIT also adds 256 to X, and its MAIN draws nothing unless it is within 0-255 px right of the camera (GetDrawInfo's cull). */
@@ -88,6 +100,8 @@ export interface SyntheticOptions {
   spawnTimer?: number
   /** The spawn routine never returns. */
   spawnLoop?: boolean
+  /** The spawn leaves SpriteTableC2 = 2 only for a block at X pixel (this column of 4) * 16 in $9A, else 1: the wings rule's shape, columns 0-3 (#1229). */
+  wingsColumn?: number
   /** Id 103's handler body differs from the vanilla shape in one operand (behaviour the same). */
   alteredGrinder?: boolean
   /** Id 103 draws on its first MAIN only. */
@@ -98,6 +112,10 @@ export interface SyntheticOptions {
   grinderDrawsOnPass1?: boolean
   /** Id 103 draws from its second MAIN onward (already on its track at the first draw). */
   grinderDrawsFromPass1?: boolean
+  /** Id 103's step also runs the line step's lock from its Nth call on: SpriteTableC2,X = 1 and SpriteMisc1540,X = 0 (the sprite is then on its line, D156). */
+  grinderLocksOnPass?: number
+  /** Id 103's draw keeps the 9th bit of its X (off-screen pieces read back where they are). */
+  grinderWideX?: boolean
   /** The value the header-loader stand-in leaves in $0D9B IRQNMICommand (default 0); bit 7 = a boss room. */
   irqCommand?: number
   /** Id 31's MAIN pointer is id 103's handler: the shape matches, the id does not. */
@@ -274,14 +292,37 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[27] = 0x8e40
   mainTable[31] = 0x9300
   mainTable[32] = 0x92a0
+  if (o.grinderInitShifts) initTable[31] = initTable[103] = 0x8610
+  if (o.grinderInitDelta) initTable[31] = initTable[103] = 0x9700
+  if (o.grinderInitDelta && o.grinderAliases)
+    for (const id of [98, 100, 101, 102, 104]) initTable[id] = 0x9700
   mainTable[34] = 0x9780
   mainTable[103] = 0x9200
+  for (const id of [98, 104]) mainTable[id] = o.grinderAliases ? 0x9200 : 0x9600
+  for (const id of [100, 101, 102]) mainTable[id] = o.grinderAliases ? 0x9200 : 0x9610
   mainTable[33] = 0x8a80
   mainTable[35] = 0x9700
   mainTable[36] = 0x9740
+  mainTable[37] = 0xa900
+  mainTable[38] = 0xa980
+  mainTable[39] = 0xaa00
+  mainTable[40] = 0xaa80
   if (o.eeries) mainTable[57] = EERIE_HANDLER
+  initTable[80] = 0xa600
+  mainTable[80] = 0x8640
+  mainTable[81] = 0x8640
+  mainTable[82] = 0xa680
+  initTable[83] = 0xa700
+  mainTable[83] = 0x8640
+  mainTable[84] = 0xa780
+  initTable[85] = 0xa600
+  initTable[86] = 0xa800
+  mainTable[86] = 0x8640
   if (o.id31IsGrinder) mainTable[31] = 0x9500
   for (const id of [20, 21, 22, 23, 24, 25]) mainTable[id] = 0x8640
+  const reveal = putRevealSprites(put)
+  for (const [id, w] of Object.entries(reveal.main)) mainTable[Number(id)] = w
+  for (const [id, w] of Object.entries(reveal.init)) initTable[Number(id)] = w
   const words = (t: number[]) => t.flatMap(w => [w & 0xff, w >> 8])
   put(0x018170 + SYNTHETIC_INIT_TABLE_OFFSET, words(initTable))
   put(0x018320 + 9, words(mainTable))
@@ -302,7 +343,11 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
     0x028936,
     o.spawnLoop
       ? [0x4c, 0x36, 0x89]
-      : [0xa9, o.spawnTimer ?? 0x37, 0x9d, 0x40, 0x15, 0xf6, 0xc2, 0x6b],
+      : o.wingsColumn !== undefined
+        ? // our own shape, no shifts or masks: LDA #t / STA $1540,X / LDA $9A / CMP #(col * 16) / BNE +5 / LDA #2 / STA $C2,X / RTL / LDA $C2,X / INC A / STA $C2,X / RTL
+          // prettier-ignore
+          [0xa9, o.spawnTimer ?? 0x37, 0x9d, 0x40, 0x15, 0xa5, 0x9a, 0xc9, o.wingsColumn * 16, 0xd0, 0x05, 0xa9, 0x02, 0x95, 0xc2, 0x6b, 0xb5, 0xc2, 0x1a, 0x95, 0xc2, 0x6b]
+        : [0xa9, o.spawnTimer ?? 0x37, 0x9d, 0x40, 0x15, 0xb5, 0xc2, 0x1a, 0x95, 0xc2, 0x6b], // the counter step is LDA / INC A / STA, not the game's INC dp,X
   )
   // The level loader's shell sites (bank_02.asm:5290-5291, 5312-5361, 5456-5462), written as the instructions they are.
   // CMP #op / branch to `to`: the displacement is computed from the target label's address.
@@ -311,12 +356,14 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   cmpBr(0x02a866, 0xe7, 0x90, 0x02a88c)
   cmpBr(0x02a88c, 0xde, 0xd0, 0x02a89c)
   cmpBr(0x02a89c, 0xe0, 0xd0, 0x02a8ac)
-  cmpBr(0x02a8ac, 0xcb, 0x90, 0x02a8d4)
+  // The generator floor is inert while it is below the ceiling operand (shellLoad: `id < floor || id < ceil`), so it is a value of our own.
+  cmpBr(0x02a8ac, 0xc8, 0x90, 0x02a8d4)
   cmpBr(0x02a8b0, 0xda, 0xb0, 0x02a8c0)
   cmpBr(0x02a8c0, 0xe1, 0x90, 0x02a8d0)
   put(0x02a8d0, [0xa9, 0x09, 0x80, 0x02a8df - 0x02a8d0 - 4])
   put(0x02a978, [0xc9, 0x09, 0xb7, 0x00, 0x90, 0x06])
-  put(0x02a97e, [0x38, 0xe9, 0xda, 0x18, 0x69, 0x04])
+  // The number step is SBC #a / CLC / ADC #b: only a - b matters, so both are values of our own with the same difference.
+  put(0x02a97e, [0x38, 0xe9, 0xd9, 0x18, 0x69, 0x03])
   // status1 sets status 1. A handler ending `xx 60` before the zero fill ends `60, 0xea`: those two bytes plus the fill are a window of the game's.
   // listAdd appends `vals` to the NMI upload list at $0682+ (the last of `vals` is the terminator); stY stores a constant through Y.
   const status1 = [0xa0, 0x01, 0x98, 0x9d, 0xc8, 0x14]
@@ -460,6 +507,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   put(0x018e40, listAdd([0x02, 0xd1, 0xff, 0x03, 0x00], 4))
   // id 30 INIT: burns 196,608 steps (65,536 x DEY, NOP, BNE: under the 200,000 per-call budget) and leaves status 1, so the game retries it every frame.
   put(0x019100, [0xc2, 0x10, 0xa0, 0x00, 0x00, 0x88, 0xea, 0xd0, 0xfc, 0xe2, 0x10, ...status1, 0x60, 0xea]) // prettier-ignore
+  putCompanionRoutines(put)
   putGrinderRoutines(put, o, draw([0xa9, 0x24, 0x99, 0x02, 0x03], [0xa9, 0x0a, 0x99, 0x03, 0x03]))
   // INIT routines that leave status 9, 0 and 1.
   for (const [addr, status] of [

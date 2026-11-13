@@ -13,13 +13,13 @@ const fs = require('fs')
 const path = require('path')
 const os = require('os')
 const { romPath, VANILLA, GPW2 } = require('../../../test/suite/support/corpus.cjs')
-const { maxDepth } = require('./tree-depth.cjs')
+const { maxDepth, rowsAtDepth } = require('./tree-depth.cjs')
 
 const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`
 const ROM = process.env.HB_ROM || romPath(VANILLA)
 
-/** Vanilla's documented map count, from docs/glossary.md. */
-const VANILLA_MAPS = 235
+/** Vanilla's documented map count, from docs/glossary.md: every one of its 512 slots (#949). */
+const VANILLA_MAPS = 512
 
 const GET_SVC = `function getSvc(name) {
   const d = window.theia.container._bindingDictionary
@@ -100,8 +100,6 @@ async function loadMaps(page, dir, rom = ROM) {
       rootIds: roots.map(r => r.id),
       // Entry maps and orphans in ONE folder: there is no separate Overworld.
       unassignedTop: (group('unassigned')?.children || []).length,
-      placeholderTop: (group('unassigned')?.children || []).filter(n => n.sharedCount !== undefined)
-        .length,
       unassignedRows: (group('unassigned')?.children || []).map(n => ({
         index: n.index,
         category: n.category,
@@ -110,11 +108,9 @@ async function loadMaps(page, dir, rom = ROM) {
       // Walk the roots themselves, not just their children: Title Screen and
       // New Game ARE maps rather than folders, so descending past them would
       // drop two real maps from the count.
-      // Placeholder rows are listed slots, not maps (#901): counted apart.
       distinct: new Set(
         roots
           .flatMap(walk)
-          .filter(n => n.sharedCount === undefined)
           .map(n => n.index)
           .filter(i => i >= 0),
       ).size,
@@ -126,18 +122,25 @@ async function loadMaps(page, dir, rom = ROM) {
         ),
       // Shape only, measured in Node by maxDepth.
       unassignedShape: (group('unassigned')?.children || []).map(function shape(n) {
-        return { children: (n.children || []).map(c => shape(c)) }
+        return { index: n.index, children: (n.children || []).map(c => shape(c)) }
       }),
     }
   }, created.manifestPath)
-  return result.error ? result : { ...result, deepest: maxDepth(result.unassignedShape) }
+  return result.error
+    ? result
+    : {
+        ...result,
+        deepest: maxDepth(result.unassignedShape),
+        // Every row two levels below a top-level map: the wings link's nest is the only one (#1295).
+        deep: rowsAtDepth(result.unassignedShape, 2),
+      }
 }
 
 test('a new project loads every map its cartridge holds', async ({ page }) => {
   const result = await loadMaps(page, path.join(tmp, 'MyHack'))
 
   expect(result.error).toBeUndefined()
-  // The binding assertion. 235 is the glossary's documented figure for
+  // The binding assertion. 512 is the glossary's documented figure for
   // vanilla, and it is derived from the cart rather than assumed, so a hack
   // would report its own number here.
   expect(result.mapCount).toBe(VANILLA_MAPS)
@@ -368,23 +371,23 @@ test('the maps are grouped, not dumped in a flat list', async ({ page }) => {
     'group:unassigned',
   ])
   expect(result.unassignedTop).toBeGreaterThan(0)
-  // Roots list their sub areas one level down and nothing nests further
-  // (#434). maxDepth scores a root with leaf children as 1; a tree with no
-  // hierarchy at all scores 0, which the count assertions cannot see.
-  expect(result.deepest).toBe(1)
+  // Roots list their sub areas one level down (#434); the one exception is the wings link's
+  // Yoshi Heaven row $1C8 under $1E3 under $115 (#1295), a leaf. maxDepth scores a root with leaf
+  // children as 1; a tree with no hierarchy at all scores 0, which the count assertions cannot see.
+  expect(result.deepest).toBe(2)
+  expect(result.deep).toEqual([{ path: [0x115, 0x1e3, 0x1c8], kids: 0 }])
 
   // Read from the ROM, not hardcoded: $0C7 and $0C5 on vanilla, which the
   // disassembly's own data files are named after (bank_06.asm:33, 35).
   expect(result.specialSlots).toEqual([0x0c7, 0x0c5])
 
-  // DATA_05DBA9's Bonus Games and Yoshi Heaven slots, in each half: listed
-  // once, as bonus rows (reached, so not orphaned, but no entry map either).
+  // DATA_05DBA9's Bonus Games slots, in each half: listed once, as bonus rows (reached, so not
+  // orphaned, but no entry map either). Yoshi Heaven is no row here: it lists under the maps that
+  // hold the wings block (#1229, map-yoshi-wings.spec.cjs).
   const bonus = result.unassignedRows.filter(r => [0x000, 0x100, 0x0c8, 0x1c8].includes(r.index))
   expect(bonus).toEqual([
     { index: 0x000, category: 'bonus' },
-    { index: 0x0c8, category: 'bonus' },
     { index: 0x100, category: 'bonus' },
-    { index: 0x1c8, category: 'bonus' },
   ])
 })
 
@@ -405,11 +408,8 @@ test('the Unassigned label counts what it claims to count', async ({ page }) => 
   expect(result.groups[2]).toBe('Overworld')
 
   expect(result.unassignedTop).toBeGreaterThan(0)
-  // Placeholder slots are rows too (#901) but sit beside the figure, not in it.
-  expect(result.placeholderTop).toBeGreaterThan(0)
-  expect(result.groups[3]).toBe(
-    `Unassigned (${result.unassignedTop - result.placeholderTop}, ${result.placeholderTop} placeholder)`,
-  )
+  // Slots on the shared pointer are ordinary maps (#949): the figure is the row count.
+  expect(result.groups[3]).toBe(`Unassigned (${result.unassignedTop})`)
 })
 
 test('the map rows are rendered and reachable, not just in the model', async ({ page }) => {

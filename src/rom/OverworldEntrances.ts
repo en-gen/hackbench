@@ -105,6 +105,7 @@
  * fully editable, which is the point of ordering the tiers this way.
  */
 
+import type { WingsSeams } from './YoshiWings'
 import type { RomFile } from './RomFile'
 import type { SmwRom, OverworldRoots } from './SmwRom'
 import { buildLevelCatalog, type LevelCatalog } from './LevelCatalog'
@@ -112,6 +113,7 @@ import { loadOverworldEvents } from './OverworldEvents'
 import {
   OVERWORLD_INDEX_BODY,
   readTranslevelBias,
+  type EntryFingerprints,
   translevelToPointerIndex,
 } from './SubmapFlagGate'
 import { findUnique, matchesAt, WILD, type BytePattern } from './BytePattern'
@@ -144,7 +146,7 @@ export const WALK_PROLOGUE_LENGTH = 43
 /** Recognized builds of the two fingerprinted spans. Vanilla only, measured:
  *  the magic ROM matches both, the four hacks match neither. */
 export interface OverworldFingerprints {
-  entry: readonly string[]
+  entry: EntryFingerprints
   walk: readonly string[]
   /** Decompressor builds for Lunar Magic's stored table; the shipped ones when absent. */
   decompressor?: LmDecompressors
@@ -153,6 +155,8 @@ export interface OverworldFingerprints {
   /** LevelStart's screen-exit and main-entrance read spans; their own stock builds when absent. */
   startExit?: readonly string[]
   startMain?: readonly string[]
+  /** YoshiWings' test hooks (a synthetic ROM brings its own spawn, grid and path digest). */
+  wings?: WingsSeams
 }
 export const STOCK_OVERWORLD_FINGERPRINTS: OverworldFingerprints = Object.freeze({
   entry: OVERWORLD_INDEX_BODY.fingerprints,

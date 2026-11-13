@@ -62,7 +62,9 @@ describe('sprite $E0 on the map', () => {
 
   it('tells a platform that spawned and did not draw in the note, and does not call the sprite unverified', () => {
     const r = ok(draw(platformCart({ skipDraw: 0x22 | 0x80 })))
-    expect(r.note).toMatch(/1 platform did not draw/)
+    expect(r.note).toBe('1 platform did not draw.')
+    expect(r.note).not.toMatch(/opcode|unsupported|refused|interpreter/i)
+    expect(r.noteDetail).toMatch(/drew no OAM tile/)
     expect(r.unverified).toBeUndefined()
   })
 

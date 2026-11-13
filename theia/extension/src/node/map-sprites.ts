@@ -13,9 +13,9 @@
  * the part's dx/dy: negative, off the 16 px grid, and free to spill past
  * its tile or screen, so nothing is snapped and each sprite is one bitmap
  * the view cuts per screen. A sprite the interpreter refuses or that draws
- * nothing, or whose chars are not loaded, is a 16 x 16 marker with its hex id
- * and the reason, never invented art. That includes the non-visual sprites
- * (auto-scroll, generators, layer control): their real treatment is deferred.
+ * nothing to draw (an empty run, or an id the game's loader never runs as a sprite: shooter, generator,
+ * scroll command) is the quiet ring marker (#1011); a sprite the interpreter refuses or whose chars are not loaded is a
+ * 16 x 16 box with its hex id and the reason, never invented art. Layer control and purpose tiles are deferred.
  *
  * THE SERVED PATH IS THE INTERPRETER (#585): `interpDrawer` runs the sprite's
  * own MAIN from the ROM on the 65816 core (src/rom/sprites/interp/)
@@ -38,12 +38,13 @@
  * vanilla descriptor would draw wrongly. Vanilla scroll/command sprites ($E8,
  * $E9, $EA, $F5; e.g. slot $115 id $EA) also set it, since scroll sprites
  * read the bits as Layer1ScrollBits (bank_02.asm:5301-5305), and get the same
- * marker; that costs nothing today because none has a descriptor. Bit 2 is
- * not gated: vanilla keeps both extra bits in Y high (bank_02.asm:5441-5447)
+ * marker; that costs nothing today because none has a descriptor. Bit 2
+ * alone does not gate the art, only an id whose loader class it changes (extraBitsBlock): vanilla keeps both extra bits in Y high (bank_02.asm:5441-5447)
  * and the goal tape saves them (InitGoalTape, bank_01.asm:8785-8788) and
  * reads bit 2 as its secret exit (bank_01.asm:8833-8836). Custom PIXI sprites on
  * GrandPooWorld_V1.2 were measured with EE = 2 (reviewer's scan, one ROM).
  */
+import { DOOR_PART_BIT } from '../../../../src/rom/model/ColorMath'
 import { RomFile } from '../../../../src/rom/RomFile'
 import { SmwRom } from '../../../../src/rom/SmwRom'
 import { parseLevelSprites } from '../../../../src/rom/LevelParser'
@@ -61,18 +62,37 @@ import { getPaletteColor } from '../../../../src/rom/PaletteLoader'
 import { readMarioStartPos } from '../../../../src/rom/MarioStartPos'
 import {
   runOnce,
+  type RunOptions,
   RAM,
+  drawnParts,
   type SpriteModel as BaseModel,
   type PaletteWrite,
   type SpritePart,
 } from '../../../../src/rom/sprites/interp/SpriteRunner'
+import { isRopeId, ropeModel, type RopeAt } from '../../../../src/rom/sprites/interp/RopeLength'
+import {
+  drawnPass,
+  findReveal,
+  type RevealCondition,
+} from '../../../../src/rom/sprites/interp/RevealSearch'
 import {
   castleFlames,
   VANILLA_FLAME_ROUTINES,
   type FlameRoutines,
 } from '../../../../src/rom/sprites/interp/CastleFlames'
 import { levelSeed } from '../../../../src/rom/sprites/interp/LevelLoader'
-import { neighboursOf } from '../../../../src/rom/sprites/interp/Neighbours'
+import {
+  EXTRA_BITS_MASK,
+  loadClasses,
+  type LoadClass,
+} from '../../../../src/rom/sprites/interp/LoadClass'
+import {
+  EXTRA_BITS,
+  hasExtraBitNeighbour,
+  NEIGHBOUR_EXTRA_BIT_REASON,
+  neighboursOf,
+} from '../../../../src/rom/sprites/interp/Neighbours'
+import { undrawnNote, type UndrawnChildren } from '../../../../src/rom/sprites/interp/SpawnedChildren' // prettier-ignore
 import {
   EERIES_COUNT,
   fiveEeries,
@@ -111,10 +131,10 @@ import type {
   SpriteFramesResult,
   SwitchFlagsDto,
 } from '../common/project-protocol'
+import { RIDES_WITH_REASON } from '../common/project-protocol'
 import { screenTiles, unreadable, type L1ModelCache } from './map-screen'
 
 const TILE = 16
-const EXTRA_BITS = 0x08
 const NO_FLAGS: SwitchFlagsDto = { yellow: false, green: false, red: false, blue: false }
 /** Bytes of a level's sprite stream read; a longer one is noted, not silently cut. */
 export const STREAM_WINDOW = 0x200
@@ -153,8 +173,16 @@ export type SpriteDrawResult =
   | (Omit<Extract<EngineResult, { ok: true }>, 'parts'> & {
       parts: DrawPart[]
       anchor?: { x: number; y: number }
+      /** Where the level stores the sprite, when the picture is drawn elsewhere (INIT shifts it before its first frame, R16). */
+      stored?: { x: number; y: number }
+      /** With `stored`: where the sprite's start-up code left it, before its first step. */
+      afterInit?: { x: number; y: number }
+      /** With `stored`: how the sprite got onto its line from where start-up left it (its first steps, or a fall). */
+      onLine?: 'step' | 'fell'
       /** The list spot the DTO reports (hover, selection, drag) when the picture stands elsewhere: the game lays it out itself (D158 / Decision 124, InitLatches.ts). */
       listPos?: { x: number; y: number }
+      /** The condition that made this hidden sprite draw (RevealSearch.ts): drawn whole in the screen door, with a tooltip. */
+      reveal?: RevealCondition
       /** CGRAM colors the sprite's own code set by its drawn frame (interpreter only). */
       runtimePalette?: PaletteWrite[]
       /** The player-buffer slots the drawn frame's run pointed Mario's tile DMA at (interpreter only; #980). */
@@ -165,12 +193,24 @@ export type SpriteDrawResult =
       children?: { index: number; parts: DrawPart[] }[]
       /** A plain-words line about what the map shows of this sprite (not a flaw): it goes on the map's note line. */
       note?: string
+      /** The undrawn spawned children behind `note`, as data (#1281). */
+      undrawn?: UndrawnChildren
+      /** The interpreter detail behind a plain note, for its tooltip. */
+      noteDetail?: string
     })
   | Extract<EngineResult, { ok: false }>
-  | { ok: false; reason: string; unverified?: string }
+  | {
+      ok: false
+      reason: string
+      unverified?: string
+      /** The run was fine and drew nothing (every pass empty, or INIT removed the sprite): a quiet marker, not a failure. */
+      empty?: boolean
+      /** The game's own load routine sends this id to a shooter, generator or scroll path, not a sprite slot: nothing to draw. */
+      routed?: Exclude<LoadClass, 'normal'>
+    }
 
 /** A part with its OAM priority (attribute bits 5:4); the table engine's parts have none and draw at 2. */
-export type DrawPart = EnginePart & { priority?: number }
+export type DrawPart = EnginePart & { priority?: number; door?: boolean }
 
 /** Runs a drawer for one sprite; injected so the placement math is tested without a cart. */
 export type SpriteDrawer = (sprite: LevelSprite) => SpriteDrawResult
@@ -197,6 +237,55 @@ function marker(id: number): Uint8ClampedArray {
   return out
 }
 
+/**
+ * The quiet marker (#1011): a ring with a clear interior and a center dot, for a sprite that ran fine (or that the game never runs
+ * as a sprite) and has no picture. Every other pixel is transparent so the tile beneath shows; each light pixel has a dark
+ * neighbor edge so it reads on light and dark art. Unlike the failure box it is not filled.
+ */
+const RING_LIGHT: RgbaColor = [235, 235, 235, 255]
+const RING_EDGE: RgbaColor = [40, 40, 40, 255]
+/** The ring's RGBA: a light ring with a dark outer edge and a center dot, every other pixel clear. */
+function ring(): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(MARK * MARK * 4)
+  for (let y = 0; y < MARK; y++) {
+    for (let x = 0; x < MARK; x++) {
+      const d = Math.hypot(x - 7.5, y - 7.5)
+      const c =
+        d < 1.5
+          ? RING_LIGHT
+          : d < 2.5
+            ? RING_EDGE
+            : d >= 6 && d < 7
+              ? RING_LIGHT
+              : d >= 7 && d < 8
+                ? RING_EDGE
+                : undefined
+      if (c) out.set(c, (y * MARK + x) * 4)
+    }
+  }
+  return out
+}
+const RING = base64(ring())
+/** Priority 3 everywhere: the ring sits above every tile, so a high-priority tile never hides it (it is see-through, so it hides nothing). */
+const RING_PRIORITY = base64(new Uint8ClampedArray(MARK * MARK).fill(3))
+
+/** The quiet marker's DTO: the ring at the placed spot, above every tile, with the reason and (when routed) the loader class. */
+function quiet(s: LevelSprite, reason: string, kind: LoadClass | undefined): MapSpriteDto {
+  const [x, y] = [pixelX(s), s.y * TILE]
+  return {
+    index: s.index,
+    id: s.spriteId,
+    x,
+    y,
+    box: { x0: x, y0: y, x1: x + MARK, y1: y + MARK },
+    rgba: RING,
+    priority: RING_PRIORITY,
+    status: 'quiet',
+    reason,
+    ...(kind && kind !== 'normal' ? { kind } : {}),
+  }
+}
+
 function placeholder(s: LevelSprite, reason: string, unverified?: string): MapSpriteDto {
   const [x, y] = [pixelX(s), s.y * TILE]
   return {
@@ -212,8 +301,10 @@ function placeholder(s: LevelSprite, reason: string, unverified?: string): MapSp
   }
 }
 
-const base64 = (b: Uint8ClampedArray) =>
-  Buffer.from(b.buffer, b.byteOffset, b.byteLength).toString('base64')
+/** The bytes as base64, the form the DTO carries them in. */
+function base64(b: Uint8ClampedArray): string {
+  return Buffer.from(b.buffer, b.byteOffset, b.byteLength).toString('base64')
+}
 
 /** The part's pixels into `out` and its priority into `prio` (bitmap origin `ox, oy`), color index 0 left clear. */
 function blit(
@@ -231,10 +322,16 @@ function blit(
       if (v === 0) continue
       const at1 = (at[1] + ty) * width + at[0] + tx
       out.set(row(v), at1 * 4)
-      prio[at1] = p.priority ?? 2
+      prio[at1] = (p.priority ?? 2) | (p.door ? DOOR_PART_BIT : 0)
     }
   }
 }
+
+/**
+ * The loader's routing as a caller holds it: the lookup when the ROM's loader was read, 'unreadable' when it was tried and refused,
+ * absent when the caller never routes (no extra bits to judge). Unreadable is not absent: it boxes, the other draws as before.
+ */
+export type Routing = ((id: number, extraBits?: number) => LoadClass) | 'unreadable'
 
 /**
  * Every sprite as one bitmap, in the stream's order. `dynamic` supplies the
@@ -246,11 +343,27 @@ export function drawSprites(
   model: SpriteModel,
   draw: SpriteDrawer,
   dynamic: (note: PaletteNote) => RgbaColor[] = () => [],
+  /** How the game's loader routes an id under its extra bits (LoadClass.ts): a scroll command it still routes as one keeps them, an id the bits re-route is boxed; 'unreadable' boxes every extra-bit sprite. */
+  routedOf?: Routing,
 ): MapSpriteDto[] {
   /** One sprite's bitmap from a drawer result: its parts blitted at the anchor, or the marker when it cannot be drawn. */
   const render = (s: LevelSprite, res: SpriteDrawResult): MapSpriteDto => {
+    // The one place a quiet verdict is made, on the final result (after any step that may still reveal a drawing): a run that
+    // ended empty, or an id the game's loader never runs as a sprite. Everything else that did not draw stays the failure box.
+    // An empty run on a generic (unverified) seed may only lack state, so it keeps the box and its warning.
+    if (
+      !res.ok &&
+      (('routed' in res && res.routed) || ('empty' in res && res.empty && !res.unverified))
+    )
+      return quiet(s, res.reason, 'routed' in res ? res.routed : undefined)
     if (!res.ok) return placeholder(s, 'reason' in res ? res.reason : res.failure.kind, 'unverified' in res ? res.unverified : undefined) // prettier-ignore
-    if (res.parts.length === 0) return placeholder(s, 'noParts')
+    // A marker says what the drawn sprite would have: the note reaches the map's note line either way.
+    const told = {
+      ...('note' in res && res.note ? { note: res.note } : {}),
+      ...('noteDetail' in res && res.noteDetail ? { noteDetail: res.noteDetail } : {}),
+      ...('undrawn' in res && res.undrawn ? { undrawn: res.undrawn } : {}),
+    }
+    if (res.parts.length === 0) return { ...placeholder(s, 'noParts'), ...told }
     let unverified = 'unverified' in res ? res.unverified : undefined
     let upload: Map<number, Uint8Array> | undefined
     if ('uploads' in res && res.uploads?.length) {
@@ -262,15 +375,22 @@ export function drawSprites(
         unverified = unverified ? `${unverified}; ${why}` : why
       }
     }
-    const pixels = res.parts.map(p => upload?.get(p.charNum) ?? getCharPixels(model.vram, p.charNum)) // prettier-ignore
-    // One missing char would draw as a hole, so the whole sprite is marked.
-    if (pixels.some(p => !p)) return placeholder(s, 'charsNotLoaded')
+    const art = res.parts.map(p => upload?.get(p.charNum) ?? getCharPixels(model.vram, p.charNum)) // prettier-ignore
+    // A missing char would draw as a hole: draw the pieces that have art (the sprite's own and its companions alike),
+    // say how many do not, and keep the marker only when none does. `parts` and `pixels` stay index-aligned.
+    const parts = res.parts.filter((_, i) => art[i])
+    const pixels = art.filter(a => a)
+    if (parts.length === 0) return { ...placeholder(s, 'charsNotLoaded'), ...told }
+    if (parts.length < res.parts.length) {
+      const why = `${res.parts.length - parts.length} of ${res.parts.length} pieces are not drawn: their graphics are not in this map's loaded sprite graphics` // prettier-ignore
+      unverified = unverified ? `${unverified}; ${why}` : why
+    }
     const [ax, ay] = 'anchor' in res && res.anchor ? [res.anchor.x, res.anchor.y] : [pixelX(s), s.y * TILE] // prettier-ignore
     const box = {
-      x0: ax + Math.min(...res.parts.map(p => p.dx)),
-      y0: ay + Math.min(...res.parts.map(p => p.dy)),
-      x1: ax + Math.max(...res.parts.map(p => p.dx)) + 8,
-      y1: ay + Math.max(...res.parts.map(p => p.dy)) + 8,
+      x0: ax + Math.min(...parts.map(p => p.dx)),
+      y0: ay + Math.min(...parts.map(p => p.dy)),
+      x1: ax + Math.max(...parts.map(p => p.dx)) + 8,
+      y1: ay + Math.max(...parts.map(p => p.dy)) + 8,
     }
     const width = box.x1 - box.x0
     const out = new Uint8ClampedArray(width * (box.y1 - box.y0) * 4)
@@ -283,7 +403,7 @@ export function drawSprites(
     // The sprite's own CGRAM writes (WRAM upload list, palette mirror, direct), per sprite.
     const runtime = new Map<number, number>()
     for (const w of ('runtimePalette' in res && res.runtimePalette) || []) runtime.set(w.index, w.bgr555) // prettier-ignore
-    res.parts.forEach((p, i) => {
+    parts.forEach((p, i) => {
       const note = res.paletteNote
       const row = (c: number): RgbaColor => {
         // Only the parts on the row the handler uploads to; another row keeps the level's colors.
@@ -302,18 +422,26 @@ export function drawSprites(
       y: at.y,
       box,
       rgba: base64(out),
-      parts: res.parts.map(p => ({ char: p.charNum, palette: p.palette, flipX: p.flipX, flipY: p.flipY, dx: p.dx, dy: p.dy })), // prettier-ignore
+      ...('stored' in res && res.stored ? { stored: res.stored } : {}),
+      ...('afterInit' in res && res.afterInit ? { afterInit: res.afterInit } : {}),
+      ...('onLine' in res && res.onLine ? { onLine: res.onLine } : {}),
+      parts: parts.map(p => ({ char: p.charNum, palette: p.palette, flipX: p.flipX, flipY: p.flipY, dx: p.dx, dy: p.dy })), // prettier-ignore
       priority: base64(new Uint8ClampedArray(prio.buffer)),
       status: 'drawn',
       ...(unverified ? { unverified } : {}),
-      ...('note' in res && res.note ? { note: res.note } : {}),
+      ...told,
+      ...('reveal' in res && res.reveal
+        ? { screenDoor: true, reveal: revealText(res.reveal) }
+        : {}),
     }
   }
   // Sprites a parent drew (the $9B a $9C picks up, #1049) are part of the parent's picture, not unexplained.
   const claimed = new Map<number, { parent: number; res: SpriteDrawResult; parts: DrawPart[] }>()
   const dtos = sprites.map((s): MapSpriteDto => {
-    // Fail closed: a possibly custom sprite is never given vanilla art.
-    if ((s.raw[0] ?? 0) & EXTRA_BITS) return placeholder(s, 'extraBits')
+    // Fail closed: a possibly custom sprite is never given vanilla art, and its code is not run. A scroll command is exempt:
+    // the game reads those bits as its scroll data (bank_02.asm:5301-5305), and it has no art to get wrong.
+    const blocked = extraBitsBlock(s, routedOf)
+    if (blocked) return placeholder(s, blocked)
     const res = draw(s)
     if (res.ok) for (const c of res.children ?? []) claimed.set(c.index, { parent: s.index, res, parts: c.parts }) // prettier-ignore
     return render(s, res)
@@ -322,11 +450,20 @@ export function drawSprites(
   // tiles the parent drew for it as its area and no marker. The view hit-tests it and does not paint it again.
   return dtos.map((d, n) => {
     const c = claimed.get(d.index)
-    if (!c || d.status !== 'placeholder' || d.reason === 'extraBits') return d
+    if (
+      !c ||
+      (d.status !== 'placeholder' && d.status !== 'quiet') ||
+      d.reason === 'extraBits' ||
+      d.reason === 'loaderUnreadable'
+    )
+      return d
     const own = render(sprites[n]!, { ...c.res, parts: c.parts } as SpriteDrawResult)
     return own.status === 'drawn' ? { ...own, x: d.x, y: d.y, drawnBy: c.parent } : d
   })
 }
+
+const NO_IMAGE_NOTE =
+  'The rope is shown at its short length: the level loader could not be run on this ROM.'
 
 /** The engine over this cart: a missing descriptor or a repointed handler is a miss, never a guess. */
 export function engineDrawer(rom: RomFile, marioX: number): SpriteDrawer | null {
@@ -378,6 +515,7 @@ export function interpParts(parts: readonly SpritePart[]): DrawPart[] {
         charNum: 0x400 + (p.size === 16 ? neighbour(p.char, cx, cy) : p.char),
         palette: p.palette,
         priority: p.priority,
+        door: p.door,
         flipX: p.flipX,
         flipY: p.flipY,
         dx: p.dx + (p.size === 16 ? col * 8 : 0),
@@ -406,37 +544,166 @@ export function cameraFor(x: number, y: number, vertical: boolean, screens: numb
 /** A run that also kept, per pass, the player-buffer slots the sprite pointed at (`runWithUploads`). */
 export type RunModel = BaseModel & { uploads?: SlotUpload[][] }
 
-/** `runOnce`, plus the DynGfxTilePtr slots a sprite that uploads from the player buffer wrote (#980). */
-export function runWithUploads(rom: RomFile, id: number, seed: SpriteSeed): RunModel {
-  const p = uploadProbe()
-  return Object.assign(runOnce(rom, id, seed, { atRest: true, probe: p.probe }), { uploads: p.byPass }) // prettier-ignore
+/**
+ * `runOnce`, plus the DynGfxTilePtr slots a sprite that uploads from the player buffer wrote (#980), from the
+ * run the model came from.
+ */
+export function runWithUploads(
+  rom: RomFile,
+  id: number,
+  seed: SpriteSeed,
+  opts: Pick<RunOptions, 'stopAtDraw' | 'trackInputs'> = {},
+): RunModel {
+  const [alone, rerun] = [uploadProbe(), uploadProbe()]
+  const m = runOnce(rom, id, seed, {
+    atRest: true,
+    probe: alone.probe,
+    neighbourProbe: rerun.probe,
+    ...opts,
+  })
+  // Only an adopted rerun is the picture, so only then are its uploads the model's (#1169).
+  return Object.assign(m, { uploads: m.neighbourRun === 'adopted' ? rerun.byPass : alone.byPass })
+}
+
+/** The marker's reason code when the search found no condition that draws the sprite (`WHY_NOT_DRAWN`). */
+export const UNREVEALED = 'unrevealed'
+
+/** Mario's fixed state in every reveal probe, said in the tooltip (RevealSearch.ts MARIO_STATE). */
+const MARIO_SAID = 'small Mario, on foot'
+
+/** The tooltip line for each condition. Keyed by the condition the search found, never by a sprite id. */
+export const REVEAL_TEXT: Record<RevealCondition, string> = {
+  'mario-at-sprite': 'appears when Mario gets close to this spot',
+  'mario-left': 'appears when Mario is just left of this spot',
+  'mario-right': 'appears when Mario is just right of this spot',
+  'more-frames': 'appears after a while',
+  'p-switch': 'appears while a P-switch is active',
+  'on-off': 'appears when the ON/OFF switch is flipped',
+  'none-found': 'is not always there, and the app could not tell what hides it',
+}
+const revealText = (c: RevealCondition) => c === 'none-found' ? REVEAL_TEXT[c] : `${REVEAL_TEXT[c]} (${MARIO_SAID})` // prettier-ignore
+
+/**
+ * Fewest quiet passes at the end of a run before its colors count as settled. A vanilla fade writes a rung every
+ * 4 passes (SMWDisX bank_01.asm:8715-8722); vanilla map $11C goes quiet at pass 30 of 63 (one machine).
+ */
+const SETTLE_TAIL = 16
+
+/** The colors CGRAM holds after pass `p`: the run's writes are cumulative and the last one to a color wins. */
+const netColors = (m: RunModel, p: number) => new Map(m.passes[p]!.palette.map(w => [w.index, w.bgr555] as const)) // prettier-ignore
+/** True when two net color maps hold the same color at every index. */
+const sameColors = (a: Map<number, number>, b: Map<number, number>) => a.size === b.size && [...a].every(([i, v]) => b.get(i) === v) // prettier-ignore
+
+/**
+ * The CGRAM colors a picture is drawn with (#1097). The chosen pass is a pose policy: the Magikoopa's first drawn
+ * frame comes before any upload (bank_01.asm:8474, 8733-8755), so its writes left the level's row showing. CGRAM
+ * keeps what the run wrote, drawn or not, so use the net writes at the last pass. Marked when they may be wrong:
+ * not settled (the quiet span since the last change, scanning from pass 1, is under SETTLE_TAIL or no
+ * longer than the longest gap between earlier changes); first drawn inside the tail; or it left and the colors
+ * changed while away or differ from before it left or from its first picture. One change gives no gap to
+ * compare, so a lone update is marked too (vanilla: 0 such sprites or frames). Docs: sprite-1f-magikoopa.md s5.
+ */
+function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
+  const last = m.passes.length - 1
+  const net = netColors(m, last)
+  const writes = [...net].map(([index, bgr555]) => ({ index, bgr555 }))
+  // Guards the loops below and keeps hand-built models of a few passes from being marked; no production run is that short.
+  if (last < SETTLE_TAIL) return { writes }
+  const end = 'so its colors may differ in the game'
+  const first = m.passes.findIndex(p => drawnParts(p).length > 0)
+  if (first >= last - SETTLE_TAIL)
+    return { writes, why: `it only appeared when the check ended, ${end}` }
+  const changed = (p: number) => !sameColors(netColors(m, p), netColors(m, p - 1))
+  const events: number[] = []
+  for (let p = 1; p <= last; p++) if (changed(p)) events.push(p)
+  const quiet = last - (events[events.length - 1] ?? first)
+  const gap = Math.max(0, ...events.slice(1).map((e, i) => e - events[i]!))
+  if (events.length === 1) return { writes, why: `its colors changed only once, ${end}` }
+  if (quiet < SETTLE_TAIL || quiet <= gap)
+    return { writes, why: `its colors were still changing when the check ended, ${end}` }
+  const away = m.passes.map((_, p) => p).filter(p => p > first && !drawnParts(m.passes[p]!).length)
+  if (
+    away.length &&
+    (away.some(changed) ||
+      [first, ...away.filter(p => drawnParts(m.passes[p - 1]!).length).map(p => p - 1)].some(
+        p => !sameColors(net, netColors(m, p)),
+      ))
+  )
+    return { writes, why: `it disappeared partway through and its colors changed, ${end}` }
+  return { writes }
+}
+
+const UNCHECKED_LOADER = "HackBench could not check whether this sprite appears in play (the map's sprite loader is not the stock one)" // prettier-ignore
+
+/** Reasons a picture is unverified, joined as `unverifiedOf` joins them, each once. */
+export const joinReasons = (...r: (string | undefined)[]): string | undefined =>
+  [...new Set(r.flatMap(x => x?.split('; ') ?? []).filter(Boolean))].join('; ') || undefined
+
+function unverifiedOf(m: RunModel, generic: string | undefined): { unverified?: string } {
+  const why = [
+    generic,
+    (m.shifted || m.neverAppears) && m.lineInitReason,
+    m.initMoved &&
+      m.lineGateReason &&
+      `drawn on its map tile although its start-up code moves it: ${m.lineGateReason}`,
+    m.spawnUnchecked && UNCHECKED_LOADER,
+    m.noLineReason,
+  ].filter(Boolean)
+  return why.length ? { unverified: why.join('; ') } : {}
 }
 
 /** What the interpreter shows for one sprite: its model, as the drawer's reply. */
 export function modelResult(m: RunModel): SpriteDrawResult {
   const generic = m.seedSource === 'generic'
   const why = [...(generic ? [`level loader refused (${m.seedReason}); drawn from a placement-only seed`] : []), ...(m.unverifiedReason ? [m.unverifiedReason] : [])] // prettier-ignore
-  const u = why.length ? { unverified: why.join('; ') } : {}
-  if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}`, ...u }
+  if (m.refusal) return { ok: false, reason: `refused: ${m.refusal}`, ...(why.length ? { unverified: why.join('; ') } : {}) } // prettier-ignore
   const pass = m.chosen === undefined ? undefined : m.passes[m.chosen]
+  const colors = pass ? runtimeColors(m) : undefined
+  if (colors?.why) why.push(colors.why)
+  const u = why.length ? { unverified: why.join('; ') } : {}
+  if (!pass)
+    return {
+      ok: false,
+      reason: m.emptyReason ?? 'drew no tile',
+      ...(m.emptyReason ? { empty: true } : {}),
+      ...u,
+    }
   const uploads = m.chosen === undefined ? undefined : m.uploads?.[m.chosen]
-  if (!m.anchor || !pass) return { ok: false, reason: m.emptyReason ?? 'drew no tile', ...u }
+  if (!m.anchor)
+    return {
+      ok: false,
+      reason: m.emptyReason ?? 'drew no tile',
+      ...(m.emptyReason ? { empty: true } : {}),
+      ...u,
+    }
+  // The at-rest picture of a sprite whose INIT shifts it is drawn where INIT left it; its list position is the stored tile.
+  const stored = m.shifted
+    ? { stored: { x: m.anchor.rawX, y: m.anchor.rawY }, afterInit: m.initAt }
+    : {}
   return {
     ok: true,
-    parts: interpParts(pass.parts),
+    parts: interpParts(drawnParts(pass)),
     anchor: { x: m.anchor.x, y: m.anchor.y },
+    ...(m.reveal ? { reveal: m.reveal } : {}),
+    ...stored,
+    // The two notes are separate sentences; either alone is unchanged.
+    ...(m.neverAppears || m.lengthNote ? { note: [m.neverAppears && 'never appears in play', m.lengthNote].filter(Boolean).join('. ') } : {}), // prettier-ignore
+    ...(m.shifted && m.onLine ? { onLine: m.onLine } : {}),
     ...(m.absolutePlacement
       ? {
           listPos: { x: m.anchor.rawX, y: m.anchor.rawY },
           note: 'The game lays this sprite out itself, at fixed spots of the map; it does not follow where the list places it.',
         }
       : {}),
-    runtimePalette: pass.palette,
+    runtimePalette: colors!.writes,
     ...(pass.drew
       ? { children: pass.drew.children.map(c => ({ index: c.index, parts: interpParts(pass.parts.filter(p => c.oam.includes(p.oam))) })) } // prettier-ignore
       : {}),
     ...(uploads?.length ? { uploads } : {}),
     ...u,
+    // Every reason the picture is not fully checked stands: the generic seed, a patched INIT that moved the sprite, a refused gate
+    // that left it on its tile, a loader that could not be read, a line it never reached.
+    ...unverifiedOf(m, u.unverified),
     identity: { spriteId: m.id, mainHandler: 0, initHandler: 0, status: 'vanilla' },
   }
 }
@@ -528,6 +795,8 @@ function eeriesResult(
     identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
     // Fewer than five is the game's answer for this map's slot range, not a flaw: said in plain words, not `unverified`.
     ...(notes.length ? { note: notes.join(' ') } : {}),
+    ...(r.undrawn ? { undrawn: r.undrawn } : {}),
+    ...(r.noteDetail ? { noteDetail: r.noteDetail } : {}),
     ...(why
       ? { unverified: `the five Eeries are drawn from the spawner the loader calls, and ${why}` }
       : {}),
@@ -578,6 +847,8 @@ function platformsResult(
     anchor: { x, y },
     identity: { spriteId: s.spriteId, mainHandler: 0, initHandler: 0, status: 'vanilla' },
     ...(notes.length ? { note: notes.join(' ') } : {}),
+    ...(r.undrawn ? { undrawn: r.undrawn } : {}),
+    ...(r.noteDetail ? { noteDetail: r.noteDetail } : {}),
     ...(why
       ? {
           unverified: `the three platforms are drawn from the spawner the loader calls, and ${why}`,
@@ -645,16 +916,21 @@ export function interpRunner(
   rom: RomFile,
   index: number,
   model: { isVertical: boolean; screenCount: number },
-  run: (rom: RomFile, id: number, seed: SpriteSeed) => RunModel = runWithUploads,
+  run: (rom: RomFile, id: number, seed: SpriteSeed, opts?: Pick<RunOptions, 'stopAtDraw' | 'trackInputs'>) => RunModel = runWithUploads, // prettier-ignore
   seedFor: (rom: RomFile, index: number) => SpriteSeed = levelSeed,
   ringRoutines: RingRoutines = VANILLA_RING_ROUTINES,
   eeriesRoutines: EeriesRoutines = VANILLA_EERIES_ROUTINES,
   platformRoutines: PlatformRoutines = VANILLA_PLATFORM_ROUTINES,
   /** The map's whole sprite list: a sprite that scans the slots for a companion is run with its neighbors (#841). */
   list: readonly LevelSprite[] = [],
+  /** Look for what reveals a sprite that draws nothing at rest (RevealSearch.ts): the map view's runs only. */
+  reveal: boolean = run === runWithUploads,
+  /** Test hook for the rope: a synthetic cart's loader fingerprint. */
+  ropeHooks: Pick<RopeAt, 'spec'> = {},
 ): (sprite: LevelSprite) => SpriteRun {
   // The loader runs once per map, not per sprite.
   const base = seedFor(rom, index)
+  const classes = loadClasses(rom)
   // Mario's start is what the ROM-run loader left in $94/$96 (the entrance it ran); the
   // table re-derivation is only for a generic seed, which has no loader image.
   const w = base.loaded
@@ -681,7 +957,34 @@ export function interpRunner(
     if (s.spriteId === FIVE_EERIES) return { direct: eeriesResult(rom, seed(camera), s, model.isVertical, eeriesRoutines) } // prettier-ignore
     if (s.spriteId === THREE_PLATFORMS) return { direct: platformsResult(rom, seed(camera), s, model.isVertical, platformRoutines) } // prettier-ignore
     if (s.spriteId === TORPEDO_LAUNCHER_ID) return { direct: launcherResult(rom, seed(camera)) } // prettier-ignore
-    let m = run(rom, s.spriteId, seed(camera))
+    // The game's loader never runs a shooter, generator or scroll command as a sprite (LoadClass.ts), so there is no sprite
+    // code to run for it. A class that cannot be read leaves the id to the sprite path (and its refusal).
+    const routed = classes.status === 'ok' ? classes.of(s.spriteId) : 'normal'
+    if (routed !== 'normal')
+      return {
+        direct: {
+          ok: false,
+          reason: `the game's loader treats it as a ${routed}, not a sprite`,
+          routed,
+        },
+      }
+    // The map's own loader placed it at map load (D156): it also spawns at the map-load camera.
+    const opening = !!w && s.index >= 0 && s.index < 128 && !!w[SPRITE_LOAD_STATUS + s.index]
+    // The rope draws its length from the slot the loader gives it (RopeLength.ts, #1230): run in that slot, not slot 0.
+    const rope = !!w && isRopeId(s.spriteId)
+    const tracked = reveal ? { trackInputs: true } : undefined
+    let m = rope
+      ? ropeModel(rom, { id: s.spriteId, setting: w![0x1692]!, x, y, vertical: model.isVertical, ...ropeHooks }, slot => run(rom, s.spriteId, seed(camera, { opening, slot }), tracked)) // prettier-ignore
+      : run(rom, s.spriteId, seed(camera, { opening }), tracked)
+    // No loader image: the slot cannot be known, so the rope stays short and says so (a confirmed rope only).
+    if (!w && isRopeId(s.spriteId) && m.snaps) m = { ...m, lengthNote: NO_IMAGE_NOTE }
+    // An empty run is only "ran fine" if the loader's routing was readable: otherwise the id may be a shooter, generator or
+    // scroll command the game never runs as a sprite, so the run is unverified (it keeps the box and says why).
+    if (classes.status === 'unavailable' && m.emptyReason && !m.unverifiedReason)
+      m = {
+        ...m,
+        unverifiedReason: `the loader's id routing could not be read (${classes.reason}), so an empty run may be a shooter, generator or scroll command`,
+      }
     // A sprite placed at the game's own layout (the bonus game) was replayed in the loader's top slot; an earlier loaded sprite
     // may have taken it, which moves one block by a pixel and changes its item (measured on $000, slots 9 vs 8): drawn, marked.
     if (
@@ -690,6 +993,40 @@ export function interpRunner(
       earlierSpriteLoaded(list, s, i => w?.[SPRITE_LOAD_STATUS + i] ?? 0)
     )
       m = { ...m, unverifiedReason: EARLIER_SPRITE_REASON }
+    // An extra-bit entry is never seeded, so a scanner would draw without it: marked. With stock neighbors seeded the run
+    // has the scan hook and `scansSlots` is exact; with none, one probe run with the extras in finds out (never drawn).
+    // A rope is not probed (its slot run differs). A reveal condition can reach a scan the at-rest run did not: asked again below.
+    const atRestReason = m.unverifiedReason // without the neighbor mark: a revealed picture is warned only by its own run
+    const extras = !rope && hasExtraBitNeighbour(list, s)
+    const scans = (known: boolean | undefined, q: SpriteSeed) =>
+      extras && (neighbours.length ? known : run(rom, s.spriteId, { ...q, neighbours: neighboursOf(list, s, e => ({ x: pixelX(e), y: e.y * TILE }), true) }).scansSlots) // prettier-ignore
+    if (scans(m.scansSlots, seed(camera, { opening })))
+      m = { ...m, unverifiedReason: joinReasons(m.unverifiedReason, NEIGHBOUR_EXTRA_BIT_REASON) }
+    // Hidden sprites take their picture from the search, whatever the at-rest run drew (a mole drawn from where Mario starts).
+    if (reveal) {
+      let won = seed(camera, { opening }) // the last whole rerun is the winning condition's seed
+      const rv = findReveal(seed(camera, { opening }), m, (q, probe) => {
+        if (!probe) won = q
+        return run(rom, s.spriteId, q, { stopAtDraw: probe })
+      })
+      if (rv.status === 'hidden') {
+        const mark = scans(rv.model.scansSlots, won) ? NEIGHBOUR_EXTRA_BIT_REASON : undefined
+        return { m: { ...rv.model, unverifiedReason: joinReasons(rv.model.unverifiedReason, atRestReason, mark) }, fixed: false } // prettier-ignore
+      }
+      if (rv.status === 'refused') return { m: { ...m, chosen: undefined, refusal: rv.reason }, fixed: false } // prettier-ignore
+      // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.
+      if (rv.status === 'unrevealed' && rv.drewAtRest)
+        return { m: { ...m, chosen: drawnPass(m), reveal: 'none-found' }, fixed: false } // prettier-ignore
+      // No own tile at rest (so the hidden check was skipped) and none under the six reveal reruns, but the at-rest run drew
+      // through a companion: that picture stands, solid and with no reveal claim, as before #1132.
+      if (
+        rv.status === 'unrevealed' &&
+        m.chosen !== undefined &&
+        drawnParts(m.passes[m.chosen]!).length > 0
+      )
+        return { m, fixed: false }
+      if (rv.status === 'unrevealed') return { m: { ...m, chosen: undefined, emptyReason: UNREVEALED }, fixed: false } // prettier-ignore
+    }
     const at = m.chosen
     if (!w || !loaderCam || at === undefined || !m.anchor || s.index < 0 || s.index >= 128 || !w[SPRITE_LOAD_STATUS + s.index]) return { m, fixed: false } // prettier-ignore
     // Probe: the camera moved 13 x 11 px (not a multiple of the 8 px tile pitch, so a neighbor
@@ -698,12 +1035,13 @@ export function interpRunner(
     // may draw nothing there: the shift is tried the other way, and if that draws nothing too the probe
     // proves nothing and the run stands (no position is invented).
     // A sprite drawn at fixed map positions (InitLatches.ts) has no screen-fixed parts, and its camera is not the loader's.
-    if (m.absolutePlacement) return { m, fixed: false }
+    // A rope is not screen-fixed, and its probe would run in another slot than the picture.
+    if (m.absolutePlacement || (rope && m.snaps)) return { m, fixed: false }
     const dir = [x - camera.x < 128 ? -13 : 13, y - camera.y < 112 ? -11 : 11]
     for (const k of [1, -1]) {
       const shifted = { x: camera.x + dir[0]! * k, y: camera.y + dir[1]! * k }
       const probe = run(rom, s.spriteId, seed(shifted, { mainPasses: at + 1 }))
-      if (!probe.passes[at]?.parts.length) continue
+      if (!probe.passes[at] || !drawnParts(probe.passes[at]!).length) continue
       const fixed = fixOffsets(m, probe, loaderCam, w)
       return { m: fixed ?? m, fixed: !!fixed }
     }
@@ -727,8 +1065,12 @@ function fixOffsets(
   loaded: Uint8Array,
 ): RunModel | null {
   const at = m.chosen
-  const pass = at === undefined ? undefined : m.passes[at]
-  const other = at === undefined ? undefined : probe.passes[at]
+  // Compared and rewritten as one list: a screen-fixed companion piece is fixed like the sprite's own.
+  const flat = (r: RunModel) => {
+    const q = at === undefined ? undefined : r.passes[at]
+    return q && { ...q, parts: drawnParts(q) }
+  }
+  const [pass, other] = [flat(m), flat(probe)]
   if (!m.anchor || !pass || !other) return null
   const anchor = m.anchor
   // Residue: the loader's entry is the part's X and Y, in an entry that is not all zero. Tile and
@@ -757,7 +1099,7 @@ function fixOffsets(
       dy: f.y ? (p.oy >= 0xe0 ? p.oy - 256 : p.oy) + cam.y - anchor.y : p.dy,
     }
   })
-  return { ...m, passes: m.passes.map((q, i) => (i === at ? { ...q, parts } : q)) }
+  return { ...m, passes: m.passes.map((q, i) => (i === at ? { ...q, parts, companions: [] } : q)) }
 }
 
 /** Sprite $E6, whose spawn puts the castle flames on Layer 2 (CODE_02AAC0, SMWDisX bank_02.asm:5636-5637). */
@@ -863,14 +1205,23 @@ const terminated = (data: Uint8Array) => {
   return false
 }
 
-/** The map-level line for sprites drawn without the ROM-run level state: they are shown, flagged. */
-const unverifiedNote = (sprites: readonly MapSpriteDto[]) => {
-  const u = sprites.find(s => s.unverified)?.unverified
-  return u ? `Unverified: ${sprites.filter(s => s.unverified).length} sprites ${u}.` : undefined
+/**
+ * The map-level line for sprites drawn without the ROM-run level state: shown, flagged. The line is plain words;
+ * every distinct cause (the loader's refusal, a memory setting, an earlier sprite) goes in `detail`, one per line,
+ * for the tooltip. Joined by newline, not `; `, because one cause can hold a `;` itself (#1166).
+ */
+export const unverifiedNote = (sprites: readonly MapSpriteDto[]) => {
+  const flagged = sprites.filter(s => s.unverified)
+  if (flagged.length === 0) return undefined
+  const n = flagged.length
+  return {
+    note: `Unverified: ${n} ${n === 1 ? 'sprite' : 'sprites'} may not be drawn exactly as in the game.`,
+    detail: [...new Set(flagged.map(s => s.unverified!))].join('\n'),
+  }
 }
 
 /** Placeholders drawn because the sprite may not be the vanilla one: the id's vanilla name would be a guess. */
-const NOT_VANILLA = new Set(['extraBits', 'customHandler'])
+const NOT_VANILLA = new Set(['extraBits', 'loaderUnreadable', 'customHandler'])
 
 /**
  * The sprite with its plain name from the app's sprite name table (#981); a sprite the table lacks keeps none.
@@ -882,17 +1233,44 @@ const named = (s: MapSpriteDto): MapSpriteDto => {
   return name ? { ...s, name } : s
 }
 
+/**
+ * The map's sprite notes: each sprite's note collapsed through a Set (the same sentence on many sprites shows once),
+ * except undrawn spawned children, which are summed per noun so two spawners that each lose one say 2 (#1281).
+ */
+export function mapNotes(sprites: MapSpriteDto[]): string[] {
+  const rest = new Set<string>()
+  const sums = new Map<UndrawnChildren['noun'], number>()
+  for (const s of sprites) {
+    if (!s.note) continue
+    const own = s.undrawn ? undrawnNote(s.undrawn) : undefined
+    const left = own ? s.note.replace(own, '').trim() : s.note
+    if (left) rest.add(left)
+    if (!s.undrawn) continue
+    sums.set(s.undrawn.noun, (sums.get(s.undrawn.noun) ?? 0) + s.undrawn.count)
+  }
+  const total = [...sums].map(([noun, count]) => undrawnNote({ noun, count }))
+  return [...rest, ...total]
+}
+
 /** The reply for a stream: its sprites drawn, in the geometry of the map's screens. */
 export function spriteLayer(
   data: Uint8Array,
   model: SpriteModel & { isVertical: boolean; screenCount: number },
   draw: SpriteDrawer,
   dynamic?: (note: PaletteNote) => RgbaColor[],
+  routedOf?: Routing,
 ): Extract<MapSpritesResult, { status: 'ok' }> {
   const { w, h } = screenTiles(model.isVertical)
-  const sprites = drawSprites(parseLevelSprites(data, model.isVertical), model, draw, dynamic).map(
-    named,
-  )
+  const sprites = drawSprites(
+    parseLevelSprites(data, model.isVertical),
+    model,
+    draw,
+    dynamic,
+    routedOf,
+  ).map(named)
+  const unverified = unverifiedNote(sprites)
+  const details = new Set(sprites.flatMap(s => (s.noteDetail ? [s.noteDetail] : [])))
+  const detail = [unverified?.detail, ...details].filter(Boolean).join('\n')
   return {
     status: 'ok',
     orientation: model.isVertical ? 'vertical' : 'horizontal',
@@ -905,11 +1283,12 @@ export function spriteLayer(
         terminated(data)
           ? undefined
           : 'The sprite stream has no end marker in the bytes read: sprites past them are not drawn.',
-        unverifiedNote(sprites),
-        ...new Set(sprites.flatMap(s => (s.note ? [s.note] : []))),
+        unverified?.note,
+        ...mapNotes(sprites),
       ]
         .filter(Boolean)
         .join(' ') || undefined,
+    ...(detail ? { noteDetail: detail } : {}),
   }
 }
 
@@ -949,9 +1328,26 @@ export function mapSprites(
 }
 
 /** The colors a handler uploads to CGRAM at runtime, read from the cart (the engine's `dynamicCgram` note). */
-const dynamicOf = (rom: RomFile) => (n: PaletteNote) => {
+export const dynamicOf = (rom: RomFile) => (n: PaletteNote) => {
   const b = rom.readAt(n.entryAddr, n.colors * 2)
   return b ? Array.from({ length: n.colors }, (_, i) => bgr555ToRgba(b[i * 2]! | (b[i * 2 + 1]! << 8))) : [] // prettier-ignore
+}
+
+/**
+ * The sprite layer with the castle flames folded in: their sprites appended, their note after the layer's on the
+ * visible line, and the two technical details kept apart, one per line, so neither is lost (#1166).
+ */
+export function withFlames(
+  layer: Extract<MapSpritesResult, { status: 'ok' }>,
+  flames: ReturnType<typeof castleFlameSprites>,
+): Extract<MapSpritesResult, { status: 'ok' }> {
+  const detail = [layer.noteDetail, flames.noteDetail].filter(Boolean).join('\n')
+  return {
+    ...layer,
+    sprites: [...layer.sprites, ...flames.sprites],
+    note: [layer.note, flames.note].filter(Boolean).join(' ') || undefined,
+    ...(detail ? { noteDetail: detail } : {}),
+  }
 }
 
 /** Runs the sprite interpreter at rest for every placed sprite on one map and folds the results into the served model; a Layer 1 refusal passes through as plain words with detail (#967). */
@@ -979,15 +1375,10 @@ function compute(
     // Read (and cached on the cart) only when a drawn sprite points Mario's tile DMA at the buffer.
     const withUploads = { ...model, playerGraphics: () => readMarioGraphics(rom.rom) }
     const dynamic = dynamicOf(rom.rom)
-    const layer = spriteLayer(data, withUploads, draw, dynamic)
+    const layer = spriteLayer(data, withUploads, draw, dynamic, routedFor(rom.rom))
     const flames = castleFlameSprites(rom.rom, base, stream, model, model.l2?.ok ? model.l2.l2.dy : undefined, dynamic) // prettier-ignore
     if (flames.sprites.length === 0 && !flames.note) return layer
-    return {
-      ...layer,
-      sprites: [...layer.sprites, ...flames.sprites],
-      note: [layer.note, flames.note].filter(Boolean).join(' ') || undefined,
-      ...(flames.noteDetail ? { noteDetail: flames.noteDetail } : {}),
-    }
+    return withFlames(layer, flames)
   } catch (err) {
     return unreadable((err as Error).message)
   }
@@ -999,14 +1390,16 @@ export const MAX_FRAMES = 16
 /**
  * One sprite's distinct poses (#984), for the Properties preview. `m.passes` are consecutive real game
  * frames, so each pass that draws is blitted through `drawSprites` as if it were `chosen`: no second draw
- * path. The loop starts at `m.chosen` (the pose the map shows, so frame 0 IS the map's bitmap) and goes on
+ * path. The loop starts at `m.chosen` (the pose the map shows; frame 0 IS its bitmap unless that pass is not drawn) and goes on
  * to the later passes. A pose is its parts' chars, flips and offsets from one another (sorted: OAM order is
  * not a pose), after the sprite's own movement is subtracted, so only the art changes between frames.
  * Where a part is measured from differs by sprite: usually the one anchor (the placed spot at rest), with the sprite drawing
- * where it stood at the end of the pass (`pos`); for $67 on a vanilla-shaped handler the pass before's
- * `pos` (`origin`, when `m.snaps`), the draw running before the move. `drawAt` is where the sprite
+ * where it stood at the end of the pass (`pos`); for a line-guided id ($62, $64-$68) on a vanilla-shaped
+ * handler the pass before's `pos` (`origin`, when `m.snaps`), the draw running before the move. `drawAt` is where the sprite
  * stood when it drew. A sprite with screen-fixed parts (`fixOffsets`) is not animated here: their map
  * position comes from the loader's camera for the chosen pass only, so another pass has no honest place.
+ * When the chosen pass is not drawn (unloaded chars: the map shows a marker), the later poses that do draw are still kept and `reason` is the chosen pass's, so the panel never calls it "one pose" (#1113).
+ * It does no extra-bit check of its own: a caller must pass `framesGate` first, or a boxed sprite's frames would be drawn (#1011).
  */
 export function framesOf(
   run: SpriteRun,
@@ -1014,10 +1407,17 @@ export function framesOf(
   model: SpriteModel,
   dynamic?: (note: PaletteNote) => RgbaColor[],
 ): { frames: MapSpriteDto[]; reason?: string } {
-  if ('direct' in run) return { frames: [], reason: 'it is drawn by a special routine' }
+  if ('direct' in run)
+    return {
+      frames: [],
+      reason:
+        !run.direct.ok && 'routed' in run.direct && run.direct.routed
+          ? 'it has no picture'
+          : 'it is drawn by a special routine',
+    }
   const { m, fixed } = run
   const ref = m.chosen === undefined ? undefined : m.passes[m.chosen]
-  if (!ref || !ref.parts.length) {
+  if (!ref || !drawnParts(ref).length) {
     const r = modelResult(m)
     return { frames: [], reason: 'reason' in r ? r.reason : 'drew no tile' }
   }
@@ -1025,25 +1425,27 @@ export function framesOf(
   const drawAt = (q: typeof ref) => (m.snaps ? q.origin : q.pos)
   const seen = new Set<string>()
   const frames: MapSpriteDto[] = []
-  for (const pass of m.passes.filter(q => q.pass >= ref.pass && q.parts.length > 0)) {
+  let why: string | undefined // set only when the chosen pass is not drawn
+  for (const pass of m.passes.filter(q => q.pass >= ref.pass && drawnParts(q).length > 0)) {
     // dx' places the art where it stands relative to the sprite, on the chosen pass's anchor.
     const [ax, ay] = [pass.origin.x - drawAt(pass).x + drawAt(ref).x - ref.origin.x, pass.origin.y - drawAt(pass).y + drawAt(ref).y - ref.origin.y] // prettier-ignore
-    const parts = pass.parts.map(p => ({ ...p, dx: p.dx + ax, dy: p.dy + ay }))
-    const drawnParts = interpParts(parts)
-    const [mx, my] = [
-      Math.min(...drawnParts.map(p => p.dx)),
-      Math.min(...drawnParts.map(p => p.dy)),
-    ]
-    const key = drawnParts.map(p => [p.charNum, p.palette, +p.flipX, +p.flipY, p.dx - mx, p.dy - my].join()).sort().join(';') // prettier-ignore
+    const parts = drawnParts(pass).map(p => ({ ...p, dx: p.dx + ax, dy: p.dy + ay }))
+    const pieces = interpParts(parts)
+    const [mx, my] = [Math.min(...pieces.map(p => p.dx)), Math.min(...pieces.map(p => p.dy))]
+    const key = pieces.map(p => [p.charNum, p.palette, +p.flipX, +p.flipY, p.dx - mx, p.dy - my].join()).sort().join(';') // prettier-ignore
     if (seen.has(key)) continue
     seen.add(key)
     const shifted = {
       ...m,
       chosen: pass.pass,
-      passes: m.passes.map(q => (q === pass ? { ...q, parts } : q)),
+      passes: m.passes.map(q => (q === pass ? { ...q, parts, companions: [] } : q)),
     }
     const [f] = drawSprites([s], model, () => modelResult(shifted), dynamic)
-    if (f!.status !== 'drawn') continue
+    if (f!.status !== 'drawn') {
+      // The map shows a marker for this sprite, so say why beside the later poses that do draw (#1113); a skip after a frame exists says nothing.
+      if (!frames.length) why ??= f!.reason ?? f!.status
+      continue
+    }
     // A pass whose parts wrapped past 256 px or left the screen is not the same sprite's next pose: stop,
     // so the loop stays a contiguous run of real frames (vanilla: 54 sprites on 13 maps had one).
     const b0 = frames[0]?.box
@@ -1052,7 +1454,7 @@ export function framesOf(
     frames.push(f!)
     if (frames.length >= MAX_FRAMES) break
   }
-  return { frames }
+  return why ? { frames, reason: why } : { frames }
 }
 
 /** The run behind a sprite's frames: at rest, like the map's picture (D139 D: INIT's look, D134 position), so frame 0 is that bitmap. */
@@ -1066,6 +1468,68 @@ export function frameRun(
 ): SpriteRun {
   // prettier-ignore
   return interpRunner(rom, index, model, undefined, () => base, undefined, undefined, undefined, list)(s)
+}
+
+/** The loader's routing for an id (LoadClass.ts), or 'unreadable' when the loader was refused: the map view and its frames share it. */
+const routedFor = (rom: RomFile): Routing => {
+  const c = loadClasses(rom)
+  return c.status === 'ok' ? c.of : 'unreadable'
+}
+
+/**
+ * Why a sprite has no frames before anything runs. A routed id comes first: a scroll command with extra bits is still a
+ * scroll command with no picture, not a custom sprite. Extra bits otherwise fail closed in the map view, so there is
+ * nothing to animate either.
+ */
+export function framesGate(s: LevelSprite, routedOf?: Routing): string | undefined {
+  const blocked = extraBitsBlock(s, routedOf)
+  if (!blocked && typeof routedOf === 'function' && routedOf(s.spriteId, (s.raw[0] ?? 0) & EXTRA_BITS_MASK) === 'scroll') return 'it has no picture' // prettier-ignore
+  return blocked
+}
+
+/**
+ * Why a sprite's extra bits fail it closed (a box, not a quiet marker or sprite art), or undefined. With bit 3 set it always does,
+ * unless the loader still routes that exact combination as a scroll command (the game reads those bits as its scroll data,
+ * bank_02.asm:5301-5305). With bit 2 alone it does for an id whose loader class that combination changes, in either direction
+ * (a routed id turned normal, a normal id turned routed, a run that proved nothing); the rest is drawn as before. When the
+ * loader could not be read ('unreadable') no combination can be judged, so every sprite with an extra bit is boxed with
+ * 'loaderUnreadable', the goal tape's bit 2 included: never vanilla art, never hidden. A caller that passes no routing at all
+ * never routes, and keeps the rule above without it.
+ */
+function extraBitsBlock(
+  s: LevelSprite,
+  routedOf?: Routing,
+): 'extraBits' | 'loaderUnreadable' | undefined {
+  const raw = s.raw[0] ?? 0
+  const bits = raw & EXTRA_BITS_MASK
+  if (!bits) return undefined
+  if (routedOf === 'unreadable') return 'loaderUnreadable'
+  const now = routedOf?.(s.spriteId, bits)
+  if (raw & EXTRA_BITS) return now !== 'scroll' ? 'extraBits' : undefined
+  return now !== routedOf?.(s.spriteId) ? 'extraBits' : undefined
+}
+
+/** The frames answer: a sprite its parent drew gets the rides-with code, anything else keeps what `framesOf` found. */
+export function framesAnswer(
+  frames: { frames: MapSpriteDto[]; reason?: string },
+  dto?: Pick<MapSpriteDto, 'drawnBy'>,
+): SpriteFramesResult {
+  if (dto?.drawnBy !== undefined) return { status: 'ok', frames: [], reason: RIDES_WITH_REASON }
+  return { status: 'ok', ...frames }
+}
+
+/**
+ * The map's picture of one sprite when a parent may have drawn it. It routes as the map does: a bit-2 parent the loader
+ * re-routes is boxed there, so it must not run here and claim a child (#1011).
+ */
+export function drawnByParent(
+  rom: RomFile,
+  stream: readonly LevelSprite[],
+  model: SpriteModel,
+  draw: SpriteDrawer,
+  spriteIndex: number,
+): MapSpriteDto | undefined {
+  return drawSprites(stream, model, draw, undefined, routedFor(rom)).find(d => d.index === spriteIndex) // prettier-ignore
 }
 
 /** One sprite of a map as frames: the same seed, camera and drawer the map view used, run again for this sprite alone. */
@@ -1089,17 +1553,16 @@ export function mapSpriteFrames(
         status: 'unavailable',
         reason: `No sprite ${spriteIndex} on map ${index.toString(16)}`,
       }
-    // Extra bits fail closed in the map view; there is nothing to animate either.
-    if ((s.raw[0] ?? 0) & EXTRA_BITS) return { status: 'ok', frames: [], reason: 'extraBits' }
+    const early = framesGate(s, routedFor(rom.rom))
+    if (early) return { status: 'ok', frames: [], reason: early }
     const base = levelSeed(rom.rom, index)
     const stream = parseLevelSprites(data, model.isVertical)
     // The same player-buffer reader the map path gives, so frame 0 is the bitmap the map drew (D138 A).
     const withUploads = { ...model, playerGraphics: () => readMarioGraphics(rom.rom) }
     const frames = framesOf(frameRun(rom.rom, index, model, base, s, stream), s, withUploads, dynamicOf(rom.rom)) // prettier-ignore
     // Drawn by its parent on the map (the $9B a $9C carries): its tiles are the parent's, so say that, not "drew no tile".
-    const dto = frames.frames.length ? undefined : drawSprites(stream, model, interpDrawer(rom.rom, index, model, undefined, () => base, undefined, undefined, undefined, stream)).find(d => d.index === s.index) // prettier-ignore
-    if (dto?.drawnBy !== undefined) return { status: 'ok', frames: [], reason: 'Drawn as part of the sprite it rides with, not on its own.' } // prettier-ignore
-    return { status: 'ok', ...frames }
+    const dto = frames.frames.length ? undefined : drawnByParent(rom.rom, stream, model, interpDrawer(rom.rom, index, model, undefined, () => base, undefined, undefined, undefined, stream), s.index) // prettier-ignore
+    return framesAnswer(frames, dto)
   } catch (err) {
     return { status: 'unavailable', reason: (err as Error).message }
   }

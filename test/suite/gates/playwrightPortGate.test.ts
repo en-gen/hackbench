@@ -2,13 +2,25 @@
  * Concurrent Playwright runs (run-lock slots) must not collide on a port. The
  * config picks a free port when HB_PORT is unset and writes it to process.env
  * for the workers; HB_PORT only forces one. Synthetic: loads the config in a
- * child process, starts no server and needs no ROM.
+ * child process, starts no server and needs no ROM. A spec that names a port
+ * of its own misses the one the config picked: 122 of 653 tests were refused
+ * a connection on gh01's first full run, 2026-11-05.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { spawnSync } from 'child_process'
+import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
+import { loadTimeout } from '../support/loadTimeout'
+
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 const CONFIG = path.resolve(__dirname, '../../../theia/browser-app/playwright.config.cjs')
+const SPECS = path.join(path.dirname(CONFIG), 'test')
+// A literal port in a URL, or a literal fallback for HB_PORT. Not a bare 3000:
+// that is also the commonest timeout in these specs.
+const HARD_CODED_PORT =
+  /\b(?:127\.0\.0\.1|localhost|0\.0\.0\.0):\d|HB_PORT\s*(?:\|\||\?\?)\s*['"`]?\d/
 const SCRIPT = `const c=require(${JSON.stringify(CONFIG)});const w=c.webServer;
 const e=process.env;process.stdout.write(JSON.stringify({cmd:w&&w.command,url:w&&w.url,port:e.HB_PORT,re:e.HB_RECONNECT_PORT,mw:e.HB_MULTIWINDOW_PORT}))`
 
@@ -30,7 +42,56 @@ function load(env: Record<string, string>) {
   return { status: r.status, stderr: r.stderr, out: r.status === 0 ? JSON.parse(r.stdout) : null }
 }
 
-describe('playwright.config.cjs ports', { timeout: 60000 }, () => {
+function specFiles(dir: string): string[] {
+  return fs
+    .readdirSync(dir, { withFileTypes: true, recursive: true })
+    .filter(e => e.isFile() && e.name.endsWith('.spec.cjs'))
+    .map(e => path.join(e.parentPath, e.name))
+}
+
+function hardCoded(dir: string): string[] {
+  return specFiles(dir)
+    .filter(f => HARD_CODED_PORT.test(fs.readFileSync(f, 'utf8')))
+    .map(f => path.basename(f))
+    .sort()
+}
+
+describe('Playwright specs take their port from HB_PORT', () => {
+  it('no spec hard-codes one', () => {
+    // A scan of zero files would pass: the count is part of the verdict.
+    expect(specFiles(SPECS).length).toBeGreaterThan(30)
+    expect(hardCoded(SPECS)).toEqual([])
+  })
+
+  it('goes red on a planted spec, for each form of hard-coded port', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-port-gate-'))
+    const plant = (name: string, body: string) =>
+      fs.writeFileSync(path.join(dir, `${name}.spec.cjs`), body)
+    try {
+      plant('ip', "const APP = process.env.HB_APP_URL || 'http://127.0.0.1:3000'\n")
+      plant('other-port', "await page.goto('http://127.0.0.1:3002/')\n")
+      plant('localhost', 'const APP = `http://localhost:3000`\n')
+      plant('fallback', 'const APP = `http://127.0.0.1:${process.env.HB_PORT || 3000}`\n')
+      plant('nullish', "const PORT = process.env.HB_PORT ?? '3000'\n")
+      plant(
+        'clean',
+        'const APP = process.env.HB_APP_URL || `http://127.0.0.1:${process.env.HB_PORT}`\n' +
+          'await page.waitForTimeout(3000)\n',
+      )
+      expect(hardCoded(dir)).toEqual([
+        'fallback.spec.cjs',
+        'ip.spec.cjs',
+        'localhost.spec.cjs',
+        'nullish.spec.cjs',
+        'other-port.spec.cjs',
+      ])
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('playwright.config.cjs ports', { timeout: loadTimeout(120_000) }, () => {
   it('HB_PORT=3002 drives the webServer command and url', () => {
     const { out } = load({ HB_PORT: '3002' })
     expect(out.url).toBe('http://127.0.0.1:3002')
