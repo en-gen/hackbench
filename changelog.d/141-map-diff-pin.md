@@ -1,3 +1,4 @@
 ### Changed
 
 - Tests: the level loader (the ROM's own, run as code) and the map view's expander are pinned to agree on Layer 1 Map16 for slots $1FE, $0E7 (vertical), $1EF and $1E3, one named case per slot, 0 differing cells (#141, #144, #149, #150). The earlier map-diff fixtures were hand-played Mesen dumps carrying runtime state; there is no expansion defect. The comparison now handles the vertical layout (SMWDisX `bank_00.asm:13322-13340`); ROM-free cases cover the offset function for both layouts, and a planted cell in the loader or the grid goes red on each of the four slots. Vanilla ROM, one machine.
+  Doc: [docs/rom/map-diff-141-family.md](docs/rom/map-diff-141-family.md). Mutation check: a wrong vertical offset turns the $0E7 pin red; a corrupted loader cell turns all four pins red.
