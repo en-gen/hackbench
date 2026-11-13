@@ -8,7 +8,7 @@
  *   - LoadStripeImage: bank_00.asm line 886
  *   - CODE_00A993: L3 GFX upload to VRAM $4000 (bank_00.asm ~line 5287)
  *
- * Layer 3 in SMW uses BG3 in 2BPP mode.  GFX28–GFX2B (file indices 40–43)
+ * Layer 3 in SMW draws on BG3, which runs in 2BPP mode.  GFX28–GFX2B (file indices 40–43)
  * are uploaded as 2BPP chars to VRAM word $4000 (VRam_L3Tiles).  The tilemap
  * is a 64×64 word grid at VRAM word $5000 (VRam_L3Tilemap), written frame-0
  * by LoadStripeImage from one of the fixed tilemap datasets.
@@ -52,6 +52,12 @@ import { readLayer3Setting } from './ObjectExpander'
 
 /** VRAM word address of the BG3 tilemap (VRam_L3Tilemap, SMW_E0.sym). */
 export const L3_TILEMAP_BASE = 0x5000
+
+/**
+ * ClearOutLayer3's !EmptyTile (bank_00.asm:751, 764): what a VRAM cell holds until a run writes it. Vanilla value, not
+ * read from the ROM; it only decides the untouched half of a cell a run writes one byte of, which no vanilla set does.
+ */
+const CLEARED = 0x38fc
 
 /** Tilemap dimensions. BG3 is configured 64×64 (HW_BGSC_Size_64x64). */
 export const L3_TILEMAP_COLS = 64
@@ -721,9 +727,8 @@ function vramAddrToFlat(vramAddr: number): number {
  * Vertical writes (FLAGS bit 7 = 1): VRAM address increments by 32 per tile
  * (SNES VMAINC mode 01 = +32 words = one row within a 32-wide sub-screen).
  *
- * RLE format (FLAGS bit 6 = 1): 2 data bytes (one tile word) repeated
- * tileCount times. Stream advances by 2 (not countBytes) - per LoadStripeImage
- * ASM: LDX.W #2 / STX.B _3 / ADC.B _3 / TAY after the RLE DMA branch.
+ * RLE format (FLAGS bit 6 = 1): 2 data bytes (one tile word) as the fixed source of two DMAs; the stream
+ * advances by 2, not by the byte count (bank_00.asm:906-955). Byte placement: see `parseStripeImageInto`.
  */
 export function parseStripeImage(data: Uint8Array): Uint16Array {
   const tilemap = new Uint16Array(L3_TILEMAP_COLS * L3_TILEMAP_ROWS)
@@ -736,6 +741,7 @@ export function parseStripeImage(data: Uint8Array): Uint16Array {
  * static-status-bar pass can run before the stripe parser.
  */
 export function parseStripeImageInto(tilemap: Uint16Array, data: Uint8Array): void {
+  const written = new Uint8Array(tilemap.length)
   let i = 0
   while (i < data.length) {
     const b0 = data[i]!
@@ -751,35 +757,31 @@ export function parseStripeImageInto(tilemap: Uint16Array, data: Uint8Array): vo
     const countBytes = (((b2 & 0x3f) << 8) | b3) + 1
     i += 4
 
-    const tileCount = countBytes >> 1
-    // VRAM address stride: horizontal = +1 word, vertical = +32 words
-    // (matches SNES VMAINC register modes 00/01 used by LoadStripeImage)
+    // Byte-level emulation of LoadStripeImage's DMAs, so odd and even counts land as on hardware (SMWDisX
+    // bank_00.asm:906-955; derivation in docs/rom/layer3-world-locked.md, "Map $018 (mode 0E) and its 40 cells").
     const stride = vertical ? 32 : 1
-
+    const put = (word: number, byte: number, high: boolean) => {
+      const pos = vramAddrToFlat(word)
+      if (pos < 0) return
+      // A cell nothing has written holds CLEARED, whose other byte stays (a written $0000 is not untouched).
+      const cur = written[pos] || tilemap[pos] ? tilemap[pos]! : CLEARED
+      tilemap[pos] = high ? (cur & 0x00ff) | (byte << 8) : (cur & 0xff00) | byte
+      written[pos] = 1
+    }
     if (rle) {
-      // RLE: 2 data bytes (one tile word) repeated tileCount times.
-      // The stream advances by only 2, not countBytes.
       if (i + 1 >= data.length) break
-      const lo = data[i]!
-      const hi = data[i + 1]!
+      const [lo, hi] = [data[i]!, data[i + 1]!]
       i += 2
-      const word = (hi << 8) | lo
-      for (let t = 0; t < tileCount; t++) {
-        const pos = vramAddrToFlat(vramAddr + t * stride)
-        if (pos >= 0) tilemap[pos] = word
-      }
+      for (let k = 0; k < countBytes; k++) put(vramAddr + ((k + 1) >> 1) * stride, lo, k % 2 === 1)
+      for (let k = 0; k < countBytes; k += 2) put(vramAddr + (k >> 1) * stride, hi, true)
       continue
     }
-
-    for (let t = 0; t < tileCount; t++) {
-      if (i + 1 >= data.length) break
-      const lo = data[i]!
-      const hi = data[i + 1]!
-      i += 2
-      const word = (hi << 8) | lo
-      const pos = vramAddrToFlat(vramAddr + t * stride)
-      if (pos >= 0) tilemap[pos] = word
-    }
+    // Truncated data (a malformed set, not the ROM's) writes its whole tiles and stops.
+    const cut = i + countBytes > data.length
+    const n = cut ? (data.length - i) & ~1 : countBytes
+    for (let k = 0; k < n; k++) put(vramAddr + (k >> 1) * stride, data[i + k]!, k % 2 === 1)
+    if (cut) break
+    i += countBytes
   }
 }
 
