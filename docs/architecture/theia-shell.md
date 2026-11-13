@@ -206,6 +206,7 @@ draws are in [level-rendering.md](../rom/level-rendering.md) and
 | `mapSpriteFrames` | the other poses of one sprite, for Properties | `map-sprites.ts` |
 | `mapBlockContents` | item-block art and where each block shows which | `map-block-contents.ts` |
 | `mapCollisionCheck`, `mapCollision` | whether the probe can run; floor, ceiling, wall and unknown polylines | `map-collision.ts` |
+| `mapObjects` | the project's saved Objects found on the map: cell runs, outline paths, edge segments (#1237) | `map-objects.ts` |
 
 The widget runs `composeScreen` (`src/rom/model/ColorMath.ts`) on every layer
 toggle, so layer 3 and SNES color math draw on every non-Mode-7 level mode
@@ -248,6 +249,15 @@ seen.
   anchor cell in a red dashed SVG (`browser/refused-overlay.tsx`) listing every
   distinct reason, with a count badge for 2 or more. Test hooks:
   `data-control="refused-overlay"`, `refused-cell`, `refused-badge`.
+- **Objects (#1237).** `mapObjects` finds the Objects of `meta/objects/` on the map, read-only, from
+  stored pieces and visible tiles (method, ties and limits: [objects-on-map.md](objects-on-map.md)). The
+  result is `ok`, `unavailable` with plain words (a hack with per-map tiles) or `rom-not-located`. One SVG
+  (`browser/object-overlay.tsx`) draws only the hovered Object (faint dashed outline, light tint) and the
+  selected one (one solid outline, light tint, never a box per tile); `browser/object-selection.ts` holds the
+  hit rules (a sprite, then a segment of the selected Object outside its outline, then the front-most body).
+  The strip carries `data-objects` (`pending`, `ok`, `unavailable`) for tests; the hover name is Theia's
+  `HoverService`; the fetch is timed as `hb:map-objects`. Test hooks: `data-control="object-overlay"`,
+  `object`, `object-tint`, `object-outline`, `object-outline-covered`, `object-segment`.
 - **Toggles.** `MapViewStateStore` (`map-view-state-store.ts`) holds the palace
   and switch toggles per tab as a flux-style store: buttons `dispatch`, the
   store fires `onDidChange` once per real change, and the toolbar, layer 1 and
