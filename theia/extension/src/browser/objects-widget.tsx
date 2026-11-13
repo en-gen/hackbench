@@ -357,7 +357,7 @@ export class ObjectsWidget extends ReactWidget {
       >
         <canvas
           data-control="sheet-canvas"
-          ref={this.paintSheet}
+          ref={el => this.paintSheet(el)}
           style={{ width: sheet.width, height: sheet.height }}
         />
         <div
