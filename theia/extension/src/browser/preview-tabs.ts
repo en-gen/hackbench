@@ -33,9 +33,14 @@ export class PreviewTabs {
   /** The preview opens still running, so `pin` can wait for one rather than
    * race it - see PreviewSequence. */
   protected readonly sequence = new PreviewSequence()
-  /** Bumped by every tab this class focuses, so a preview still loading can
-   * tell that the user picked a tab after it started. */
-  protected focusRequests = 0
+  /** One ticket per `preview`, `pin` and open-tab focus, taken when the user
+   * ASKS, so a loading preview orders against the others by request time,
+   * not by which load finishes first. */
+  protected requests = 0
+  /** Ticket of the latest focus asked for through this class (a pin or an
+   * open tab). A tab clicked in the tab bar is not counted, so a preview
+   * that lands after that is still revealed. */
+  protected focusedAt = 0
 
   /**
    * Opens `target` in this view's preview tab.
@@ -59,16 +64,18 @@ export class PreviewTabs {
   ): Promise<W> {
     // Needs the tab ATTACHED: a click while a double click's pin still loads
     // can start a preview that `pin` then closes. A slower preview of another
-    // row finishing after this click still lands, but behind the focused tab
-    // (see `asked` below).
+    // row requested before this click still lands, but behind the focused
+    // tab (see `ticket` below).
     const open = this.widgets.tryGetWidget<W>(viewId, rowKey)
     if (open && !open.isDisposed && open.isAttached) {
-      this.focus(open.id)
+      this.focusedAt = ++this.requests
+      void this.shell.activateWidget(open.id)
       return open
     }
-    // A tab focused while `apply` runs is newer than this click, so it keeps
-    // the front; the preview is still added, since its row was asked for.
-    const asked = this.focusRequests
+    // A focus ASKED FOR after this click is newer, so it keeps the front even
+    // if this preview loads last; one asked for earlier does not, even if it
+    // finishes later. The preview is still added, since its row was asked for.
+    const ticket = ++this.requests
     const tabId = previewId(viewId, key)
     const widget = await this.widgets.getOrCreateWidget<W>(viewId, { preview: true, ...key })
     // Registered as in flight for the whole of `apply`, which is where the
@@ -85,7 +92,7 @@ export class PreviewTabs {
     // Map16's two tables - so previewing one never replaces the other.
     widget.id = tabId
     addClass(widget, PREVIEW_TAB_CLASS)
-    this.attach(widget, false, this.focusRequests !== asked)
+    this.attach(widget, false, this.focusedAt > ticket)
     return widget
   }
 
@@ -116,6 +123,9 @@ export class PreviewTabs {
     // it removes the key-shape coupling entirely. Required, because the
     // defect was exactly an implicit mismatch between two call sites.
     const wantedId = previewId(viewId, previewKey)
+    // Counted now, before any wait: a preview clicked while this loads is the
+    // newer request and is revealed over it (CodeRabbit on #1366).
+    this.focusedAt = ++this.requests
     // The single click that precedes this double click may still be opening
     // the preview. Looking before it finishes finds nothing - it is neither
     // attached nor yet under its tab id - and the gesture then leaves TWO
@@ -154,16 +164,9 @@ export class PreviewTabs {
       return
     }
     if (!widget.isAttached) this.shell.addWidget(widget, { area: 'main' })
-    if (focus) this.focus(widget.id)
+    // Activates only: `pin` counted its focus request when it was asked.
+    if (focus) void this.shell.activateWidget(widget.id)
     else if (!behind) void this.shell.revealWidget(widget.id)
-  }
-
-  /** The only path that counts as "picked a tab" for a loading preview. A
-   * tab the user clicks in the tab bar, or one another view activates, is
-   * not counted, so a preview that lands after that is still revealed. */
-  protected focus(id: string): void {
-    this.focusRequests++
-    void this.shell.activateWidget(id)
   }
 }
 

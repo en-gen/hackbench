@@ -194,6 +194,39 @@ describe.skipIf(!theiaInstalled)(
       expect(s.calls).toEqual(['add p', 'activate p', 'add v:preview'])
     })
 
+    /** A pin requested BEFORE the preview is the older request, whichever
+     * finishes first; CodeRabbit on #1366 (preview-tabs.ts:165). */
+    const pinThenPreview = async () => {
+      const s = await setup()
+      const pinned = { id: 'p', isDisposed: false, isAttached: false, title: { className: '' } }
+      s.getOrCreateWidget.mockImplementationOnce(async () => pinned)
+      let releasePin!: () => void
+      const pinApply = vi.fn(() => new Promise<void>(r => (releasePin = r)))
+      const pinning = s.tabs.pin('w', {}, pinApply, () => false, {})
+      await vi.waitFor(() => expect(pinApply).toHaveBeenCalled())
+      const loadingB = s.tabs.preview('v', s.held, { index: 2 })
+      await vi.waitFor(() => expect(s.held).toHaveBeenCalled())
+      return { ...s, pinning, loadingB, releasePin: () => releasePin() }
+    }
+
+    it('reveals a preview requested after a pin that finishes first', async () => {
+      const s = await pinThenPreview()
+      s.releasePin()
+      await s.pinning
+      s.release()
+      await s.loadingB
+      expect(s.calls).toEqual(['add p', 'activate p', 'add v:preview', 'reveal v:preview'])
+    })
+
+    it('reveals a preview requested after a pin, then the pin activates its tab', async () => {
+      const s = await pinThenPreview()
+      s.release()
+      await s.loadingB
+      s.releasePin()
+      await s.pinning
+      expect(s.calls).toEqual(['add v:preview', 'reveal v:preview', 'add p', 'activate p'])
+    })
+
     it('reveals a preview when no tab was focused while it loaded', async () => {
       const s = await setup()
       const loadingB = s.tabs.preview('v', s.held, { index: 2 })
