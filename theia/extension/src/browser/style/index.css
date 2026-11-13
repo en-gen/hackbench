@@ -415,7 +415,7 @@
 /* The end line (#1296, owner D194): a 3 px amber line over a 5 px dark edge, centered on the map's far edge and
    constant in screen px at every zoom. Colors are Theia variables with literal fallbacks, so a theme may set
    them (this repo registers no ColorContribution): the amber default differs from the selection (focus blue),
-   warning and error colors in every built-in theme (map-end-line.spec.cjs measures it), and the dark edge
+   warning and error colors in the light and dark themes (measured by map-end-line.spec.cjs), and the dark edge
    carries it on light back colors. Stacks above the collision overlay (200) and below the grid canvas (1000). */
 .hb-map-end-line {
   position: absolute;

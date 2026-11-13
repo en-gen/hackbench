@@ -257,6 +257,9 @@ for (const vertical of [false, true]) {
         await scrollEnd(page, vertical)
         const m = await measure(page)
         expect(onFarEdge(m)).toBe(true)
+        // Across, the line starts at the map's own near edge, so a dropped leading pad (a band before 0) goes red.
+        if (vertical) expect(Math.abs(m.line.left - m.edge.left)).toBeLessThanOrEqual(0.5)
+        else expect(Math.abs(m.line.top - m.edge.top)).toBeLessThanOrEqual(0.5)
         // 3 px amber over the 5 px dark edge, in screen px whatever the zoom.
         expect(m.lineStyle.size).toBe(vertical ? '100% 3px' : '3px 100%')
         // It spans the map's other axis, not the canvas.
@@ -404,9 +407,18 @@ for (const vertical of [false, true]) {
       .poll(async () => dist((await acrossLine(page, m, 0.8))[11], L2_GREEN) < 40, { timeout: 15000 })
       .toBe(true) // prettier-ignore
     const px = await acrossLine(page, m, 0.8)
-    // Past the line's 5 px the gutter shows Layer 2 green (not faded: the first px of the gutter);
-    // under the line's gutter half the amber is still on top.
+    // Past the line's 5 px the gutter shows Layer 2 green (not faded: the first px of the gutter).
     expect(dist(px[11], L2_GREEN), JSON.stringify(px)).toBeLessThan(40)
+    // The gutter-side half of the line is on top of that canvas: the pixel whose center is just past the
+    // edge (E + 0.5 to E + 1.5) is amber, so a gutter-layers canvas stacked above the line goes red here.
+    const edgeAt =
+      (vertical ? m.edge.bottom : m.edge.right) -
+      Math.floor((vertical ? m.line.top : m.line.left) - 4)
+    const gutterSide = px[Math.ceil(edgeAt)]
+    expect(
+      dist(gutterSide, AMBER),
+      `gutter-side pixel ${Math.ceil(edgeAt)} of ${JSON.stringify(px)}`,
+    ).toBeLessThan(30)
     expect(
       px.slice(5, 8).some(p => dist(p, AMBER) < 30),
       JSON.stringify(px),
@@ -422,9 +434,9 @@ for (const vertical of [false, true]) {
   })
 }
 
-/** Sets the Theia color theme by id and waits for it to apply. */
+/** Sets the Theia color theme by id for this session only (persist false, as map16-view.spec.cjs does) and waits for it to apply. */
 const setTheme = async (page, id) => {
-  await page.evaluate(i => getSvc('ThemeService').setCurrentTheme(i), id)
+  await page.evaluate(i => getSvc('ThemeService').setCurrentTheme(i, false), id)
   await expect.poll(() => page.evaluate(() => getSvc('ThemeService').getCurrentTheme().id)).toBe(id)
   await page.waitForTimeout(400)
 }
@@ -434,51 +446,54 @@ for (const theme of ['light', 'dark']) {
     page,
   }) => {
     const was = await page.evaluate(() => getSvc('ThemeService').getCurrentTheme().id)
-    await setTheme(page, theme)
-    const colors = await page.evaluate(() => {
-      const probe = v => {
-        const e = document.createElement('div')
-        e.style.color = `var(${v}, #000)`
-        document.body.append(e)
-        const c = getComputedStyle(e).color
-        e.remove()
-        return [v, c]
+    try {
+      await setTheme(page, theme)
+      const colors = await page.evaluate(() => {
+        const probe = v => {
+          const e = document.createElement('div')
+          e.style.color = `var(${v}, #000)`
+          document.body.append(e)
+          const c = getComputedStyle(e).color
+          e.remove()
+          return [v, c]
+        }
+        return [
+          '--theia-focusBorder',
+          '--theia-editorWarning-foreground',
+          '--theia-editorError-foreground',
+          '--theia-list-activeSelectionBackground',
+          '--theia-editor-selectionBackground',
+        ].map(probe)
+      })
+      for (const [v, c] of colors)
+        expect(dist(AMBER, rgbOf(c)), `amber vs ${v} ${c}`).toBeGreaterThan(60)
+      for (const back of [
+        [255, 255, 255],
+        [0, 0, 0],
+      ]) {
+        await openSynthetic(page, { back })
+        await scrollEnd(page, false)
+        const m = await measure(page)
+        const line = await acrossLine(page, m)
+        const [edge, amber] = [darkest(line.slice(3, 10)), brightest(line.slice(4, 9))]
+        expect(dist(amber, AMBER), 'amber pixel').toBeLessThan(30)
+        // On a light back the dark edge carries the line; on a dark back the amber does.
+        const read = Math.max(contrast(edge, line[0]), contrast(amber, line[0]))
+        expect(read, `line vs back ${back}`).toBeGreaterThanOrEqual(3)
+        expect(contrast(amber, edge), 'amber vs its dark edge').toBeGreaterThanOrEqual(3)
+        // The Add screen outline: its left border at the box's middle height, with 4 px of gutter before it.
+        const b = m.addBox
+        const o = await pixels(page, b.left - 4, b.top + b.height / 2, 9, false)
+        const reads = Math.max(...o.slice(3, 8).map(p => contrast(p, o[0])))
+        expect(
+          reads,
+          `outline vs back ${back} in the ${theme} theme: ${JSON.stringify(o)}`,
+        ).toBeGreaterThanOrEqual(3)
+        await closeMap(page)
       }
-      return [
-        '--theia-focusBorder',
-        '--theia-editorWarning-foreground',
-        '--theia-editorError-foreground',
-        '--theia-list-activeSelectionBackground',
-        '--theia-editor-selectionBackground',
-      ].map(probe)
-    })
-    for (const [v, c] of colors)
-      expect(dist(AMBER, rgbOf(c)), `amber vs ${v} ${c}`).toBeGreaterThan(60)
-    for (const back of [
-      [255, 255, 255],
-      [0, 0, 0],
-    ]) {
-      await openSynthetic(page, { back })
-      await scrollEnd(page, false)
-      const m = await measure(page)
-      const line = await acrossLine(page, m)
-      const [edge, amber] = [darkest(line.slice(3, 10)), brightest(line.slice(4, 9))]
-      expect(dist(amber, AMBER), 'amber pixel').toBeLessThan(30)
-      // On a light back the dark edge carries the line; on a dark back the amber does.
-      const read = Math.max(contrast(edge, line[0]), contrast(amber, line[0]))
-      expect(read, `line vs back ${back}`).toBeGreaterThanOrEqual(3)
-      expect(contrast(amber, edge), 'amber vs its dark edge').toBeGreaterThanOrEqual(3)
-      // The Add screen outline: its left border at the box's middle height, with 4 px of gutter before it.
-      const b = m.addBox
-      const o = await pixels(page, b.left - 4, b.top + b.height / 2, 9, false)
-      const reads = Math.max(...o.slice(3, 8).map(p => contrast(p, o[0])))
-      expect(
-        reads,
-        `outline vs back ${back} in the ${theme} theme: ${JSON.stringify(o)}`,
-      ).toBeGreaterThanOrEqual(3)
-      await closeMap(page)
+    } finally {
+      await setTheme(page, was).catch(() => undefined)
     }
-    await setTheme(page, was)
   })
 }
 
@@ -518,6 +533,7 @@ for (const vertical of [false, true]) {
       const before = await look()
       expect(before).toMatchObject({ text: 'Add screen', cursor: 'default', opacity: '0.75', title: 'Add screen is not available yet' }) // prettier-ignore
       expect(before.border).toMatch(/^dashed /)
+      expect(before.bg).toBe('rgba(0, 0, 0, 0)') // no fill: not a button
       // A sprite is selected first, so a stray map click (which would clear it) shows.
       const placed = boxes.length - 1
       await inWidget(page, (w, i) => w.selectSprite(w.sprites.sprites[i]), placed)
