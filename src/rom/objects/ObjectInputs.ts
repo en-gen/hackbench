@@ -17,7 +17,6 @@ import { readSlopeTables, resolveSlope } from '../SlopeResolver'
 import type { RomFile } from '../RomFile'
 import type { SmwRom } from '../SmwRom'
 import type { SlopeOf } from './Outline'
-import { recognizeObjects, type FinderDefinition, type FoundObject } from './Recognize'
 
 export const PER_LEVEL_MAP16 = "Objects can't be found on this map: it uses custom per-map tiles."
 
@@ -90,16 +89,4 @@ export function readObjectInputs(rom: SmwRom, index: number, flags: SwitchFlags)
   } catch (err) {
     return refuse(`Objects can't be found on this map: ${(err as Error).message}`)
   }
-}
-
-/** Every Object of the definitions on this map, or why none can be found. */
-export function findObjectsOnMap(
-  rom: SmwRom,
-  index: number,
-  flags: SwitchFlags,
-  definitions: readonly FinderDefinition[],
-): { ok: true; objects: FoundObject[]; tileset: number } | { ok: false; reason: string } {
-  const inputs = readObjectInputs(rom, index, flags)
-  if (!inputs.ok) return inputs
-  return { ok: true, objects: recognizeObjects(inputs, definitions), tileset: inputs.tileset }
 }

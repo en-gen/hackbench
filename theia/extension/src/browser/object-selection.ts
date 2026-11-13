@@ -6,7 +6,7 @@
  * the front-most Object body. A segment answers only on a selected Object: the grab zone is within
  * `EDGE_BAND` of its outline on either side; inside the edge line (further in) is the Object (#1234, "Edges").
  */
-import type { CellRun, ObjectDto, Segment } from '../../../../src/rom/objects/Describe'
+import type { ObjectDto, Segment } from '../../../../src/rom/objects/Describe'
 import { TILE } from './off-map-extent'
 
 /**
@@ -35,8 +35,7 @@ function cellsOf(o: ObjectDto): Set<number> {
   let s = cellSets.get(o)
   if (!s) {
     s = new Set()
-    for (const r of o.runs as readonly CellRun[])
-      for (let i = 0; i < r.len; i++) s.add(cellKey(r.row, r.col + i))
+    for (const r of o.runs) for (let i = 0; i < r.len; i++) s.add(cellKey(r.row, r.col + i))
     cellSets.set(o, s)
   }
   return s
@@ -53,7 +52,6 @@ export function objectAt(
   x: number,
   y: number,
 ): ObjectDto | undefined {
-  // prettier-ignore
   let best: ObjectDto | undefined
   for (const o of objects) if (containsPoint(o, x, y) && (!best || o.order >= best.order)) best = o
   return best
