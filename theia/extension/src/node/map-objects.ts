@@ -8,7 +8,7 @@
  */
 import { SWITCH_FLAGS_UNCLEARED } from '../../../../src/rom/ObjectExpander'
 import { TILESET_COUNT, map16TileCapacity } from '../../../../src/rom/Map16'
-import { describeObject } from '../../../../src/rom/objects/Describe'
+import { describeObjects } from '../../../../src/rom/objects/Describe'
 import {
   objectsRefusal,
   readObjectInputs,
@@ -57,10 +57,9 @@ export function mapObjects(
     const { definitions, skipped } = readObjectDefinitions(manifestPath, {
       tilesetCount: TILESET_COUNT,
       tileCount: 'count' in capacity ? capacity.count : null,
-      tileCountReason: 'reason' in capacity ? capacity.reason : undefined,
     })
     const slopeOf = slopeClassOf(rom.rom, inputs.tileset)
-    const objects = recognizeObjects(inputs, definitions).map(f => describeObject(f, slopeOf))
+    const objects = describeObjects(recognizeObjects(inputs, definitions), slopeOf)
     return { status: 'ok', objects, skipped }
   } catch (err) {
     return unreadable((err as Error).message, NOT_FOUND)

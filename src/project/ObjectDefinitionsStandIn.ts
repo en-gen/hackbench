@@ -26,8 +26,6 @@ export interface ObjectDefinitionLimits {
   tilesetCount: number
   /** The ROM's Map16 tile count, or null when it cannot be read (every file is then skipped). */
   tileCount: number | null
-  /** Why `tileCount` is null, in plain words. */
-  tileCountReason?: string
 }
 
 export interface ObjectDefinitionsRead {
@@ -35,6 +33,7 @@ export interface ObjectDefinitionsRead {
   skipped: { file: string; reason: string }[]
 }
 
+const NO_TILE_COUNT = "this ROM's Map16 tile count cannot be read"
 const MAX_BYTES = 64 * 1024
 const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
@@ -67,8 +66,6 @@ function check(
   const lists = [o.edge, o.fill]
   if (!lists.every(l => l.every(n => typeof n === 'number' && Number.isInteger(n))))
     return 'a tile number is not a whole number'
-  if (limits.tileCount === null)
-    return limits.tileCountReason ?? "this ROM's tile count cannot be read"
   if (o.tileset < 0 || o.tileset >= limits.tilesetCount)
     return "its tileset is outside this ROM's tilesets"
   const edge = o.edge as number[]
@@ -103,6 +100,11 @@ export function readObjectDefinitions(
     if (!e.isFile() || !e.name.endsWith('.json')) continue
     const skip = (why: string) => out.skipped.push({ file: e.name, reason: why })
     const file = path.join(dir, e.name)
+    // Rule 6: with no tile count nothing can be checked, so every file is skipped with that one reason, first.
+    if (limits.tileCount === null) {
+      skip(NO_TILE_COUNT)
+      continue
+    }
     try {
       if (fs.statSync(file).size > MAX_BYTES) {
         skip('it is larger than 64 KiB')

@@ -88,7 +88,7 @@ interface Platform {
 }
 const PLATFORMS: Platform[] = [
   { x: 8, y: 9, w: 6, leftRows: 3, rightRows: 15 },
-  { x: 5, y: 12, w: 5, leftRows: 3, rightRows: 8 },
+  { x: 5, y: 12, w: 5, leftRows: 4, rightRows: 8 },
   { x: 3, y: 16, w: 5, leftRows: 8, rightRows: 4 },
   { x: 5, y: 20, w: 6, leftRows: 3, rightRows: 4 },
 ]
@@ -227,5 +227,80 @@ describe('acceptance 10: the stored-piece split is what keeps stacked platforms 
     const m = stamp(stackPieces(DEFAULT_ORDER), 40, 28)
     const flat = recognizeObjects(visibleOnly(m.grid), [STACK_DEF])
     expect(() => expectFourPlatforms(flat)).toThrow()
+  })
+})
+
+// Review round 1 of #1237: the cases the first suite let through.
+describe('cut-short edges are extended only under something that covers them (review, major 2)', () => {
+  const cellsOf = (f: FoundObject) => new Set(f.cells.map(c => `${c.row},${c.col}`))
+
+  it('a top strip over a wider body does not grow into the sky beside it', () => {
+    // Body (fill with slope-like edge corners) rows 3-6, cols 1-7; the top strip row 2, cols 3-5.
+    const body: Piece = { x: 1, y: 3, w: 7, h: 4, tile: (r: number, c: number) => (c === 1 || c === 7 ? (r === 3 ? TL : WL) : r === 3 ? FTOP : DIRT) } // prettier-ignore
+    const strip: Piece = { x: 3, y: 2, w: 3, h: 1, tile: TL }
+    const found = recognizeObjects(stamp([body, strip], 12, 10), [STACK_DEF])
+    expect(found).toHaveLength(1)
+    const got = cellsOf(found[0]!)
+    for (const sky of ['2,1', '2,2', '2,6', '2,7']) expect(got.has(sky), sky).toBe(false)
+    expect(got.size).toBe(28 + 3)
+  })
+
+  it('a short left edge beside a taller interior does not run down over empty sky', () => {
+    const left: Piece = { x: 2, y: 2, w: 1, h: 2, tile: (r: number) => (r === 2 ? TL : WL) }
+    const mid: Piece = { x: 3, y: 2, w: 4, h: 5, tile: (r: number) => (r === 2 ? FTOP : DIRT) }
+    const found = recognizeObjects(stamp([left, mid], 12, 10), [STACK_DEF])
+    expect(found).toHaveLength(1)
+    expect(found[0]!.cells).toHaveLength(2 + 20)
+    expect(found[0]!.cells.every(c => !(c.col === 2 && c.row >= 4))).toBe(true)
+  })
+
+  it('does still extend under a piece that covers the edge', () => {
+    const left: Piece = { x: 2, y: 2, w: 1, h: 2, tile: (r: number) => (r === 2 ? TL : WL) }
+    const mid: Piece = { x: 3, y: 2, w: 4, h: 5, tile: (r: number) => (r === 2 ? FTOP : DIRT) }
+    const cover: Piece = { x: 0, y: 4, w: 4, h: 3, tile: 1 } // some other Object's tiles over the missing edge
+    const found = recognizeObjects(stamp([left, mid, cover], 12, 10), [STACK_DEF])
+    expect(found).toHaveLength(1)
+    expect(found[0]!.cells).toHaveLength(5 + 20)
+  })
+})
+
+describe('a broken match leaves no fragments (review, major 3)', () => {
+  it('a visible edge tile inside a platform removes the whole platform, not its two end columns', () => {
+    const p: Platform = { x: 2, y: 2, w: 6, leftRows: 4, rightRows: 4 }
+    const parts = Object.values(platformPieces({ ...p }))
+    const m = stamp(
+      parts.map(x => ({ ...x, h: Math.min(x.h, 4) })),
+      12,
+      10,
+    )
+    expect(recognizeObjects(m, [STACK_DEF])).toHaveLength(1)
+    m.grid[3]![4] = WL // an edge tile with fill on every side
+    const found = recognizeObjects(m, [STACK_DEF])
+    expect(found.flatMap(f => f.cells).filter(c => c.row >= 2 && c.row <= 5 && c.col >= 2 && c.col <= 7)).toEqual([]) // prettier-ignore
+  })
+
+  it('the visible path does not resurrect the broken pieces either', () => {
+    const p: Platform = { x: 2, y: 2, w: 6, leftRows: 4, rightRows: 4 }
+    const parts = Object.values(platformPieces({ ...p })).map(x => ({ ...x, h: Math.min(x.h, 4) }))
+    const m = stamp(parts, 12, 10)
+    m.grid[3]![4] = WL
+    expect(recognizeObjects(m, [STACK_DEF])).toEqual([])
+  })
+})
+
+describe('single-piece and fill cases (review, minors 7 and 8)', () => {
+  it('one stored piece with an edge tile surrounded by its own cells is not an Object', () => {
+    const piece: Piece = { x: 1, y: 1, w: 5, h: 5, tile: (r: number, c: number) => (r === 1 || (r === 4 && c === 4) ? TL : DIRT) } // prettier-ignore
+    expect(recognizeObjects(stamp([piece], 10, 10), [STACK_DEF])).toEqual([])
+  })
+
+  it('fill resting beside fill is not part of an Object: ground under a one-row platform stays out', () => {
+    const left: Piece = { x: 2, y: 2, w: 1, h: 1, tile: TL }
+    const mid: Piece = { x: 3, y: 2, w: 4, h: 1, tile: FTOP }
+    const right: Piece = { x: 7, y: 2, w: 1, h: 1, tile: TR }
+    const ground: Piece = { x: 3, y: 3, w: 4, h: 3, tile: DIRT } // touches the interior only, along its length
+    const found = recognizeObjects(stamp([ground, left, mid, right], 12, 10), [STACK_DEF])
+    expect(found).toHaveLength(1)
+    expect(found[0]!.cells).toHaveLength(6)
   })
 })

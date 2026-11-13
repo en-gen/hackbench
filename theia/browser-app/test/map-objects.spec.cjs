@@ -268,9 +268,10 @@ test.describe('platforms on $103 (straight sides)', () => {
       'd',
       target.visiblePath,
     )
+    // The selected Object is exactly its tint, its outline and (when covered) its dashed outline: a tint path
+    // per tile, or a box per tile, would add children.
+    await expect(sel.locator('> *')).toHaveCount(2 + (target.coveredPath ? 1 : 0))
     await expect(page.locator(`${overlay(SLOT)} rect`)).toHaveCount(0)
-    const elements = await page.locator(`${overlay(SLOT)} *`).count()
-    expect(elements).toBeLessThan(target.runs.reduce((n, r) => n + r.len, 0))
     // The grid did not light up: nothing else in the overlay.
     await expect(page.locator(`${overlay(SLOT)} [data-control="object"]`)).toHaveCount(1)
 

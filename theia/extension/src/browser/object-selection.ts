@@ -125,3 +125,18 @@ export function selectAt(
   if (hit.object === sel.object) return ctrl ? sel : { object: sel.object, segments: new Set() }
   return { object: hit.object, segments: new Set() }
 }
+
+/**
+ * The selection after the Objects were read again: the Object stays selected if it is still found, and
+ * only the selected segments it still has stay (a segment id names where it runs, so one that is gone
+ * is gone). Otherwise nothing is selected.
+ */
+export function keepSelection(
+  objects: readonly ObjectDto[],
+  sel: ObjectSelection,
+): ObjectSelection {
+  const o = sel.object ? objects.find(x => x.key === sel.object) : undefined
+  if (!o) return NO_SELECTION
+  const ids = new Set(o.segments.map(s => s.id))
+  return { object: o.key, segments: new Set([...sel.segments].filter(id => ids.has(id))) }
+}

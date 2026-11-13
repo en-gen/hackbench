@@ -69,11 +69,17 @@ describe('readObjectDefinitions (stand-in)', () => {
     expect(readObjectDefinitions(m, LIMITS).skipped[0]!.reason).toMatch(/64 KiB/)
   })
 
-  it('skips every file, with the reason, when the ROM tile count is unreadable', () => {
-    const m = project({ 'a.json': good('a') })
-    const r = readObjectDefinitions(m, { tilesetCount: 15, tileCount: null, tileCountReason: 'Map16 is expanded.' }) // prettier-ignore
+  it('skips every file with one plain reason, before any field check, when the tile count is unreadable', () => {
+    const m = project({
+      'a.json': good('a'),
+      'b.json': good('b', { edge: [1.5] }),
+      'c.json': '{nope',
+    })
+    const r = readObjectDefinitions(m, { tilesetCount: 15, tileCount: null })
     expect(r.definitions).toEqual([])
-    expect(r.skipped).toEqual([{ file: 'a.json', reason: 'Map16 is expanded.' }])
+    expect(r.skipped.map(x => x.file)).toEqual(['a.json', 'b.json', 'c.json'])
+    expect(new Set(r.skipped.map(x => x.reason)).size).toBe(1)
+    expect(r.skipped[0]!.reason).toMatch(/Map16 tile count/)
   })
 
   it('ignores temp files, other extensions and subfolders', () => {

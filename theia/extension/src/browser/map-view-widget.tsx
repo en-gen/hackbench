@@ -66,6 +66,7 @@ import { RefusedOverlay } from './refused-overlay'
 import { ObjectOverlay } from './object-overlay'
 import {
   NO_SELECTION,
+  keepSelection,
   resolveHover,
   selectAt,
   type ObjectHover,
@@ -599,8 +600,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
           ? r.reason
           : `Objects can't be found. ${romMissingMessage(r.baseRom.title)}`
     this.objectsDetail = r.status === 'unavailable' ? r.detail : undefined
-    if (!this.objects.some(x => x.key === this.objectSelection.object))
-      this.objectSelection = NO_SELECTION
+    this.objectSelection = keepSelection(this.objects, this.objectSelection)
     this.setObjectHover({})
     this.update()
     this.sync()

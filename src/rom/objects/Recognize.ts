@@ -70,6 +70,8 @@ interface Group {
   pieces: Set<number>
   /** Cell key to the latest group piece tile there. */
   cells: Map<number, Cell>
+  /** A visible tile contradicts the rule here (#1234: it blocks the match): the group yields nothing. */
+  broken?: boolean
 }
 type PieceCells = Map<number, Map<number, number>>
 
@@ -138,6 +140,7 @@ function groupPieces(
   isEdge: (tile: number) => boolean,
   split: boolean,
   holds: (g: Group) => boolean,
+  holdsByPieces: (g: Group) => boolean,
 ): Group[] {
   const pieces = new Map<number, Map<number, Cell>>()
   const coverers = new Map<number, number[]>()
@@ -223,11 +226,15 @@ function groupPieces(
       const have = merged.cells.get(k)
       if (!have || c.piece > have.piece) merged.cells.set(k, c)
     }
-    if (split && !holds(merged)) continue
+    // The pieces alone decide what is one Object. A merge the pieces allow but the visible tiles contradict
+    // is still one Object, a broken one: it yields nothing, and does not fall apart into fragments.
+    if (split && !holdsByPieces(merged)) continue
+    merged.broken = a.broken || b.broken || (split && !holds(merged))
     for (const m of merged.pieces) groupOf.set(m, merged)
   }
   return [...new Set(groupOf.values())]
 }
+
 /** One definition: piece path, cut-short edges, then the visible path. */
 function recognizeOne(
   input: RecognizeInput,
@@ -247,10 +254,10 @@ function recognizeOne(
    * The shape a group draws, for the rule: a visibly owned cell shows its grid tile (out of the shape
    * when that is not a definition tile), a covered one the group own tile.
    */
-  const shapeOf = (g: Group): Map<number, number> => {
+  const shapeOf = (g: Group, useGrid = true): Map<number, number> => {
     const out = new Map<number, number>()
     for (const [k, c] of g.cells) {
-      const t = showsVisibly(g, k) ? gridTile(k) : c.tile
+      const t = useGrid && showsVisibly(g, k) ? gridTile(k) : c.tile
       if (t !== undefined && defTiles.has(t)) out.set(k, t)
     }
     return out
@@ -260,19 +267,33 @@ function recognizeOne(
     const shape = shapeOf(g)
     return !hasSurroundedEdge(shape.keys(), k => shape.get(k), isEdge)
   }
+  /** The same test on what the pieces wrote, ignoring the grid: false means the pieces themselves stack. */
+  const holdsByPieces = (g: Group): boolean => {
+    const shape = shapeOf(g, false)
+    return !hasSurroundedEdge(shape.keys(), k => shape.get(k), isEdge)
+  }
 
   // 1. Piece path: stored pieces are linked into groups, strongest contact first.
-  const groups = groupPieces(allPieces, defTiles, isEdge, split, holds)
-  // 2. Edges the list cut short are extended to the extent of the pieces beside them.
-  for (const g of groups) extendCutShort(g, edge)
+  const groups = groupPieces(allPieces, defTiles, isEdge, split, holds, holdsByPieces)
+  // 2. Edges the list cut short are extended to the extent of the pieces beside them, under what covers them.
+  const coveredByOther = (g: Group, k: number) => {
+    const o = ownerAt(k)
+    return o >= 0 && !g.pieces.has(o)
+  }
+  for (const g of groups) extendCutShort(g, edge, coveredByOther)
 
   // The shapes that pass the rule whole.
   const out: FoundObject[] = []
   const shown = new Set<number>()
+  const broken = new Set<number>()
   for (const g of groups) {
     const shape = shapeOf(g)
+    if (g.broken || hasSurroundedEdge(shape.keys(), k => shape.get(k), isEdge)) {
+      // Broken: nothing is offered for these pieces, and the patch scan below does not resurrect them.
+      for (const p of g.pieces) broken.add(p)
+      continue
+    }
     if (![...shape.values()].some(isEdge)) continue
-    if (hasSurroundedEdge(shape.keys(), k => shape.get(k), isEdge)) continue
     const cells: ObjectCell[] = []
     for (const [k, tile] of shape) {
       const visible = showsVisibly(g, k)
@@ -286,7 +307,8 @@ function recognizeOne(
   const seen = new Set<number>()
   const free = (k: number): boolean => {
     const t = gridTile(k)
-    return t !== undefined && defTiles.has(t) && !shown.has(k)
+    // A broken Object's own cells are not offered again as a patch.
+    return t !== undefined && defTiles.has(t) && !shown.has(k) && !broken.has(ownerAt(k))
   }
   for (let r = 0; r < grid.length; r++) {
     const row = grid[r]!
@@ -322,10 +344,15 @@ function recognizeOne(
 
 /**
  * An edge piece (one straight run of edge tiles) shorter than the group piece beside it is extended to
- * that piece extent along the shared side, repeating its end tile. The new cells are covered: the
- * list cut the edge short because another Object is drawn over it (#1234 round 1 call 2; $103).
+ * that piece extent along the shared side, repeating its end tile, but only through cells another piece
+ * draws over (the list cut the edge short because another Object covers it; #1234 round 1 call 2; $103).
+ * The new cells are covered.
  */
-function extendCutShort(g: Group, edge: ReadonlySet<number>): void {
+function extendCutShort(
+  g: Group,
+  edge: ReadonlySet<number>,
+  coveredByOther: (g: Group, k: number) => boolean,
+): void {
   const added = new Map<number, Cell>()
   for (const p of g.pieces) {
     const mine = [...g.cells].filter(([, c]) => c.piece === p)
@@ -351,8 +378,11 @@ function extendCutShort(g: Group, edge: ReadonlySet<number>): void {
       nlo = Math.min(nlo, along(k))
       nhi = Math.max(nhi, along(k))
     }
-    for (let a = nlo; a < lo; a++) added.set(cellAt(a, x0), { tile: lowTile, piece: p })
-    for (let a = hi + 1; a <= nhi; a++) added.set(cellAt(a, x0), { tile: highTile, piece: p })
+    // Only under something else drawn there: over empty sky the list did not cut anything short.
+    for (let a = lo - 1; a >= nlo && coveredByOther(g, cellAt(a, x0)); a--)
+      added.set(cellAt(a, x0), { tile: lowTile, piece: p })
+    for (let a = hi + 1; a <= nhi && coveredByOther(g, cellAt(a, x0)); a++)
+      added.set(cellAt(a, x0), { tile: highTile, piece: p })
   }
   for (const [k, c] of added) if (!g.cells.has(k)) g.cells.set(k, c)
 }

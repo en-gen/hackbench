@@ -123,24 +123,29 @@ describe.skipIf(!hasRom(VANILLA))('Objects on $103 screen 0 (acceptance 8)', () 
   })
 })
 
-describe.skipIf(!hasRom(VANILLA))('Objects on the largest vanilla map (acceptance 9)', () => {
-  it('finds Objects on $105 (20 screens) from a definition derived from its own pieces, quickly', () => {
-    const map = rom()
-    const inputs = readObjectInputs(map, 0x105, SWITCH_FLAGS_UNCLEARED)
-    if (!inputs.ok) throw new Error(inputs.reason)
-    // The most written tile is the fill; its neighbors in the grid that are not it are the edge.
-    const counts = new Map<number, number>()
-    for (const f of inputs.footprint) counts.set(f.tile, (counts.get(f.tile) ?? 0) + 1)
-    const ranked = [...counts].sort((a, b) => b[1] - a[1]).map(([t]) => t)
-    const definition: FinderDefinition = { id: 'x', name: 'X', tileset: inputs.tileset, edge: ranked.slice(1, 8), fill: ranked.slice(0, 1) } // prettier-ignore
-    expect(inputs.grid[0]!.length).toBeGreaterThanOrEqual(20 * SCREEN_W)
-    const t0 = performance.now()
-    const found = recognizeObjects(inputs, [definition])
-    const ms = performance.now() - t0
-    console.info(`recognizeObjects on $105: ${found.length} Objects, ${ms.toFixed(1)} ms (one run, one machine)`) // prettier-ignore
-    expect(found.length).toBeGreaterThan(0)
-    expect(ms).toBeLessThan(500)
-  })
+// Acceptance 9. The largest vanilla maps by screens and stored pieces are $10A (32 screens, 270 pieces) and $125
+// (32, 232); $105 (20 screens, 88 pieces) is a mid-size map kept for comparison. The numbers the issue wants
+// are printed here and recorded by the perf bench (test/perf/core/objects.bench.ts, core.objects.*); the bound
+// below is only a smoke bound against a runaway, not a perf gate.
+describe.skipIf(!hasRom(VANILLA))('Objects on the largest vanilla maps (acceptance 9)', () => {
+  for (const slot of [0x10a, 0x125, 0x105]) {
+    it(`finds Objects on $${slot.toString(16).toUpperCase()} from a definition derived from its own pieces`, () => {
+      const map = rom()
+      const inputs = readObjectInputs(map, slot, SWITCH_FLAGS_UNCLEARED)
+      if (!inputs.ok) throw new Error(inputs.reason)
+      // The most written tile is the fill; the next seven are the edge: a stress definition.
+      const counts = new Map<number, number>()
+      for (const f of inputs.footprint) counts.set(f.tile, (counts.get(f.tile) ?? 0) + 1)
+      const ranked = [...counts].sort((a, b) => b[1] - a[1]).map(([t]) => t)
+      const definition: FinderDefinition = { id: 'x', name: 'X', tileset: inputs.tileset, edge: ranked.slice(1, 8), fill: ranked.slice(0, 1) } // prettier-ignore
+      const t0 = performance.now()
+      const found = recognizeObjects(inputs, [definition])
+      const ms = performance.now() - t0
+      console.info(`recognizeObjects on $${slot.toString(16)}: ${found.length} Objects, ${ms.toFixed(1)} ms (one run, one machine)`) // prettier-ignore
+      expect(found.length).toBeGreaterThan(0)
+      expect(ms).toBeLessThan(2000)
+    })
+  }
 })
 
 describe.skipIf(!hasRom(VANILLA))('slope classes come from the game own tables', () => {

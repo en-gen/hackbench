@@ -7,6 +7,7 @@ import { describeObject, type ObjectDto } from '../../../src/rom/objects/Describ
 import type { ObjectCell } from '../../../src/rom/objects/Recognize'
 import {
   EDGE_BAND,
+  keepSelection,
   NO_SELECTION,
   objectAt,
   resolveHover,
@@ -67,7 +68,9 @@ describe('the grab zone of an edge segment', () => {
       for (let r = 4 - c; r <= 4; r++) cs.push({ row: r, col: c, tile: 4, visible: true })
     }
     const hill = dto(cs, 0, 'd', { 9: 1 })
-    const slope = hill.segments.find(s => s.kind === 'slope')!
+    const slope = hill.segments
+      .filter(s => s.kind === 'slope')
+      .sort((a, b) => b.points.length - a.points.length)[0]!
     // Sky just above the second step (slope cell row 2, col 1): outside the outline.
     expect(segmentAt(hill, 1 * 16 + 8, 2 * 16 - 3)?.id).toBe(slope.id)
     // The outer half of that slope tile, inside the outline.
@@ -126,5 +129,33 @@ describe('hit order and selection', () => {
     const hit = resolveHover([a, b], sel, 5 * 16 + 3, 5 * 16 + 8)
     expect(hit.object).toBe(a.key)
     expect(hit.segment).toBeDefined()
+  })
+})
+
+describe('a selection survives a refetch only as far as it still means the same thing (review, minor 9)', () => {
+  const a = dto(cells(5, 3, 2, 4), 1, 'a')
+  const sel = {
+    object: a.key,
+    segments: new Set(
+      a.segments
+        .map(s => s.id)
+        .slice(0, 2)
+        .concat(['9,9:9,9']),
+    ),
+  }
+
+  it('drops selected segments the new Object no longer has', () => {
+    const kept = keepSelection([a], sel)
+    expect(kept.object).toBe(a.key)
+    expect([...kept.segments]).toEqual(a.segments.map(s => s.id).slice(0, 2))
+  })
+
+  it('clears when the Object is gone', () => {
+    expect(keepSelection([], sel)).toEqual(NO_SELECTION)
+  })
+
+  it('keeps the same Object selected when an edit earlier in the list moves it forward', () => {
+    const moved = dto(cells(5, 3, 2, 4), 7, 'a')
+    expect(keepSelection([moved], sel).object).toBe(moved.key)
   })
 })

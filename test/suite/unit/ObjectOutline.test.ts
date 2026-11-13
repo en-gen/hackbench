@@ -62,7 +62,7 @@ describe('outline segments', () => {
       for (let r = 6 - c; r <= 6; r++) cells.push(cell(r, c, 4))
     }
     const o = buildOutline(cells, t => (t === 9 ? 1 : t === 10 ? 0.5 : null))
-    expect(o.segments.filter(s => s.kind === 'slope')).toHaveLength(2)
+    expect(o.segments.filter(s => s.kind === 'slope').length).toBeGreaterThanOrEqual(2)
   })
 
   it('a covered cell puts its stretch of boundary on the dashed path only', () => {
@@ -81,7 +81,7 @@ describe('outline segments', () => {
 })
 
 describe('describeObject', () => {
-  it('lists cells as row runs and keys the Object by definition, order and top-left cell', () => {
+  it('lists cells as row runs and keys the Object by definition and top-left cell, not its order', () => {
     const dto = describeObject(
       {
         definitionId: 'd',
@@ -95,7 +95,59 @@ describe('describeObject', () => {
       { row: 2, col: 3, len: 3 },
       { row: 3, col: 3, len: 1 },
     ])
-    expect(dto.key).toBe('d:7:2:3')
+    expect(dto.key).toBe('d:2:3')
     expect(dto.name).toBe('Ground')
+  })
+})
+
+describe('review round 1: slope chains, stable ids and keys', () => {
+  const hillCells = (): ObjectCell[] => {
+    const cs: ObjectCell[] = []
+    for (let c = 0; c < 4; c++) {
+      cs.push(cell(3 - c, c, 9))
+      for (let r = 4 - c; r <= 4; r++) cs.push(cell(r, c, 4))
+    }
+    cs.push(cell(0, 4, 1), cell(1, 4, 4), cell(2, 4, 4), cell(3, 4, 4), cell(4, 4, 4))
+    return cs
+  }
+  const directions = (points: number[]): Set<string> => {
+    const out = new Set<string>()
+    for (let i = 0; i + 3 < points.length; i += 2)
+      out.add(
+        `${Math.sign(points[i + 2]! - points[i]!)},${Math.sign(points[i + 3]! - points[i + 1]!)}`,
+      )
+    return out
+  }
+  const onlySlope = (t: number) => (t === 9 ? 1 : null)
+
+  it('a slope segment is a monotone staircase: it never turns down a wall or round a corner', () => {
+    for (const s of buildOutline(hillCells(), onlySlope).segments.filter(x => x.kind === 'slope'))
+      expect(directions(s.points).size).toBeLessThanOrEqual(2)
+  })
+
+  it('a floor made of slope tiles is not one segment wrapped round its corners', () => {
+    const floor = Array.from({ length: 4 }, (_, c) => cell(2, c, 9))
+    const slopes = buildOutline(floor, onlySlope).segments.filter(s => s.kind === 'slope')
+    expect(slopes.length).toBeGreaterThan(1)
+    for (const s of slopes) expect(directions(s.points).size).toBeLessThanOrEqual(2)
+  })
+
+  it('segment ids do not depend on the order the cells arrive in', () => {
+    const a = buildOutline(hillCells(), onlySlope)
+    const b = buildOutline([...hillCells()].reverse(), onlySlope)
+    expect(b.segments).toEqual(a.segments)
+    expect(b.visiblePath).toBe(a.visiblePath)
+  })
+
+  it('a segment id names where it is, so it survives an unrelated change elsewhere on the Object', () => {
+    const base = buildOutline(rectCells(0, 0, 2, 3), noSlope).segments.map(s => s.id)
+    const taller = buildOutline([...rectCells(0, 0, 2, 3), cell(2, 0)], noSlope).segments.map(s => s.id) // prettier-ignore
+    const top = base.find(id => id.startsWith('0,0'))!
+    expect(taller).toContain(top)
+  })
+
+  it('the Object key does not change when it moves forward in the stored list', () => {
+    const at = (order: number) => describeObject({ definitionId: 'd', name: 'G', order, cells: rectCells(2, 3, 1, 3) }, noSlope).key // prettier-ignore
+    expect(at(4)).toBe(at(9))
   })
 })

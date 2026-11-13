@@ -117,13 +117,30 @@ function runsOf(loop: Unit[]): Run[] {
 
 const px = (n: number): number => n * TILE_PX
 
+const dirOf = (r: Run): string =>
+  `${r.units[0]!.x1 - r.units[0]!.x0},${r.units[0]!.y1 - r.units[0]!.y0}`
+
+/**
+ * Whether a run continues a slope chain: the same angle, and still one monotone staircase, which turns
+ * between two directions only. A third direction (down a wall, round a corner) or the same direction
+ * twice in a row starts a new segment.
+ */
+function chainable(chain: readonly Run[], run: Run): boolean {
+  if (run.slope === null || chain[chain.length - 1]!.slope !== run.slope) return false
+  const dirs = new Set(chain.map(dirOf))
+  dirs.add(dirOf(run))
+  return dirs.size <= 2 && dirOf(chain[chain.length - 1]!) !== dirOf(run)
+}
+
 /** The outline and segments of a shape (cells in tile coordinates). */
 export function buildOutline(cells: readonly ObjectCell[], slopeOf: SlopeOf): Outline {
-  const loops = traceLoops(boundaryUnits(cells, slopeOf))
+  // Sorted, so the loops and the segment ids do not depend on the order the cells arrive in.
+  const ordered = [...cells].sort((a, b) => a.row - b.row || a.col - b.col)
+  const loops = traceLoops(boundaryUnits(ordered, slopeOf))
   const visible: string[] = []
   const covered: string[] = []
   const segments: Segment[] = []
-  loops.forEach((loop, li) => {
+  loops.forEach(loop => {
     const runs = runsOf(loop)
     // Draw: a path piece per run and visibility, so a dashed stretch is only the covered stretch.
     for (const run of runs) {
@@ -146,16 +163,20 @@ export function buildOutline(cells: readonly ObjectCell[], slopeOf: SlopeOf): Ou
     const chains: Run[][] = []
     for (const run of runs) {
       const last = chains[chains.length - 1]
-      if (last && run.slope !== null && last[last.length - 1]!.slope === run.slope) last.push(run)
+      if (last && run.slope !== null && chainable(last, run)) last.push(run)
       else chains.push([run])
     }
     const first = chains[0]
     const tail = chains[chains.length - 1]
-    if (chains.length > 1 && first![0]!.slope !== null && first![0]!.slope === tail![0]!.slope) {
-      // The chain straddles the loop start: join the last onto the first.
-      first!.unshift(...chains.pop()!)
+    if (chains.length > 1 && first![0]!.slope !== null && chainable(tail!, first![0]!)) {
+      // The chain straddles the loop start: join the last onto the first, if it is still one staircase.
+      const joined = [...tail!, ...first!]
+      if (joined.every((r, i) => i === 0 || chainable(joined.slice(0, i), r))) {
+        chains.pop()
+        first!.unshift(...tail!)
+      }
     }
-    chains.forEach((chain, ci) => {
+    chains.forEach(chain => {
       const slope = chain[0]!.slope !== null
       const pts: number[] = []
       const units = chain.flatMap(r => r.units)
@@ -170,7 +191,9 @@ export function buildOutline(cells: readonly ObjectCell[], slopeOf: SlopeOf): Ou
         const e = units[units.length - 1]!
         pts.push(px(e.x1), px(e.y1))
       }
-      segments.push({ id: `${li}.${ci}`, kind: slope ? 'slope' : 'straight', points: pts })
+      // Named by where it runs, so it keeps its name when something unrelated changes elsewhere.
+      const id = `${pts[0]},${pts[1]}:${pts[pts.length - 2]},${pts[pts.length - 1]}`
+      segments.push({ id, kind: slope ? 'slope' : 'straight', points: pts })
     })
   })
   return { visiblePath: visible.join(''), coveredPath: covered.join(''), segments }

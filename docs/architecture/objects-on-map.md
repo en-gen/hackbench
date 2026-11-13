@@ -2,7 +2,7 @@
 
 Round 1 of the Objects design ([#1234](https://github.com/en-gen/hackbench/issues/1234)) is read-only: the
 map view finds the project's saved Objects and lets the user select them and their edge segments. Nothing
-here writes to the map, the working copy or `ops/`. Words follow [the glossary](../glossary.md): an **Object**
+here writes to the map, the working copy or `ops/`. Words: an **Object**
 is a definition, or one placed on a map; a **stored piece** is what the ROM's Layer 1 list holds (the code
 calls it an object, `LevelParser.ts`).
 
@@ -54,6 +54,7 @@ has patch cells on all four sides. Fill on the outline is fine.
 1. Two pieces are in contact where 4-adjacent cells have at least one edge tile between them. Fill beside
    fill proves nothing: on `$103` the ground fill piece sits under every platform interior with the same
    tiles, and counting it would glue all four platforms to it. Cells both pieces cover are overlap, not contact.
+   (Proven by `fill resting beside fill`: ground under the interior of a one-row platform stays out.)
 2. A link counts only when its contact covers at least half of the smaller piece (a wall resting on the
    ground touches one cell of it; an interior beside its edge touches them all).
 3. Links are taken best first: the share of the longer piece the contact line covers, then contact cells,
@@ -66,7 +67,13 @@ A cell's tile in a group is the latest group piece's tile. For the rule a visibl
 (out of the shape when that is not a definition tile), a covered one the group's tile.
 
 **Cut-short edges (call 2).** An edge piece that is one straight run, shorter than the group piece beside
-it, is extended to that piece's extent, repeating its end tile. The added cells are covered.
+it, is extended to that piece's extent, repeating its end tile, but only through cells another piece draws
+over, stopping at the first that is not: over empty sky the list did not cut anything short. The added cells
+are covered.
+
+**Broken Objects.** The pieces alone decide what is one Object. When the visible tiles then contradict the
+rule (an edge tile with fill on all four sides, from a changed tile), the Object is broken: it yields nothing,
+and the visible-tile scan does not offer its pieces back as fragments (#1234: a disagreeing tile blocks a match).
 
 **Visible path.** Definition tiles no piece group shows, as 4-connected patches that pass the rule.
 
@@ -87,7 +94,8 @@ Object uses the largest owner among its cells.
 
 - `mapObjects(manifestPath, slot)` returns `ok { objects, skipped }`, `unavailable { reason, detail? }` or
   `rom-not-located` (never a bare boolean, D103). Cached per working-copy bytes for the expanded map; recognition
-  reruns each call, so a definition changed on disk shows at once. It is separate from `mapScreen`, so the cold
+  reruns each call, so a definition file saved on disk is read the next time the map is read. Nothing watches
+  `meta/objects/`: the view reads again on an edit, a ROM change or a reopen. It is separate from `mapScreen`, so the cold
   open is unchanged. The view re-reads it on the existing edit and ROM-change refresh and records `hb:map-objects`.
 - `object-selection.ts` holds the pure rules. Hit order: a sprite, then a segment of the selected Object,
   then the front-most Object body. A segment answers only on a selected Object, within half a tile (EDGE_BAND) of its
@@ -101,8 +109,9 @@ Object uses the largest owner among its cells.
 
 A ROM with a Map16 per level may give a map tiles the finder cannot know, and matching on them would be
 wrong, so `objectsRefusal` refuses in plain words unless the Map16 table holds the stock 512 tiles and the
-level-load compare at `$05803B` is unhooked (`SMWDisX bank_05.asm:33`; the same site the L2 loader reads).
-This is a stand-in until the hacks milestone traces the loader [PROP, approved by Overwatch]. On the corpus
+level-load compare at `$05803B` is unhooked. That byte is the Layer 2 background compare (`SMWDisX
+bank_05.asm:33`, `CMP.B #$FF`), which Lunar Magic replaces with a jump to its per-level checks; it is a proxy for
+"this ROM has been through Lunar Magic's level loader", not a read of any Map16 loader. This is a stand-in until the hacks milestone traces the loader [PROP, approved by Overwatch]. On the corpus
 it refuses all five hack ROMs and accepts both vanilla ROMs.
 
 ## Limits, stated
@@ -113,6 +122,10 @@ it refuses all five hack ROMs and accepts both vanilla ROMs.
   ground rectangle drawn under and overlapped by a slope piece is not part of the slope's Object.
 - Round 1 call 1's rule is the only thing relating tiles to roles; a definition whose edge and fill overlap is
   refused by the reader.
-- Measured: `recognizeObjects` on `$105` (20 screens) about 7 ms warm and 11 ms cold for one definition; 60
-  synthetic platforms on 20 screens about 20 ms (`test/perf/core/objects.bench.ts`, ids
-  `core.objects.recognize.*`). The view's `hb:map-objects` also times the RPC round trip.
+- Measured (one machine, one stress definition derived from each map's own pieces, vanilla ROM): the largest
+  maps by screens and stored pieces are `$10A` (32 screens, 270 pieces) and `$125` (32, 232). Perf bench medians
+  (`test/perf/core/objects.bench.ts`): `$10A` recognize 6.8 ms, whole read (expand with footprint, then
+  recognize) 12.0 ms; `$125` 4.0 and 7.7 ms; `$105` (20 screens, 88 pieces, mid-size) 6.9 and 10.0 ms. A single
+  process: first call on `$10A` 28.6 ms for the read plus 37.8 ms to recognize, then about 8 ms and 15 ms. 60
+  synthetic platforms on 20 screens: 15.9 ms. The corpus test bounds only a runaway (2 s); the numbers come from the
+  bench ids `core.objects.*`. The view's `hb:map-objects` also times the RPC round trip.

@@ -21,10 +21,12 @@ import type { SlopeOf } from './Outline'
 export const PER_LEVEL_MAP16 = "Objects can't be found on this map: it uses custom per-map tiles."
 
 /**
- * Why Objects cannot be found on this ROM, or null. Round 1 targets a stock Map16 loader: 512 tiles
- * and the unhooked level-load compare at $05803B (SMWDisX bank_05.asm:33). A Lunar Magic hijack there,
- * or an expanded or unreadable Map16 table, may give a map its own tiles, and matching on them would
- * be wrong, so it refuses until the hacks milestone traces the loader [PROP, owner-approved].
+ * Why Objects cannot be found on this ROM, or null. Round 1 targets a stock Map16 loader: 512 tiles and
+ * an unhooked level-load compare at $05803B. That byte is the Layer 2 background compare (SMWDisX
+ * bank_05.asm:33, CMP.B #$FF) that Lunar Magic replaces with a jump to its per-level checks: a proxy for
+ * a Lunar Magic loader, not a read of any Map16 loader. A hijack there, or an expanded or unreadable Map16
+ * table, may give a map its own tiles, and matching on them would be wrong, so it refuses until the hacks
+ * milestone traces the loader [PROP, approved].
  */
 export function objectsRefusal(rom: RomFile): string | null {
   const capacity = map16TileCapacity(rom)

@@ -15,7 +15,7 @@ export interface CellRun {
 }
 
 export interface ObjectDto {
-  /** Stable while the Object keeps its place, so a selection survives a refetch. */
+  /** The definition and the Object top-left cell, not its order, so a selection survives an edit earlier in the list. */
   key: string
   definitionId: string
   name: string
@@ -47,7 +47,7 @@ export function describeObject(found: FoundObject, slopeOf: SlopeOf): ObjectDto 
   const outline = buildOutline(found.cells, slopeOf)
   const top = runs[0]!
   return {
-    key: `${found.definitionId}:${found.order}:${top.row}:${top.col}`,
+    key: `${found.definitionId}:${top.row}:${top.col}`,
     definitionId: found.definitionId,
     name: found.name,
     order: found.order,
@@ -56,4 +56,18 @@ export function describeObject(found: FoundObject, slopeOf: SlopeOf): ObjectDto 
     coveredPath: outline.coveredPath,
     segments: outline.segments,
   }
+}
+
+/**
+ * The DTOs of every found Object. Two Objects of one definition can share a top-left cell (stacked, one
+ * covering the other's corner); the later gets a `#n` suffix in back-to-front order, so keys stay unique.
+ */
+export function describeObjects(found: readonly FoundObject[], slopeOf: SlopeOf): ObjectDto[] {
+  const seen = new Map<string, number>()
+  return found.map(f => {
+    const dto = describeObject(f, slopeOf)
+    const n = seen.get(dto.key) ?? 0
+    seen.set(dto.key, n + 1)
+    return n === 0 ? dto : { ...dto, key: `${dto.key}#${n}` }
+  })
 }
