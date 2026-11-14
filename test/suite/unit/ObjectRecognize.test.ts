@@ -164,7 +164,7 @@ describe('acceptance 3: four stacked platforms', () => {
       }
       const m = stamp(stackPieces(order), 40, 28)
       const found = recognizeObjects(m, [STACK_DEF])
-      // A platform every cell of which a later piece covers has nothing to select: it is not offered (N8).
+      // A platform every cell of which a later piece covers has nothing to select: it is not offered.
       const shown = PLATFORMS.filter(
         (_, k) =>
         m.owners.some((row, r) => row.some((o, c) => [0, 1, 2].some(i => o === 1 + order.indexOf(k * 3 + i)) && r >= PLATFORMS[k]!.y && c >= PLATFORMS[k]!.x && c < PLATFORMS[k]!.x + PLATFORMS[k]!.w)), // prettier-ignore

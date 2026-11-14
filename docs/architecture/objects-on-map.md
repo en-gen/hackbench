@@ -64,12 +64,14 @@ has patch cells on all four sides. Fill on the outline is fine.
    the other (overlapping pieces are one drawn over another: stacked Objects), or when each part holds the
    rule on its own and the merged shape does not (two Objects that touch). A part that already fails on its
    own, a piece that writes an edge tile into its own body, is merged anyway: the group is broken and does
-   not fall apart into fragments. A link that is only an edge beside an edge, between two groups that each
-   already have an edge and fill and hold the rule, is refused too: it would join two whole Objects that
-   touch. One platform directly on top of another is edge over fill, a contact like any other, so with bodies
-   1 or 2 rows tall the merged walls are never surrounded and the two merge into one Object: 60 of 90 cases at
-   each of the heights 1 and 2 (w 4-8, 3 offsets, 6 piece orders), none at 3 rows or more. Side by side they stay
-   two at every height 1-5.
+   not fall apart into fragments (and a broken Object costs only itself, not a whole neighbor). A link side by
+   side (the contact line vertical) between two groups that each already have an edge and fill is refused too:
+   it would join two Objects that touch. Wall on wall above and below is not side by side: a ledge and the
+   continuation of its walls drawn under it is one Object, as the grid says. So one platform above another, the
+   same width or one tile off, merges when its body is 1 or 2 rows tall: 90 of 90 cases at each of those heights
+   (w 4-8, 3 offsets, 6 piece orders), none at 3 rows or more, where the merged walls are surrounded. Side by side
+   they stay two at every height 1-5. Two parts of a tall ledge 3 rows or more each are two Objects (the wall
+   contact covers less than half of the smaller part).
 
 A cell's tile in a group is the latest group piece's tile, except that a later fill-only piece in no link at
 all (it belongs to no Object) drawn over an edge tile replaces it, so a fill piece over a stray edge tile
@@ -146,17 +148,18 @@ it refuses all five hack ROMs and accepts both vanilla ROMs.
   four-platform stack of `$103` (142 definition cells, one tile at a time) stays an Object of one cell in 94
   cells, and there the Object directly behind it breaks exactly as the rule says (no other platform changes,
   none changes its order). In the other 48 cells the tile touches fill of a neighbor's piece through an edge and
-  grouping links it into that platform's edge: 29 leave all four platforms whole, and 19 do not. Of those 19,
-  in 6 a platform is its rectangle plus that one tile; in 13 something else happens: a platform drops out in 5
-  cells (8 platforms lost in all), a platform grows by the tile and one extended cell in 4, and in 4 the tile
-  pulls the 60-cell ground into a platform (84, 100, 150 and 120 cells). In 24 of the 29 cells where the
-  platform that shows the cell should break (the cell and its four neighbors are in its shape) it does not.
+  grouping links it into that platform's edge: 30 leave all four platforms whole, and 18 do not. Of those 18,
+  in 6 a platform is its rectangle plus that one tile; in 4 a platform grows by the tile and one extended cell;
+  in 4 the tile pulls the 60-cell ground into a platform (84, 100, 150 and 120 cells); and in 4 cells a platform
+  drops out (cells (12,10), (20,4), (20,11), (22,4): 10 platforms are missing from the list across those four).
+  In 25 of the 29 cells where the platform that shows the cell should break (the cell and its four neighbors
+  are in its shape) it does not.
 - The same holds for any Object drawn in another's body, not only this stack. A back platform 14 x 10 with a
   front platform 3-5 wide and 2-4 tall at (6,4), and a lone tile at each of the 756 back-interior cells outside
   the front: 648 are correct, 84 keep the back whole, and 24 lose both Objects (the tile links to the front's
   edge and extending that edge down under the back's body makes the front's wall surrounded).
 - A piece that holds fill but changes one visible tile (a 1 x 3 piece of fill, edge, fill laid through the
-  platform's interior) is shielded as a whole Object in front, so the platform still matches: 60 of 60 cases
+  platform's interior) is shielded as a whole Object in front, so the platform still matches: 60 of 60 cases (45 of 45 for the vertical form)
   (w 6-10, h 5-7, every interior position). The screen is the same as for the lone tile, which does break it.
   Both are the same limit: what counts as an edit inside layered Objects, and the rule for it, is for the owner.
 - A stack of 60 seeded piece orders finds 3 Objects, not 4, in 6 of them: a platform every cell of which a later

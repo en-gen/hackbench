@@ -3,8 +3,8 @@
  *
  * An Object is a connected patch of one definition tiles (#1234 round 1 call 1). Two sources:
  *  1. stored pieces, through the footprint every piece wrote: this finds a covered Object whole and
- *     keeps touching Objects apart (the pieces say which tiles belong together; one platform directly
- *     on top of another, 2 rows tall or less, is the one touching case that still merges);
+ *     keeps touching Objects apart (the pieces say which tiles belong together; one platform above
+ *     another, 2 rows tall or less, is the touching case that still merges);
  *  2. visible tiles, for what the pieces do not explain.
  * docs/architecture/objects-on-map.md has the diagram and the ties.
  */
@@ -226,14 +226,15 @@ function groupPieces(
     const tiles = [...g.cells.values()].map(c => isEdge(c.tile))
     return tiles.some(Boolean) && tiles.some(e => !e)
   }
-  for (const { p, q, withFill } of ordered) {
+  for (const { p, q, side, w } of ordered) {
     const a = groupOf.get(p)!
     const b = groupOf.get(q)!
     if (a === b) continue
     if (split && hasEdge(a) && hasEdge(b) && stacked(a, b)) continue
-    // A link that is only an edge beside an edge, between two groups that each already have an edge and fill and
-    // hold the rule, joins two whole Objects that touch: not one.
-    if (split && withFill === 0 && hasBoth(a) && hasBoth(b) && holds(a) && holds(b)) continue
+    // A link side by side (the contact line is vertical) between two groups that each already have an edge and
+    // fill joins two Objects that touch: not one (one that is broken costs only itself, not its neighbor). Wall
+    // on wall above and below (a ledge and the continuation of its walls) is not side by side, and merges.
+    if (split && side * 2 >= w && hasBoth(a) && hasBoth(b)) continue
     const merged: Group = { pieces: new Set([...a.pieces, ...b.pieces]), cells: new Map(a.cells) }
     for (const [k, c] of b.cells) {
       const have = merged.cells.get(k)

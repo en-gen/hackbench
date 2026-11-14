@@ -116,6 +116,13 @@ describe.skipIf(!hasRom(VANILLA))('Objects on $103 screen 0 (acceptance 8)', () 
     expect(found.some(f => f.cells.some(c => !c.visible))).toBe(true)
   })
 
+  it('the whole map: the ledges beyond screen 0 are found whole, tall ledges drawn in two parts included', () => {
+    // The definition is the one derived from screen 0's own pieces. Over the whole of $103 it finds nine Objects;
+    // a ledge drawn as a ledge plus a wall-and-fill continuation is one Object, not a ledge and a stub.
+    const counts = recognizeObjects(inputs, [definition]).map(f => f.cells.length)
+    expect(counts).toEqual([40, 24, 90, 60, 66, 70, 162, 68, 70])
+  })
+
   it('reads the same visible grid the map view draws', () => {
     const built = buildL1Inputs(map, 0x103, SWITCH_FLAGS_UNCLEARED)
     if (!built.ok) throw new Error(built.reason)

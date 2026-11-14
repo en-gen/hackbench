@@ -53,12 +53,13 @@ describe('touching Objects stay two (stored pieces keep them apart)', () => {
           }
         })
 
-  // One platform directly on top of another is edge over fill, which is a contact like any other: with bodies
-  // 3 rows or more the merged walls are surrounded and the two stay apart; with 1 or 2 rows they merge. The
-  // exact counts, for w 4-8, dx -1/0/1 and 6 orders (90 cases per height; 60 merge at 1 and 2 rows), are pinned.
-  const ONE_OBJECT: Record<number, number> = { 1: 60, 2: 60, 3: 0, 4: 0, 5: 0 }
+  // One platform above another, the same width or one tile off, meets it wall on wall and fill on fill: that is
+  // not side by side, so nothing refuses the link (it is how a ledge and the continuation of its walls stay one
+  // Object). With bodies 3 rows or more the merged walls are surrounded and the two stay apart; with 1 or 2 rows
+  // they merge. The exact counts, for w 4-8, dx -1/0/1 and 6 orders (90 cases per height), are pinned.
+  const ONE_OBJECT: Record<number, number> = { 1: 90, 2: 90, 3: 0, 4: 0, 5: 0 }
   for (let h = 1; h <= 5; h++)
-    it(`one platform on top of another, ${h} tall: ${ONE_OBJECT[h]} of 90 cases merge into one Object`, () => {
+    it(`one platform above another, ${h} tall: ${ONE_OBJECT[h]} of 90 cases merge into one Object`, () => {
       let merged = 0
       for (let w = 4; w <= 8; w++)
         for (const dx of [-1, 0, 1])
@@ -72,7 +73,7 @@ describe('touching Objects stay two (stored pieces keep them apart)', () => {
     })
 })
 
-describe('N2: any visible edge tile with the body on all four sides stops the match', () => {
+describe('any visible edge tile with the body on all four sides stops the match', () => {
   const X = 2
   const Y = 2
   for (let w = 5; w <= 9; w++)
@@ -124,7 +125,7 @@ describe('N2: any visible edge tile with the body on all four sides stops the ma
     }
 })
 
-describe('N3: a lone edge tile dropped into the four-platform stack breaks only the platform directly behind it', () => {
+describe('a lone edge tile dropped into the four-platform stack breaks only the platform directly behind it', () => {
   const PL = [
     { x: 8, y: 9, w: 6, left: 3, right: 15 },
     { x: 5, y: 12, w: 5, left: 4, right: 8 },
@@ -187,7 +188,7 @@ describe('N3: a lone edge tile dropped into the four-platform stack breaks only 
   })
 })
 
-describe('N4: an Object in front with fill of its own is not a disagreement; edge tiles alone are', () => {
+describe('an Object in front with fill of its own is not a disagreement; edge tiles alone are', () => {
   for (let bw = 8; bw <= 12; bw += 2)
     for (let bh = 6; bh <= 9; bh += 3)
       for (let fh = 2; fh <= 3; fh++) {
@@ -205,7 +206,7 @@ describe('N4: an Object in front with fill of its own is not a disagreement; edg
       }
 })
 
-describe('N5: twin Objects with identical cells have different keys, whatever order they are listed in', () => {
+describe('twin Objects with identical cells have different keys, whatever order they are listed in', () => {
   // Two Objects with the same cells can both be listed (each shows a different cell of them); the stored pieces
   // that make them tell them apart. They cannot come from one stamped map (the later would hide the earlier).
   for (let w = 2; w <= 6; w++)
@@ -221,7 +222,7 @@ describe('N5: twin Objects with identical cells have different keys, whatever or
       })
 })
 
-describe('N6 and mending: identical visible grids give identical Objects', () => {
+describe('mending: identical visible grids give identical Objects', () => {
   for (let w = 5; w <= 8; w++)
     for (let h = 4; h <= 6; h++)
       it(`${w} x ${h}: a mended platform equals the clean one, and a strip below it stays out`, () => {
@@ -262,38 +263,131 @@ describe('an Object nothing of which shows is not offered', () => {
   }
 })
 
-describe('a mender does not make identical grids identical when it links to an edge elsewhere', () => {
-  // The fill strip that mends the stray edge tile is a mender only while it is in no link. If it also runs
-  // beside an edge piece (a post), it links, is no mender, and the stray edge tile breaks the platform. The
-  // same visible tiles drawn cleanly give the platform and the strip's neighbors.
-  it('plat 5 x 5, a strip over the stray tile and a post of edge tiles beside the strip below the platform', () => {
-    const parts = plat(2, 2, 5, 5)
-    const mid = parts[1]!
-    const bad: Piece = { ...mid, tile: (r: number, c: number) => (r === 3 && c === 4 ? WL : (mid.tile as (r: number) => number)(r)) } // prettier-ignore
-    const strip: Piece = { x: 4, y: 3, w: 1, h: 10, tile: DIRT }
-    const post: Piece = { x: 5, y: 8, w: 1, h: 4, tile: WL }
-    const mended = recognizeObjects(stamp([parts[0]!, bad, parts[2]!, strip, post], 14, 16), [D])
-    const clean = recognizeObjects(stamp([...parts, strip, post], 14, 16), [D])
-    expect(clean.map(f => f.cells.length).sort((a, b) => a - b)).toEqual([14, 25])
-    expect(mended.map(f => f.cells.length)).toEqual([14])
-  })
+describe('a ledge drawn in two parts, one under the other, stays one Object', () => {
+  // The first part is a whole ledge (top row, walls, fill); the second is a continuation: the same walls and
+  // fill with no top row. Their walls meet edge on edge above and below, and the grid is identical to one tall
+  // ledge. The wall link stays whole whenever it covers half of the smaller part (a part 1 or 2 rows tall);
+  // between two parts 3 rows tall or more it does not, and they are two Objects.
+  for (let w = 3; w <= 7; w++)
+    for (let h1 = 1; h1 <= 4; h1++)
+      for (let h2 = 1; h2 <= 4; h2++)
+        it(`${w} wide, parts ${h1} and ${h2} rows: ${h1 >= 3 && h2 >= 3 ? 'two Objects' : 'one Object'}, in 6 piece orders`, () => {
+          const first = plat(2, 2, w, h1)
+          const below = 2 + h1
+          const rest: Piece[] = [
+            { x: 2, y: below, w: 1, h: h2, tile: WL },
+            { x: 3, y: below, w: w - 2, h: h2, tile: DIRT },
+            { x: 1 + w, y: below, w: 1, h: h2, tile: WR },
+          ]
+          const tall = stamp(plat(2, 2, w, h1 + h2), 14, 14)
+          for (let n = 0; n < 6; n++) {
+            const m = stamp(shuffled([...first, ...rest], 11 + n), 14, 14)
+            expect(m.grid, 'the grid is that of one tall ledge').toEqual(tall.grid)
+            const found = recognizeObjects(m, [D])
+            if (h1 >= 3 && h2 >= 3) expect(found, `order ${n}`).toHaveLength(2)
+            else {
+              expect(found, `order ${n}`).toHaveLength(1)
+              expect(found[0]!.cells).toHaveLength(w * (h1 + h2))
+            }
+          }
+        })
 })
 
-describe('slope segments of one run', () => {
+describe('a lone edge tile beside a whole Object joins it', () => {
+  for (let w = 4; w <= 8; w++)
+    for (let h = 1; h <= 5; h++)
+      for (const row of ['top', 'bottom'] as const)
+        it(`${w} x ${h}: a tile left of the ${row} row of the left wall is part of the one Object`, () => {
+          const y = 4
+          const tile: Piece = {
+            x: 1,
+            y: row === 'top' ? y : y + h - 1,
+            w: 1,
+            h: 1,
+            tile: row === 'top' ? TL : WL,
+          }
+          // Listed after the platform and before it: either group may be the first of the link.
+          for (const pieces of [
+            [...plat(2, y, w, h), tile],
+            [tile, ...plat(2, y, w, h)],
+          ]) {
+            const found = recognizeObjects(stamp(pieces, 14, 14), [D])
+            expect(found).toHaveLength(1)
+            expect(found[0]!.cells).toHaveLength(w * h + 1)
+          }
+        })
+})
+
+describe('undoing an edit', () => {
+  for (let w = 5; w <= 8; w++)
+    for (let h = 4; h <= 6; h++)
+      it(`${w} x ${h}: the map with the breaking piece taken out of the map that had it is the map before; leaving it in is not`, () => {
+        const base = plat(2, 2, w, h)
+        const edit: Piece = { x: 4, y: 3, w: 1, h: 1, tile: WL }
+        const before = recognizeObjects(stamp(base, 16, 12), [D])
+        const edited = [...base, edit]
+        expect(recognizeObjects(stamp(edited, 16, 12), [D])).not.toEqual(before)
+        const undone = edited.filter(p => p !== edit)
+        expect(recognizeObjects(stamp(undone, 16, 12), [D])).toEqual(before)
+        // A planted undo that leaves the piece in, or only changes its tile to another edge tile, stays broken.
+        expect(recognizeObjects(stamp([...base, { ...edit, tile: WR }], 16, 12), [D])).not.toEqual(
+          before,
+        )
+      })
+})
+
+describe('mending by a fill strip, swept', () => {
+  // A strip links when its contact with an edge piece beside it covers half of the smaller piece (a post one
+  // tile long beside the strip's last row does; a longer post touching one cell of it does not).
+  for (let w = 5; w <= 8; w++)
+    for (let h = 4; h <= 6; h++)
+      it(`${w} x ${h}: a strip over the stray tile mends it; a one-tile post beside the strip below the platform makes it a linked piece, and the stray tile breaks the platform`, () => {
+        const parts = plat(2, 2, w, h)
+        const mid = parts[1]!
+        const bad: Piece = { ...mid, tile: (r: number, c: number) => (r === 3 && c === 4 ? WL : (mid.tile as (r: number) => number)(r)) } // prettier-ignore
+        const strip: Piece = { x: 4, y: 3, w: 1, h: h + 3, tile: DIRT }
+        const post: Piece = { x: 5, y: 2 + h + 1, w: 1, h: 1, tile: WL }
+        const cleanLinked = recognizeObjects(stamp([...parts, strip, post], 16, 16), [D])
+        const mendedLinked = recognizeObjects(
+          stamp([parts[0]!, bad, parts[2]!, strip, post], 16, 16),
+          [D],
+        )
+        const whole = rectKeys(2, 2, w, h)
+        expect(cleanLinked.some(f => same(keys(f), whole))).toBe(true)
+        expect(mendedLinked.some(f => same(keys(f), whole))).toBe(false)
+        const cleanFree = recognizeObjects(stamp([...parts, strip], 16, 16), [D])
+        const mendedFree = recognizeObjects(stamp([parts[0]!, bad, parts[2]!, strip], 16, 16), [D])
+        expect(mendedFree.map(f => keys(f).size)).toEqual(cleanFree.map(f => keys(f).size))
+      })
+})
+
+describe('a slope tile of one run, swept', () => {
   const cell = (row: number, col: number, tile: number) => ({ row, col, tile, visible: true })
-  it('a slope tile between two flat tiles is one slope segment of its own top, 16 px long', () => {
-    // Documented: the segment is the slope tile's top edge, so it is a `slope` segment with no rise.
-    const cells = [
-      cell(0, 0, 1),
-      cell(0, 1, 9),
-      cell(0, 2, 1),
-      cell(1, 0, 4),
-      cell(1, 1, 4),
-      cell(1, 2, 4),
-    ]
-    const o = buildOutline(cells, t => (t === 9 ? 1 : null))
-    const slope = o.segments.filter(s => s.kind === 'slope')
-    expect(slope).toHaveLength(1)
-    expect(slope[0]!.points).toEqual([16, 0, 32, 0])
-  })
+  for (let n = 3; n <= 7; n++)
+    for (let i = 1; i < n - 1; i++)
+      it(`a slope tile at ${i} of ${n} in a flat top row is one slope segment of its own top, 16 px long`, () => {
+        const cells = Array.from({ length: n }, (_, c) => cell(0, c, c === i ? 9 : 1))
+        for (let c = 0; c < n; c++) cells.push(cell(1, c, 4))
+        const slope = buildOutline(cells, t => (t === 9 ? 1 : null)).segments.filter(
+          s => s.kind === 'slope',
+        )
+        expect(slope).toHaveLength(1)
+        expect(slope[0]!.points).toEqual([i * 16, 0, (i + 1) * 16, 0])
+      })
+})
+
+describe('a broken Object beside a whole one costs only itself', () => {
+  for (const side of ['left', 'right'] as const)
+    for (let w = 5; w <= 7; w++)
+      for (let h = 3; h <= 5; h++)
+        it(`${side}, ${w} x ${h}: the platform with a stray edge tile in its body is gone, its neighbor is whole`, () => {
+          const A = plat(2, 2, w, h)
+          const mid = A[1]!
+          const bad: Piece = { ...mid, tile: (r: number, c: number) => (r === 3 && c === 4 ? WL : (mid.tile as (r: number) => number)(r)) } // prettier-ignore
+          const B = plat(2 + w, 2, w, h)
+          const pieces = side === 'left' ? [A[0]!, bad, A[2]!, ...B] : [...B, A[0]!, bad, A[2]!]
+          const found = recognizeObjects(stamp(pieces, 24, 12), [D])
+          expect(found).toHaveLength(1)
+          expect(same(keys(found[0]!), rectKeys(2 + w, 2, w, h))).toBe(true)
+        })
 })
