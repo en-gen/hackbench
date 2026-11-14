@@ -113,33 +113,26 @@ describe('a lone edge tile dropped into the body of a platform drawn in front of
 })
 
 describe('a piece that holds fill but changes one visible tile', () => {
-  it('is shielded as a whole Object in front: the platform still matches, in 180 of 180 horizontal and 120 of 120 vertical cases', () => {
-    let horizontal = 0
-    let horizontalWhole = 0
-    let vertical = 0
-    let verticalWhole = 0
+  it('is shielded as a whole Object in front: the platform still matches, in 240 of 240 horizontal and 180 of 180 vertical cases', () => {
+    const t = { horizontal: 0, horizontalWhole: 0, vertical: 0, verticalWhole: 0 }
     for (let w = 6; w <= 10; w++)
       for (let h = 5; h <= 7; h++) {
         const whole = rect(2, 2, w, h)
         const base = plat(2, 2, w, h)
-        for (let r = 3; r <= 2 + h - 2; r++)
-          for (let c = 4; c <= 2 + w - 3; c++) {
-            // Along a row: fill, edge, fill, the middle tile changing.
-            if (c >= 4 && c + 2 <= 2 + w - 2) {
-              const piece: Piece = { x: c - 1, y: r, w: 3, h: 1, tile: (_r: number, cc: number) => (cc === c ? WL : DIRT) } // prettier-ignore
-              if (c - 1 >= 3 && c + 1 <= 2 + w - 3) {
-                horizontal++
-                if (recognizeObjects(stamp([...base, piece], 20, 14), [D]).some(o => same(keys(o), whole))) horizontalWhole++ // prettier-ignore
-              }
-            }
-            // Down a column.
-            if (r - 1 >= 3 && r + 1 <= 2 + h - 2) {
-              const piece: Piece = { x: c, y: r - 1, w: 1, h: 3, tile: (rr: number) => (rr === r ? WL : DIRT) } // prettier-ignore
-              vertical++
-              if (recognizeObjects(stamp([...base, piece], 20, 14), [D]).some(o => same(keys(o), whole))) verticalWhole++ // prettier-ignore
-            }
+        const stillWhole = (piece: Piece) => recognizeObjects(stamp([...base, piece], 20, 14), [D]).some(o => same(keys(o), whole)) // prettier-ignore
+        // The body is cols 3..w and rows 3..h (the walls and the top row are outside it). Along a row: fill, edge,
+        // fill, the middle tile changing; down a column the same.
+        for (let r = 3; r <= h; r++)
+          for (let c = 4; c <= w - 1; c++) {
+            t.horizontal++
+            if (stillWhole({ x: c - 1, y: r, w: 3, h: 1, tile: (_r: number, cc: number) => (cc === c ? WL : DIRT) })) t.horizontalWhole++ // prettier-ignore
+          }
+        for (let c = 3; c <= w; c++)
+          for (let r = 4; r <= h - 1; r++) {
+            t.vertical++
+            if (stillWhole({ x: c, y: r - 1, w: 1, h: 3, tile: (rr: number) => (rr === r ? WL : DIRT) })) t.verticalWhole++ // prettier-ignore
           }
       }
-    expect({ horizontal, horizontalWhole, vertical, verticalWhole }).toEqual({ horizontal: 180, horizontalWhole: 180, vertical: 120, verticalWhole: 120 }) // prettier-ignore
+    expect(t).toEqual({ horizontal: 240, horizontalWhole: 240, vertical: 180, verticalWhole: 180 })
   })
 })

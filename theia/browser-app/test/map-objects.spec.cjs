@@ -445,8 +445,9 @@ test.describe('platforms on $103 (straight sides)', () => {
 })
 
 test.describe('a sloped ground Object', () => {
-  // Plant: draw every segment as kind 'straight' (Outline.ts: `kind: slope ? 'slope' : 'straight'` -> 'straight'):
-  // this goes red at the `data-kind` assertion.
+  // Plant: have the overlay write a fixed `data-kind="straight"` (object-overlay.tsx: `data-kind={s.kind}` becomes
+  // `data-kind="straight"`): this goes red at the `data-kind` assertion. (Making Outline.ts emit only 'straight'
+  // fails earlier, in the fixture, which finds the slope map from the same outline.)
   test('a slope segment answers inside the band and not deeper in or outside it', async ({
     page,
   }) => {
@@ -505,14 +506,10 @@ test('a map whose tiles are per level says Objects cannot be found there, in pla
   )
   await page.locator(`${rootOf(0x103)} [data-objects="unavailable"]`).waitFor({ timeout: 30000 })
   await expect(page.locator(`${rootOf(0x103)} [data-note="objects"]`)).toHaveText(WHY)
-  // Nothing responds: a click where an Object would be selects nothing. A real pointer click at a point of the
-  // map that is on screen (the canvas planes sit over the strip, so a locator click would be intercepted).
-  const at = await page.evaluate(strip => {
-    const el = document.querySelector(strip)
-    const view = el.closest('[data-control="map-scroller"]').getBoundingClientRect()
-    const r = el.getBoundingClientRect()
-    return { x: Math.max(r.left, view.left) + 60, y: Math.max(r.top, view.top) + 60 }
-  }, stripOf(0x103))
-  await page.mouse.click(at.x, at.y)
+  // Nothing was found and nothing is drawn: the strip reports no Objects, and no overlay exists.
+  await expect(page.locator(`${rootOf(0x103)} [data-objects="unavailable"]`)).toHaveAttribute(
+    'data-object-count',
+    '0',
+  )
   await expect(page.locator(overlay(0x103))).toHaveCount(0)
 })

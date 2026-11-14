@@ -224,10 +224,37 @@ function groupPieces(
     .sort((a, b) => Number(b.withFill > 0) - Number(a.withFill > 0) || b.score - a.score || b.w - a.w || a.p - b.p || a.q - b.q) // prettier-ignore
   // The rule is judged with the pieces that took part in no link known, so the first thing to say is which.
   const holds = holdsFor(new Set(ordered.flatMap(l => [l.p, l.q])))
-  const hasBoth = (g: Group) => {
-    const tiles = [...g.cells.values()].map(c => isEdge(c.tile))
-    return g.pieces.size > 1 && tiles.some(Boolean) && tiles.some(e => !e)
+  // A group is a whole Object on its own when it closes: some row has an edge tile left of fill and an edge tile
+  // right of it. A cap or a slope has an edge on one side only (the hill goes on beyond it); a one-piece platform,
+  // a pipe or a block closes, and so does any multi-piece Object that is complete.
+  const closes = (g: Group) => {
+    const rows = new Map<
+      number,
+      { edgeMin: number; edgeMax: number; fillMin: number; fillMax: number }
+    >()
+    for (const [k, c] of g.cells) {
+      const r = rowOf(k)
+      const col = colOf(k)
+      const v = rows.get(r) ?? {
+        edgeMin: Infinity,
+        edgeMax: -Infinity,
+        fillMin: Infinity,
+        fillMax: -Infinity,
+      }
+      if (isEdge(c.tile)) {
+        v.edgeMin = Math.min(v.edgeMin, col)
+        v.edgeMax = Math.max(v.edgeMax, col)
+      } else {
+        v.fillMin = Math.min(v.fillMin, col)
+        v.fillMax = Math.max(v.fillMax, col)
+      }
+      rows.set(r, v)
+    }
+    return [...rows.values()].some(
+      v => v.fillMin <= v.fillMax && v.edgeMin < v.fillMin && v.fillMax < v.edgeMax,
+    )
   }
+  const hasBoth = closes
   for (const { p, q, withFill, side, w } of ordered) {
     const a = groupOf.get(p)!
     const b = groupOf.get(q)!

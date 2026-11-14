@@ -25,7 +25,27 @@ const NOT_FOUND = "Objects can't be found on this map: its data could not be rea
 /** Expanded maps kept per working-copy bytes: a whole ROM's maps are not. */
 const MAPS_PER_BYTES = 4
 
-const kept = new WeakMap<Uint8Array, Map<number, ObjectInputs>>()
+/**
+ * Values kept per working-copy bytes and map slot. The key is the array itself: the working copy hands out a new
+ * array for every change (an edit, its undo, a redo), so a value for old bytes is never served for new ones; a
+ * map slot has at most `MAPS_PER_BYTES` values kept for one array.
+ */
+export class PerBytes<T> {
+  private readonly byBytes = new WeakMap<Uint8Array, Map<number, T>>()
+
+  /** The value for this array and slot, built (and kept) on first ask. */
+  get(bytes: Uint8Array, index: number, build: () => T): T {
+    let maps = this.byBytes.get(bytes)
+    if (!maps) this.byBytes.set(bytes, (maps = new Map()))
+    if (maps.has(index)) return maps.get(index)!
+    const value = build()
+    if (maps.size >= MAPS_PER_BYTES) maps.delete(maps.keys().next().value!)
+    maps.set(index, value)
+    return value
+  }
+}
+
+const kept = new PerBytes<ObjectInputs>()
 
 /** Finds the project's Objects on one map of the working copy. */
 export function mapObjects(
@@ -43,14 +63,9 @@ export function mapObjects(
     // The map must be one the view can draw: its refusals (boss arenas, unreadable data) are ours too.
     const built = cache.get(bytes, romPath, index, NO_FLAGS)
     if (!built.ok) return unreadable(built.detail ?? built.reason, NOT_FOUND)
-    let maps = kept.get(bytes)
-    if (!maps) kept.set(bytes, (maps = new Map()))
-    let inputs = maps.get(index)
-    if (!inputs) {
-      inputs = readObjectInputs(rom, index, SWITCH_FLAGS_UNCLEARED)
-      if (maps.size >= MAPS_PER_BYTES) maps.delete(maps.keys().next().value!)
-      maps.set(index, inputs)
-    }
+    const inputs = kept.get(bytes, index, () =>
+      readObjectInputs(rom, index, SWITCH_FLAGS_UNCLEARED),
+    )
     // The refusal is already plain words and says why Objects cannot be found here.
     if (!inputs.ok) return { status: 'unavailable', reason: inputs.reason }
     const capacity = map16TileCapacity(rom.rom)

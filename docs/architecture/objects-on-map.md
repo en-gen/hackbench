@@ -65,19 +65,23 @@ has patch cells on all four sides. Fill on the outline is fine.
    rule on its own and the merged shape does not (two Objects that touch). A part that already fails on its
    own, a piece that writes an edge tile into its own body, is merged anyway: the group is broken and does
    not fall apart into fragments (and a broken Object costs only itself, not a whole neighbor). A link that is
-   only an edge beside an edge, side by side (the contact line vertical), between two groups that each already
-   hold more than one piece and have an edge and fill is refused too: it would join two Objects that touch. A
+   only an edge beside an edge, side by side (the contact line vertical, at least half of the contact cells),
+   between two groups that each close (some row has an edge tile left of fill and one right of it) is refused too:
+   it would join two Objects that touch. A group that does not close is a cap or a slope, the end of the hill
+   beside it, and merges; a one-piece platform, a pipe or a block closes, and stays its own Object. A
    wall beside an interior (edge beside fill) is a ledge extended sideways and merges; so does wall on wall above
-   and below: a ledge and the continuation of its walls drawn under it is one Object, as the grid says. A group of
-   one piece (a cap, a slope) is not yet an Object, so it merges with the ledge it ends. What still merges:
+   and below: a ledge and the continuation of its walls drawn under it is one Object, as the grid says. What still
+   merges:
    a ledge and its continuation; one ledge above another, the same width or one tile off, when its body is 1 or 2
    rows tall (90 of 90 cases at each of those heights; w 4-8, 3 offsets, 6 piece orders); a ledge extended
    sideways; a lone edge tile or a one-piece cap or slope beside a wall. At 3 rows or more one ledge above another
    stays two because the wall contact (one cell) covers less than half of a wall piece 3 or more cells tall, so it
    is not a strong link (at an offset of one tile the merged walls are also surrounded). Side by side two whole
-   ledges stay two at every height 1-5. Whether the side threshold (`side * 2 >= w`) is the only one that
-   works is not pinned: about 18,000 two-ledge placements (w 3-5, h 1-4 each, every non-overlapping offset, 3
-   piece orders) give the same result for `>`, `side > 0` and `side === w`.
+   ledges stay two at every height 1-5, whether either is drawn as one piece or several. [PROP] The side threshold is
+   `side * 2 >= w`: half of the contact cells or more. Two rectangles touch along a straight line, so only an L
+   contact tells thresholds apart, and two shapes are pinned: a wall piece 1 wide against a 2-row piece that
+   is an L of edge tiles beside and below it (1 of 2 contact cells side by side) stays two Objects; with the wall
+   piece 2 wide (1 of 3) the two merge.
 
 A cell's tile in a group is the latest group piece's tile, except that a later fill-only piece in no link at
 all (it belongs to no Object) drawn over an edge tile replaces it, so a fill piece over a stray edge tile
@@ -166,8 +170,8 @@ it refuses all five hack ROMs and accepts both vanilla ROMs.
   the front: 648 are correct, 84 keep the back whole, and 24 lose both Objects (the tile links to the front's
   edge and extending that edge down under the back's body makes the front's wall surrounded).
 - A piece that holds fill but changes one visible tile (a 1 x 3 piece of fill, edge, fill laid through the
-  platform's interior) is shielded as a whole Object in front, so the platform still matches: 180 of 180 cases
-  (120 of 120 for the vertical form; w 6-10, h 5-7, every interior position the piece fits). The screen is the same as for the lone tile, which does break it.
+  platform's interior) is shielded as a whole Object in front, so the platform still matches: 240 of 240 cases
+  (180 of 180 for the vertical form; w 6-10, h 5-7, every position of the three-tile piece inside the body). The screen is the same as for the lone tile, which does break it.
   Both are the same limit: what counts as an edit inside layered Objects, and the rule for it, is for the owner.
 - A stack of 60 seeded piece orders finds 3 Objects, not 4, in 6 of them: a platform every cell of which a later
   piece covers has nothing to select and is not offered.

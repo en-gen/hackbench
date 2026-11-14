@@ -178,8 +178,8 @@ describe('a lone edge tile dropped into the four-platform stack breaks only the 
               bad.push(`${r},${c}: platform ${k} order ${was.order} -> ${now.order}`)
           }
       }
-    // Only where the tile stays alone is the oracle exact; where it links into a neighbor's edge it is that
-    // platform's edge tile and nothing is lost .
+    // The oracle is exact where the tile stays alone; where it links into a neighbor's edge it is that platform's
+    // edge tile (the known limit).
     console.info(`stack sweep: ${probed} cells, the tile stays alone in ${alone}`)
     // At least the 94 cells where the tile stays alone (48 more link into a neighbor: see the known limit).
     expect(alone).toBeGreaterThanOrEqual(94)
@@ -424,4 +424,77 @@ describe('one piece that holds an edge and fill beside a ledge is not yet an Obj
           }
       expect({ whole, total }).toEqual({ whole: 72, total: 72 })
     })
+})
+
+describe('an Object drawn as one stored piece beside a ledge stays its own Object', () => {
+  // One piece with a wall on each side and fill between is a whole Object (a pipe, a block, a ledge drawn by one
+  // object), not the end of the ledge beside it: that is the difference from a cap or slope, which has an edge on
+  // one side only.
+  const one = (x: number, y: number, w: number, h: number): Piece => ({
+    x,
+    y,
+    w,
+    h,
+    tile: (r: number, c: number) => (c === x ? (r === y ? TL : WL) : c === x + w - 1 ? (r === y ? TR : WR) : r === y ? FTOP : DIRT), // prettier-ignore
+  })
+  for (const oneOnLeft of [true, false])
+    for (let h = 1; h <= 5; h++)
+      it(`${h} tall, the one-piece Object on the ${oneOnLeft ? 'left' : 'right'}: two Objects at w 4-8, offsets -1/0/1, 6 piece orders`, () => {
+        let two = 0
+        let total = 0
+        for (let w = 4; w <= 8; w++)
+          for (const dy of [-1, 0, 1])
+            for (let n = 0; n < 6; n++) {
+              const left = oneOnLeft ? [one(2, 4, w, h)] : plat(2, 4, w, h)
+              const right = oneOnLeft ? plat(2 + w, 4 + dy, w, h) : [one(2 + w, 4 + dy, w, h)]
+              const found = recognizeObjects(stamp(shuffled([...left, ...right], 51 + n), 30, 14), [
+                D,
+              ])
+              total++
+              if (found.length === 2) two++
+            }
+        expect({ two, total }).toEqual({ two: 90, total: 90 })
+      })
+})
+
+describe('the side threshold: a contact that is partly side by side and partly above', () => {
+  // Ledge A (one row) ends in a wall piece p that is pw tiles wide. Ledge B starts with a piece q, two rows tall,
+  // whose top row is not definition tiles up to and including the cell p covers (p is drawn after q): q is an
+  // L of edge tiles beside p (to its right) and below it. The contact is 1 cell side by side and pw below
+  // (w = 1 + pw): with pw = 1 half of it is side by side, which counts, and the two stay two Objects; with pw = 2
+  // a third is, which does not, and they merge into one.
+  for (let aw = 2; aw <= 4; aw++)
+    for (let bw = 1; bw <= 3; bw++)
+      for (const pw of [1, 2]) {
+        it(`A interior ${aw}, B interior ${bw}, p ${pw} wide: ${pw === 1 ? 'two Objects' : 'one Object'}, in 6 piece orders`, () => {
+          const x = 2
+          const y = 4
+          const pStart = x + 1 + aw
+          const pEnd = pStart + pw - 1
+          const left: Piece = { x, y, w: 1, h: 1, tile: TL }
+          const interior: Piece = { x: x + 1, y, w: aw, h: 1, tile: FTOP }
+          const p: Piece = { x: pStart, y, w: pw, h: 1, tile: TR }
+          const q: Piece = { x: pStart, y, w: pw + 1, h: 2, tile: (r: number, c: number) => (r === y && c <= pEnd ? 0x99 : WL) } // prettier-ignore
+          const bInterior: Piece = {
+            x: pEnd + 2,
+            y,
+            w: bw,
+            h: 2,
+            tile: (r: number) => (r === y ? FTOP : DIRT),
+          }
+          const bRight: Piece = {
+            x: pEnd + 2 + bw,
+            y,
+            w: 1,
+            h: 2,
+            tile: (r: number) => (r === y ? TR : WR),
+          }
+          for (let n = 0; n < 6; n++) {
+            // q is drawn before p; the others in any order.
+            const others = shuffled([left, interior, bInterior, bRight], 61 + n)
+            const found = recognizeObjects(stamp([q, p, ...others], 30, 12), [D])
+            expect(found, `order ${n}`).toHaveLength(pw === 1 ? 2 : 1)
+          }
+        })
+      }
 })
