@@ -10,8 +10,10 @@ export const opaque = (s: MapSpriteDto): Set<string> => {
   return out
 }
 
-/** The pixels two sprites both draw. */
-export const sharedPixels = (a: MapSpriteDto, b: MapSpriteDto): string[] => {
-  const other = opaque(b)
-  return Array.from(opaque(a)).filter(p => other.has(p))
-}
+type Box = MapSpriteDto['box']
+/**
+ * The empty space between two boxes in pixels: the larger of the horizontal and vertical gaps, so 0 or less means they
+ * touch or overlap and a positive value is how far apart they stand.
+ */
+export const boxGap = (a: Box, b: Box): number =>
+  Math.max(a.x0 - b.x1, b.x0 - a.x1, a.y0 - b.y1, b.y0 - a.y1)

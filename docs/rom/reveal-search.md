@@ -99,6 +99,6 @@ and when that delay reaches 1 the routine sets the timer to $1F (bank_01.asm:802
 position, the P-switch, the ON/OFF cell, a frame count) arms that timer, so the search ends `unrevealed` and the verdict is
 the quiet ring at the placed spot (reveal "none-found" would need a punch; showing one is #1171, owner ruling D99 question 1).
 Measured on the vanilla ROM, one machine, 2026-11-13: all six $54 (map $101 at (1280,272), (1536,304), (1696,304); map $1D3
-at (176,272), (352,272), (512,272)) are `quiet` / `unrevealed`, and none of their pixels is a pixel of the 32 drawn castle flames
-($E6) on $101. The hand-picked tile at `SpriteTileLoader.ts:231` is not on this drawing path. Tests:
+at (176,272), (352,272), (512,272)) are `quiet` / `unrevealed` at their placed spots. On $101 the nearest castle flame ($E6, 32 drawn at y 240-256) stands
+16 px from the first door box and 48 px from the other two (box gaps, same measurement). The hand-picked tile at `SpriteTileLoader.ts:231` is not on this drawing path. Tests:
 `TimerGatedSprite.test.ts` (synthetic, no ROM), `TimerGatedSprite.corpus.test.ts`, `map-net-door.spec.cjs`.

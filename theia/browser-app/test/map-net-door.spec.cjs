@@ -10,7 +10,7 @@
  *   N1 map-sprites.ts `render`: drop the empty-run quiet verdict (never return quiet): the reply case and both pixel cases.
  *   N2 map-sprites.ts `ring()`: fill the interior (return an opaque 16 x 16): the interior pixel case.
  *   N3 map-sprites.ts `quiet(...)`: offset x by 1: the reply case (placed spot).
- *   N4 map-sprites.ts `quiet(...)`: return a box 16 px larger than the placed spot: the flame-overlap case.
+ *   N4 map-sprites.ts `quiet(...)`: return a box 16 px larger than the placed spot: the 16 x 16 box assertion in the reply case.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
@@ -171,8 +171,9 @@ test('the castle flames beside the doors are drawn, and no door box touches a fl
   const flames = r.sprites.filter(s => s.id === 0xe6 && s.status === 'drawn')
   expect(flames.length).toBe(32)
   const touches = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1
-  for (const [x, y] of PLACED) {
-    const box = { x0: x, y0: y, x1: x + 16, y1: y + 16 }
+  const doors = r.sprites.filter(s => s.id === 0x54)
+  expect(doors.length).toBe(PLACED.length)
+  for (const { x, y, box } of doors) {
     for (const f of flames)
       expect(touches(box, f.box), `door ${x},${y} and flame at ${f.box.x0},${f.box.y0}`).toBe(false)
     // The flame nearest the door still draws its own pixels: sprite layer on against off.

@@ -5,7 +5,8 @@
  * needs no ROM; the vanilla doors are in TimerGatedSprite.corpus.test.ts.
  *
  * The loader's id routing is stubbed readable: the synthetic cart has no level loader call, and an empty run on an unread
- * routing keeps the box by design (#1011), which would hide the verdict under test.
+ * routing keeps the box by design (#1011), which would hide the verdict under test. So a LoadClass regression on the vanilla
+ * ROM is caught only by TimerGatedSprite.corpus.test.ts (QuietMarker.test.ts covers LoadClass synthetically).
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
@@ -18,7 +19,7 @@ import {
 } from '../../../theia/extension/src/node/map-sprites'
 import { buildSyntheticRom } from '../support/syntheticSpriteRom'
 import { COLORS } from '../support/mapInputs'
-import { sharedPixels } from '../support/spritePixels'
+import { boxGap } from '../support/spritePixels'
 
 vi.mock('../../../src/rom/sprites/interp/LoadClass', async importOriginal => ({
   ...(await importOriginal<typeof import('../../../src/rom/sprites/interp/LoadClass')>()),
@@ -68,24 +69,25 @@ describe('a sprite that draws only while its own timer runs (#1002)', () => {
   })
 
   it('is the timer that gates it: the same sprite draws once its timer is nonzero', () => {
-    // Every slot's $1540 set, so the check does not depend on which slot the run uses.
-    const ram = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [0x1540 + i, 0x1f]))
+    // Every slot's $1540 set, so the check does not depend on which slot the run uses; a range of nonzero values.
     const placed = { sprite: { x: 0x1000, y: 0x120 }, camera: { x: 0xf80, y: 0xb0 } }
-    const armed = modelResult(
-      runWithUploads(rom, TIMER_GATED, withSeed({ ...placed, ram }, base())),
-    )
-    expect(armed.ok, JSON.stringify(armed)).toBe(true)
+    for (const t of [1, 0x10, 0x1f, 0xff]) {
+      const ram = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [0x1540 + i, t]))
+      const armed = modelResult(runWithUploads(rom, TIMER_GATED, withSeed({ ...placed, ram }, base()))) // prettier-ignore
+      expect(armed.ok, `timer ${t}: ${JSON.stringify(armed)}`).toBe(true)
+    }
     const rest = modelResult(runWithUploads(rom, TIMER_GATED, withSeed(placed, base())))
     expect(rest.ok).toBe(false)
   })
 })
 
-describe('the pixel-overlap check the corpus test uses can fail (#1002)', () => {
+describe('the box-gap check the corpus test uses can fail (#1002)', () => {
   const ring = served(TIMER_GATED)
-  it('sees a sprite planted on the ring, and not one a tile away', () => {
-    expect(sharedPixels(ring, ring).length).toBeGreaterThan(20)
-    const at = (dx: number) => ({ ...ring, box: { ...ring.box, x0: ring.box.x0 + dx, x1: ring.box.x1 + dx } }) // prettier-ignore
-    expect(sharedPixels(ring, at(1)).length).toBeGreaterThan(0)
-    expect(sharedPixels(ring, at(16))).toEqual([])
+  it('reports touching and overlapping boxes as no gap, and a sprite a tile away as the space between', () => {
+    const at = (dx: number, dy = 0) => ({ x0: ring.box.x0 + dx, x1: ring.box.x1 + dx, y0: ring.box.y0 + dy, y1: ring.box.y1 + dy }) // prettier-ignore
+    expect(boxGap(ring.box, at(0))).toBeLessThan(0)
+    expect(boxGap(ring.box, at(16))).toBe(0)
+    expect(boxGap(ring.box, at(32))).toBe(16)
+    expect(boxGap(ring.box, at(0, 48))).toBe(32)
   })
 })
