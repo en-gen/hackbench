@@ -206,7 +206,7 @@ export interface SpriteModel {
   seedSource?: 'rom-level-load' | 'generic'
   /** The run began from the loader image with this sprite's INIT latch put back (InitLatches.ts). */
   initLatched?: boolean
-  /** The sprite's INIT places its own sprites at fixed map positions: drawn there, not re-based onto the placed spot (InitLatches.ts). */
+  /** The sprite's INIT places its own sprites at fixed map positions: drawn where INIT put them, whatever the list spot (InitLatches.ts). */
   absolutePlacement?: boolean
   /** Plain words for why an absolute-placement picture is not the traced one (InitLatches.ts `tracedSetting`); the view marks the sprite unverified. */
   unverifiedReason?: string
@@ -970,7 +970,7 @@ function runCore(
     const placed = { x: m.seed.sprite.x, y: m.seed.sprite.y }
     // INIT can move a sprite off the screen the run was centred on (the grinders' -$140, the Podoboo's drop),
     // and GetDrawInfo then culls it. The camera only picks which screen the picture is taken on: centre it on the
-    // post-INIT spot; the drawing is re-based onto the placed spot below (D139 D, D134).
+    // post-INIT spot, which is also where the picture stands (#1231).
     if (model.absolutePlacement) {
       // The camera comes from the grid itself, never from the placed spot: the game draws these blocks with 8-bit OAM
       // coordinates (SMWDisX bank_01.asm:12866-12869, 12934-12940), so a camera that moved with the list entry wrapped or
@@ -978,7 +978,7 @@ function runCore(
       m.recentre(anchor.x - 128 - m.seed.camera.x, anchor.y - 112 - m.seed.camera.y)
     } else if (atRest) m.recentre(anchor.x - placed.x, anchor.y - placed.y)
     // D158 / Decision 124 (A): a sprite whose INIT lays out its own sprites at fixed map positions (absolutePlacement) is
-    // drawn where the INIT put them and its list spot is reported as `listPos`; that never depended on the re-base this replaced.
+    // drawn where the INIT put them (as every sprite is now); its list spot stays in `rawX`, `rawY`.
     // #1231 (Decision 2026-11-14, replacing D134's re-base): at rest the drawing stands where INIT left the sprite, for every
     // sprite; the stored spot (`rawX`, `rawY`) stays its data. A sprite the loader never shows in play goes back to its tile below.
     model.anchor = { ...anchor, rawX: placed.x, rawY: placed.y }

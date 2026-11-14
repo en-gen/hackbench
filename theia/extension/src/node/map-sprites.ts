@@ -1459,7 +1459,7 @@ export function framesOf(
   return why ? { frames, reason: why } : { frames }
 }
 
-/** The run behind a sprite's frames: at rest, like the map's picture (D139 D: INIT's look, D134 position), so frame 0 is that bitmap. */
+/** The run behind a sprite's frames: at rest, like the map's picture (#1231: INIT's look and position), so frame 0 is that bitmap. */
 export function frameRun(
   rom: RomFile,
   index: number,

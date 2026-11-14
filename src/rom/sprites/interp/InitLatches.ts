@@ -28,7 +28,7 @@ export interface InitLatch {
   code: readonly CodeFingerprint[]
   /**
    * The INIT places its own sprites at fixed positions of the map and ignores where the list put the sprite, so the
-   * map view must not re-base the picture onto the placed spot (D134/D139-D) or move it with a drag.
+   * map view must not move the picture with a drag (D158).
    */
   absolute: boolean
   /** With `absolute`: the sprite memory setting ($1692) the picture was traced for; any other draws with an `unverified` reason. */
