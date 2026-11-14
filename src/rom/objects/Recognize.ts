@@ -140,7 +140,6 @@ function groupPieces(
   isEdge: (tile: number) => boolean,
   split: boolean,
   holds: (g: Group) => boolean,
-  holdsByPieces: (g: Group) => boolean,
 ): Group[] {
   const pieces = new Map<number, Map<number, Cell>>()
   const coverers = new Map<number, number[]>()
@@ -226,13 +225,54 @@ function groupPieces(
       const have = merged.cells.get(k)
       if (!have || c.piece > have.piece) merged.cells.set(k, c)
     }
-    // The pieces alone decide what is one Object. A merge the pieces allow but the visible tiles contradict
-    // is still one Object, a broken one: it yields nothing, and does not fall apart into fragments.
-    if (split && !holdsByPieces(merged)) continue
-    merged.broken = a.broken || b.broken || (split && !holds(merged))
+    // The pieces decide what is one Object, and each cell shows the latest group piece's tile. A merge whose
+    // shape then holds an edge tile with shape cells on all four sides is still one Object, a broken one
+    // (#1234: a disagreeing tile blocks the match): it yields nothing, and does not fall apart into fragments.
+    merged.broken = split && !holds(merged)
     for (const m of merged.pieces) groupOf.set(m, merged)
   }
+  if (split) mendBroken(groupOf, pieces, coverers, isEdge, holds)
   return [...new Set(groupOf.values())]
+}
+
+/**
+ * A broken group is mended by a later piece of fill tiles drawn over its offending edge tile: that piece
+ * is a definition piece too, joins the group, and its tile is the latest, so the edge tile is gone. Only a
+ * piece with no edge tile of its own mends: another Object drawn there is a different Object.
+ */
+function mendBroken(
+  groupOf: Map<number, Group>,
+  pieces: ReadonlyMap<number, Map<number, Cell>>,
+  coverers: ReadonlyMap<number, number[]>,
+  isEdge: (tile: number) => boolean,
+  holds: (g: Group) => boolean,
+): void {
+  const hasEdge = (g: Group) => [...g.cells.values()].some(c => isEdge(c.tile))
+  for (let changed = true; changed;) {
+    changed = false
+    for (const g of new Set(groupOf.values())) {
+      if (!g.broken) continue
+      for (const [k, c] of g.cells) {
+        if (!isEdge(c.tile)) continue
+        if (!NEIGHBORS.every(([dr, dc]) => g.cells.has(key(rowOf(k) + dr, colOf(k) + dc)))) continue
+        for (const q of coverers.get(k) ?? []) {
+          const mender = groupOf.get(q)!
+          if (g.pieces.has(q) || q < c.piece || hasEdge(mender)) continue
+          const merged: Group = { pieces: new Set([...g.pieces, ...mender.pieces]), cells: new Map(g.cells) } // prettier-ignore
+          for (const [mk, mc] of mender.cells) {
+            const have = merged.cells.get(mk)
+            if (!have || mc.piece > have.piece) merged.cells.set(mk, mc)
+          }
+          merged.broken = !holds(merged)
+          for (const m of merged.pieces) groupOf.set(m, merged)
+          changed = true
+          break
+        }
+        if (changed) break
+      }
+      if (changed) break
+    }
+  }
 }
 
 /** One definition: piece path, cut-short edges, then the visible path. */
@@ -262,19 +302,14 @@ function recognizeOne(
     }
     return out
   }
-  /** The merge-time half of the rule: no surrounded edge tile. At least one edge waits for a whole group. */
+  /** The rule on what the pieces wrote: no edge tile with shape cells on all four sides. */
   const holds = (g: Group): boolean => {
-    const shape = shapeOf(g)
-    return !hasSurroundedEdge(shape.keys(), k => shape.get(k), isEdge)
-  }
-  /** The same test on what the pieces wrote, ignoring the grid: false means the pieces themselves stack. */
-  const holdsByPieces = (g: Group): boolean => {
     const shape = shapeOf(g, false)
     return !hasSurroundedEdge(shape.keys(), k => shape.get(k), isEdge)
   }
 
   // 1. Piece path: stored pieces are linked into groups, strongest contact first.
-  const groups = groupPieces(allPieces, defTiles, isEdge, split, holds, holdsByPieces)
+  const groups = groupPieces(allPieces, defTiles, isEdge, split, holds)
   // 2. Edges the list cut short are extended to the extent of the pieces beside them, under what covers them.
   const coveredByOther = (g: Group, k: number) => {
     const o = ownerAt(k)
@@ -285,6 +320,26 @@ function recognizeOne(
   // The shapes that pass the rule whole.
   const out: FoundObject[] = []
   const shown = new Set<number>()
+  // A later piece that drops only edge tiles into the middle of another Object's body (each with shape cells on
+  // all four sides) makes a visible tile disagree: it stops the match of the Object it sits in. The lone
+  // tiles then follow the ordinary rule as Objects of their own. (A whole Object drawn in front is not that.)
+  const edgeOnly = groups.filter(
+    g => g.cells.size > 0 && [...g.cells.values()].every(c => isEdge(c.tile)),
+  )
+  for (const g of groups) {
+    if (g.broken) continue
+    const shape = shapeOf(g)
+    for (const h of edgeOnly) {
+      if (h === g) continue
+      const inside = [...h.cells.keys()].every(
+        k => shape.has(k) && ownerAt(k) !== -2 && h.pieces.has(ownerAt(k)) && NEIGHBORS.every(([dr, dc]) => shape.has(key(rowOf(k) + dr, colOf(k) + dc))), // prettier-ignore
+      )
+      if (inside) {
+        g.broken = true
+        break
+      }
+    }
+  }
   const broken = new Set<number>()
   for (const g of groups) {
     const shape = shapeOf(g)

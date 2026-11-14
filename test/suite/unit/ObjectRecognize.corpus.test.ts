@@ -123,8 +123,8 @@ describe.skipIf(!hasRom(VANILLA))('Objects on $103 screen 0 (acceptance 8)', () 
   })
 })
 
-// Acceptance 9. The largest vanilla maps by screens and stored pieces are $10A (32 screens, 270 pieces) and $125
-// (32, 232); $105 (20 screens, 88 pieces) is a mid-size map kept for comparison. The numbers the issue wants
+// Acceptance 9. The largest vanilla maps by screens and stored pieces are $10A (32 screens, 272 stored pieces) and $125
+// (32, 233); $105 (20 screens, 92 pieces) is a mid-size map kept for comparison. The numbers the issue wants
 // are printed here and recorded by the perf bench (test/perf/core/objects.bench.ts, core.objects.*); the bound
 // below is only a smoke bound against a runaway, not a perf gate.
 describe.skipIf(!hasRom(VANILLA))('Objects on the largest vanilla maps (acceptance 9)', () => {

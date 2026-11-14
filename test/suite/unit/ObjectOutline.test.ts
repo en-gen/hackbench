@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { buildOutline } from '../../../src/rom/objects/Outline'
-import { describeObject } from '../../../src/rom/objects/Describe'
+import { describeObject, describeObjects } from '../../../src/rom/objects/Describe'
 import type { ObjectCell } from '../../../src/rom/objects/Recognize'
 
 const cell = (row: number, col: number, tile = 1, visible = true): ObjectCell => ({ row, col, tile, visible }) // prettier-ignore
@@ -125,13 +125,6 @@ describe('review round 1: slope chains, stable ids and keys', () => {
       expect(directions(s.points).size).toBeLessThanOrEqual(2)
   })
 
-  it('a floor made of slope tiles is not one segment wrapped round its corners', () => {
-    const floor = Array.from({ length: 4 }, (_, c) => cell(2, c, 9))
-    const slopes = buildOutline(floor, onlySlope).segments.filter(s => s.kind === 'slope')
-    expect(slopes.length).toBeGreaterThan(1)
-    for (const s of slopes) expect(directions(s.points).size).toBeLessThanOrEqual(2)
-  })
-
   it('segment ids do not depend on the order the cells arrive in', () => {
     const a = buildOutline(hillCells(), onlySlope)
     const b = buildOutline([...hillCells()].reverse(), onlySlope)
@@ -149,5 +142,64 @@ describe('review round 1: slope chains, stable ids and keys', () => {
   it('the Object key does not change when it moves forward in the stored list', () => {
     const at = (order: number) => describeObject({ definitionId: 'd', name: 'G', order, cells: rectCells(2, 3, 1, 3) }, noSlope).key // prettier-ignore
     expect(at(4)).toBe(at(9))
+  })
+})
+
+describe('review round 2: slope chains are staircases, twin keys do not depend on list order', () => {
+  const hill = (n: number, rising: boolean): ObjectCell[] => {
+    const cs: ObjectCell[] = []
+    for (let c = 0; c < n; c++) {
+      const col = rising ? c : n - 1 - c
+      cs.push(cell(n - 1 - c, col, 9))
+      for (let r = n - c; r <= n; r++) cs.push(cell(r, col, 4))
+    }
+    return cs
+  }
+  const onlySlope = (t: number) => (t === 9 ? 1 : null)
+
+  for (let n = 2; n <= 7; n++)
+    for (const rising of [true, false])
+      it(`a ${n}-step ${rising ? 'rising' : 'falling'} staircase is one slope segment, and no slope segment turns onto a wall`, () => {
+        const o = buildOutline(hill(n, rising), onlySlope)
+        const slopes = o.segments.filter(s => s.kind === 'slope')
+        expect(slopes).toHaveLength(1)
+        // Alternating two directions, at least three runs, and no one-unit cap or wall on either end.
+        const pts = slopes[0]!.points
+        const dirs: string[] = []
+        for (let i = 0; i + 3 < pts.length; i += 2)
+          dirs.push(`${Math.sign(pts[i + 2]! - pts[i]!)},${Math.sign(pts[i + 3]! - pts[i + 1]!)}`)
+        expect(new Set(dirs).size).toBe(2)
+        expect(dirs.length).toBeGreaterThanOrEqual(3)
+        for (let i = 1; i < dirs.length; i++) expect(dirs[i]).not.toBe(dirs[i - 1])
+      })
+
+  it('the round 1 witness: the top tile of the hill and its right wall are not one slope segment', () => {
+    const o = buildOutline(hill(4, true), onlySlope)
+    for (const s of o.segments) {
+      const p = s.points.join()
+      expect(p.includes('48,0,64,0,64,16'), p).toBe(false)
+    }
+  })
+
+  it('a floor of slope tiles has no slope segment at all: each side is one straight run', () => {
+    const floor = Array.from({ length: 4 }, (_, c) => cell(2, c, 9))
+    const o = buildOutline(floor, onlySlope)
+    expect(o.segments.every(s => s.kind === 'straight')).toBe(true)
+    expect(o.segments).toHaveLength(4)
+  })
+
+  it('twin Objects keep their keys when the list order flips', () => {
+    const a = { definitionId: 'd', name: 'G', order: 3, cells: rectCells(2, 2, 2, 3) }
+    const b = {
+      definitionId: 'd',
+      name: 'G',
+      order: 5,
+      cells: [...rectCells(2, 2, 1, 2), cell(3, 2)],
+    }
+    const keysOf = (list: (typeof a)[]) =>
+      new Map(describeObjects(list, noSlope).map(d => [d.runs.map(r => r.len).join(), d.key]))
+    expect(keysOf([a, b])).toEqual(keysOf([b, a]))
+    expect(new Set(describeObjects([a, b], noSlope).map(d => d.key)).size).toBe(2)
+    expect(new Set(describeObjects([b, a], noSlope).map(d => d.key)).size).toBe(2)
   })
 })

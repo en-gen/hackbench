@@ -176,8 +176,11 @@ export function buildOutline(cells: readonly ObjectCell[], slopeOf: SlopeOf): Ou
         first!.unshift(...tail!)
       }
     }
-    chains.forEach(chain => {
-      const slope = chain[0]!.slope !== null
+    // A chain of fewer than three runs is a corner, not a staircase: it is split into its runs, each a
+    // straight segment, so no slope segment turns a corner onto a wall or a floor.
+    const staircases = chains.flatMap(c => (c.length >= 3 ? [c] : c.map(r => [r])))
+    staircases.forEach(chain => {
+      const slope = chain.length >= 3 && chain[0]!.slope !== null
       const pts: number[] = []
       const units = chain.flatMap(r => r.units)
       pts.push(px(units[0]!.x0), px(units[0]!.y0))

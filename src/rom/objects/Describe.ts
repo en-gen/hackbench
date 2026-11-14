@@ -60,14 +60,25 @@ export function describeObject(found: FoundObject, slopeOf: SlopeOf): ObjectDto 
 
 /**
  * The DTOs of every found Object. Two Objects of one definition can share a top-left cell (stacked, one
- * covering the other's corner); the later gets a `#n` suffix in back-to-front order, so keys stay unique.
+ * covering the other's corner); they are told apart by their shape (the sorted cell list), never by their
+ * place in the list, so an edit that reorders them does not move a selection to the other one.
  */
 export function describeObjects(found: readonly FoundObject[], slopeOf: SlopeOf): ObjectDto[] {
-  const seen = new Map<string, number>()
-  return found.map(f => {
-    const dto = describeObject(f, slopeOf)
-    const n = seen.get(dto.key) ?? 0
-    seen.set(dto.key, n + 1)
+  const dtos = found.map(f => ({ dto: describeObject(f, slopeOf), shape: shapeSignature(f) }))
+  const twins = new Map<string, string[]>()
+  for (const { dto, shape } of dtos) twins.set(dto.key, [...(twins.get(dto.key) ?? []), shape])
+  return dtos.map(({ dto, shape }) => {
+    const list = twins.get(dto.key)!
+    if (list.length === 1) return dto
+    const n = [...list].sort().indexOf(shape)
     return n === 0 ? dto : { ...dto, key: `${dto.key}#${n}` }
   })
+}
+
+/** The cells of an Object as one comparable string. */
+function shapeSignature(f: FoundObject): string {
+  return f.cells
+    .map(c => c.row * 4096 + c.col)
+    .sort((a, b) => a - b)
+    .join(',')
 }

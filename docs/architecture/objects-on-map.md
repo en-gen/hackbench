@@ -71,9 +71,16 @@ it, is extended to that piece's extent, repeating its end tile, but only through
 over, stopping at the first that is not: over empty sky the list did not cut anything short. The added cells
 are covered.
 
-**Broken Objects.** The pieces alone decide what is one Object. When the visible tiles then contradict the
-rule (an edge tile with fill on all four sides, from a changed tile), the Object is broken: it yields nothing,
-and the visible-tile scan does not offer its pieces back as fragments (#1234: a disagreeing tile blocks a match).
+**Broken Objects.** The pieces decide what is one Object, and each cell shows the latest group piece's tile.
+When that shape holds an edge tile with shape cells on all four sides, the Object is broken (#1234: a
+disagreeing tile blocks a match): it yields nothing, its pieces are not offered as fragments, and the
+visible-tile scan does not offer their cells back. Two ways a tile comes to disagree, both a stored piece:
+a piece of the Object writes an edge tile into its own body; or a later piece drops only edge tiles into the
+middle of another Object's body (all four sides of each in that Object's shape). In the second case the lone
+tiles then follow the ordinary rule as Objects of their own, and removing that piece brings the whole Object
+back. A later piece of fill tiles over the offending cell mends the first case (it is a definition piece, joins
+the group, and its tile is the latest). [PROP] a whole Object drawn in front (the next platform of a stack) is
+not "only edge tiles" and breaks nothing: on `$103` the right edge of one platform lies wholly inside another's body.
 
 **Visible path.** Definition tiles no piece group shows, as 4-connected patches that pass the rule.
 
@@ -86,8 +93,11 @@ Object uses the largest owner among its cells.
 
 - Boundary units are directed clockwise and traced into loops; at a vertex two loops share, the right turn wins.
 - A loop splits into segments where it turns a corner (a mushroom's bottom is three). A unit's slope class is
-  its owning cell's; a run changes where direction or class changes, and consecutive runs of one slope class
-  are one `slope` segment, drawn as the staircase.
+  its owning cell's; a run changes where direction or class changes. Consecutive runs of one slope class that
+  alternate between two directions, three or more of them, are one `slope` segment, drawn as the staircase; a
+  shorter chain is a corner, so its runs are straight segments (no slope segment turns onto a wall or a floor).
+- A segment id names where it runs (its first and last point), and cells are sorted first, so ids and the
+  Object key (`definition:row:col`, stacked twins told apart by their shape) survive an unrelated edit.
 - A boundary unit owned by a covered cell goes to the covered path (drawn dashed).
 
 ## The view
@@ -123,9 +133,10 @@ it refuses all five hack ROMs and accepts both vanilla ROMs.
 - Round 1 call 1's rule is the only thing relating tiles to roles; a definition whose edge and fill overlap is
   refused by the reader.
 - Measured (one machine, one stress definition derived from each map's own pieces, vanilla ROM): the largest
-  maps by screens and stored pieces are `$10A` (32 screens, 270 pieces) and `$125` (32, 232). Perf bench medians
+  maps by screens and stored pieces are `$10A` (32 screens, 272 stored pieces) and `$125` (32, 233). Perf bench medians
   (`test/perf/core/objects.bench.ts`): `$10A` recognize 6.8 ms, whole read (expand with footprint, then
-  recognize) 12.0 ms; `$125` 4.0 and 7.7 ms; `$105` (20 screens, 88 pieces, mid-size) 6.9 and 10.0 ms. A single
+  recognize) 12.0 ms; `$125` 4.0 and 7.7 ms; `$105` (20 screens, 92 stored pieces, mid-size) 6.9 and 10.0 ms. A single
   process: first call on `$10A` 28.6 ms for the read plus 37.8 ms to recognize, then about 8 ms and 15 ms. 60
   synthetic platforms on 20 screens: 15.9 ms. The corpus test bounds only a runaway (2 s); the numbers come from the
-  bench ids `core.objects.*`. The view's `hb:map-objects` also times the RPC round trip.
+  bench ids `core.objects.*`. Acceptance 9 is a measured number: the nightly perf gates are paired regressions
+  with no absolute bound, and these ids have no baseline yet, so there is no gate verdict to quote. The view's `hb:map-objects` also times the RPC round trip.

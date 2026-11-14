@@ -79,7 +79,18 @@ test.beforeEach(async ({ page }) => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-objects-'))
   await page.goto(APP, { waitUntil: 'domcontentloaded' })
   await page.waitForSelector('#theia-app-shell', { timeout: 90000 })
-  await page.waitForTimeout(4000)
+  await page.waitForFunction(
+    () => {
+      try {
+        const d = window.theia.container._bindingDictionary
+        return [...d._map.keys()].some(k => String(k) === 'Symbol(ProjectService)')
+      } catch {
+        return false
+      }
+    },
+    null,
+    { timeout: 90000 },
+  )
   await page.addScriptTag({ content: GET_SVC })
   projectDir = path.join(tmp, 'MyHack')
   const project = await page.evaluate(
@@ -289,9 +300,16 @@ test.describe('platforms on $103 (straight sides)', () => {
   }) => {
     const before = treeHash(projectDir)
     const p = probe(map, target, 'straight')
-    // Unselected: just outside the line gives no segment, and no Object either (the point is clear of every Object).
+    // Unselected: in the outer half of its edge tile the pointer has the Object (hover) and no segment answers.
+    await pointAt(page, SLOT, map.size, ...p.edge)
+    await expect(
+      page.locator(`${overlay(SLOT)} [data-control="object"][data-state="hover"]`),
+    ).toHaveCount(1)
+    await expect(segments(page, SLOT)).toHaveCount(0)
+    // Just outside the outline, clear of every Object: nothing is drawn at all.
     await pointAt(page, SLOT, map.size, ...p.out)
     await expect(segments(page, SLOT)).toHaveCount(0)
+    await expect(page.locator(`${overlay(SLOT)} [data-control="object"]`)).toHaveCount(0)
     const run = target.runs[0]
     await pointAt(page, SLOT, map.size, (run.col + 0.5) * TILE, (run.row + 0.5) * TILE, 'click')
     await expect(selectedObjects(page, SLOT)).toHaveCount(1)
