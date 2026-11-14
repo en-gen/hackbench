@@ -1,6 +1,6 @@
 # Docker test runs spike
 
-Status: draft report, partly measured. Drafted 2026-11-13 (Uniform team). Refs #978. No recommendation yet; C3, host-at-3 and the Playwright pair are pending (section 8).
+Status: spike report, partly measured. Written 2026-11-13 (Uniform team). Refs #978. C3, host-at-3 and the Playwright pair were not measured: no quiet window was available (section 8). The recommendation (section 9) is scoped to C1.
 
 > **Bottom line**
 >
@@ -10,6 +10,8 @@ Status: draft report, partly measured. Drafted 2026-11-13 (Uniform team). Refs #
 > - The gain probably comes from Linux process and file-system costs plus the load difference, not from faster cores. `[INF]` from the SingleStep numbers above; no run isolated either cause.
 > - DoorNoBlend.corpus timed out at 120 s in 6 of 6 runs, host and container, including at 64% CPU, so it is not a load problem (#1214). `[EST]` 6 runs, same code.
 > - The container is a valid comparison only after four fixes (section 6): skipped counts now match the host (85 against 81-87) and a full collect matches within 3 of 13912 tests. `[EST]`
+> - The image holds no ROM bytes: 0 hits over 37911 files, and the scan goes red on a planted file. `[EST]` one image, one day.
+> - Recommendation: do not adopt yet. One isolated container run works and is ROM-free, but the spike's question (more than 3 parallel runs without timeouts) is unanswered until C3 runs. `[INF]` section 9.
 
 ## Provenance
 
@@ -89,8 +91,9 @@ DoorNoBlend.corpus ("door and lift pixels never meet color math on vanilla (#936
 - The copy has no `.git`, so tests that call git failed (contentGate, perfConfigSeparation, nestedFoldersGate, protocol, runLock, 7 of the 9 failures in that run). Fix: `git init`, `git add -A` and one snapshot commit in the copy, 0.8 s. `[PROP]` as the way to do it; no git-dependent test failed after it in the six-file smoke or the three C1 runs. `[EST]`
 - Full collect (`vitest list --no-staticParse`, no tests executed): host 13912, container 13909, 4 files differ by at most 2 (SpriteReport 69/67, RomReadBounds 67/69, SpriteMetadata 38/36, perfAccept 17/16). The list holds non-skipped tests only, so this is the skip comparison. `[EST]` one collect each. Cause of the 4 differences not investigated.
 - Limit: skips decided inside a test body do not show in a collect. A grep of `test/suite` finds one `ctx.skip` (`contentGateRomWindows.test.ts:480`, a synthetic ACL case, not corpus-gated); early-return guards cannot be found by grep. `[OPEN]`
+- The host full collect was run with a `--json` path that resolved onto `test/suite/unit/CaptureGate.corpus.test.ts` and overwrote it with the list output. The file was restored from git before the PR; nothing was committed from it. Use an absolute output path in the scratchpad. `[EST]`
 - ROM proof: `docker history` of `hackbench-unit:spike` shows only the base, the package files and `npm ci`. `scan-image.mjs` scanned all 11 layers (37911 files) against SHA-256 of 740 ROM files (full and first 64 KB, plus file-name patterns) and found 0 hits. `[EST]` this image, this day.
-- The scan can fail: against a random 512 KB file named `planted.sfc`, baked into a throwaway image labeled `hackbench.spike=uniform`, it reported all three checks (name, full SHA-256, first-64 KB) and exited 1. The random file, the image and its tar were deleted at once; no real ROM went into any image. `[EST]`
+- The scan can fail: against a random 512 KB file named `planted.sfc`, baked into a throwaway image labeled `hackbench.spike=uniform`, it reported all three checks (name, full SHA-256, first-64 KB) and exited 1. The random file, the image and its tar were deleted at once; no real ROM went into any image. `[EST]` The planted run is documented here, not committed as a test: `scan-image.mjs` is a spike tool with no red test in the suite. `[OPEN]` if the scan is kept, it needs one.
 
 ## 7. Overhead
 
@@ -100,8 +103,30 @@ DoorNoBlend.corpus ("door and lift pixels never meet color math on vanilla (#936
 - Cold start (docker run to first test line, one file): 42.4 s with the cold copy; with the warm copy and git it would be about 6 s plus vitest start. `[INF]` not measured warm as one number.
 - Docker Desktop start time: not recorded (restarted by hand after a failed first start).
 
-## 8. Pending
+## 8. Not measured (no quiet window)
 
-- C3 (3 containers at once, cpusets 0-9, 10-19, 20-29) and host-at-3: wait for a quiet window. `[OPEN]`
-- Playwright pair with the planted cross-wire (does a container-isolated Theia stay isolated?). `[OPEN]`
-- Recommendation: none yet.
+The owner had no quiet window on 2026-11-13, so the runs below never happened. Each needs all 3 lock slots with no other team running tests, about 1 hour.
+
+- C3: 3 containers at once on cpusets 0-9, 10-19 and 20-29, 5 workers each, 3 repeats. Not measured (no quiet window). `[OPEN]`
+- Host-at-3: 3 host runs at once, the baseline C3 is compared with. Not measured (no quiet window). `[OPEN]`
+- An N sweep past 3 containers. Not measured (no quiet window). `[OPEN]` The 33.6 GB WSL VM limit (section 2) may cap it before CPU does.
+- Playwright pair: two containers each running `build:browser` and one spec on their own ports and app data, plus a planted cross-wire (one container pointed at the other's port or app data) that must go red. Not measured (no quiet window); no Playwright image was built. `[OPEN]`
+- Mesen captures: out of scope for this spike.
+
+## 9. Recommendation
+
+**Do not adopt yet; unit-only is the candidate if C3 holds up.** `[INF]` from sections 3 to 7.
+
+What the evidence supports:
+
+- A unit run in a container can be made equivalent to a host run: same skips within a handful, same failures in kind, and git-dependent tests pass with a snapshot. `[EST]` 3 runs, one machine.
+- The image carries no ROM bytes and the check proving it can fail. `[EST]` one image.
+- Overhead per run is small once warm (about 6 s copy and git); the image is 2.02 GB and builds cold in 111 s. `[EST]`
+
+What it does not support:
+
+- That containers allow more than 3 parallel runs. Only one container ran at a time; C3 is the deciding measurement. `[OPEN]`
+- That a container is faster. The C1 gain came with lower host load and slower per-thread time (section 4). `[EST]`
+- Anything about Playwright isolation. `[OPEN]`
+
+Next step if the owner wants an answer: one quiet hour for C3 and host-at-3 with the scripts on this branch (`spike-chain.sh` pattern, `run-batch.sh 3`). If C3 finishes 3 runs with no more timeouts than C1 and host-at-3 times out more, adopt for unit runs; otherwise don't.
