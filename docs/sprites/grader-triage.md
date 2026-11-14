@@ -155,8 +155,9 @@ write as the sprite's own part only when `$15E9` equals the sprite's slot, on ev
   recorder used, and that rule cannot remove a write the capture itself mis-credited (cluster index 6 equals sprite
   slot 6). In the grader's mode the model runs no cluster sprites (`NO_CLUSTER_SPRITES`), so the runner's filter never
   sees the write. Only the recorder fix (48d348c) or a re-capture removes it. The re-captured record is drawn before the
-  anchor frame, so it grades the old way, a fallback; of the 43 fallbacks, 5 are of that kind (maps 004, 101, 11b), and
-  #875 times level-start sprites again. #1386 is the full re-capture. The synthetic id 84 (`$15E9` set to 15) is the
+  anchor frame, so it grades the old way, a fallback; of the 40 fallbacks after #875, 38 have no initFrame and 2 are of
+  that kind, spawned in play (maps 004 and 101); the 3 map-start sprites on map 11b that were the rest of the 43 are now
+  timed from the gate frame (#875, glossary: map-start sprite). #1386 is the full re-capture. The synthetic id 84 (`$15E9` set to 15) is the
   real other-slot write under test.
 - $2B's former spawn-oracle extra tile was also a cluster write (`$02:F983`, `$15E9` = 9; `CODE_02F967` +28, the Sumo
   Bro flame tile store, `bank_02.asm:16145`), now filtered.

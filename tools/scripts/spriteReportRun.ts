@@ -47,7 +47,12 @@ import {
   hasRom,
   romPath,
 } from '../../test/suite/support/corpus'
-import { type PlacedSprite, runnerId, timelineFor } from '../../test/suite/support/gradeTimeline'
+import {
+  type PlacedSprite,
+  requireGateFrame,
+  runnerId,
+  timelineFor,
+} from '../../test/suite/support/gradeTimeline'
 import { grade, passPieces, type RecordedPiece } from '../../test/suite/support/spriteGrade'
 import { palette } from './capture_draw'
 import { parseNum } from './capture_decode'
@@ -580,6 +585,7 @@ export function gradeCaptures(f: Filter): Graded[] {
     const marioStart = jsonOf('scroll_pass.json').marioStart as { x: number; y: number } | undefined
     const key = [...entries.keys()].find(k => k.endsWith('sprite_spawns.json'))
     if (!key) continue
+    const gateFrame = requireGateFrame(map, jsonOf('capture_summary.json').gateFrame)
     const spawns: Rec[] = JSON.parse(entries.get(key)!().toString('utf8')).spawns ?? []
     const samples = frameSamples(entries, anchorFrame)
     const listed = jsonOf('sprites.json').entries as PlacedSprite[] | undefined
@@ -589,7 +595,7 @@ export function gradeCaptures(f: Filter): Graded[] {
       const want = (rec.frames ?? []).flatMap(fr => (fr.tiles?.length ? [fr.tiles] : []))
       if (!want.length || id > 0xc8 || (f.sprite !== undefined && id !== f.sprite)) continue
       // Hardware timeline (#867): mirrors gradeAll in spriteGrade.captures.test.ts (copied loop, shared gradedPass/writeMarioStart).
-      const t = timelineFor(rec, anchorFrame, marioStart)
+      const t = timelineFor(rec, anchorFrame, marioStart, gateFrame)
       const seed = withSeed({
         loaded: lvl.ok ? lvl.wram : undefined,
         ram: NO_CLUSTER_SPRITES, // as levelSeed does (#809): the level's cluster sprites would draw into the tested sprite's OAM

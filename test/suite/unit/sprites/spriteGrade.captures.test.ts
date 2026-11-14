@@ -4,7 +4,8 @@
  *
  * Tier 1 (graded here): the sprite's OAM shape relative to its own position.
  * Tier 2 (not graded): absolute position. The frame Mesen caught IS graded now: pass
- * k = drawnFrame - max(anchorFrame, initFrame + 1), with Mario at marioAtInit for INIT
+ * k = drawnFrame - max(anchorFrame, initFrame + 1) (a map-start sprite, INIT at or before gateFrame, takes
+ * max(0, drawnFrame - gateFrame) instead: gradeTimeline.ts, #875), with Mario at marioAtInit for INIT
  * and marioStart for MAIN and the frame counters seeded from the record (#844). Offsets
  * are measured from the sprite's position at its first OAM write (PassResult.drawPos, the moment the
  * capture samples it, #842); the end-of-pass position skewed every sprite that moves after drawing.
@@ -35,7 +36,14 @@ import {
   VANILLA,
 } from '../../support/corpus'
 import { loadCaptures, type Loaded, type Rec } from '../../support/captures'
-import { gradedPass, runnerId, writeMarioStart } from '../../support/gradeTimeline'
+import {
+  gradedPass,
+  isTimed,
+  runnerId,
+  settleGradedPass,
+  type TimelineTally,
+  writeMarioStart,
+} from '../../support/gradeTimeline'
 import { oracleCells, oracleImage } from '../../support/oracleImage'
 import {
   grade,
@@ -91,9 +99,8 @@ function gradeAll(
   // Each map's own sprite list, for the neighbor run of a sprite that scans the slot tables (#841).
   const listByMap = new Map<string, LevelSprite[]>()
   const smw = new SmwRom(rom)
-  let fallbacks = 0
-  let missAtK = 0
-  for (const { map, rec, wram, anchorFrame, marioStart, listed } of all) {
+  const tally: TimelineTally = { fallbacks: 0, missAtK: 0 }
+  for (const { map, rec, wram, anchorFrame, gateFrame, marioStart, listed } of all) {
     if (opts.limit !== undefined && rows.length >= opts.limit) break
     const id = parseInt(rec.id.slice(1), 16)
     const want = recordedFrames(rec)
@@ -125,9 +132,8 @@ function gradeAll(
     const list = listByMap.get(map)!
     const me = list.find(e => e.index === rec.listIndex)
     const neighbours = me ? neighboursOf(list, me, e => ({ x: e.x * 16, y: e.y * 16 })) : []
-    const k = gradedPass(rec.initFrame, anchorFrame, rec.drawnFrame)
-    const timed = k !== undefined && marioStart !== undefined
-    if (!timed) fallbacks++
+    const k = gradedPass(rec.initFrame, anchorFrame, rec.drawnFrame, gateFrame)
+    const timed = isTimed(k, marioStart)
     const seed = withSeed({
       loaded,
       // The ROM-run level's cluster sprites (map $101's castle flames) would draw into the OAM read as the
@@ -163,13 +169,7 @@ function gradeAll(
     // Nothing drawn at the hardware's pass is a runner miss, counted apart so it cannot hide in the
     // wrong total. It grades wrong when some pass draws; when none does grade()
     // returns empty whatever m.chosen is (13 records before #842, none after) (test/suite/support/spriteGrade.ts:107).
-    if (timed && m.passes[k]) {
-      if (m.passes[k].parts.length) m.chosen = k
-      else {
-        m.chosen = k
-        missAtK++
-      }
-    }
+    settleGradedPass(m, k, timed, tally)
     for (const a of m.inputs ?? []) {
       const e = inputs.get(a) ?? { reads: 0, nonzero: 0 }
       e.reads++
@@ -198,29 +198,30 @@ function gradeAll(
   }
   const by: Record<string, number> = {}
   for (const r of rows) by[r.verdict] = (by[r.verdict] ?? 0) + 1
-  return { rows, by, inputs, fallbacks, missAtK }
+  return { rows, by, inputs, fallbacks: tally.fallbacks, missAtK: tally.missAtK }
 }
 
-/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Re-measured for #839/#1370 after four maps (101, 1d4, 109, 11b) were re-captured with the fixed harness (en-gen/hackbench-validation bc8d1a3): 2026-11-11, one machine, vanilla ROM, 1955 records: exact 1925, shape 0, close 17, wrong 13, empty 0, fallback 42, missAtK 3 (1957 records, exact 1917, close 17, wrong 22, empty 1, fallback 38, missAtK 7 with the old zips; the 9 wrong records on maps 101 and 1d4 were castle-flame cluster tiles the old harness attributed to sprite records; the 2 that left were of the same kind). With the #1368 map 004 re-capture (bc8d1a3, composite corpus, one run, one machine, vanilla ROM, 2026-11-13): 1955 records, exact 1926, close 17, wrong 12, empty 0, fallback 43, missAtK 3. */
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Re-measured 2026-11-13 for #875 (a map-start sprite counted from the gate frame, develop 0a0dc7ba plus this change, before the #1368 map 004 adoption, one machine, vanilla ROM, 1955 records): exact 1928, shape 0, close 17, wrong 10, empty 0, fallback 39, missAtK 0 (before: 1925, 0, 17, 13, 0, 42, 3; the three rows fixed are maps 0c3 $49, 130 $76 and 0d0 $6F idx 29, which were the three missAtK records). Re-measured for #839/#1370 after four maps (101, 1d4, 109, 11b) were re-captured with the fixed harness (en-gen/hackbench-validation bc8d1a3): 2026-11-11, one machine, vanilla ROM, 1955 records: exact 1925, shape 0, close 17, wrong 13, empty 0, fallback 42, missAtK 3 (1957 records, exact 1917, close 17, wrong 22, empty 1, fallback 38, missAtK 7 with the old zips; the 9 wrong records on maps 101 and 1d4 were castle-flame cluster tiles the old harness attributed to sprite records; the 2 that left were of the same kind). With the #1368 map 004 re-capture (bc8d1a3, composite corpus, one run, one machine, vanilla ROM, 2026-11-13): 1955 records, exact 1926, close 17, wrong 12, empty 0, fallback 43, missAtK 3. After both (#875 on the merged #1368 corpus, 2026-11-13, one machine, vanilla ROM, layers_v5, 1955 records): exact 1929, shape 0, close 17, wrong 9, empty 0, fallback 40, missAtK 0. */
 const FLOOR = {
   graded: 1955,
   // Measured on the merge of develop a9de2145 and #842 (offsets from the draw-time position, Layer 3 handler run),
   // one machine, 2026-10-28: exact 1906, shape 0, close 17, wrong 33, empty 1 (the #842 head alone, before
   // the merge: 1865, 0, 17, 75, 0). Shape is not floored: with shape at 0, exact + shape could never fire below the
   // exact floor.
-  exact: 1909, // 1926 measured with the #1368 map 004 re-capture (1925 before it, 1917 with the pre-#1370 zips)
+  exact: 1927, // 1929 measured after #875 with the #1368 map 004 re-capture (1926 with it before #875, 1925 before both; the develop side had 1909)
   maxRefused: 0,
   maxShape: 5, // 0 measured
   maxClose: 20, // 17 measured
   maxEmpty: 4, // 0 measured (old slack 4 over 1)
-  maxWrong: 20, // 12 measured with the #1368 re-capture (13 before it, 22 with the pre-#1370 zips), the same 8 slack
-  maxMissAtK: 6, // 3 measured, same 3 slack as the old 10 over 7
-  // 43 measured: 38 spawned records without initFrame, 5 drawn before the anchor on the bc8d1a3 re-captures (004, 101, 11b); all-timed would read 0.
-  minFallbacks: 35, // old 30 under 38 measured: same 8 slack under 43 (the re-captured $B9 on 004 draws before its anchor)
-  maxFallbacks: 45, // old hard-coded 40 over 38 measured: same 2 headroom over 43
-  // 7 measured on the merge (3 on the #842 head alone, 25 before it: the 22 initFrames > 1 records missed until the
-  // loader ran the Layer 3 handler); a runner that stops counting misses (or stops grading at k) drops below.
-  minMissAtK: 3,
+  maxWrong: 11, // 9 measured after #875 with the #1368 re-capture (12 with it before #875, 13 before both; the develop side had 20)
+  maxMissAtK: 3, // 0 measured (3 before #875; the develop side had 6)
+  // 40 measured after #875 (38 spawned records without initFrame, 2 in play and drawn before the anchor, 004 $B9 among them); 43 with the #1368 re-capture before #875, 42 before both; all-timed would read 0.
+  minFallbacks: 38, // 2 slack under 40 measured (the develop side had 35)
+  maxFallbacks: 42, // 2 headroom over 40 measured (the develop side had 45)
+  // 0 measured since #875: the three misses (0c3 $49, 130 $76, 0d0 $6F idx 29) were the grader counting passes from the anchor,
+  // not the model; no corpus record misses at k now, so this floor cannot fire and the three rows are pinned by name below.
+  // The develop side's 3 would fail on this branch.
+  minMissAtK: 0,
 }
 
 describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-load captures', () => {
@@ -257,7 +258,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     expect(by.close ?? 0).toBeLessThanOrEqual(FLOOR.maxClose)
     expect(by.empty ?? 0).toBeLessThanOrEqual(FLOOR.maxEmpty)
     expect(by.wrong ?? 0).toBeLessThanOrEqual(FLOOR.maxWrong)
-    // 43 records grade the old way: 38 spawned ones carry no initFrame, 5 drew before the anchor on the bc8d1a3 re-captures (004, 101, 11b).
+    // 40 records grade the old way after #875 (43 before it: the 3 map-start ones drawn before the anchor on the bc8d1a3 re-captures now take the gate-based pass): 38 spawned ones carry no initFrame, 2 are in play and drawn before the anchor (004 $B9 is one).
     expect(fallbacks).toBeGreaterThanOrEqual(FLOOR.minFallbacks)
     expect(fallbacks).toBeLessThanOrEqual(FLOOR.maxFallbacks)
     expect(missAtK).toBeLessThanOrEqual(FLOOR.maxMissAtK)
@@ -278,6 +279,10 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     ['102', '$A4', 912, 400], // #842: sank 32 px until the loader ran the Layer 3 handler
     // INIT spawns companions that draw in their own slots (#840): the recorded pieces are the sprite's alone, 1 and 2.
     ['10a', '$61', 160, 384],
+    // #875 and #1369: map-start sprites counted from the gate frame; each drew nothing at the anchor-based pass.
+    ['0c3', '$49', 208, 352],
+    ['130', '$76', 64, 160],
+    ['0d0', '$6F', 4128, 352],
     ['1c4', '$1E', 1120, 224],
   ])(
     'map %s %s at %i,%i grades exact',
@@ -327,17 +332,17 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     expect(rows.map(r => r.verdict)).toEqual(shells.map(() => 'exact'))
   }, 120_000)
 
-  // A miss at k: the model draws nothing on the hardware's pass, which grades wrong. Without
-  // `m.chosen = k` the grader falls back to the first drawing pass and the detail changes.
-  it('map 0c3 $49 at 208,352 misses at k and grades wrong, not empty', () => {
+  // #875: this was the miss-at-k case (the pipe first draws on pass 5 and the anchor rule graded pass 1). Counted from the
+  // first GM14 frame, pass 31 has drawn: exact, no miss. The miss-at-k counter itself has no corpus record left.
+  it('map 0c3 $49 at 208,352 grades exact at its gate-based pass and misses nothing', () => {
     const one = all.filter(
       a => a.map === '0c3' && a.rec.id === '$49' && a.rec.listX === 208 && a.rec.listY === 352,
     )
     expect(one).toHaveLength(1)
     const { rows, missAtK } = gradeAll(freshRom(), one)
-    expect(missAtK).toBe(1)
-    expect(rows[0].verdict).toBe('wrong')
-    expect(rows[0].detail).toMatch(/model drew 0/)
+    expect(missAtK).toBe(0)
+    expect(rows[0].verdict).toBe('exact')
+    expect(rows[0].pass).toBe(31)
   }, 120_000)
 
   it('goes red when the dispatch is planted with a defect', () => {

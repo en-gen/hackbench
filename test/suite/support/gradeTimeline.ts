@@ -1,8 +1,14 @@
 /**
  * Which MAIN pass of the sprite runner corresponds to the frame Mesen caught a sprite drawing.
- * Sprites run MAIN from about the capture's anchor frame (before it Mario is held at a leftover
- * position and the level is still being set up), and never before the frame after INIT, so the
- * capture is `drawnFrame - max(anchorFrame, initFrame + 1)` passes in. Test oracle only.
+ * Test oracle only.
+ *
+ * A map-start sprite (its INIT ran in GM12: `initFrame <= gateFrame`) is counted in passes from the capture's
+ * `gateFrame`, the last GM13 frame: pass `max(0, drawnFrame - gateFrame)` (#875). Any other sprite (spawned in
+ * play, possibly during the entrance wait) is `drawnFrame - max(anchorFrame, initFrame + 1)` passes in.
+ * Scope: maps without an entrance reload (capture_summary `reloadDuringWait` false); on a reload map `gateFrame`
+ * is the entrance room's first GM14 frame, so its map-start sprites have init > gate and keep the anchor rule
+ * (#1397). The derivation, with SMWDisX and harness line numbers, is in docs/testing.md, "Map-start sprites in the
+ * sprite grader".
  */
 
 import type { RomFile } from '../../../src/rom/RomFile'
@@ -11,15 +17,73 @@ import { FIRST_SPECIAL, shellLoad } from '../../../src/rom/sprites/ShellSprites'
 /** Largest pass index the grader will run for one record; a larger k falls back. */
 export const MAX_GRADED_PASS = 255
 
+/**
+ * A capture's gate frame, or an error naming the map. The harness writes `levelGateFrame or 0` when it never saw
+ * GM14 (headless_capture.lua:1147), so a missing or non-positive value is a broken capture, not a reason to
+ * quietly grade every sprite by the anchor rule.
+ */
+export function requireGateFrame(map: string, gateFrame: unknown): number {
+  if (typeof gateFrame !== 'number' || !Number.isInteger(gateFrame) || gateFrame <= 0)
+    throw new Error(
+      `map ${map}: capture_summary.json has no usable gateFrame (${String(gateFrame)})`,
+    )
+  return gateFrame
+}
+
+/**
+ * The pass a map-start sprite's drawn frame falls on, or undefined when the sprite was spawned in play or a field
+ * is missing. `initFrame <= gateFrame` is the whole test: no INIT is stamped between GM12 and the gate.
+ * Not range-checked: `gradedPass` does that.
+ */
+export function mapStartPass(
+  initFrame: number | undefined,
+  gateFrame: number,
+  drawnFrame: number | undefined,
+): number | undefined {
+  if (![initFrame, drawnFrame].every(Number.isInteger)) return undefined
+  if (initFrame! > gateFrame) return undefined
+  return Math.max(0, drawnFrame! - gateFrame)
+}
+
 /** The pass index to grade, or undefined when a field is missing or k is out of range. */
 export function gradedPass(
   initFrame: number | undefined,
   anchorFrame: number | undefined,
   drawnFrame: number | undefined,
+  gateFrame: number,
 ): number | undefined {
+  const mapStart = mapStartPass(initFrame, gateFrame, drawnFrame)
+  if (mapStart !== undefined) return mapStart <= MAX_GRADED_PASS ? mapStart : undefined
   if (![initFrame, anchorFrame, drawnFrame].every(Number.isInteger)) return undefined
   const k = drawnFrame! - Math.max(anchorFrame!, initFrame! + 1)
   return k >= 0 && k <= MAX_GRADED_PASS ? k : undefined
+}
+
+/** Whether a record is graded on the hardware timeline (a pass k and a Mario start exist) or falls back to the first drawing pass. */
+export const isTimed = (k: number | undefined, marioStart: unknown): boolean =>
+  k !== undefined && marioStart !== undefined
+
+/** Counters the grader keeps apart so a fallback or a miss cannot hide in the wrong total. */
+export interface TimelineTally {
+  fallbacks: number
+  missAtK: number
+}
+
+/**
+ * After the run: a timed record grades at pass k (`m.chosen = k`); when that pass drew nothing it is a miss, counted
+ * apart; an untimed record is a fallback. A k past the passes run changes nothing.
+ */
+export function settleGradedPass(
+  m: { chosen?: number; passes: { parts: unknown[] }[] },
+  k: number | undefined,
+  timed: boolean,
+  tally: TimelineTally,
+): void {
+  if (!timed) tally.fallbacks++
+  else if (m.passes[k!]) {
+    m.chosen = k
+    if (!m.passes[k!]!.parts.length) tally.missAtK++
+  }
 }
 
 /** Mario's WRAM cells: $94/$96 (Next) and $D1/$D3 (Now), each 16 bit little endian. */
@@ -56,6 +120,7 @@ export function timelineFor(
   rec: TimedRec,
   anchorFrame: number | undefined,
   marioStart: { x: number; y: number } | undefined,
+  gateFrame: number,
   basePasses = 64,
 ): {
   k: number | undefined
@@ -64,8 +129,8 @@ export function timelineFor(
   seedExtra: { trueFrame?: number; effFrame?: number }
   probe: ((p: number, w: Uint8Array) => void) | undefined
 } {
-  const k = gradedPass(rec.initFrame, anchorFrame, rec.drawnFrame)
-  const timed = k !== undefined && marioStart !== undefined
+  const k = gradedPass(rec.initFrame, anchorFrame, rec.drawnFrame, gateFrame)
+  const timed = isTimed(k, marioStart)
   // Pass p runs at seed + 1 + p only when INIT takes one frame, so pass k lands on the recorded counters.
   const seedExtra =
     timed && rec.trueFrame !== undefined && rec.effFrame !== undefined
