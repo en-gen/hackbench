@@ -14,9 +14,9 @@ theia/
   no-native/      stubs for native modules the desktop build does not need
 ```
 
-## Six extensions, one package
+## Seven extensions, one package
 
-`extension/package.json` declares six `theiaExtensions` entries, each a
+`extension/package.json` declares seven `theiaExtensions` entries, each a
 frontend and backend pair:
 
 | Extension | Frontend                  | Backend         | Service path                   |
@@ -27,9 +27,10 @@ frontend and backend pair:
 | gfx       | graphics view             | GFX server      | `/services/hackbench-gfx`      |
 | map16     | Map16 tile editor         | Map16 server    | `/services/hackbench-map16`    |
 | emulator  | emulator view             | emulator server | `/services/hackbench-emulator` |
+| objects   | Objects view              | objects server  | `/services/hackbench-objects`  |
 
-Maps have no extension of their own: the project service serves them. A
-seventh entry holds the Electron-only OS locale hook. The extensions are
+Maps have no extension of their own: the project service serves them. An
+eighth entry holds the Electron-only OS locale hook. The extensions are
 separate because each owns a view, a protocol and a server that can
 be reasoned about on its own, not because Theia requires it.
 
@@ -160,6 +161,7 @@ not a CloudEvent.
 | Palettes explorer                               | rebuild, keeps which groups were open | rebuild as a fresh open: nothing selected, defaults |
 | Maps, Graphics, Audio explorers                 | not subscribed (see below)            | rebuild as a fresh open                             |
 | Map, Map16, GFX, Palette-group, Overworld views | re-read                               | re-read                                             |
+| Objects view                                    | re-reads the tileset sheet only       | re-reads the list and the sheet                     |
 | Emulator, Edit menu                             | stale check / refresh                 | refresh                                             |
 
 The Maps, Graphics and Audio explorers do not subscribe to edits because their
@@ -170,8 +172,8 @@ known gap, not a decision.
 
 ## Views
 
-Five views, each with a focus command in the `HackBench` category.
-**Maps**, **Graphics**, **Palettes** and **Audio** dock in the left
+Six views, each with a focus command in the `HackBench` category.
+**Maps**, **Graphics**, **Palettes**, **Audio** and **Objects** dock in the left
 sidebar; the **Emulator** docks in the bottom panel beside Problems. A
 **Properties** panel docks on the right. Placement is each contribution's
 `defaultWidgetOptions` in `theia/extension/src/browser/*-contribution.ts`;
@@ -186,6 +188,16 @@ unsaved strokes asks. The switch aborts if any is still attached afterwards
 done either way. A view still loading is disposed when `PreviewTabs` would
 attach it (#628). The palette explorer and the music, emulator and overworld
 views re-target on `ProjectContext.onChanged`; palette group views close.
+
+**Objects** (#1236, rank 500, after Audio) builds and names Object
+definitions: pick a tileset, tag its Map16 tiles as edge or fill, save. It has
+its own service pair (`objects-protocol.ts`, `objects-server.ts`) that reads
+and writes only `meta/objects/` ([object-definitions.md](object-definitions.md))
+and reads the working copy for two limits, the tileset and tile counts. The
+tileset's tiles come from `Map16Service.loadMap16`, so there is one decode. A
+save, rename or delete moves no working copy byte and fires no edit event; the
+preview colors are a view choice and are never saved. It follows
+`ProjectContext.onChanged` like the Palettes explorer.
 
 Views follow the active Theia theme rather than pinning colors
 (`theia/browser-app/test/load-maps.spec.cjs` asserts it).

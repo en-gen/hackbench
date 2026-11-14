@@ -13,6 +13,15 @@ export type MetaConcern = 'aliases' | 'groups' | 'data-banks'
 
 export const META_DIR = 'meta'
 
+/**
+ * A folder concern: `meta/<folder>/`, one file per record (Object
+ * definitions, docs/architecture/object-definitions.md). Takes the project
+ * directory, not the manifest; the caller has already opened the project.
+ */
+export function metaFolder(projectDir: string, folder: string): string {
+  return path.join(projectDir, META_DIR, folder)
+}
+
 function metaPath(manifestPath: string, concern: MetaConcern): string {
   return path.join(path.dirname(manifestPath), META_DIR, `${concern}.json`)
 }
