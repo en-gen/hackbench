@@ -68,13 +68,17 @@ has patch cells on all four sides. Fill on the outline is fine.
    only an edge beside an edge, side by side (the contact line vertical, at least half of the contact cells),
    between two groups that each close (some row has an edge tile left of fill and one right of it) is refused too:
    it would join two Objects that touch. A group that does not close is a cap or a slope, the end of the hill
-   beside it, and merges; a one-piece platform, a pipe or a block closes, and stays its own Object. A
-   wall beside an interior (edge beside fill) is a ledge extended sideways and merges; so does wall on wall above
+   beside it, and merges; a one-piece platform or block 3 columns wide or more closes (a row needs an edge, fill
+   and an edge, so at least 3 columns), and stays its own Object. A
+   wall beside an interior (edge beside fill) is a ledge extended sideways and merges; so does a contact that is edge
+   beside edge on one row and edge beside fill on another [PROP] (a 5-wide ledge beside a one-piece Object 3 or 4
+   wide whose lower row starts with fill: one Object at 2 rows, two at 3 rows); so does wall on wall above
    and below: a ledge and the continuation of its walls drawn under it is one Object, as the grid says. What still
    merges:
    a ledge and its continuation; one ledge above another, the same width or one tile off, when its body is 1 or 2
    rows tall (90 of 90 cases at each of those heights; w 4-8, 3 offsets, 6 piece orders); a ledge extended
-   sideways; a lone edge tile or a one-piece cap or slope beside a wall. At 3 rows or more one ledge above another
+   sideways; a lone edge tile or a one-piece cap or slope beside a wall; an Object 2 columns wide, a pipe, which
+   never closes. At 3 rows or more one ledge above another
    stays two because the wall contact (one cell) covers less than half of a wall piece 3 or more cells tall, so it
    is not a strong link (at an offset of one tile the merged walls are also surrounded). Side by side two whole
    ledges stay two at every height 1-5, whether either is drawn as one piece or several. [PROP] The side threshold is
@@ -180,6 +184,14 @@ it refuses all five hack ROMs and accepts both vanilla ROMs.
   `ObjectRecognize.corpus.test.ts`): the totals match for the ledge definition (76 Objects, 3835 cells) and the
   slope definition (136, 2291); the stress definition differs by one Object (2165 against 2164, 53902 cells both),
   `$127`, where a 38-cell Object is two Objects of 17 and 21 cells: two multi-piece groups that touch edge to edge.
+- A narrow Object beside a ledge: one that is 2 columns wide never closes, so it still merges with the ledge at 1
+  and 2 rows. Exact counts (ledge w 4-8, offsets -1/0/1, 6 piece orders, 90 cases per height, the Object on the
+  right), pinned in `ObjectRecognize.limits.test.ts`: a one-piece Object 2 wide merges in 30 of 90 cases at 1 row
+  and 90 of 90 at 2 rows; a 2-wide pipe of edge tiles, 2 rows taller than the ledge, in 30 of 90 at 1 row and 30 of
+  90 at 2 rows; at 3 columns wide none merge.
+- A one-piece cap with one edge tile on its far side closes, so it is its own Object, not the end of the ledge
+  beside it (48 of 48 cases at 1 row, 96 of 96 at 2 rows, pinned in `ObjectRecognize.break.test.ts`). No vanilla
+  map shows it.
 - Grouping is a heuristic over stored pieces. It gets `$103` screen 0 right (four platforms, each its three
   pieces) and is order independent over 60 seeded shuffles of a synthetic stack (up to the platform that a later
   piece wholly hides), but pieces of one Object that

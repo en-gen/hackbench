@@ -2,7 +2,8 @@
  * Breaking, touching and mending Objects through stored pieces (#1237).
  * Every map is built with `stamp`, so the footprint, owners and grid agree, as on a real map; a "change" is
  * a piece added. Undoing an edit is not tested here: recognition is a pure function of the pieces, so a map without
- * the piece trivially recognizes as before; the undo is proved against the working copy in MapObjects.test.ts.
+ * the piece trivially recognizes as before; the undo is proved against the working copy in
+ * ObjectsWorkingCopy.test.ts.
  */
 import { describe, it, expect } from 'vitest'
 import { recognizeObjects, type FoundObject } from '../../../src/rom/objects/Recognize'
@@ -402,9 +403,9 @@ describe('a ledge extended sideways by fill and a wall is one Object', () => {
     })
 })
 
-describe('one piece that holds an edge and fill beside a ledge is not yet an Object of its own', () => {
-  // A slope or a cap is drawn as one stored piece that holds edge tiles and fill. Beside a ledge, edge to edge, it
-  // is the end of that ledge, not a second Object touching it: a group needs more than one piece to count as one.
+describe('a one-sided piece beside a ledge is the end of it', () => {
+  // A slope or a cap is drawn as one stored piece with an edge on one side only (an edge column, then fill). Beside a
+  // ledge, edge to edge, it is the end of that ledge, not a second Object touching it: it does not close.
   for (let h = 1; h <= 2; h++)
     it(`${h} tall: w 4-7, a piece 2-4 wide (an edge column then fill), 6 piece orders: always one whole Object`, () => {
       let whole = 0
@@ -497,4 +498,58 @@ describe('the side threshold: a contact that is partly side by side and partly a
           }
         })
       }
+})
+
+describe('a contact that is edge beside edge on one row and edge beside fill on another', () => {
+  // Ledge A (w 5) beside one piece B, 3 or 4 wide: top row TL, fill, TR; the rows below fill and a right wall. B's
+  // lower rows start with fill, so B's left side meets A's right wall edge to fill on those rows. Both groups close
+  // and the contact is side by side, so only the fill in the contact (a contact that is not all edge beside edge)
+  // keeps the link from being refused. With 2 rows it merges into one Object; with 3 rows the walls are surrounded
+  // once merged, and the two stay two. Dropping the `withFill === 0` condition turns the 2-row case into two.
+  const body = (x: number, y: number, bw: number, h: number): Piece => ({
+    x,
+    y,
+    w: bw,
+    h,
+    tile: (r: number, c: number) => (r === y ? (c === x ? TL : c === x + bw - 1 ? TR : FTOP) : c === x + bw - 1 ? WR : DIRT), // prettier-ignore
+  })
+  for (const [h, objects] of [
+    [2, 1],
+    [3, 2],
+  ] as const)
+    for (const bw of [3, 4])
+      it(`A 5 wide and B ${bw} wide, ${h} tall: ${objects} Object${objects === 1 ? '' : 's'}, in 6 piece orders`, () => {
+        for (let n = 0; n < 6; n++) {
+          const pieces = shuffled([...plat(2, 4, 5, h), body(7, 4, bw, h)], 71 + n)
+          const found = recognizeObjects(stamp(pieces, 20, 12), [D])
+          expect(found, `order ${n}`).toHaveLength(objects)
+        }
+      })
+})
+
+describe('a cap with one edge tile on its far side is its own Object', () => {
+  // A one-piece cap (an edge column, then fill) closes as soon as one row has an edge tile on its far side: it is
+  // then a small Object of its own, not the end of the ledge beside it. No vanilla map shows it (the slope probe
+  // totals do not move); this pins the choice. w 4-7, cap 3 or 4 wide, 6 orders: 48 cases at 1 row, 96 at 2.
+  const cap = (x: number, y: number, cw: number, h: number, farRow: number): Piece => ({
+    x,
+    y,
+    w: cw,
+    h,
+    tile: (r: number, c: number) => (c === x ? WL : c === x + cw - 1 && r === farRow ? WR : DIRT),
+  })
+  for (const h of [1, 2])
+    it(`${h} tall: ${h === 1 ? 48 : 96} of ${h === 1 ? 48 : 96} cases give two Objects`, () => {
+      let two = 0
+      let total = 0
+      for (let w = 4; w <= 7; w++)
+        for (const cw of [3, 4])
+          for (let far = 0; far < h; far++)
+            for (let n = 0; n < 6; n++) {
+              const pieces = shuffled([...plat(2, 4, w, h), cap(2 + w, 4, cw, h, 4 + far)], 91 + n)
+              total++
+              if (recognizeObjects(stamp(pieces, 20, 12), [D]).length === 2) two++
+            }
+      expect({ two, total }).toEqual({ two: total, total: h === 1 ? 48 : 96 })
+    })
 })

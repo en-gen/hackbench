@@ -20,6 +20,17 @@ const plat = (x: number, y: number, w: number, h: number): Piece[] => [
   { x: x + w - 1, y, w: 1, h, tile: (r: number) => (r === y ? TR : WR) },
 ]
 
+function shuffled<T>(list: T[], seed: number): T[] {
+  let s = seed
+  const rand = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff
+  const out = [...list]
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1))
+    ;[out[i], out[j]] = [out[j]!, out[i]!]
+  }
+  return out
+}
+
 describe('a lone edge tile dropped into the four-platform stack, one cell at a time', () => {
   const PL = [
     { x: 8, y: 9, w: 6, left: 3, right: 15 },
@@ -120,7 +131,8 @@ describe('a piece that holds fill but changes one visible tile', () => {
         const whole = rect(2, 2, w, h)
         const base = plat(2, 2, w, h)
         const stillWhole = (piece: Piece) => recognizeObjects(stamp([...base, piece], 20, 14), [D]).some(o => same(keys(o), whole)) // prettier-ignore
-        // The body is cols 3..w and rows 3..h (the walls and the top row are outside it). Along a row: fill, edge,
+        // The body is cols 3..w and rows 3..h: the walls (cols 2 and w + 1), the top row (row 2) and the bottom row
+        // (row h + 1) are outside it. Along a row: fill, edge,
         // fill, the middle tile changing; down a column the same.
         for (let r = 3; r <= h; r++)
           for (let c = 4; c <= w - 1; c++) {
@@ -134,5 +146,37 @@ describe('a piece that holds fill but changes one visible tile', () => {
           }
       }
     expect(t).toEqual({ horizontal: 240, horizontalWhole: 240, vertical: 180, verticalWhole: 180 })
+  })
+})
+
+describe('a narrow Object beside a ledge: the rows that close need three columns', () => {
+  // A row closes only with edge, fill and edge in it, which needs 3 columns. A 2-wide Object (a pipe, say) never
+  // closes, so beside a ledge it still merges at 1 and 2 rows. The exact counts (w 4-8, offsets -1/0/1, 6 orders:
+  // 90 cases per height; the Object on the right of the ledge) are pinned; at 3 columns the two stay two.
+  const wall = (x: number, y: number, ww: number, h: number, allEdge: boolean): Piece => ({
+    x,
+    y,
+    w: ww,
+    h,
+    tile: (r: number, c: number) => (allEdge ? (r === y ? (c === x ? TL : TR) : c === x ? WL : WR) : r === y ? (c === x ? TL : c === x + ww - 1 ? TR : FTOP) : c === x ? WL : c === x + ww - 1 ? WR : DIRT), // prettier-ignore
+  })
+  const merged = (h: number, ww: number, tall: number, allEdge: boolean) => {
+    let m = 0
+    for (let w = 4; w <= 8; w++)
+      for (const dy of [-1, 0, 1])
+        for (let n = 0; n < 6; n++) {
+          const pieces = shuffled(
+            [...plat(2, 4, w, h), wall(2 + w, 4 + dy, ww, tall, allEdge)],
+            81 + n,
+          )
+          if (recognizeObjects(stamp(pieces, 30, 14), [D]).length === 1) m++
+        }
+    return m
+  }
+  it('a one-piece Object 2 wide: 30 of 90 merge at 1 row, 90 of 90 at 2 rows; 3 wide: none', () => {
+    expect([merged(1, 2, 1, false), merged(2, 2, 2, false), merged(1, 3, 1, false), merged(2, 3, 2, false)]).toEqual([30, 90, 0, 0]) // prettier-ignore
+  })
+  it('a 2-wide pipe of edge tiles, 2 rows taller than the ledge: 30 of 90 merge at 1 and at 2 rows', () => {
+    expect([merged(1, 2, 3, true), merged(2, 2, 4, true)]).toEqual([30, 30])
   })
 })

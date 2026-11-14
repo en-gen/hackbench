@@ -224,9 +224,10 @@ function groupPieces(
     .sort((a, b) => Number(b.withFill > 0) - Number(a.withFill > 0) || b.score - a.score || b.w - a.w || a.p - b.p || a.q - b.q) // prettier-ignore
   // The rule is judged with the pieces that took part in no link known, so the first thing to say is which.
   const holds = holdsFor(new Set(ordered.flatMap(l => [l.p, l.q])))
-  // A group is a whole Object on its own when it closes: some row has an edge tile left of fill and an edge tile
-  // right of it. A cap or a slope has an edge on one side only (the hill goes on beyond it); a one-piece platform,
-  // a pipe or a block closes, and so does any multi-piece Object that is complete.
+  // A group is a whole Object on its own when it closes: some row has an edge tile, then fill, then an edge tile,
+  // so a closing Object is at least 3 columns wide. A cap or a slope has an edge on one side only (the hill goes
+  // on beyond it); a one-piece platform or block 3 wide or more closes, and so does any multi-piece Object that
+  // is complete. An Object 2 wide (a pipe) never closes: beside a ledge it still merges at 1 and 2 rows.
   const closes = (g: Group) => {
     const rows = new Map<
       number,
@@ -254,17 +255,16 @@ function groupPieces(
       v => v.fillMin <= v.fillMax && v.edgeMin < v.fillMin && v.fillMax < v.edgeMax,
     )
   }
-  const hasBoth = closes
   for (const { p, q, withFill, side, w } of ordered) {
     const a = groupOf.get(p)!
     const b = groupOf.get(q)!
     if (a === b) continue
     if (split && hasEdge(a) && hasEdge(b) && stacked(a, b)) continue
     // A link that is only an edge beside an edge, side by side (the contact line is vertical), between two groups
-    // that each already have an edge and fill joins two Objects that touch: not one (one that is broken costs only
-    // itself, not its neighbor). A wall beside an interior is an edge beside fill, a ledge extended sideways, and
+    // that each close joins two Objects that touch: not one (one that is broken costs only itself, not its
+    // neighbor). A wall beside an interior is an edge beside fill, a ledge extended sideways, and
     // merges; so does wall on wall above and below (a ledge and the continuation of its walls).
-    if (split && withFill === 0 && side * 2 >= w && hasBoth(a) && hasBoth(b)) continue
+    if (split && withFill === 0 && side * 2 >= w && closes(a) && closes(b)) continue
     const merged: Group = { pieces: new Set([...a.pieces, ...b.pieces]), cells: new Map(a.cells) }
     for (const [k, c] of b.cells) {
       const have = merged.cells.get(k)
