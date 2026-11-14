@@ -419,7 +419,9 @@ describe('a sprite its parent drew, through the real drawer (#1049)', () => {
   ) => {
     const run = ((r: RomFile, id: number, q: never, o?: { stopAtDraw?: boolean }) => {
       const m = runOnce(r, id, q)
-      return { ...m, ...(reveal && o?.stopAtDraw ? { passes: [] } : {}), unverifiedReason: mark(o?.stopAtDraw) }
+      // A whole search rerun draws another tile than the at-rest run: a repeat of the at-rest picture is no reveal (#1365).
+      const other = reveal && o?.stopAtDraw === false ? { passes: m.passes.map(p => ({ ...p, parts: p.parts.map(x => ({ ...x, char: x.char + 2 })) })) } : {} // prettier-ignore
+      return { ...m, ...(reveal && o?.stopAtDraw ? { passes: [] } : other), unverifiedReason: mark(o?.stopAtDraw) }
     }) as typeof runOnce // prettier-ignore
     const d = interpDrawer(rom, 0x104, { isVertical: false, screenCount: 2 }, run, () => withSeed({ loaded: new Uint8Array(0x2000) }), undefined, undefined, undefined, list, reveal) // prettier-ignore
     return drawSprites(list, { vram, colors: COLORS } as never, d)[0]!.unverified
