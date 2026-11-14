@@ -201,23 +201,23 @@ function gradeAll(
   return { rows, by, inputs, fallbacks, missAtK }
 }
 
-/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Re-measured for #839/#1370 after four maps (101, 1d4, 109, 11b) were re-captured with the fixed harness (en-gen/hackbench-validation bc8d1a3): 2026-11-11, one machine, vanilla ROM, 1955 records: exact 1925, shape 0, close 17, wrong 13, empty 0, fallback 42, missAtK 3 (1957 records, exact 1917, close 17, wrong 22, empty 1, fallback 38, missAtK 7 with the old zips; the 9 wrong records on maps 101 and 1d4 were castle-flame cluster tiles the old harness attributed to sprite records; the 2 that left were of the same kind). */
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Re-measured for #839/#1370 after four maps (101, 1d4, 109, 11b) were re-captured with the fixed harness (en-gen/hackbench-validation bc8d1a3): 2026-11-11, one machine, vanilla ROM, 1955 records: exact 1925, shape 0, close 17, wrong 13, empty 0, fallback 42, missAtK 3 (1957 records, exact 1917, close 17, wrong 22, empty 1, fallback 38, missAtK 7 with the old zips; the 9 wrong records on maps 101 and 1d4 were castle-flame cluster tiles the old harness attributed to sprite records; the 2 that left were of the same kind). With the #1368 map 004 re-capture (bc8d1a3, composite corpus, one run, one machine, vanilla ROM, 2026-11-13): 1955 records, exact 1926, close 17, wrong 12, empty 0, fallback 43, missAtK 3. */
 const FLOOR = {
   graded: 1955,
   // Measured on the merge of develop a9de2145 and #842 (offsets from the draw-time position, Layer 3 handler run),
   // one machine, 2026-10-28: exact 1906, shape 0, close 17, wrong 33, empty 1 (the #842 head alone, before
   // the merge: 1865, 0, 17, 75, 0). Shape is not floored: with shape at 0, exact + shape could never fire below the
   // exact floor.
-  exact: 1908, // 1925 measured (1917 with the pre-#1370 zips)
+  exact: 1909, // 1926 measured with the #1368 map 004 re-capture (1925 before it, 1917 with the pre-#1370 zips)
   maxRefused: 0,
   maxShape: 5, // 0 measured
   maxClose: 20, // 17 measured
   maxEmpty: 4, // 0 measured (old slack 4 over 1)
-  maxWrong: 21, // 13 measured, same 8 slack as the old 30 over 22 (22 with the pre-#1370 zips)
+  maxWrong: 20, // 12 measured with the #1368 re-capture (13 before it, 22 with the pre-#1370 zips), the same 8 slack
   maxMissAtK: 6, // 3 measured, same 3 slack as the old 10 over 7
-  // 42 measured (spawned records without initFrame; 38 before the #1370 re-capture); all-timed would read 0.
-  minFallbacks: 34, // old 30 under 38 measured: same 8 slack under 42
-  maxFallbacks: 44, // old hard-coded 40 over 38 measured: same 2 headroom over 42
+  // 43 measured: 38 spawned records without initFrame, 5 drawn before the anchor on the bc8d1a3 re-captures (004, 101, 11b); all-timed would read 0.
+  minFallbacks: 35, // old 30 under 38 measured: same 8 slack under 43 (the re-captured $B9 on 004 draws before its anchor)
+  maxFallbacks: 45, // old hard-coded 40 over 38 measured: same 2 headroom over 43
   // 7 measured on the merge (3 on the #842 head alone, 25 before it: the 22 initFrames > 1 records missed until the
   // loader ran the Layer 3 handler); a runner that stops counting misses (or stops grading at k) drops below.
   minMissAtK: 3,
@@ -257,7 +257,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     expect(by.close ?? 0).toBeLessThanOrEqual(FLOOR.maxClose)
     expect(by.empty ?? 0).toBeLessThanOrEqual(FLOOR.maxEmpty)
     expect(by.wrong ?? 0).toBeLessThanOrEqual(FLOOR.maxWrong)
-    // 42 records carry no initFrame (the spawned ones) and grade the old way.
+    // 43 records grade the old way: 38 spawned ones carry no initFrame, 5 drew before the anchor on the bc8d1a3 re-captures (004, 101, 11b).
     expect(fallbacks).toBeGreaterThanOrEqual(FLOOR.minFallbacks)
     expect(fallbacks).toBeLessThanOrEqual(FLOOR.maxFallbacks)
     expect(missAtK).toBeLessThanOrEqual(FLOOR.maxMissAtK)
@@ -292,6 +292,21 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     },
     120_000,
   )
+
+  // #1368: the Info Box's own piece. The first 004 capture also held a tile of cluster sprite $03 (CODE_02FBC7,
+  // bank_02.asm:15968, tiles from BooRingTiles; OAM 126, $AA/$AE) as its second piece: cluster index 6 equals its sprite slot 6 and the old recorder keyed by slot (hackbench-validation 48d348c
+  // fixed that, bc8d1a3 used for the re-capture). Against that capture it grades wrong, so this goes red when the old
+  // 004.zip is back. Not in the table above: the re-captured record is drawn before the anchor frame, so it grades the
+  // old way (a fallback), which that table forbids.
+  it('map 004 $B9 at 144,336 grades exact on the re-captured map, one recorded piece', () => {
+    const one = all.filter(
+      a => a.map === '004' && a.rec.id === '$B9' && a.rec.listX === 144 && a.rec.listY === 336,
+    )
+    expect(one).toHaveLength(1)
+    expect(recordedFrames(one[0].rec).map(f => f.length)).toEqual([1])
+    const { rows } = gradeAll(freshRom(), one)
+    expect(rows.map(r => r.verdict)).toEqual(['exact'])
+  }, 120_000)
 
   // #1035: a stationary shell is placed as list id $DA-$DD but recorded as $04-$07 (the loader rebases it,
   // bank_02.asm:5456-5462). Graded under the record id it is a walking Koopa and grades wrong; under the

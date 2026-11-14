@@ -8,7 +8,7 @@
  * plane lists (`ScreenPlanes`), the effective CGADSUB and the layer 2 role. The
  * rest are refusals carrying their reason, never a guess. Camera-locked layer 3
  * ($81-$BF) is world-locked and draws from the entrance camera (#563,
- * docs/rom/layer3-world-locked.md); $00 off Castle1 and Underground1, mode 0E and
+ * docs/rom/layer3-world-locked.md, mode 0E's $018 too, #805); $00 off Castle1 and Underground1 and
  * vertical maps still refuse. The main/sub designations only mean BG1/BG2/BG3 in
  * BG mode 1, so an unverified mode keeps the old stacking and no math.
  */
@@ -171,9 +171,9 @@ export function buildL3Verdict(
       none(reason, {
         cgadsub: effectiveCgadsub(layout.cgadsub, !kept),
       })
-    // The world-locked draw is verified for $81-$BF where BG3 is not alone on the main screen; mode 0E
-    // ($018) adds it onto layers 1 and 2 and stays refused.
-    if (!kept || (layout.main & 0x03) === 0) return refuse()
+    // A lone BG3 on the main screen (mode 0E, $018) is not a reason to refuse: the plane lists and the
+    // color math carry it like any other mode (docs/rom/layer3-world-locked.md, Map $018; #805).
+    if (!kept) return refuse()
     const start = readMarioStartPos(rom, index)
     if (!start) return refuse()
     if (!cameraGate(rom).ok) return refuse(CAMERA_HOOKED)
