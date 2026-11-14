@@ -150,6 +150,10 @@ async function openMap(page, slot) {
  * worked out before that settles can be somewhere else by the time the click arrives.
  */
 async function settle(page, slot) {
+  // Theia's loading splash (.theia-preload) keeps its pointer events while it fades out, so it would take the click.
+  await page.waitForFunction(() => !document.querySelector('.theia-preload'), null, {
+    timeout: 15000,
+  })
   await page.evaluate(() => {
     window.__hbSettle = undefined
   })
@@ -207,6 +211,24 @@ async function pointAt(page, slot, size, x, y, action = 'move', modifiers = []) 
     },
     { strip: stripOf(slot), size, x, y },
   )
+  // Whatever is on top at that point must be the map: an overlay in the way shows up here, named, not as a miss.
+  const top = await page.evaluate(
+    ({ strip, x, y }) => {
+      const hit = document.elementFromPoint(x, y)
+      const inside =
+        !!hit && !!hit.closest('[data-control="map-scroller"]') && !!document.querySelector(strip)
+      return inside
+        ? null
+        : hit
+          ? `${hit.tagName}.${String(hit.className)}`
+          : 'nothing (the point is off screen)'
+    },
+    { strip: stripOf(slot), x: p.x, y: p.y },
+  )
+  if (top)
+    throw new Error(
+      `the point (${p.x.toFixed(1)}, ${p.y.toFixed(1)}) is covered by ${top}, not the map`,
+    )
   for (const m of modifiers) await page.keyboard.down(m)
   if (action === 'click') await page.mouse.click(p.x, p.y)
   else await page.mouse.move(p.x, p.y)
