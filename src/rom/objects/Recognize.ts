@@ -3,7 +3,8 @@
  *
  * An Object is a connected patch of one definition tiles (#1234 round 1 call 1). Two sources:
  *  1. stored pieces, through the footprint every piece wrote: this finds a covered Object whole and
- *     keeps touching Objects apart (the pieces say which tiles belong together);
+ *     keeps touching Objects apart (the pieces say which tiles belong together; one platform directly
+ *     on top of another, 2 rows tall or less, is the one touching case that still merges);
  *  2. visible tiles, for what the pieces do not explain.
  * docs/architecture/objects-on-map.md has the diagram and the ties.
  */
@@ -221,11 +222,18 @@ function groupPieces(
     .sort((a, b) => Number(b.withFill > 0) - Number(a.withFill > 0) || b.score - a.score || b.w - a.w || a.p - b.p || a.q - b.q) // prettier-ignore
   // The rule is judged with the pieces that took part in no link known, so the first thing to say is which.
   const holds = holdsFor(new Set(ordered.flatMap(l => [l.p, l.q])))
-  for (const { p, q } of ordered) {
+  const hasBoth = (g: Group) => {
+    const tiles = [...g.cells.values()].map(c => isEdge(c.tile))
+    return tiles.some(Boolean) && tiles.some(e => !e)
+  }
+  for (const { p, q, withFill } of ordered) {
     const a = groupOf.get(p)!
     const b = groupOf.get(q)!
     if (a === b) continue
     if (split && hasEdge(a) && hasEdge(b) && stacked(a, b)) continue
+    // A link that is only an edge beside an edge, between two groups that each already have an edge and fill and
+    // hold the rule, joins two whole Objects that touch: not one.
+    if (split && withFill === 0 && hasBoth(a) && hasBoth(b) && holds(a) && holds(b)) continue
     const merged: Group = { pieces: new Set([...a.pieces, ...b.pieces]), cells: new Map(a.cells) }
     for (const [k, c] of b.cells) {
       const have = merged.cells.get(k)

@@ -64,12 +64,21 @@ has patch cells on all four sides. Fill on the outline is fine.
    the other (overlapping pieces are one drawn over another: stacked Objects), or when each part holds the
    rule on its own and the merged shape does not (two Objects that touch). A part that already fails on its
    own, a piece that writes an edge tile into its own body, is merged anyway: the group is broken and does
-   not fall apart into fragments. With bodies 2 rows tall the merged walls are never surrounded, so two
-   platforms side by side merge into one Object: the one touching case the rule cannot tell apart.
+   not fall apart into fragments. A link that is only an edge beside an edge, between two groups that each
+   already have an edge and fill and hold the rule, is refused too: it would join two whole Objects that
+   touch. One platform directly on top of another is edge over fill, a contact like any other, so with bodies
+   1 or 2 rows tall the merged walls are never surrounded and the two merge into one Object: 60 of 90 cases at
+   each of the heights 1 and 2 (w 4-8, 3 offsets, 6 piece orders), none at 3 rows or more. Side by side they stay
+   two at every height 1-5.
 
 A cell's tile in a group is the latest group piece's tile, except that a later fill-only piece in no link at
 all (it belongs to no Object) drawn over an edge tile replaces it, so a fill piece over a stray edge tile
-mends the Object. N6: such a piece adds no cells, so identical visible grids give identical Objects.
+mends the Object. Such a piece adds no cells, so a mended Object equals the one drawn cleanly, except when the
+fill piece also touches an edge piece elsewhere: it then links, is no mender, and the stray edge tile breaks
+the Object. Witness: a 5 x 5 platform whose interior writes an edge tile, a fill strip over it running 10 rows
+down, and an edge post beside the strip below the platform give one Object of 14 cells; the same visible tiles
+drawn cleanly give two, of 14 and 25. [PROP] the mend is outside ordinary grouping; grouping alone would
+leave a fill piece over a stray edge tile unmended, and the mending sweeps go red.
 
 **Cut-short edges (call 2).** An edge piece that is one straight run, shorter than the group piece beside
 it, is extended to that piece's extent, repeating its end tile, but only through cells another piece draws
@@ -133,15 +142,29 @@ it refuses all five hack ROMs and accepts both vanilla ROMs.
 
 ## Limits, stated
 
-- A lone edge tile dropped into the middle of the four-platform stack of `$103` (test `N3`, 142 cells) stays an
-  Object of one cell in 94 cells, and there the Object directly behind it breaks exactly as the rule says
-  (no other platform changes, and none changes its order). In the other 48 cells the tile touches fill of a
-  neighbor's piece through an edge, grouping links it into that platform's edge, and the result differs: 29 leave
-  all four platforms whole, 19 do not (6 of those are the platform plus that one tile, 13 lose a platform). A tile
-  that grouping takes for an edge of a neighbor cannot be told from one.
+- **Edits inside layered Objects (pending the owner).** A lone edge tile dropped into the middle of the
+  four-platform stack of `$103` (142 definition cells, one tile at a time) stays an Object of one cell in 94
+  cells, and there the Object directly behind it breaks exactly as the rule says (no other platform changes,
+  none changes its order). In the other 48 cells the tile touches fill of a neighbor's piece through an edge and
+  grouping links it into that platform's edge: 29 leave all four platforms whole, and 19 do not. Of those 19,
+  in 6 a platform is its rectangle plus that one tile; in 13 something else happens: a platform drops out in 5
+  cells (8 platforms lost in all), a platform grows by the tile and one extended cell in 4, and in 4 the tile
+  pulls the 60-cell ground into a platform (84, 100, 150 and 120 cells). In 24 of the 29 cells where the
+  platform that shows the cell should break (the cell and its four neighbors are in its shape) it does not.
+- The same holds for any Object drawn in another's body, not only this stack. A back platform 14 x 10 with a
+  front platform 3-5 wide and 2-4 tall at (6,4), and a lone tile at each of the 756 back-interior cells outside
+  the front: 648 are correct, 84 keep the back whole, and 24 lose both Objects (the tile links to the front's
+  edge and extending that edge down under the back's body makes the front's wall surrounded).
+- A piece that holds fill but changes one visible tile (a 1 x 3 piece of fill, edge, fill laid through the
+  platform's interior) is shielded as a whole Object in front, so the platform still matches: 60 of 60 cases
+  (w 6-10, h 5-7, every interior position). The screen is the same as for the lone tile, which does break it.
+  Both are the same limit: what counts as an edit inside layered Objects, and the rule for it, is for the owner.
+- A stack of 60 seeded piece orders finds 3 Objects, not 4, in 6 of them: a platform every cell of which a later
+  piece covers has nothing to select and is not offered.
 
 - Grouping is a heuristic over stored pieces. It gets `$103` screen 0 right (four platforms, each its three
-  pieces) and is order independent over 60 seeded shuffles of a synthetic stack, but pieces of one Object that
+  pieces) and is order independent over 60 seeded shuffles of a synthetic stack (up to the platform that a later
+  piece wholly hides), but pieces of one Object that
   only touch through fill, or that overlap each other on purpose, split into separate Objects. A
   ground rectangle drawn under and overlapped by a slope piece is not part of the slope's Object.
 - Round 1 call 1's rule is the only thing relating tiles to roles; a definition whose edge and fill overlap is
