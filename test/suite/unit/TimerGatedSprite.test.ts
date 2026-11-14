@@ -70,10 +70,12 @@ describe('a sprite that draws only while its own timer runs (#1002)', () => {
   it('is the timer that gates it: the same sprite draws once its timer is nonzero', () => {
     // Every slot's $1540 set, so the check does not depend on which slot the run uses.
     const ram = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [0x1540 + i, 0x1f]))
-    const seed = withSeed({ sprite: { x: 0x1000, y: 0x120 }, camera: { x: 0xf80, y: 0xb0 }, ram }, base()) // prettier-ignore
-    const armed = modelResult(runWithUploads(rom, TIMER_GATED, seed))
+    const placed = { sprite: { x: 0x1000, y: 0x120 }, camera: { x: 0xf80, y: 0xb0 } }
+    const armed = modelResult(
+      runWithUploads(rom, TIMER_GATED, withSeed({ ...placed, ram }, base())),
+    )
     expect(armed.ok, JSON.stringify(armed)).toBe(true)
-    const rest = modelResult(runWithUploads(rom, TIMER_GATED, withSeed({ sprite: { x: 0x1000, y: 0x120 }, camera: { x: 0xf80, y: 0xb0 } }, base()))) // prettier-ignore
+    const rest = modelResult(runWithUploads(rom, TIMER_GATED, withSeed(placed, base())))
     expect(rest.ok).toBe(false)
   })
 })

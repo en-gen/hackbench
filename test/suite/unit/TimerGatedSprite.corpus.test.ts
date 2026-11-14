@@ -6,6 +6,7 @@
  */
 import { readFileSync } from 'fs'
 import { describe, it, expect } from 'vitest'
+import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 import { mapSprites } from '../../../theia/extension/src/node/map-sprites'
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
@@ -22,10 +23,15 @@ const PLACED: Record<number, [number, number][]> = {
 
 describe.skipIf(!hasRom(VANILLA))('climbing net door on the vanilla ROM', () => {
   const bytes = new Uint8Array(hasRom(VANILLA) ? readFileSync(romPath(VANILLA)) : 0)
+  const cache = new Map<number, MapSpriteDto[]>()
+  // Each map is served once: the cases below all read the same two.
   const get = (map: number) => {
-    const r = mapSprites(new L1ModelCache(), bytes, romPath(VANILLA), map)
-    if (r.status !== 'ok') throw new Error(JSON.stringify(r))
-    return r.sprites
+    if (!cache.has(map)) {
+      const r = mapSprites(new L1ModelCache(), bytes, romPath(VANILLA), map)
+      if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+      cache.set(map, r.sprites)
+    }
+    return cache.get(map)!
   }
 
   it.each([0x101, 0x1d3])(
