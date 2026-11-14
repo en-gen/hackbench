@@ -559,10 +559,10 @@ for (const vertical of [false, true]) {
         page.evaluate(sel => {
           const e = document.querySelector(`${sel} .hb-map-add-screen-box`)
           const c = getComputedStyle(e)
-          return { text: e.textContent, border: c.borderTopStyle + ' ' + c.borderTopColor, opacity: c.opacity, cursor: getComputedStyle(e.parentElement).cursor, bg: c.backgroundColor, title: e.parentElement.title } // prettier-ignore
+          return { text: e.textContent, border: c.borderTopStyle + ' ' + c.borderTopColor, opacity: c.opacity, cursor: getComputedStyle(e.parentElement).cursor, bg: c.backgroundColor } // prettier-ignore
         }, root)
       const before = await look()
-      expect(before).toMatchObject({ text: 'Add screen', cursor: 'default', opacity: '0.75', title: 'Add screen is not available yet' }) // prettier-ignore
+      expect(before).toMatchObject({ text: 'Add screen', cursor: 'default', opacity: '0.75' }) // prettier-ignore
       expect(before.border).toMatch(/^dashed /)
       expect(before.bg).toBe('rgba(0, 0, 0, 0)') // no fill: not a button
       // A sprite is selected first, so a stray map click (which would clear it) shows.
@@ -587,6 +587,38 @@ for (const vertical of [false, true]) {
       expect(await scrollOf()).toEqual(scroll0)
     })
   }
+}
+
+for (const vertical of [false, true]) {
+  test(`5: hovering the Add screen box shows a visible tooltip, and nothing sits over it (${vertical ? 'vertical' : 'horizontal'})`, async ({
+    page,
+  }) => {
+    await openSynthetic(page, { vertical })
+    await scrollEnd(page, vertical)
+    const box = page.locator(`${root} .hb-map-add-screen-box`)
+    await box.scrollIntoViewIfNeeded()
+    const r = await box.boundingBox()
+    const [cx, cy] = [r.x + r.width / 2, r.y + r.height / 2]
+    // Nothing eats the hover: the topmost element at the box center is the box (or inside it).
+    const top = await page.evaluate(
+      ({ x, y, sel }) => {
+        const e = document.elementFromPoint(x, y)
+        return { cls: e?.className ?? null, inBox: !!e?.closest(`${sel} .hb-map-add-screen-box`) }
+      },
+      { x: cx, y: cy, sel: root },
+    )
+    expect(top.inBox, JSON.stringify(top)).toBe(true)
+    // A real hover, then a VISIBLE tooltip element (a native title tooltip is invisible to the page and to this check).
+    await page.mouse.move(cx + 1, cy)
+    await page.mouse.move(cx, cy)
+    const tip = page.locator('.theia-hover')
+    await expect(tip).toBeVisible({ timeout: 10000 })
+    await expect(tip).toHaveText('Add screen is not available yet')
+    // Moving off hides it.
+    await page.mouse.move(r.x - 40, cy)
+    await expect(tip).toBeHidden({ timeout: 10000 })
+    await closeMap(page)
+  })
 }
 
 for (const vertical of [false, true]) {
