@@ -237,6 +237,19 @@ const acrossLine = (page, m, along = 0.5) => {
     ? pixels(page, l.left + l.width * along, l.top - 4, 13, true)
     : pixels(page, l.left - 4, l.top + l.height * along, 13, false)
 }
+/**
+ * Where the line's 5 painted pixels sit in an `acrossLine` row, from the element's own rect: the row starts at
+ * floor(start) - 4 and the browser snaps the rect to Math.round(start), so the first (dark edge) pixel is at
+ * `at`, the 3 amber pixels at at + 1 .. at + 3, the far dark edge pixel at at + 4. Never a fixed index.
+ */
+const lineSlots = m => {
+  const start = m.vertical ? m.line.top : m.line.left
+  const at = Math.round(start) - (Math.floor(start) - 4)
+  return { at, amber: [at + 1, at + 2, at + 3], edges: [at, at + 4] }
+}
+/** What a failed pixel assertion prints: the whole row, the slots read and the live rect. */
+const rowInfo = (px, m) =>
+  JSON.stringify({ px, slots: lineSlots(m), line: m.line, vertical: m.vertical })
 const lin = c => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
 const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
 const contrast = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05)
@@ -382,8 +395,8 @@ test('3: the line shows with the grid on and off and every toolbar toggle off, a
       // line on the far edge (SCREEN_GRID_WEIGHT), and the end line stands above it, so none may be dimmed.
       const px = await acrossLine(page, m)
       expect(
-        px.slice(5, 8).every(p => dist(p, AMBER) < 30),
-        JSON.stringify({ gridOn, off, px }),
+        lineSlots(m).amber.every(i => dist(px[i], AMBER) < 30),
+        JSON.stringify({ gridOn, off, info: rowInfo(px, m) }),
       ).toBe(true)
       last = m
     }
@@ -424,15 +437,15 @@ for (const vertical of [false, true]) {
       `gutter-side pixel ${Math.ceil(edgeAt)} of ${JSON.stringify(px)}`,
     ).toBeLessThan(30)
     expect(
-      px.slice(5, 8).some(p => dist(p, AMBER) < 30),
-      JSON.stringify(px),
+      lineSlots(m).amber.every(i => dist(px[i], AMBER) < 30),
+      rowInfo(px, m),
     ).toBe(true)
     if (!vertical) {
       // And over Layer 3's blue rows at the top of the line.
       const top = await acrossLine(page, m, 0.1)
       expect(
-        top.slice(5, 8).some(p => dist(p, AMBER) < 30),
-        JSON.stringify(top),
+        lineSlots(m).amber.every(i => dist(top[i], AMBER) < 30),
+        rowInfo(top, m),
       ).toBe(true)
     }
   })
@@ -479,12 +492,20 @@ for (const theme of ['light', 'dark']) {
         await scrollEnd(page, false)
         const m = await measure(page)
         const line = await acrossLine(page, m)
-        const [edge, amber] = [darkest(line.slice(3, 10)), brightest(line.slice(4, 9))]
-        expect(dist(amber, AMBER), 'amber pixel').toBeLessThan(30)
+        // The line's own pixels by its rect: a wider window reads the back (white: 203 from amber) as "brightest".
+        const slots = lineSlots(m)
+        const [edge, amber] = [
+          darkest(slots.edges.map(i => line[i])),
+          brightest(slots.amber.map(i => line[i])),
+        ]
+        expect(dist(amber, AMBER), `amber pixel ${rowInfo(line, m)}`).toBeLessThan(30)
         // On a light back the dark edge carries the line; on a dark back the amber does.
         const read = Math.max(contrast(edge, line[0]), contrast(amber, line[0]))
-        expect(read, `line vs back ${back}`).toBeGreaterThanOrEqual(3)
-        expect(contrast(amber, edge), 'amber vs its dark edge').toBeGreaterThanOrEqual(3)
+        expect(read, `line vs back ${back} ${rowInfo(line, m)}`).toBeGreaterThanOrEqual(3)
+        expect(
+          contrast(amber, edge),
+          `amber vs its dark edge ${rowInfo(line, m)}`,
+        ).toBeGreaterThanOrEqual(3)
         // The Add screen outline: its left border at the box's middle height, with 4 px of gutter before it.
         const b = m.addBox
         const o = await pixels(page, b.left - 4, b.top + b.height / 2, 9, false)
