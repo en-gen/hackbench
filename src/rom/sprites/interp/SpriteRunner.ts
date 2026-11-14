@@ -17,6 +17,7 @@ import {
   type LoaderDigest,
   loaderWindow,
   neverAppears,
+  spawnHidden,
   onLinePass,
 } from './LineAppearance'
 import {
@@ -1150,7 +1151,7 @@ export function startsBehind(
     const probe: Probe = (_, w) => {
       if (w[RAM.status + seed.slot] === 0) erased = true
     }
-    const m = runOnce(rom, id, withSeed({ camera: vert ? { y: cam } : { x: cam } }, seed), { ...opts, atRest: false, probe, neighbourProbe: undefined }) // prettier-ignore
+    const m = runOnce(rom, id, withSeed({ camera: vert ? { y: cam } : { x: cam } }, seed), { ...opts, atRest: false, probe, neighbourProbe: undefined, stopAtDraw: true }) // prettier-ignore
     const q = m.passes.find(p => drawnParts(p).length)
     const sgn = (v: number) => (v << 16) >> 16
     // An empty run says nothing about which side of the scroll the sprite is on: the game hides what GetDrawInfo culls (Y $F0),
@@ -1166,17 +1167,23 @@ export function startsBehind(
     const edge = (t: SpritePart, far: boolean) => sgn(vert ? q.origin.y : q.origin.x) + (vert ? t.dy : t.dx) - cam + (far ? t.size : 0) // prettier-ignore
     return { dir, extent: { lo: Math.min(...drawnParts(q).map(t => edge(t, false))), hi: Math.max(...drawnParts(q).map(t => edge(t, true))) } } // prettier-ignore
   }
-  const spawns = (
-    [
-      [1, at - win.right],
-      [-1, at - win.left],
-    ] as const
-  )
-    .filter(([, cam]) => cam >= 0 && cam <= seed.level.screens * 256 - screen)
-    .map(([dir, cam]) => spawn(dir, cam))
   const w = seed.loaded
+  const cams: [Spawn['dir'], number][] = [
+    [1, at - win.right],
+    [-1, at - win.left],
+  ]
+  const allowed = cams.filter(([, cam]) => cam >= 0 && cam <= seed.level.screens * 256 - screen)
+  // The map-load spawn goes first: a sprite inside the opening window shows there, which ends the probe after one run.
   if (seed.opening && w)
-    spawns.push(spawn(0, vert ? w[0x1c]! | (w[0x1d]! << 8) : w[0x1a]! | (w[0x1b]! << 8)))
+    allowed.unshift([0, vert ? w[0x1c]! | (w[0x1d]! << 8) : w[0x1a]! | (w[0x1b]! << 8)])
+  // Lazy: one spawn that shows the sprite settles it (`neverAppears` needs every spawn hidden), so the rest are not run
+  // (each is a full interpreter run; #1231 made this probe run for every moved sprite). Same verdict as running them all.
+  const spawns: Spawn[] = []
+  for (const [dir, cam] of allowed) {
+    const s = spawn(dir, cam)
+    if (!spawnHidden(s, screen)) return false
+    spawns.push(s)
+  }
   return neverAppears(spawns, screen)
 }
 

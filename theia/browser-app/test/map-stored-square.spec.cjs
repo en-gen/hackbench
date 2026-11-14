@@ -238,11 +238,13 @@ test("a shown square wins the click over another sprite's drawing on top of it (
     const map = await openMap(page, slot)
     for (const a of map.reply.sprites.filter(showsSquare)) {
       const c = a.stored
-      for (let y = c.y; y < c.y + 16 && !found; y++)
-        for (let x = c.x; x < c.x + 16 && !found; x++) {
+      // Two pixels in from the square's edge and with the covering sprite 2 px on every side: a click is truncated to a whole
+      // screen pixel, so a pixel on the square's edge can land in the cell next to it, where the drawing rightly wins.
+      for (let y = c.y + 2; y < c.y + 14 && !found; y++)
+        for (let x = c.x + 2; x < c.x + 14 && !found; x++) {
           const b = map.ownerAt(x, y)
-          // Pixels with the covering sprite on all sides, so zoom rounding cannot land elsewhere.
-          if (b && b !== a && [[-1, 0], [1, 0], [0, -1], [0, 1]].every(([dx, dy]) => map.ownerAt(x + dx, y + dy) === b)) found = { slot, map, a, b, x, y } // prettier-ignore
+          const ring = [-2, -1, 0, 1, 2].flatMap(dy => [-2, -1, 0, 1, 2].map(dx => [dx, dy]))
+          if (b && b !== a && ring.every(([dx, dy]) => map.ownerAt(x + dx, y + dy) === b)) found = { slot, map, a, b, x, y } // prettier-ignore
         }
       if (found) break
     }

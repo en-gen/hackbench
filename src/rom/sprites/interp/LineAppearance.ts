@@ -41,8 +41,11 @@ export function appears({ dir, extent }: Spawn, screen: number): boolean {
  * map the loader spawns it 288 px below or 48 px above the camera, outside the draw window, GetDrawInfoBnk1 bank_01.asm:4748-4769, spawn offsets bank_02.asm:5217-5238). No spawn
  * at all proves nothing.
  */
+export const spawnHidden = (s: Spawn, screen: number): boolean =>
+  s.extent ? !appears(s, screen) : s.erased === true
+
 export const neverAppears = (spawns: readonly Spawn[], screen: number): boolean =>
-  spawns.length > 0 && spawns.every(s => (s.extent ? !appears(s, screen) : s.erased === true))
+  spawns.length > 0 && spawns.every(s => spawnHidden(s, screen))
 
 /** A routine's bytes named by one SHA-256 (whole span, vanilla US, one machine). */
 export interface LoaderDigest {
