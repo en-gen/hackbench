@@ -378,12 +378,18 @@ exempt, as is a type-only import. The gate reads text, exempts a partial mock,
 and does not see a starter reached through a helper other than those two.
 
 `perTestTimeoutFloor.ts` (#1333) reads the same files with the TypeScript
-compiler API and reports `file:line value` for every `slow(n)`, `loadTimeout(n)`
-(outside the `vi.setConfig` line), trailing numeric timeout or `{ timeout: n }`
-under 30,000; an unresolvable value is reported as "cannot read". Literals,
-arithmetic of literals and module-scope consts resolve. A value kept on purpose
-carries `// timeout-floor: <reason>` on its line or the line before; an empty
-reason does not count.
+compiler API and reports `file:line value` for every timeout under 30,000 that
+is a test's, describe's, hook's or `vi.setConfig`'s own: a `slow(n)` or
+`loadTimeout(n)` argument, a trailing number, `{ timeout }` options (also via a
+spread or a module const), and `testTimeout` or `hookTimeout` in `vi.setConfig`.
+A wrapper call elsewhere, such as a child-process `timeout`, is not read.
+Literals, arithmetic of them and module-scope `const`s resolve; a `let`, a
+shadowed or imported name, or an options variable it cannot follow is reported
+as "cannot read". A value kept on purpose carries a real `// timeout-floor:
+<reason>` comment directly above its statement or value, or trailing it on the
+same line; it keeps only that statement, and an empty reason, a block comment, a
+string or a neighbor's comment does not count. Not read: aliased or namespaced
+wrappers, test names made by `test.extend`, `suite`, and tagged-template `each`.
 
 ## Proving an oracle can fail
 

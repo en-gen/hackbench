@@ -304,6 +304,7 @@ describe('the distances (D142)', () => {
 
   it(
     'leaves no 32 px window of the low byte unprobed, wherever the window starts',
+    // Alone 2.3 to 3.1 s (7 runs, one machine); 7.3 to 10.0 s under the #485 load (#1332). 60 s keeps about 6x over the loaded worst.
     slow(60_000),
     () => {
       // Id 165 is blank for (Mario - sprite) low byte within $20 above the sprite Y low byte: start the window at every value.

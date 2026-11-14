@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { processStartingFiles } from './processTimeoutGate'
 import { perTestTimeoutOffences, timeoutFloorOffences } from './perTestTimeoutFloor'
 import { slow } from '../support/loadTimeout'
 
@@ -37,12 +38,75 @@ describe('perTestTimeoutFloor planted sources', () => {
     ['concurrent', "it.concurrent('x', () => {}, 6000)", '6000'],
     ['an options object', "it('x', { timeout: 8000 }, () => {})", '8000'],
     ['arithmetic', "it('x', () => {}, 10 * 1000)", '10000'],
+    ['one under the floor', "it('x', () => {}, 29_999)", '29999'],
+    ['15 s', "it('x', () => {}, 15_000)", '15000'],
+    ['25 s', "it('x', () => {}, 25_000)", '25000'],
+    ['a shorthand timeout', "const timeout = 2000; it('x', { timeout }, () => {})", '2000'],
+    ['a describe options object', "describe('x', { timeout: 4000 }, () => {})", '4000'],
+    ['a setConfig testTimeout', 'vi.setConfig({ testTimeout: 5000 })', '5000'],
+    ['a setConfig hookTimeout', 'vi.setConfig({ hookTimeout: loadTimeout(1000) })', '1000'],
+    ['a setConfig spread', 'vi.setConfig({ ...slow(1000) })', '1000'],
+    ['an options const', "const o = { timeout: 2000 }; it('x', o, () => {})", '2000'],
+    ['an options spread', "it('x', { ...{ timeout: 3000 } }, () => {})", '3000'],
   ])('refuses %s under the floor, naming file and line', (_n, body, value) => {
     expect(offences(body)).toEqual([`p.test.ts:2 ${value}`])
   })
 
   it('resolves a module-scope const', () => {
     expect(offences('const T = 5 * 1000', "it('x', () => {}, T)")).toEqual(['p.test.ts:3 5000'])
+  })
+  it('reports both values on one line', () => {
+    expect(offences("it('a', slow(1), () => {}); it('b', slow(2), () => {})")).toEqual([
+      'p.test.ts:2 1',
+      'p.test.ts:2 2',
+    ])
+  })
+  it('refuses an options variable or spread it cannot read', () => {
+    expect(offences("it('x', someOpts, () => {})")).toEqual(['p.test.ts:2 cannot read'])
+    expect(offences("it('x', { ...someOpts }, () => {})")).toEqual(['p.test.ts:2 cannot read'])
+  })
+  it('does not resolve a let', () => {
+    expect(offences('let T = 30000', 'T = 1', "it('x', () => {}, T)")).toEqual([
+      'p.test.ts:4 cannot read',
+    ])
+  })
+  it('does not resolve a const shadowed in a nested scope or a parameter', () => {
+    expect(
+      offences('const T = 40000', "describe('d', () => { const T = 1; it('x', () => {}, T) })"),
+    ).toEqual(['p.test.ts:3 cannot read'])
+    expect(offences('const T = 40000', "const f = (T: number) => it('x', () => {}, T)")).toEqual([
+      'p.test.ts:3 cannot read',
+    ])
+  })
+  it('refuses an unreadable hook timeout', () => {
+    expect(offences('beforeAll(setup, someImported)')).toEqual(['p.test.ts:2 cannot read'])
+  })
+  it('does not refuse a child-process timeout or a test.extend fixture named timeout', () => {
+    expect(offences("spawnSync('x', [], { timeout: loadTimeout(5000) })")).toEqual([])
+    expect(offences('const t2 = test.extend({ timeout: 1000 })')).toEqual([])
+    expect(offences('const a = slow(1000)')).toEqual([])
+  })
+  it('resolves a sum of literals to its value', () => {
+    expect(offences('const T = 20_000 + 10_000', "it('x', () => {}, T)")).toEqual([])
+  })
+  it('keeps a multi-line call by a marker above it', () => {
+    expect(
+      offences('// timeout-floor: a loop', 'it(', "  'x',", '  () => {},', '  1000,', ')'),
+    ).toEqual([])
+  })
+  it.each([
+    ['a title', ["it('// timeout-floor: why', slow(1000), () => {})"]],
+    ['a block comment', ['/* timeout-floor: why */', "it('x', slow(1000), () => {})"]],
+    [
+      'the previous statement trailing comment',
+      ['const a = 1 // timeout-floor: why', "it('x', slow(1000), () => {})"],
+    ],
+    [
+      'one marker for two statements on the next line',
+      ['// timeout-floor: why', "it('a', slow(1), () => {}); it('b', slow(2), () => {})"],
+    ],
+  ])('does not keep a value by %s', (_n, body) => {
+    expect(offences(...body).length).toBeGreaterThan(0)
   })
   it('names the line of the value on a wrapped call', () => {
     expect(offences("it(\n  'x',\n  () => {},\n  9000,\n)")).toEqual(['p.test.ts:5 9000'])
@@ -88,6 +152,11 @@ describe('perTestTimeoutFloor planted sources', () => {
 
 describe('perTestTimeoutFloor real tree', () => {
   it('finds no per-test timeout under 30 s in a process-starting file', slow(30_000), () => {
-    expect(perTestTimeoutOffences(path.resolve(__dirname, '..'))).toEqual([])
+    const root = path.resolve(__dirname, '..')
+    // A walk that lists nothing would pass the next line, so tie it to a file known to start a process.
+    expect(
+      processStartingFiles(root).map(f => path.relative(root, f).split(path.sep).join('/')),
+    ).toContain('unit/SpriteReport.test.ts')
+    expect(perTestTimeoutOffences(root)).toEqual([])
   })
 })
