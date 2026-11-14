@@ -33,7 +33,7 @@ function behind(
 describe('never appears needs positive evidence', () => {
   // Id 1: INIT moves it (+8, -1), MAIN draws one piece, static. cullVertical: drawn only 0-255 px below the camera.
   it('a static INIT-moved sprite the vertical window culls in the spawn is not "never appears" (the find)', () => {
-    expect(behind(1, { cullVertical: true }, 1, -48, 288)).not.toBe(true)
+    expect(behind(1, { cullVertical: true }, 1, -48, 288)).toBe(false)
   })
 
   it('and the run really drew nothing there, so the old reading of an empty run as "behind" was the cause', () => {
@@ -41,6 +41,18 @@ describe('never appears needs positive evidence', () => {
     const m = runOnce(rom, 1, withSeed({ camera: { y: POS - 288 }, level: { screenMode: 1, screens: 32 }, sprite: { x: POS, y: POS } }, SPRITE_SEED), {}) // prettier-ignore
     expect(m.passes.every(p => p.parts.length === 0)).toBe(true)
     expect(m.emptyReason).toBeDefined()
+  })
+
+  // Id 0: INIT moves it 264 px ahead (past the offscreen keep range) and survives; MAIN, as the offscreen handler does
+  // (SubOffscreen0Bnk1, bank_01.asm:5975-6043), erases it (status 0) without drawing. That is the evidence: it never appears.
+  it('a sprite INIT moves ahead and MAIN erases without drawing never appears (the per-pass erase)', () => {
+    const FAR = -0x2000 // a left window whose camera lies past the map's end: only the scroll-right spawn runs
+    expect(behind(0, { initFarCull: true, eraseFar: true }, 0, FAR, 0x20)).toBe(true)
+  })
+
+  it('the same sprite culled but not erased is no evidence: it drifts into view', () => {
+    const FAR = -0x2000
+    expect(behind(0, { initFarCull: true }, 0, FAR, 0x20)).toBe(false)
   })
 
   it('control: a sprite whose INIT erases it (id 8, status 0) is positive evidence: never appears', () => {

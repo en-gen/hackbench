@@ -42,6 +42,7 @@ export const BY_OPTION: { [K in keyof SyntheticOptions]-?: Variant[] } = {
   initDelta: one('initDelta', { initDelta: [120, 104] }),
   initFarCull: one('initFarCull', { initFarCull: true }),
   cullVertical: one('cullVertical', { cullVertical: true }),
+  eraseFar: one('eraseFar', { initFarCull: true, eraseFar: true }),
   mainStepsBack: one('mainStepsBack', { initFarCull: true, mainStepsBack: true }),
   noTileWrite: one('noTileWrite', { noTileWrite: true }),
   badLoop: one('badLoop', { badLoop: true }),

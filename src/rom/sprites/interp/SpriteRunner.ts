@@ -1144,7 +1144,8 @@ export function startsBehind(
   const screen = vert ? 224 : 256
   const at = vert ? placed.y : placed.x
   const spawn = (dir: Spawn['dir'], cam: number): Spawn => {
-    // Erased in the run (status 0 after INIT or any pass) is the evidence an empty run needs; a culled sprite stays alive.
+    // Erased in the run (status 0 after INIT or any pass) is the evidence an empty run needs; a culled sprite stays alive. The game
+    // erases a sprite its offscreen handler finds out of range (SubOffscreen0Bnk1 and kin, OffScrEraseSprite, bank_01.asm:5975-6043).
     let erased = false
     const probe: Probe = (_, w) => {
       if (w[RAM.status + seed.slot] === 0) erased = true
@@ -1153,8 +1154,8 @@ export function startsBehind(
     const q = m.passes.find(p => drawnParts(p).length)
     const sgn = (v: number) => (v << 16) >> 16
     // An empty run says nothing about which side of the scroll the sprite is on: the game hides what GetDrawInfo culls (Y $F0),
-    // and on a vertical map the loader spawns a sprite 288 px below or 48 px above the camera, outside that window
-    // (bank_02.asm:5217-5238). So the evidence is the sprite itself: erased in the run, or else where its own position stands
+    // (GetDrawInfoBnk1, bank_01.asm:4748-4769), and on a vertical map the loader spawns a sprite 288 px below or 48 px above
+    // the camera, outside that window (bank_02.asm:5217-5238). So the evidence is the sprite itself: erased in the run, or else where its own position stands
     // against the camera (a point, no art to measure).
     if (!q) {
       const erasedHere = erased || m.emptyReason?.startsWith('INIT erased') === true
@@ -1176,7 +1177,6 @@ export function startsBehind(
   const w = seed.loaded
   if (seed.opening && w)
     spawns.push(spawn(0, vert ? w[0x1c]! | (w[0x1d]! << 8) : w[0x1a]! | (w[0x1b]! << 8)))
-  if (process.env.DBG_SPAWN) console.log(JSON.stringify(spawns))
   return neverAppears(spawns, screen)
 }
 

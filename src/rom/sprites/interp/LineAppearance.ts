@@ -23,7 +23,7 @@ export interface Spawn {
   /** 1 scrolling right/down, -1 left/up, 0 the map-load window (no scroll). */
   dir: -1 | 0 | 1
   extent: { lo: number; hi: number } | null
-  /** With a null `extent`: the sprite was erased (status 0). A run that drew nothing while the sprite lived (culled by GetDrawInfo's window) is no evidence; its position stands in as a point extent instead. */
+  /** With a null `extent`: the sprite was erased (status 0; the offscreen handler's OffScrEraseSprite, bank_01.asm:5975-6043). A run that drew nothing while the sprite lived (culled by GetDrawInfo's window) is no evidence; its position stands in as a point extent instead. */
   erased?: boolean
 }
 
@@ -38,7 +38,7 @@ export function appears({ dir, extent }: Spawn, screen: number): boolean {
 /**
  * Never appears in play: no spawn the loader allows shows it, and each says so on evidence: its parts (or, drawing nothing,
  * its own position) stand behind the scroll edge, or the sprite was erased. An empty run alone proves nothing (on a vertical
- * map the loader spawns it 288 px below or 48 px above the camera, outside the draw window, bank_02.asm:5217-5238). No spawn
+ * map the loader spawns it 288 px below or 48 px above the camera, outside the draw window, GetDrawInfoBnk1 bank_01.asm:4748-4769, spawn offsets bank_02.asm:5217-5238). No spawn
  * at all proves nothing.
  */
 export const neverAppears = (spawns: readonly Spawn[], screen: number): boolean =>

@@ -13,7 +13,7 @@ flowchart TD
 
 - The offset is whatever INIT did: no id list, no per-sprite offset. MAIN's own motion in the pass stays out of the picture (the pass-origin rule of #1131); a line-guided id is drawn where the game first has it on its line (D156).
 - A sprite that lays out its own sprites at fixed map positions (`absolutePlacement`, D158) is unchanged.
-- A moved sprite the sprite loader never shows stays on its stored tile (`neverAppears`, D156, now for every moved sprite). That needs positive evidence in every spawn the loader allows: its parts, or with nothing drawn its own position, behind the scroll edge, or the sprite erased. An empty run alone is not evidence: the game culls what GetDrawInfo's window leaves out, and on a vertical map the loader spawns a sprite 288 px below or 48 px above the camera, outside that window (`bank_02.asm:5217-5238`).
+- A moved sprite the sprite loader never shows stays on its stored tile (`neverAppears`, D156, now for every moved sprite). That needs positive evidence in every spawn the loader allows: its parts, or with nothing drawn its own position, behind the scroll edge, or the sprite erased (the offscreen handler, `OffScrEraseSprite`, `bank_01.asm:5975-6043`). An empty run alone is not evidence: the game culls what GetDrawInfo's window leaves out (`GetDrawInfoBnk1`, `bank_01.asm:4748-4769`), and on a vertical map the loader spawns a sprite 288 px below or 48 px above the camera, outside that window (`bank_02.asm:5217-5238`).
 - The square shows only when the drawing's box does not cover the whole stored cell (`storedSquares`, `map-view-model.ts`).
 
 ## How many move, and by how far (vanilla ROM, 512 maps, one machine, 2026-11-14)

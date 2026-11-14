@@ -49,6 +49,8 @@ export interface SyntheticOptions {
   initFarCull?: boolean
   /** The shared MAIN draws nothing unless the sprite is within 0-255 px below the camera (a vertical map's GetDrawInfo window): outside it the sprite is culled, not erased. */
   cullVertical?: boolean
+  /** With `initFarCull`: id 0's MAIN erases the sprite (status 0) instead of just not drawing when it is off screen, as the sprites' offscreen handler does (SubOffscreen0Bnk1, bank_01.asm:5975-6043). */
+  eraseFar?: boolean
   /** With `initFarCull`: id 0's MAIN first steps X back by $40, so it draws only after moving partway back. */
   mainStepsBack?: boolean
   /** Replace id 0's MAIN tile STA with NOPs (draws nothing useful). */
@@ -400,7 +402,19 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // 16-bit X minus the camera; a high byte other than 0 means off screen, as GetDrawInfo culls.
   const back = o.mainStepsBack ? [0xb5, 0xe4, 0x38, 0xe9, 0x40, 0x95, 0xe4] : []
   const cull = o.initFarCull
-    ? [0xb5, 0xe4, 0x38, 0xe5, 0x1a, 0xbd, 0xe0, 0x14, 0xe5, 0x1b, 0xf0, 0x01, 0x60]
+    ? [
+        0xb5,
+        0xe4,
+        0x38,
+        0xe5,
+        0x1a,
+        0xbd,
+        0xe0,
+        0x14,
+        0xe5,
+        0x1b,
+        ...(o.eraseFar ? [0xf0, 0x06, 0xa9, 0x00, 0x9d, 0xc8, 0x14, 0x60] : [0xf0, 0x01, 0x60]),
+      ]
     : []
   const cullV = o.cullVertical
     ? [0xb5, 0xd8, 0x38, 0xe5, 0x1c, 0xbd, 0xd4, 0x14, 0xe5, 0x1d, 0xf0, 0x01, 0x60]
