@@ -21,6 +21,7 @@ Proposed, not ruled:
 - Its tooltip reads "Add screen is not available yet". [PROP]
 - On a 32-screen map (no gutter) the line is drawn inset, its outer side on the map edge, so all 5 px sit inside the strip rather than overflowing it. [PROP]
 - The end line stacks above the grid canvas (z-index 1001 over 1000), so the grid's 5 px screen-boundary line on the far edge does not dim it: it marks where the map ends and reads the same with the grid on or off. Proceeding on Overwatch's OK, 2026-11-13. [PROP]
+- The Add screen outline's contrast check is proven able to fail in the dark theme (plant: dashes transparent turns case 4 red). In the light theme the same plant stays green, because the outline's editor-background halo (near-white) still reads at least 3:1 against a black back. The halo is part of the design, so the light-theme check passes on the halo alone. Evidence: `map-end-line.spec.cjs` case 4, fe685c82, Chromium headless shell 1254, one machine. [PROP]
 
 ## Why
 
