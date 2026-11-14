@@ -7,10 +7,10 @@
  * Placements measured on the vanilla ROM 2026-11-13: (1280,272), (1536,304), (1696,304).
  *
  * Planted defects for the verifier (each turns the named case red):
- *   N1 map-sprites.ts `render`: drop the empty-run quiet verdict (never return quiet): the reply case and both pixel cases.
+ *   N1 map-sprites.ts `render`: drop the empty-run quiet verdict (never return quiet): case 1 (reply) and case 2 (ring and dot pixels); not case 3 (flames).
  *   N2 map-sprites.ts `ring()`: fill the interior (return an opaque 16 x 16): the interior pixel case.
  *   N3 map-sprites.ts `quiet(...)`: offset x by 1: the reply case (placed spot).
- *   N4 map-sprites.ts `quiet(...)`: return a box 16 px larger than the placed spot: the 16 x 16 box assertion in the reply case.
+ *   N4 map-sprites.ts `quiet(...)`: return a box 16 px larger at x1 and y1 than the placed spot: case 1 (the 16 x 16 box assertion) and case 2 (ring and dot pixels).
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')
