@@ -405,12 +405,81 @@
   image-rendering: pixelated;
 }
 
-/* The map's edge, drawn on every map once its layout is known (#1004). */
+/* The map's own rectangle (#1004): geometry only. The 1 px outline it used to draw is the end line now (#1296). */
 .hb-map-view-edge {
   position: absolute;
   z-index: 160;
   pointer-events: none;
-  outline: 1px solid color-mix(in srgb, var(--theia-foreground, #cccccc) 35%, transparent);
+}
+
+/* The end line (#1296, owner D194): a 3 px amber line over a 5 px dark edge, centered on the map's far edge and
+   constant in screen px at every zoom. Colors are Theia variables with literal fallbacks, so a theme may set
+   them (this repo registers no ColorContribution): the amber default differs from the selection (focus blue),
+   warning and error colors in the light and dark themes (measured by map-end-line.spec.cjs), and the dark edge
+   carries it on light back colors. Stacks above the collision overlay (200) and the grid canvas (1000), whose 5 px screen-boundary line would
+   otherwise dim it: it marks where the map ends, so it reads the same with the grid on or off. */
+.hb-map-end-line {
+  position: absolute;
+  z-index: 1001;
+  pointer-events: none;
+  box-sizing: border-box;
+  width: 5px;
+  margin-left: -2.5px;
+  background-color: var(--theia-hackbench-mapEndLineEdge, rgba(0, 0, 0, 0.75));
+  background-image: linear-gradient(
+    var(--theia-hackbench-mapEndLine, #ffc23d),
+    var(--theia-hackbench-mapEndLine, #ffc23d)
+  );
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 3px 100%;
+}
+
+.hb-map-end-line.hb-inset {
+  margin-left: -5px;
+}
+
+.hb-map-end-line.hb-vertical.hb-inset {
+  margin-left: 0;
+  margin-top: -5px;
+}
+
+.hb-map-end-line.hb-vertical {
+  width: auto;
+  height: 5px;
+  margin-left: 0;
+  margin-top: -2.5px;
+  background-size: 100% 3px;
+}
+
+/* The "Add screen" outline (#1296): one gutter screen, inert until adding screens exists (#26, #950). It takes
+   pointer events only to swallow clicks and show its tooltip; default cursor and no hover style, so it does not
+   read as a button. Outline and label use the theme's foreground with a halo in its editor background, so they
+   read on a light or a dark theme and over any map back color. */
+.hb-map-add-screen {
+  position: absolute;
+  z-index: 155;
+  box-sizing: border-box;
+  padding: 6px;
+  cursor: default;
+}
+
+.hb-map-add-screen-box {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px dashed var(--theia-foreground, #cccccc);
+  box-shadow:
+    0 0 0 1px var(--theia-editor-background, #1e1e1e),
+    inset 0 0 0 1px var(--theia-editor-background, #1e1e1e);
+  opacity: 0.75;
+  color: var(--theia-foreground, #cccccc);
+  font-size: 12px;
+  text-shadow: 0 0 3px var(--theia-editor-background, #1e1e1e);
+  user-select: none;
 }
 
 .hb-map-stored-tile {

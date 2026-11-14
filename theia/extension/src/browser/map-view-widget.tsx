@@ -71,6 +71,8 @@ import {
   insideMap,
   NO_PAD,
   offMapPad,
+  farEdge,
+  addScreenRect,
   contentRects,
   offMapSpritePixels,
   samePad,
@@ -183,6 +185,9 @@ function AfterCommit({ run }: { run: () => void }): null {
 /** Capitalizes a palace key for its switch's label. */
 const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
+/** The plain-word tooltip and accessible name of the inert Add screen outline. */
+const ADD_SCREEN_HINT = 'Add screen is not available yet'
+
 @injectable()
 export class MapViewWidget extends ReactWidget implements ProjectBound {
   @inject(ProjectService) protected readonly projects!: ProjectService
@@ -253,6 +258,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected selectedSprite: MapSpriteDto | undefined
   /** The invisible box over the hovered sprite that the hover is placed against. */
   protected spriteAnchor: HTMLElement | undefined
+  /** True while this widget's Add screen hint is the shared hover service's current hover. */
+  protected addScreenHintShown = false
   /** Where the anchor was placed (`hoverPlacementKey`): a different zoom or strip origin moves the sprite, so the hover is asked for again. */
   protected hoverPlaced = ''
   /** Bumped when `sprites` is replaced, so a canvas painted from the old ones is repainted. */
@@ -1343,6 +1350,21 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     }
   }
 
+  /**
+   * The Add screen outline's tooltip (#1296). A native `title` is not a page element and was never seen in the app, so it
+   * goes through Theia's HoverService like the sprite names do: a real, visible `.theia-hover` in the browser and Electron.
+   */
+  protected showAddScreenHint(target: HTMLElement): void {
+    this.addScreenHintShown = true
+    this.hoverService.requestHover({ content: ADD_SCREEN_HINT, target, position: 'top' })
+  }
+
+  protected hideAddScreenHint(): void {
+    // The hover service is shared: only cancel a hover this widget asked for.
+    if (this.addScreenHintShown) this.hoverService.cancelHover()
+    this.addScreenHintShown = false
+  }
+
   /** Click selection (#984): the sprite goes to the Properties panel until another click, a map change, hide or close. */
   protected selectSprite(next: MapSpriteDto | undefined): void {
     const redraw = !!(this.selectedSprite?.stored || next?.stored)
@@ -1785,6 +1807,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const fade = fadeMask(vertical, gz)
     // The strip's rect without the gutter: it reaches the near canvas edge and stops short of the far-end gutter.
     const checker = vertical ? `0 0 ${gz}px 0` : `0 ${gz}px 0 0`
+    const edge = farEdge(mapW, mapH, pad, vertical)
+    const addScreen = addScreenRect(mapW, mapH, pad, vertical, l.screenCount)
     return (
       <div className="hb-map-grid-host">
         <div
@@ -1911,10 +1935,41 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
               />
             )}
             {!this.screenError && (
+              // The map's own rectangle: no outline of its own now (the end line replaced it, #1296), kept as the
+              // geometry the view and its tests read the map's edge from.
               <div
                 className="hb-map-view-edge"
                 data-control="map-edge"
                 style={{ left: pad.left * z, top: pad.top * z, width: mapW * z, height: mapH * z }}
+              />
+            )}
+            {addScreen && !this.screenError && (
+              // Not a control yet (#26, #950): it swallows clicks so nothing under it selects, and shows no
+              // button cues. 6 px inset, in screen px, so it reads as one screen at every zoom.
+              <div
+                className="hb-map-add-screen"
+                data-control="add-screen"
+                aria-label={ADD_SCREEN_HINT}
+                style={{ left: addScreen.x0 * z, top: addScreen.y0 * z, width: (addScreen.x1 - addScreen.x0) * z, height: (addScreen.y1 - addScreen.y0) * z }} // prettier-ignore
+                onMouseEnter={e => this.showAddScreenHint(e.currentTarget)}
+                onMouseLeave={() => this.hideAddScreenHint()}
+                onClick={e => e.stopPropagation()}
+                onDoubleClick={e => e.stopPropagation()}
+                onContextMenu={e => e.stopPropagation()}
+              >
+                <div className="hb-map-add-screen-box">Add screen</div>
+              </div>
+            )}
+            {!this.screenError && (
+              // Fixed to the map's far edge (screen count x screen size), centered on it, constant in screen px.
+              <div
+                className={
+                  'hb-map-end-line' +
+                  (vertical ? ' hb-vertical' : '') +
+                  (addScreen ? '' : ' hb-inset')
+                } // inset when no gutter: all 5 px stay inside the strip
+                data-control="map-end-line"
+                style={{ left: edge.x0 * z, top: edge.y0 * z, ...(vertical ? { width: (edge.x1 - edge.x0) * z } : { height: (edge.y1 - edge.y0) * z }) }} // prettier-ignore
               />
             )}
             {this.selectedSprite?.stored && (

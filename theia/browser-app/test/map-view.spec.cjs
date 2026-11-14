@@ -664,6 +664,18 @@ test('a start reply after the user zoomed out (offset still 0) is skipped', asyn
  * so they are left out (inset 1px for the widget's focus outline).
  */
 async function shownPixels(page, locator) {
+  // The end line (#1296) is centered on the map's far edge, so ~1.5 px of it lies inside the map rect sampled
+  // below, and the Add screen outline is chrome: hide both for the screenshot, then restore.
+  const chrome = '[data-control="map-end-line"], [data-control="add-screen"]'
+  await locator.evaluate((el, q) => el.querySelectorAll(q).forEach(e => (e.style.visibility = 'hidden')), chrome) // prettier-ignore
+  try {
+    return await shownPixelsOf(page, locator)
+  } finally {
+    await locator.evaluate((el, q) => el.querySelectorAll(q).forEach(e => (e.style.visibility = '')), chrome) // prettier-ignore
+  }
+}
+
+async function shownPixelsOf(page, locator) {
   const box = await locator.evaluate(el => {
     const r = el.getBoundingClientRect()
     const view = { x: r.left + el.clientLeft + 1, y: r.top + el.clientTop + 1, width: el.clientWidth - 2, height: el.clientHeight - 2 } // prettier-ignore
