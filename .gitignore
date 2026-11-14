@@ -38,6 +38,7 @@ test/suite/**/*.d.ts
 # so an existing clone that kept them in place does not commit them.
 # Third-party tools — not redistributable (emulator binaries, proprietary apps)
 tools/*
+!tools/docker/
 # ...but our own scripts, vendored open-source helpers, and emulator-glue
 # scripts stay tracked. Organization:
 #   tools/scripts/  — first-party CLI helpers (.ts/.js/.py/.mjs)
