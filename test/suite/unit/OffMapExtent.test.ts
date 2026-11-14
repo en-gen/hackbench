@@ -249,6 +249,28 @@ describe('offMapSpritePixels', () => {
     ])
   })
 
+  it('a whole-door sprite keeps its door squares past the map edge, on the same checkerboard the screens draw it in (#1319)', () => {
+    const pad = { left: 32, top: 0, right: 0, bottom: 0 }
+    // The same 16 x 2 box straddling the left edge, shown whole in the screen door (#1132).
+    const s = { ...sprite(0, { x0: -8, y0: 4, x1: 8, y1: 6 }), screenDoor: true } as MapSpriteDto
+    const at = reader(offMapSpritePixels([s], 256, 432, pad, false), 256, pad)
+    // Inside the map the screens draw every pixel of it in the door under the WHOLE_DOOR id,
+    // full on the sprite's even-parity squares and dim on the odd ones; the pad keeps the
+    // same sprite-local checkerboard (as the rope's door parts got in #1316).
+    const strength = (x: number, y: number) => (((x + 8) + (y - 4)) % 2 === 0 ? 255 : 64) // prettier-ignore
+    for (let x = -8; x < 0; x++)
+      for (const y of [4, 5]) expect(at(x, y)[1], `${x},${y}`).toBe(strength(x, y))
+    // The in-map part stays with the screens: the pad bitmap leaves it transparent.
+    expect([at(0, 4)[1], at(7, 5)[1]]).toEqual([0, 0])
+  })
+
+  it('a solid sprite with no door parts stays solid past the map edge', () => {
+    const pad = { left: 32, top: 0, right: 0, bottom: 0 }
+    const s = sprite(0, { x0: -8, y0: 4, x1: 8, y1: 6 })
+    const at = reader(offMapSpritePixels([s], 256, 432, pad, false), 256, pad)
+    expect([at(-8, 4)[1], at(-1, 4)[1], at(-8, 5)[1], at(-1, 5)[1]]).toEqual([255, 255, 255, 255])
+  })
+
   it('the $8D door: a box starting 8 px left of the map keeps its left-gutter pixels, and none over the map', () => {
     // Vanilla ghost houses (#1016): sprite $8D, box (-8, 287) to (56, 383); pad 16 left (one tile of content, no left gutter).
     const pad = { left: 16, top: 0, right: 256, bottom: 0 }

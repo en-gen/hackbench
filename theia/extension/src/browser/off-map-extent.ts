@@ -302,8 +302,11 @@ export function offMapSpritePixels(
         out ??= new Uint8ClampedArray(w * h * 4)
         const to = ((y + pad.top) * w + x + pad.left) * 4
         out.set(bmp.rgba.subarray(from, from + 4), to)
-        // A door part (the rope's extra length) keeps the door's squares past the map edge too.
-        if (bmp.prio && bmp.prio[from / 4]! & DOOR_PART_BIT)
+        // A door part (the rope's extra length) keeps the door's squares past the map edge too,
+        // and so does every pixel of a whole-door sprite (#1132, #1319): the screens draw it in
+        // the door (spriteLayer's WHOLE_DOOR id), so one sprite must not read as hidden inside
+        // the map and plain past it.
+        if (s.screenDoor || (bmp.prio && bmp.prio[from / 4]! & DOOR_PART_BIT))
           out[to + 3] = Math.round(255 * hiddenPixelStrength(x - x0, y - y0))
       }
     }
