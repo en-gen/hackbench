@@ -636,6 +636,7 @@ function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
 }
 
 const UNCHECKED_LOADER = "HackBench could not check whether this sprite appears in play (the map's sprite loader is not the stock one)" // prettier-ignore
+const UNCHECKED_REFUSED = 'its first moments on screen could not be worked out, so it is drawn where its start-up code leaves it' // prettier-ignore
 
 /** Reasons a picture is unverified, joined as `unverifiedOf` joins them, each once. */
 export const joinReasons = (...r: (string | undefined)[]): string | undefined =>
@@ -648,7 +649,7 @@ function unverifiedOf(m: RunModel, generic: string | undefined): { unverified?: 
     m.initMoved &&
       m.lineGateReason &&
       `drawn where its start-up code leaves it, not checked against the stock line-guided code: ${m.lineGateReason}`,
-    m.spawnUnchecked && UNCHECKED_LOADER,
+    m.spawnUnchecked && (m.spawnUnchecked === 'loader' ? UNCHECKED_LOADER : UNCHECKED_REFUSED),
     m.noLineReason,
   ].filter(Boolean)
   return why.length ? { unverified: why.join('; ') } : {}

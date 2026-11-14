@@ -48,9 +48,9 @@ const QUIET_THEN_REFUSE = [0xbd, 0x94, 0x15, 0xf0, 0x05, 0xa9, 0xff, 0x95, 0x9e,
 
 describe('startsBehind probe', () => {
   it('a sprite that draws on pass 0 is judged from that pass: a later refusal does not hide it (the lazy rule)', () => {
-    // Scrolling right its own piece is at -$40 (behind) but the neighbour it draws is in view. The eager run refused on
-    // pass 1 after its first draw and never adopted that neighbour run (verdict true); the run that stops at its first
-    // drawn pass does (verdict false), which is what the game shows at the spawn.
+    // Scrolling right its own piece is at -$40 (behind) but the neighbour it draws is in view. Run to the end, the
+    // spawn is refused on pass 1 after its first draw (unchecked, never a verdict); the run that stops at its first
+    // drawn pass adopts the neighbour (verdict false), which is what the game shows at the spawn.
     const { rom, loader } = cart(DRAW_THEN_REFUSE, FAR, -0x40)
     const s = seed([{ id: QUIET, x: X + 0x60, y: X }])
     expect(startsBehind(rom, ID, s, { loader }, { x: X, y: X })).toBe(false)
@@ -59,7 +59,34 @@ describe('startsBehind probe', () => {
   it('a refused spawn run is unchecked, not evidence the sprite is hidden (fail closed)', () => {
     // The run draws nothing on pass 0 and is refused on pass 1; its position alone (-$40) would read as behind the scroll.
     const { rom, loader } = cart(QUIET_THEN_REFUSE, FAR, -0x40)
-    expect(startsBehind(rom, ID, seed(), { loader }, { x: X, y: X })).toBeUndefined()
+    expect(startsBehind(rom, ID, seed(), { loader }, { x: X, y: X })).toBe('refused')
+  })
+
+  it('a loader whose window cannot be read is unchecked for that reason', () => {
+    const { rom } = cart(QUIET_THEN_REFUSE, FAR, -0x40)
+    const loader = { at: TABLES, len: 6, sha: '0'.repeat(64) }
+    expect(startsBehind(rom, ID, seed(), { loader }, { x: X, y: X })).toBe('loader')
+  })
+
+  // Refuses when the camera's low byte is 0, otherwise draws its own piece at its position.
+  const REFUSE_AT_CAM_0 = [0xa5, 0x1a, 0xd0, 0x05, 0xa9, 0xff, 0x95, 0x9e, 0x60, 0x20, 0x40, 0x86, 0x60] // prettier-ignore
+  const opening = (cam: number) => ({ ...seed(), opening: true, loaded: Object.assign(new Uint8Array(0x20000), { 0x1a: cam & 255, 0x1b: cam >> 8 }) }) // prettier-ignore
+
+  it('a refused spawn does not end the probe: a later spawn that shows the sprite settles it as false', () => {
+    // Map-load camera $1000 is refused; the scroll-right spawn (camera $1070) shows the piece 32 px in.
+    const { rom, loader } = cart(REFUSE_AT_CAM_0, FAR, 0x20)
+    expect(startsBehind(rom, ID, opening(0x1000), { loader }, { x: X, y: X })).toBe(false)
+  })
+
+  it('an early spawn that shows the sprite settles it before a later refused one is run', () => {
+    // Map-load camera $1070 shows it; the scroll-right camera ($1100) would be refused and is never reached.
+    const { rom, loader } = cart(REFUSE_AT_CAM_0, FAR, -0x70)
+    expect(startsBehind(rom, ID, opening(0x1070), { loader }, { x: X, y: X })).toBe(false)
+  })
+
+  it('every spawn refused stays unchecked', () => {
+    const { rom, loader } = cart(REFUSE_AT_CAM_0, FAR, -0x70)
+    expect(startsBehind(rom, ID, opening(0x1000), { loader }, { x: X, y: X })).toBe('refused')
   })
 
   it('no spawn the loader allows: nothing was shown hidden, so not "never appears"', () => {

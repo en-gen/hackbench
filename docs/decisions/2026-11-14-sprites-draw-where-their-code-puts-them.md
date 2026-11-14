@@ -40,7 +40,7 @@ What the code does, as built:
 
 ## Known limit
 
-A moved sprite on a ROM whose sprite loader is not the stock one gets `spawnUnchecked` and the unverified line "could not check whether this sprite appears in play", which before #1231 only line-guided sprites could get. Hack maps are unavailable today (D51), so no map shows it yet.
+A moved sprite whose never-appears check gives no verdict gets `spawnUnchecked`, with the reason carried: `'loader'` (the map's sprite loader is not the stock one) shows the unverified line "could not check whether this sprite appears in play"; `'refused'` (a spawn run it needed was refused, and no other spawn showed the sprite) shows its own plain line (see the 2026-11-14 unchecked-spawn wording decision). Before #1231 only line-guided sprites could get either. Hack maps are unavailable today (D51), so no map shows it yet.
 
 ## Why
 

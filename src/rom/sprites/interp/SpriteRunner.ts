@@ -240,8 +240,8 @@ export interface SpriteModel {
   lengthNote?: string
   /** At rest, a moved sprite that starts behind the scroll in every spawn the loader allows (D156, every moved sprite since #1231): it stays on its stored tile. */
   neverAppears?: boolean
-  /** Set for an INIT-moved line-guided sprite when the map's sprite loader is not the stock one: whether it appears was not checked. */
-  spawnUnchecked?: boolean
+  /** At rest, a moved sprite whose never-appears check (`startsBehind`) gave no verdict: 'loader' when the map's sprite loader is not the stock one, 'refused' when a spawn run it needed was refused. */
+  spawnUnchecked?: Unchecked
   /** At rest, how the sprite reached the line drawn: by its first steps, or after falling first. */
   onLine?: 'step' | 'fell'
   /** At rest, a line-guided sprite the run never put on its line: drawn where it first drew, and unverified. */
@@ -1096,8 +1096,8 @@ function runCore(
       // behind it in every spawn, and then the game never shows it (D156, every moved sprite since #1231): it stays on its stored tile.
       const moved = signed(anchor.x) !== signed(placed.x) || signed(anchor.y) !== signed(placed.y)
       const behind = first >= 0 && moved ? startsBehind(rom, id, m.seed, opts, placed) : false
-      if (behind === undefined) model.spawnUnchecked = true
-      if (behind) {
+      if (typeof behind === 'string') model.spawnUnchecked = behind
+      if (behind === true) {
         model.neverAppears = true
         model.chosen = first
         model.anchor = onTile
@@ -1126,11 +1126,15 @@ function runCore(
   return model
 }
 
+/** Why the never-appears check gave no verdict: the loader's window could not be read, or a spawn run it needed was refused. */
+export type Unchecked = 'loader' | 'refused'
+
 /**
  * Whether no spawn the loader allows shows the sprite (D156): it spawns at the right or left edge (offsets read from the
  * ROM, `loaderWindow`) or, if the map's loader placed it, at the map-load camera. Each is run from that camera with
  * the sprite where the loader puts it, and the side of the scroll it starts on decides (`neverAppears`).
- * Exported for the companion tests, which run it on a non-line-guided synthetic id.
+ * Exported for the companion tests, which run it on a non-line-guided synthetic id. Gives no verdict (`Unchecked`) when
+ * the window cannot be read, or when a spawn run was refused and no other spawn showed the sprite.
  */
 export function startsBehind(
   rom: RomFile,
@@ -1138,9 +1142,9 @@ export function startsBehind(
   seed: SpriteSeed,
   opts: RunOptions,
   placed: { x: number; y: number },
-): boolean | undefined {
+): boolean | Unchecked {
   const win = loaderWindow(rom, opts.loader)
-  if (!win) return undefined
+  if (!win) return 'loader'
   const vert = (seed.level.screenMode & 1) === 1
   const screen = vert ? 224 : 256
   const at = vert ? placed.y : placed.x
@@ -1183,14 +1187,17 @@ export function startsBehind(
   // pass, so a sprite that draws on pass 0 is judged from that pass alone, whatever a later pass would do (a neighbour scan
   // or a refusal after the first draw). That can differ from running every pass: the shorter run is the one the game
   // shows at the spawn, so the verdict is the more careful one, not the same one (test: StartsBehindLazy.test.ts).
+  // A refused run is no evidence, but a later spawn that shows the sprite still settles it: keep going, and answer
+  // 'refused' only when none did.
   const spawns: Spawn[] = []
+  let refused = false
   for (const [dir, cam] of allowed) {
     const s = spawn(dir, cam)
-    if (!s) return undefined
-    if (!spawnHidden(s, screen)) return false
-    spawns.push(s)
+    if (!s) refused = true
+    else if (!spawnHidden(s, screen)) return false
+    else spawns.push(s)
   }
-  return neverAppears(spawns, screen)
+  return refused ? 'refused' : neverAppears(spawns, screen)
 }
 
 /** One string per run of what it draws (companions included), so two runs that draw the same pieces compare equal. */

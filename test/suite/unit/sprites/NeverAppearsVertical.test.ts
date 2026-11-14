@@ -20,7 +20,7 @@ function behind(
   screenMode: number,
   left: number,
   right: number,
-): boolean | undefined {
+): ReturnType<typeof startsBehind> {
   // prettier-ignore
   const rom = buildSyntheticRom(o)
   const [l, r] = [word(left), word(right)]
