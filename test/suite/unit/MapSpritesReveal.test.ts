@@ -238,6 +238,13 @@ describe('what the served drawer tells the reveal search (#1365)', () => {
     expect(calls.at(-1)![3]).toMatchObject({ comparable: true, extraKey: expect.any(Function) })
   })
 
+  it('does not compare a rope with its reruns: the rope id hands the search comparable: false', () => {
+    // The synthetic cart has no rope handler, so the run may be refused; the search is still called with the rope's options.
+    drawer()(entry(0x64))
+    const calls = vi.mocked(findReveal).mock.calls
+    expect(calls.at(-1)![3]).toMatchObject({ comparable: false })
+  })
+
   it('adds the graphics slots a pass pointed at to the picture, per pass', () => {
     const slot = { slot: 1, buffer: 2 }
     const run = (uploads: object[][]) => ({ uploads }) as unknown as Parameters<NonNullable<ReturnType<typeof revealOptions>['extraKey']>>[0] // prettier-ignore

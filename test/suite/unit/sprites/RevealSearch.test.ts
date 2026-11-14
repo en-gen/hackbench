@@ -589,6 +589,9 @@ describe('what counts as the same picture (#1365 acceptance 3)', () => {
     const kids = (index: number) => ({ parts: [{ oam: 1 }, { oam: 2, dx: 16 }], children: [{ index, oam: [2] }] }) // prettier-ignore
     expect(verdict(kids(3), kids(3))).toBe('unrevealed')
     expect(verdict(kids(3), kids(4))).toBe('hidden')
+    // The same pieces and child index, but another of the pieces is the child's: another picture on the map.
+    const other = { parts: [{ oam: 1 }, { oam: 2, dx: 16 }], children: [{ index: 3, oam: [1] }] }
+    expect(verdict(kids(3), other)).toBe('hidden')
     expect(verdict(kids(3), { parts: [{ oam: 1 }, { oam: 2, dx: 16 }] })).toBe('hidden')
   })
 

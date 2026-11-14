@@ -65,9 +65,12 @@ flowchart TD
   condition whose picture equals the at-rest picture is not a reveal: the result lists it in `sameAsRest` and the search
   goes on, for all six (the moles on maps 10 and 106, whose Mario reruns draw what the real start drew, end up with
   no reveal). The picture compared is what the map draws from the pass it takes the picture from: every part, companions
-  included, with tile, offset, palette row, priority, flips, size and door tag, then the pass's upload lists, the run's
-  net CGRAM colors and the graphics slots the pass pointed at; the OAM slot is left out (same pieces in other slots are
-  the same picture). The rope is the exception: its at-rest run sits in the loader's slot and its reruns in slot 0, so
+  included, with tile, offset, palette row, priority, flips, size and door tag, the neighbor children it drew, the pass's
+  upload list, the NET colors CGRAM holds at the run's last pass (the last write to each color wins, so a run that
+  writes a color every pass is not different for writing more) and the graphics slots the pass pointed at; the OAM
+  slot is left out (same pieces in other slots are the same picture). A palette-cycling sprite's 256 pass rerun can end
+  on other colors than the 64 pass at-rest run, and is then a color-only `more-frames` reveal: that is what the map
+  draws (hack-only, 0 on vanilla). The rope is the exception: its at-rest run sits in the loader's slot and its reruns in slot 0, so
   they cannot be compared and a repeat counts (12 vanilla ropes, none hidden). Whether a Mario-position repeat should
   still count is open (D207).
 - A sprite that drew from the real start, is blank under some probe, and no condition reveals (a repeat of the at-rest
