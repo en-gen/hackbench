@@ -143,17 +143,66 @@ async function openMap(page, slot) {
 }
 
 /** Moves the real pointer to a map pixel (scrolling it into view first); returns where, in client pixels. */
+/**
+ * Waits until the map's layout has stopped moving: the map's box, the scroller's offsets and the rendered zoom
+ * are the same on 5 animation frames in a row. The view keeps laying itself out after the Objects reply (the
+ * sprites reply can change the pad, which refits the zoom and restores the scroll two frames later), so a point
+ * worked out before that settles can be somewhere else by the time the click arrives.
+ */
+async function settle(page, slot) {
+  await page.evaluate(() => {
+    window.__hbSettle = undefined
+  })
+  await page.waitForFunction(
+    strip => {
+      const el = document.querySelector(strip)
+      if (!el) return false
+      const sc = el.closest('[data-control="map-scroller"]')
+      const r = el.getBoundingClientRect()
+      const sig = [
+        r.left,
+        r.top,
+        r.width,
+        r.height,
+        sc.scrollLeft,
+        sc.scrollTop,
+        sc.dataset.renderedZoom,
+      ].join()
+      const seen = window.__hbSettle
+      if (!seen || seen.sig !== sig) {
+        window.__hbSettle = { sig, n: 1 }
+        return false
+      }
+      return ++seen.n >= 5
+    },
+    stripOf(slot),
+    { polling: 'raf', timeout: 15000 },
+  )
+}
+
+/**
+ * Moves the real pointer to a map pixel (scrolling it into view first), after the layout has settled; returns
+ * where, in client pixels. The point is worked out again after the scroll has landed and just before the pointer
+ * goes there, from the live DOM, so a click cannot land on a stale place.
+ */
 async function pointAt(page, slot, size, x, y, action = 'move', modifiers = []) {
+  await settle(page, slot)
   const p = await page.evaluate(
-    ({ strip, size, x, y }) => {
+    async ({ strip, size, x, y }) => {
       const el = document.querySelector(strip)
       const sc = el.closest('[data-control="map-scroller"]')
       const at = () => {
         const r = el.getBoundingClientRect()
         return { x: r.left + (x * r.width) / size.w, y: r.top + (y * r.height) / size.h }
       }
+      const frame = () => new Promise(resolve => requestAnimationFrame(() => resolve()))
       const [first, view] = [at(), sc.getBoundingClientRect()]
-      sc.scrollBy(first.x - (view.left + view.width / 2), first.y - (view.top + view.height / 2))
+      sc.scrollBy({
+        left: first.x - (view.left + view.width / 2),
+        top: first.y - (view.top + view.height / 2),
+        behavior: 'instant',
+      })
+      await frame()
       return at()
     },
     { strip: stripOf(slot), size, x, y },
@@ -289,14 +338,21 @@ function slopeProbe(map) {
         const [nx, ny] = ax === bx ? [1, 0] : [0, 1]
         for (const s of [1, -1]) {
           const edge = [mx - s * nx * 4, my - s * ny * 4]
-          const deep = [mx - s * nx * 12, my - s * ny * 12]
           const far = [mx + s * nx * 12, my + s * ny * 12]
+          // `deep` is the point inside the Object, along the inward normal, farthest from every segment (never
+          // within the band of another step of the staircase).
+          let deep
+          for (let d = 12; d <= 64; d += 4) {
+            const p = [mx - s * nx * d, my - s * ny * d]
+            if (!inCells(object, ...p) || onSprite(map.sprites, ...p)) break
+            if (!deep || distToObjectOutline(object, p) > distToObjectOutline(object, deep))
+              deep = p
+          }
           if (
+            deep &&
             inCells(object, ...edge) &&
-            inCells(object, ...deep) &&
             !map.objects.some(o => inCells(o, ...far)) &&
             !onSprite(map.sprites, ...edge) &&
-            !onSprite(map.sprites, ...deep) &&
             !onSprite(map.sprites, ...far) &&
             distToObjectOutline(object, deep) > 9 &&
             distToObjectOutline(object, far) > 9 &&
