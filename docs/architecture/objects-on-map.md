@@ -64,14 +64,20 @@ has patch cells on all four sides. Fill on the outline is fine.
    the other (overlapping pieces are one drawn over another: stacked Objects), or when each part holds the
    rule on its own and the merged shape does not (two Objects that touch). A part that already fails on its
    own, a piece that writes an edge tile into its own body, is merged anyway: the group is broken and does
-   not fall apart into fragments (and a broken Object costs only itself, not a whole neighbor). A link side by
-   side (the contact line vertical) between two groups that each already have an edge and fill is refused too:
-   it would join two Objects that touch. Wall on wall above and below is not side by side: a ledge and the
-   continuation of its walls drawn under it is one Object, as the grid says. So one platform above another, the
-   same width or one tile off, merges when its body is 1 or 2 rows tall: 90 of 90 cases at each of those heights
-   (w 4-8, 3 offsets, 6 piece orders), none at 3 rows or more, where the merged walls are surrounded. Side by side
-   they stay two at every height 1-5. Two parts of a tall ledge 3 rows or more each are two Objects (the wall
-   contact covers less than half of the smaller part).
+   not fall apart into fragments (and a broken Object costs only itself, not a whole neighbor). A link that is
+   only an edge beside an edge, side by side (the contact line vertical), between two groups that each already
+   hold more than one piece and have an edge and fill is refused too: it would join two Objects that touch. A
+   wall beside an interior (edge beside fill) is a ledge extended sideways and merges; so does wall on wall above
+   and below: a ledge and the continuation of its walls drawn under it is one Object, as the grid says. A group of
+   one piece (a cap, a slope) is not yet an Object, so it merges with the ledge it ends. What still merges:
+   a ledge and its continuation; one ledge above another, the same width or one tile off, when its body is 1 or 2
+   rows tall (90 of 90 cases at each of those heights; w 4-8, 3 offsets, 6 piece orders); a ledge extended
+   sideways; a lone edge tile or a one-piece cap or slope beside a wall. At 3 rows or more one ledge above another
+   stays two because the wall contact (one cell) covers less than half of a wall piece 3 or more cells tall, so it
+   is not a strong link (at an offset of one tile the merged walls are also surrounded). Side by side two whole
+   ledges stay two at every height 1-5. Whether the side threshold (`side * 2 >= w`) is the only one that
+   works is not pinned: about 18,000 two-ledge placements (w 3-5, h 1-4 each, every non-overlapping offset, 3
+   piece orders) give the same result for `>`, `side > 0` and `side === w`.
 
 A cell's tile in a group is the latest group piece's tile, except that a later fill-only piece in no link at
 all (it belongs to no Object) drawn over an edge tile replaces it, so a fill piece over a stray edge tile
@@ -144,7 +150,8 @@ it refuses all five hack ROMs and accepts both vanilla ROMs.
 
 ## Limits, stated
 
-- **Edits inside layered Objects (pending the owner).** A lone edge tile dropped into the middle of the
+- **Edits inside layered Objects (pending the owner).** The counts in this section are asserted exactly by
+  `test/suite/unit/ObjectRecognize.limits.test.ts`; they describe what the code does, not what it should do. A lone edge tile dropped into the middle of the
   four-platform stack of `$103` (142 definition cells, one tile at a time) stays an Object of one cell in 94
   cells, and there the Object directly behind it breaks exactly as the rule says (no other platform changes,
   none changes its order). In the other 48 cells the tile touches fill of a neighbor's piece through an edge and
@@ -159,12 +166,16 @@ it refuses all five hack ROMs and accepts both vanilla ROMs.
   the front: 648 are correct, 84 keep the back whole, and 24 lose both Objects (the tile links to the front's
   edge and extending that edge down under the back's body makes the front's wall surrounded).
 - A piece that holds fill but changes one visible tile (a 1 x 3 piece of fill, edge, fill laid through the
-  platform's interior) is shielded as a whole Object in front, so the platform still matches: 60 of 60 cases (45 of 45 for the vertical form)
-  (w 6-10, h 5-7, every interior position). The screen is the same as for the lone tile, which does break it.
+  platform's interior) is shielded as a whole Object in front, so the platform still matches: 180 of 180 cases
+  (120 of 120 for the vertical form; w 6-10, h 5-7, every interior position the piece fits). The screen is the same as for the lone tile, which does break it.
   Both are the same limit: what counts as an edit inside layered Objects, and the rule for it, is for the owner.
 - A stack of 60 seeded piece orders finds 3 Objects, not 4, in 6 of them: a platform every cell of which a later
   piece covers has nothing to select and is not offered.
 
+- Against the first piece-grouping version on vanilla `$101`-`$13B` (probe definitions, pinned in
+  `ObjectRecognize.corpus.test.ts`): the totals match for the ledge definition (76 Objects, 3835 cells) and the
+  slope definition (136, 2291); the stress definition differs by one Object (2165 against 2164, 53902 cells both),
+  `$127`, where a 38-cell Object is two Objects of 17 and 21 cells: two multi-piece groups that touch edge to edge.
 - Grouping is a heuristic over stored pieces. It gets `$103` screen 0 right (four platforms, each its three
   pieces) and is order independent over 60 seeded shuffles of a synthetic stack (up to the platform that a later
   piece wholly hides), but pieces of one Object that
@@ -172,11 +183,11 @@ it refuses all five hack ROMs and accepts both vanilla ROMs.
   ground rectangle drawn under and overlapped by a slope piece is not part of the slope's Object.
 - Round 1 call 1's rule is the only thing relating tiles to roles; a definition whose edge and fill overlap is
   refused by the reader.
-- Measured (one machine, one stress definition derived from each map's own pieces, vanilla ROM): the largest
-  maps by screens and stored pieces are `$10A` (32 screens, 272 stored pieces) and `$125` (32, 233). Perf bench medians
-  (`test/perf/core/objects.bench.ts`): `$10A` recognize 6.8 ms, whole read (expand with footprint, then
-  recognize) 12.0 ms; `$125` 4.0 and 7.7 ms; `$105` (20 screens, 92 stored pieces, mid-size) 6.9 and 10.0 ms. A single
-  process: first call on `$10A` 28.6 ms for the read plus 37.8 ms to recognize, then about 8 ms and 15 ms. 60
-  synthetic platforms on 20 screens: 15.9 ms. The corpus test bounds only a runaway (2 s); the numbers come from the
-  bench ids `core.objects.*`. Acceptance 9 is a measured number: the nightly perf gates are paired regressions
-  with no absolute bound, and these ids have no baseline yet, so there is no gate verdict to quote. The view's `hb:map-objects` also times the RPC round trip.
+- Measured (the verifier's perf bench medians at `7e0f7b2e`, 20 samples, one machine, one stress definition
+  derived from each map's own pieces, vanilla ROM): the largest maps by screens and stored pieces are `$10A`
+  (32 screens, 272 stored pieces) and `$125` (32, 233); `$105` (20 screens, 92) is mid-size. Recognize alone:
+  `$10A` 5.9 ms, `$125` 2.1 ms, `$105` 4.2 ms. The whole read (expand with footprint, then recognize): 8.3, 4.1 and
+  5.1 ms. `app.open-maps` shows no regression against develop. The corpus test bounds only a runaway (2 s); the
+  numbers come from the bench ids `core.objects.*`. Acceptance 9 is a measured number: the nightly perf gates are
+  paired regressions with no absolute bound, and these ids have no baseline yet, so there is no gate verdict to
+  quote. The view's `hb:map-objects` also times the RPC round trip.

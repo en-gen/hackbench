@@ -224,6 +224,91 @@ function probe(map, object, kind, which = 0) {
   return found[which]
 }
 
+/** All segments of an Object, nearest-distance helper. */
+const distToObjectOutline = (object, p) =>
+  Math.min(...object.segments.map(sg => distToPolyline(sg.points, p)))
+
+/**
+ * A point on the Object body at least 1.5 tiles from its whole outline, clear of sprites and other Objects, so a
+ * click there cannot land in an edge band whatever the zoom rounding does. Cell centres are tried first.
+ */
+function farPoint(map, object) {
+  for (const run of object.runs)
+    for (let i = 0; i < run.len; i++) {
+      const p = [(run.col + i + 0.5) * TILE, (run.row + 0.5) * TILE]
+      if (
+        distToObjectOutline(object, p) >= 1.5 * TILE &&
+        !onSprite(map.sprites, ...p) &&
+        !map.objects.some(o => o !== object && inCells(o, ...p))
+      )
+        return p
+    }
+  return undefined
+}
+
+/**
+ * Points in the INSIDE half of the edge band of straight segments, 4 px inside the outline at a segment's
+ * middle, clear of corners (the segment is at least 2 tiles long) and of other segments (every other segment is
+ * at least 9 px away). No air outside is needed. One entry per segment.
+ */
+function innerProbes(map, object) {
+  const out = []
+  for (const seg of object.segments.filter(s => s.kind === 'straight')) {
+    const [ax, ay, bx, by] = seg.points.slice(0, 4)
+    if (Math.hypot(bx - ax, by - ay) < 2 * TILE || seg.points.length !== 4) continue
+    const [mx, my] = [(ax + bx) / 2, (ay + by) / 2]
+    const [nx, ny] = ax === bx ? [1, 0] : [0, 1]
+    for (const s of [1, -1]) {
+      const edge = [mx + s * nx * 4, my + s * ny * 4]
+      const others = object.segments.filter(o => o !== seg)
+      if (
+        inCells(object, ...edge) &&
+        !onSprite(map.sprites, ...edge) &&
+        !map.objects.some(o => o !== object && inCells(o, ...edge)) &&
+        others.every(o => distToPolyline(o.points, edge) >= 9)
+      ) {
+        out.push({ seg, edge })
+        break
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * Three points around one run of a slope segment, whatever is beside it: `edge` 4 px inside the Object (in the
+ * band), `deep` 12 px inside (the Object body, beyond the band), `far` 12 px outside (not the Object, no other
+ * Object, beyond the band). `deep` and `far` keep 9 px from every segment of the Object.
+ */
+function slopeProbe(map) {
+  for (const object of map.objects)
+    for (const seg of object.segments.filter(s => s.kind === 'slope'))
+      for (let i = 0; i + 3 < seg.points.length; i += 2) {
+        const [ax, ay, bx, by] = seg.points.slice(i, i + 4)
+        const [mx, my] = [(ax + bx) / 2, (ay + by) / 2]
+        const [nx, ny] = ax === bx ? [1, 0] : [0, 1]
+        for (const s of [1, -1]) {
+          const edge = [mx - s * nx * 4, my - s * ny * 4]
+          const deep = [mx - s * nx * 12, my - s * ny * 12]
+          const far = [mx + s * nx * 12, my + s * ny * 12]
+          if (
+            inCells(object, ...edge) &&
+            inCells(object, ...deep) &&
+            !map.objects.some(o => inCells(o, ...far)) &&
+            !onSprite(map.sprites, ...edge) &&
+            !onSprite(map.sprites, ...deep) &&
+            !onSprite(map.sprites, ...far) &&
+            distToObjectOutline(object, deep) > 9 &&
+            distToObjectOutline(object, far) > 9 &&
+            distToPolyline(seg.points, edge) <
+              distToObjectOutline({ segments: object.segments.filter(o => o !== seg) }, edge)
+          )
+            return { object, seg, edge, deep, far }
+        }
+      }
+  return undefined
+}
+
 const selectedObjects = (page, slot) =>
   page.locator(`${overlay(slot)} [data-control="object"][data-state="selected"]`)
 const segments = (page, slot, state) =>
@@ -242,10 +327,10 @@ test.describe('platforms on $103 (straight sides)', () => {
     // A front-most platform on screen 0 with a straight side that has clear air outside it.
     target = map.objects
       .filter(o => o.runs.every(r => (r.col + r.len) * TILE <= 256))
-      .find(o => probe(map, o, 'straight'))
+      .find(o => probe(map, o, 'straight') && farPoint(map, o) && innerProbes(map, o).length >= 2)
     expect(
       target,
-      'a platform on screen 0 with a straight side clear of sprites and other Objects',
+      'a platform on screen 0 with a straight side clear of sprites, a point 1.5 tiles from its outline and two long straight sides',
     ).toBeTruthy()
   })
 
@@ -256,8 +341,8 @@ test.describe('platforms on $103 (straight sides)', () => {
       4,
     )
     const before = treeHash(projectDir)
-    const run = target.runs[0]
-    const inside = [(run.col + 0.5) * TILE, (run.row + 0.5) * TILE]
+    // At least 1.5 tiles from every outline segment: the click cannot land in an edge band.
+    const inside = farPoint(map, target)
     // Hover first: a faint dashed outline, still not a selection.
     await pointAt(page, SLOT, map.size, ...inside)
     const hover = page.locator(`${overlay(SLOT)} [data-control="object"][data-state="hover"]`)
@@ -310,8 +395,7 @@ test.describe('platforms on $103 (straight sides)', () => {
     await pointAt(page, SLOT, map.size, ...p.out)
     await expect(segments(page, SLOT)).toHaveCount(0)
     await expect(page.locator(`${overlay(SLOT)} [data-control="object"]`)).toHaveCount(0)
-    const run = target.runs[0]
-    await pointAt(page, SLOT, map.size, (run.col + 0.5) * TILE, (run.row + 0.5) * TILE, 'click')
+    await pointAt(page, SLOT, map.size, ...farPoint(map, target), 'click')
     await expect(selectedObjects(page, SLOT)).toHaveCount(1)
 
     // Selected: outside the line highlights that segment; inside it does not.
@@ -329,53 +413,68 @@ test.describe('platforms on $103 (straight sides)', () => {
     expect(treeHash(projectDir)).toBe(before)
   })
 
-  test('Ctrl+click selects two segments', async ({ page }) => {
-    const first = probe(map, target, 'straight', 0)
-    const next = [1, 2, 3, 4, 5, 6, 7, 8]
-      .map(i => probe(map, target, 'straight', i))
-      .find(c => c && c.seg.id !== first.seg.id)
-    expect(next, 'a second straight segment with clear air outside').toBeTruthy()
-    const run = target.runs[0]
-    await pointAt(page, SLOT, map.size, (run.col + 0.5) * TILE, (run.row + 0.5) * TILE, 'click')
-    await pointAt(page, SLOT, map.size, ...first.out, 'click')
+  // Plant: pass `ctrl = false` to `selectAt` in `MapViewWidget.onStripClick` (Ctrl+click ignored): this goes red at
+  // the second `toHaveCount(2)`.
+  test('Ctrl+click selects two segments, from the inside half of the edge band', async ({
+    page,
+  }) => {
+    const [first, second] = innerProbes(map, target)
+    expect(first && second, 'two long straight sides with room inside them').toBeTruthy()
+    await pointAt(page, SLOT, map.size, ...farPoint(map, target), 'click')
+    // The inside half of the band hits the segment (a plain click selects just it).
+    await pointAt(page, SLOT, map.size, ...first.edge)
+    await expect(segments(page, SLOT, 'hover')).toHaveAttribute('data-segment', first.seg.id)
+    await pointAt(page, SLOT, map.size, ...first.edge, 'click')
     await expect(segments(page, SLOT, 'selected')).toHaveCount(1)
-    await pointAt(page, SLOT, map.size, ...next.out, 'click', ['Control'])
+    await pointAt(page, SLOT, map.size, ...second.edge, 'click', ['Control'])
     await expect(segments(page, SLOT, 'selected')).toHaveCount(2)
+    await expect(
+      page.locator(
+        `${overlay(SLOT)} [data-control="object-segment"][data-segment="${first.seg.id}"][data-state="selected"]`,
+      ),
+    ).toHaveCount(1)
+    await expect(
+      page.locator(
+        `${overlay(SLOT)} [data-control="object-segment"][data-segment="${second.seg.id}"][data-state="selected"]`,
+      ),
+    ).toHaveCount(1)
     // A plain click on the second alone replaces the pair.
-    await pointAt(page, SLOT, map.size, ...next.out, 'click')
+    await pointAt(page, SLOT, map.size, ...second.edge, 'click')
     await expect(segments(page, SLOT, 'selected')).toHaveCount(1)
   })
 })
 
 test.describe('a sloped ground Object', () => {
-  test('a segment is found outside a slope run and not inside it', async ({ page }) => {
+  // Plant: draw every segment as kind 'straight' (Outline.ts: `kind: slope ? 'slope' : 'straight'` -> 'straight'):
+  // this goes red at the `data-kind` assertion.
+  test('a slope segment answers inside the band and not deeper in or outside it', async ({
+    page,
+  }) => {
     const found = fixture.slopeCase(ROM)
     expect(found, 'a vanilla map with a sloped ground Object').toBeTruthy()
     saveDefinitions(found.definition)
     const SLOT = found.slot
     const map = await openMap(page, SLOT)
-    const target = map.objects.find(
-      o => o.segments.some(s => s.kind === 'slope') && probe(map, o, 'slope'),
-    )
-    expect(target, 'an Object with a slope segment that has clear air outside').toBeTruthy()
-    const p = probe(map, target, 'slope')
-    const inside = target.runs[0]
-    await pointAt(
-      page,
-      SLOT,
-      map.size,
-      (inside.col + 0.5) * TILE,
-      (inside.row + 0.5) * TILE,
-      'click',
-    )
+    const probeAt = slopeProbe(map)
+    expect(probeAt, 'a slope segment with room inside and outside its outline').toBeTruthy()
+    // Select the Object by a click where no segment reaches.
+    await pointAt(page, SLOT, map.size, ...probeAt.deep, 'click')
     await expect(selectedObjects(page, SLOT)).toHaveCount(1)
-    await pointAt(page, SLOT, map.size, ...p.out)
+    // Inside the band: that segment, and it is a slope.
+    await pointAt(page, SLOT, map.size, ...probeAt.edge)
     await expect(segments(page, SLOT, 'hover')).toHaveCount(1)
+    await expect(segments(page, SLOT, 'hover')).toHaveAttribute('data-segment', probeAt.seg.id)
     await expect(segments(page, SLOT, 'hover')).toHaveAttribute('data-kind', 'slope')
-    await pointAt(page, SLOT, map.size, ...p.edge)
-    await expect(segments(page, SLOT, 'hover')).toHaveAttribute('data-kind', 'slope')
-    await pointAt(page, SLOT, map.size, ...p.deep)
+    // Deeper inside the Object than the band: the Object body, no segment.
+    await pointAt(page, SLOT, map.size, ...probeAt.deep)
     await expect(segments(page, SLOT)).toHaveCount(0)
+    await expect(selectedObjects(page, SLOT)).toHaveCount(1)
+    // Outside the band and outside the Object: nothing answers.
+    await pointAt(page, SLOT, map.size, ...probeAt.far)
+    await expect(segments(page, SLOT)).toHaveCount(0)
+    await expect(
+      page.locator(`${overlay(SLOT)} [data-control="object"][data-state="hover"]`),
+    ).toHaveCount(0)
   })
 })
 
@@ -406,7 +505,14 @@ test('a map whose tiles are per level says Objects cannot be found there, in pla
   )
   await page.locator(`${rootOf(0x103)} [data-objects="unavailable"]`).waitFor({ timeout: 30000 })
   await expect(page.locator(`${rootOf(0x103)} [data-note="objects"]`)).toHaveText(WHY)
-  // Nothing responds: a click where an Object would be selects nothing.
-  await page.locator(stripOf(0x103)).click({ position: { x: 100, y: 200 } })
+  // Nothing responds: a click where an Object would be selects nothing. A real pointer click at a point of the
+  // map that is on screen (the canvas planes sit over the strip, so a locator click would be intercepted).
+  const at = await page.evaluate(strip => {
+    const el = document.querySelector(strip)
+    const view = el.closest('[data-control="map-scroller"]').getBoundingClientRect()
+    const r = el.getBoundingClientRect()
+    return { x: Math.max(r.left, view.left) + 60, y: Math.max(r.top, view.top) + 60 }
+  }, stripOf(0x103))
+  await page.mouse.click(at.x, at.y)
   await expect(page.locator(overlay(0x103))).toHaveCount(0)
 })

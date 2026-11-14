@@ -1,7 +1,8 @@
 /**
- * Breaking, touching and mending Objects through stored pieces (#1237 review rounds 2 and 3, rule R).
+ * Breaking, touching and mending Objects through stored pieces (#1237).
  * Every map is built with `stamp`, so the footprint, owners and grid agree, as on a real map; a "change" is
- * a piece added, and an "undo" is the same map without it.
+ * a piece added. Undoing an edit is not tested here: recognition is a pure function of the pieces, so a map without
+ * the piece trivially recognizes as before; the undo is proved against the working copy in MapObjects.test.ts.
  */
 import { describe, it, expect } from 'vitest'
 import { recognizeObjects, type FoundObject } from '../../../src/rom/objects/Recognize'
@@ -55,8 +56,10 @@ describe('touching Objects stay two (stored pieces keep them apart)', () => {
 
   // One platform above another, the same width or one tile off, meets it wall on wall and fill on fill: that is
   // not side by side, so nothing refuses the link (it is how a ledge and the continuation of its walls stay one
-  // Object). With bodies 3 rows or more the merged walls are surrounded and the two stay apart; with 1 or 2 rows
-  // they merge. The exact counts, for w 4-8, dx -1/0/1 and 6 orders (90 cases per height), are pinned.
+  // Object). With bodies 3 rows or more the two stay apart because the wall contact (one cell) covers less than half
+  // of a wall piece 3 or more cells tall, so it is not a strong link (at an offset of one tile the merged walls would
+  // also be surrounded); with 1 or 2 rows the link is strong and they merge. The exact counts, for w 4-8, dx -1/0/1
+  // and 6 orders (90 cases per height), are pinned.
   const ONE_OBJECT: Record<number, number> = { 1: 90, 2: 90, 3: 0, 4: 0, 5: 0 }
   for (let h = 1; h <= 5; h++)
     it(`one platform above another, ${h} tall: ${ONE_OBJECT[h]} of 90 cases merge into one Object`, () => {
@@ -81,7 +84,7 @@ describe('any visible edge tile with the body on all four sides stops the match'
       const base = plat(X, Y, w, h)
       const whole = rectKeys(X, Y, w, h)
       const platformOnly = (f: FoundObject[]) => f.filter(o => same(keys(o), whole))
-      it(`${w} x ${h}: a column of edge tiles through the body breaks it, whatever its length; undo restores it`, () => {
+      it(`${w} x ${h}: a column of edge tiles through the body breaks it, whatever its length`, () => {
         const before = recognizeObjects(stamp(base, 16, 12), [D])
         expect(platformOnly(before)).toHaveLength(1)
         for (let len = 1; len <= h - 2; len++) {
@@ -90,9 +93,6 @@ describe('any visible edge tile with the body on all four sides stops the match'
           // Only the edit's own cells are offered, as an Object of their own.
           expect(cellsOutside(after, whole).filter(c => !(c.col === X + 2 && c.row >= Y + 1 && c.row < Y + 1 + len)), `len ${len}`).toEqual([]) // prettier-ignore
           expect(after.every(f => f.cells.length <= len)).toBe(true)
-          // Undo: the map built again from scratch without the piece is the map before, and the edit did change it.
-          expect(after).not.toEqual(before)
-          expect(recognizeObjects(stamp(plat(X, Y, w, h), 16, 12), [D])).toEqual(before)
         }
       })
 
@@ -179,7 +179,7 @@ describe('a lone edge tile dropped into the four-platform stack breaks only the 
           }
       }
     // Only where the tile stays alone is the oracle exact; where it links into a neighbor's edge it is that
-    // platform's edge tile and nothing is lost (see the round 3 report for the count).
+    // platform's edge tile and nothing is lost .
     console.info(`stack sweep: ${probed} cells, the tile stays alone in ${alone}`)
     // At least the 94 cells where the tile stays alone (48 more link into a neighbor: see the known limit).
     expect(alone).toBeGreaterThanOrEqual(94)
@@ -318,24 +318,6 @@ describe('a lone edge tile beside a whole Object joins it', () => {
         })
 })
 
-describe('undoing an edit', () => {
-  for (let w = 5; w <= 8; w++)
-    for (let h = 4; h <= 6; h++)
-      it(`${w} x ${h}: the map with the breaking piece taken out of the map that had it is the map before; leaving it in is not`, () => {
-        const base = plat(2, 2, w, h)
-        const edit: Piece = { x: 4, y: 3, w: 1, h: 1, tile: WL }
-        const before = recognizeObjects(stamp(base, 16, 12), [D])
-        const edited = [...base, edit]
-        expect(recognizeObjects(stamp(edited, 16, 12), [D])).not.toEqual(before)
-        const undone = edited.filter(p => p !== edit)
-        expect(recognizeObjects(stamp(undone, 16, 12), [D])).toEqual(before)
-        // A planted undo that leaves the piece in, or only changes its tile to another edge tile, stays broken.
-        expect(recognizeObjects(stamp([...base, { ...edit, tile: WR }], 16, 12), [D])).not.toEqual(
-          before,
-        )
-      })
-})
-
 describe('mending by a fill strip, swept', () => {
   // A strip links when its contact with an edge piece beside it covers half of the smaller piece (a post one
   // tile long beside the strip's last row does; a longer post touching one cell of it does not).
@@ -390,4 +372,56 @@ describe('a broken Object beside a whole one costs only itself', () => {
           expect(found).toHaveLength(1)
           expect(same(keys(found[0]!), rectKeys(2 + w, 2, w, h))).toBe(true)
         })
+})
+
+describe('a ledge extended sideways by fill and a wall is one Object', () => {
+  // The extension is a fill block with its own right wall beside the ledge's right wall: a wall piece beside an
+  // interior is an edge beside fill, not two Objects touching. With bodies 1 or 2 rows tall nothing is surrounded
+  // and all of it is one Object, in every piece order (w 4-7, extension 2-4 wide, 6 orders: 72 cases per height).
+  for (let h = 1; h <= 2; h++)
+    it(`${h} tall: 72 of 72 cases give one whole Object`, () => {
+      let whole = 0
+      let total = 0
+      for (let w = 4; w <= 7; w++)
+        for (let ew = 2; ew <= 4; ew++)
+          for (let n = 0; n < 6; n++) {
+            const x = 2
+            const y = 4
+            const ext: Piece[] = [
+              { x: x + w, y, w: ew - 1, h, tile: (r: number) => (r === y ? FTOP : DIRT) },
+              { x: x + w + ew - 1, y, w: 1, h, tile: (r: number) => (r === y ? TR : WR) },
+            ]
+            const found = recognizeObjects(
+              stamp(shuffled([...plat(x, y, w, h), ...ext], 31 + n), 20, 12),
+              [D],
+            )
+            total++
+            if (found.length === 1 && found[0]!.cells.length === (w + ew) * h) whole++
+          }
+      expect({ whole, total }).toEqual({ whole: 72, total: 72 })
+    })
+})
+
+describe('one piece that holds an edge and fill beside a ledge is not yet an Object of its own', () => {
+  // A slope or a cap is drawn as one stored piece that holds edge tiles and fill. Beside a ledge, edge to edge, it
+  // is the end of that ledge, not a second Object touching it: a group needs more than one piece to count as one.
+  for (let h = 1; h <= 2; h++)
+    it(`${h} tall: w 4-7, a piece 2-4 wide (an edge column then fill), 6 piece orders: always one whole Object`, () => {
+      let whole = 0
+      let total = 0
+      for (let w = 4; w <= 7; w++)
+        for (let pw = 2; pw <= 4; pw++)
+          for (let n = 0; n < 6; n++) {
+            const x = 2
+            const y = 4
+            const cap: Piece = { x: x + w, y, w: pw, h, tile: (_r: number, c: number) => (c === x + w ? WL : DIRT) } // prettier-ignore
+            const found = recognizeObjects(
+              stamp(shuffled([...plat(x, y, w, h), cap], 41 + n), 20, 12),
+              [D],
+            )
+            total++
+            if (found.length === 1 && found[0]!.cells.length === (w + pw) * h) whole++
+          }
+      expect({ whole, total }).toEqual({ whole: 72, total: 72 })
+    })
 })

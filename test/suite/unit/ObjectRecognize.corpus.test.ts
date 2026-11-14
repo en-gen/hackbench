@@ -123,6 +123,57 @@ describe.skipIf(!hasRom(VANILLA))('Objects on $103 screen 0 (acceptance 8)', () 
     expect(counts).toEqual([40, 24, 90, 60, 66, 70, 162, 68, 70])
   })
 
+  it('another map: the ledge of $118 at rows 5-8, cols 74-77 is one Object of 16 cells', () => {
+    // The right wall of that ledge is a short wall piece over a fill piece: an edge beside fill, not a neighbor.
+    // The $103 definition's tiles, on the tileset of this map.
+    const other = readObjectInputs(map, 0x118, SWITCH_FLAGS_UNCLEARED)
+    if (!other.ok) throw new Error(other.reason)
+    const box = (f: { cells: { row: number; col: number }[] }) =>
+      [Math.min(...f.cells.map(c => c.row)), Math.max(...f.cells.map(c => c.row)), Math.min(...f.cells.map(c => c.col)), Math.max(...f.cells.map(c => c.col))].join() // prettier-ignore
+    const there = recognizeObjects(other, [{ ...definition, tileset: other.tileset }]).filter(
+      f => box(f) === '5,8,74,77',
+    )
+    expect(there.map(f => f.cells.length)).toEqual([16])
+  })
+
+  it('vanilla maps $101-$13B: Objects and cells under three probe definitions, pinned', () => {
+    // L: the $103 ledge on every map's tileset. S: the most written tile as fill, the next seven as edge. P: the
+    // slope-class tiles as edge, the three most written non-slope tiles as fill. Probe definitions, not product data.
+    const cart = RomFile.load(romPath(VANILLA))
+    const tally: Record<string, [number, number]> = { L: [0, 0], S: [0, 0], P: [0, 0] }
+    let hillsWhole = 0
+    for (let slot = 0x101; slot < 0x13c; slot++) {
+      const read = readObjectInputs(map, slot, SWITCH_FLAGS_UNCLEARED)
+      if (!read.ok) continue
+      const slopeOf = slopeClassOf(cart, read.tileset)
+      const counts = new Map<number, number>()
+      for (const f of read.footprint) counts.set(f.tile, (counts.get(f.tile) ?? 0) + 1)
+      const ranked = [...counts].sort((a, b) => b[1] - a[1]).map(([t]) => t)
+      const defs: Record<string, FinderDefinition> = {
+        L: { ...definition, tileset: read.tileset },
+        S: {
+          id: 's',
+          name: 's',
+          tileset: read.tileset,
+          edge: ranked.slice(1, 8),
+          fill: ranked.slice(0, 1),
+        },
+        P: { id: 'p', name: 'p', tileset: read.tileset, edge: [...counts.keys()].filter(t => slopeOf(t) !== null), fill: ranked.filter(t => slopeOf(t) === null && t !== 0x25).slice(0, 3) }, // prettier-ignore
+      }
+      for (const [name, d] of Object.entries(defs)) {
+        if (d.edge.length === 0) continue
+        const found = recognizeObjects(read, [d])
+        tally[name]![0] += found.length
+        tally[name]![1] += found.reduce((n, f) => n + f.cells.length, 0)
+        // $116 and $12D: a hill and the slope piece that ends it stay one Object (25 and 103 cells).
+        if (name === 'P' && slot === 0x116 && found.some(f => f.cells.length === 25)) hillsWhole++
+        if (name === 'P' && slot === 0x12d && found.some(f => f.cells.length === 103)) hillsWhole++
+      }
+    }
+    expect(tally).toEqual({ L: [76, 3835], S: [2165, 53902], P: [136, 2291] })
+    expect(hillsWhole).toBe(2)
+  })
+
   it('reads the same visible grid the map view draws', () => {
     const built = buildL1Inputs(map, 0x103, SWITCH_FLAGS_UNCLEARED)
     if (!built.ok) throw new Error(built.reason)

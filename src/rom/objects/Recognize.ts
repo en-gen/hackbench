@@ -3,8 +3,10 @@
  *
  * An Object is a connected patch of one definition tiles (#1234 round 1 call 1). Two sources:
  *  1. stored pieces, through the footprint every piece wrote: this finds a covered Object whole and
- *     keeps touching Objects apart (the pieces say which tiles belong together; one platform above
- *     another, 2 rows tall or less, is the touching case that still merges);
+ *     keeps touching Objects apart (the pieces say which tiles belong together). What still merges: a
+ *     ledge and the continuation of its walls drawn under it; one ledge above another when the bodies are 1
+ *     or 2 rows tall; a ledge extended sideways by fill and a wall; a lone edge tile or a one-piece cap or
+ *     slope beside a ledge's wall. Two ledges side by side stay two, at every height;
  *  2. visible tiles, for what the pieces do not explain.
  * docs/architecture/objects-on-map.md has the diagram and the ties.
  */
@@ -224,17 +226,18 @@ function groupPieces(
   const holds = holdsFor(new Set(ordered.flatMap(l => [l.p, l.q])))
   const hasBoth = (g: Group) => {
     const tiles = [...g.cells.values()].map(c => isEdge(c.tile))
-    return tiles.some(Boolean) && tiles.some(e => !e)
+    return g.pieces.size > 1 && tiles.some(Boolean) && tiles.some(e => !e)
   }
-  for (const { p, q, side, w } of ordered) {
+  for (const { p, q, withFill, side, w } of ordered) {
     const a = groupOf.get(p)!
     const b = groupOf.get(q)!
     if (a === b) continue
     if (split && hasEdge(a) && hasEdge(b) && stacked(a, b)) continue
-    // A link side by side (the contact line is vertical) between two groups that each already have an edge and
-    // fill joins two Objects that touch: not one (one that is broken costs only itself, not its neighbor). Wall
-    // on wall above and below (a ledge and the continuation of its walls) is not side by side, and merges.
-    if (split && side * 2 >= w && hasBoth(a) && hasBoth(b)) continue
+    // A link that is only an edge beside an edge, side by side (the contact line is vertical), between two groups
+    // that each already have an edge and fill joins two Objects that touch: not one (one that is broken costs only
+    // itself, not its neighbor). A wall beside an interior is an edge beside fill, a ledge extended sideways, and
+    // merges; so does wall on wall above and below (a ledge and the continuation of its walls).
+    if (split && withFill === 0 && side * 2 >= w && hasBoth(a) && hasBoth(b)) continue
     const merged: Group = { pieces: new Set([...a.pieces, ...b.pieces]), cells: new Map(a.cells) }
     for (const [k, c] of b.cells) {
       const have = merged.cells.get(k)

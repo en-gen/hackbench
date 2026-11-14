@@ -6,6 +6,9 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { RomFile } from '../../../src/rom/RomFile'
+import { SmwRom } from '../../../src/rom/SmwRom'
+import { loromToOffset } from '../../../src/rom/addressing'
 import { PER_LEVEL_MAP16 } from '../../../src/rom/objects/ObjectInputs'
 import { platformDefinition, type SavedDefinition } from '../support/objectsFixture'
 import { objectsDir } from '../../../src/project/ObjectDefinitionsStandIn'
@@ -60,6 +63,35 @@ describe.skipIf(!hasRom(VANILLA))('mapObjects on the vanilla ROM', () => {
     // Front-to-back order comes from the stored list, and is distinct for the four.
     expect(new Set(onScreen0.map(o => o.order)).size).toBe(4)
     expect(r.skipped).toEqual([])
+  })
+
+  it('an edit to the working copy is seen at once, and undoing it brings the whole Object back', () => {
+    // Recognition is a pure function of the pieces, so the undo that can fail is the one through the working copy:
+    // the cache is keyed by the working-copy bytes, and every change (an edit, its undo) hands out a new array.
+    // No layer edits stored pieces yet, so the edit here is one byte of piece 12 of $103 (its size, which shortens a
+    // platform), and the "undo" is a fresh copy of the unedited bytes, as `WorkingRom.undo` returns.
+    // Plant: key the cache by the map slot alone (ignore the bytes): the edited fetch then repeats the first.
+    const cache = new L1ModelCache()
+    const m = project({ 'ledge.json': ledgeOf() })
+    const sizes = (b: Uint8Array) => {
+      const r = mapObjects(cache, b, romPath(VANILLA), m, 0x103)
+      if (r.status !== 'ok') throw new Error(r.status)
+      return r.objects
+        .filter(o => o.runs.every(run => run.col + run.len <= 16))
+        .map(o => o.runs.reduce((n, run) => n + run.len, 0))
+    }
+    const base = bytesNow()
+    const map = new SmwRom(RomFile.fromBytes(romPath(VANILLA), Buffer.from(base)))
+    const at = loromToOffset(map.getLevelL1Pointer(0x103)!, base.length)! + 5 + 3 * 12 + 2
+    const before = sizes(base)
+    expect(before).toEqual([40, 24, 90, 60])
+    const edited = new Uint8Array(base)
+    edited[at] = 0x00 // the size of the piece: a platform of 90 cells is now 76
+    expect(sizes(edited)).toEqual([40, 24, 76, 60])
+    const undone = new Uint8Array(base)
+    expect(sizes(undone)).toEqual(before)
+    // And the first array, fetched again, still answers as it did.
+    expect(sizes(base)).toEqual(before)
   })
 
   it('no definitions is an ordinary empty answer, not a refusal', () => {
