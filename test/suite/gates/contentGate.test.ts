@@ -76,7 +76,7 @@ describe('checkPath: hard-blocked extensions, never allow-listed', () => {
   })
 
   // 5.4 s worst over 10 runs, two concurrent full unit runs, 32-core machine, 2026-10-10
-  it('test/fixtures/README.md is exempt', slow(11000), () => {
+  it('test/fixtures/README.md is exempt', slow(30_000), () => {
     expect(checkPath('test/fixtures/README.md')).toEqual([])
   })
 })
@@ -341,7 +341,7 @@ describe('rom-provenance (#812): a "taken from the game" comment over an inline 
   // Cost, one machine, 1288 tracked files: the old loop ran every rule with
   // sync reads; this runs only rom-provenance and reads in parallel. Timings
   // are one machine, one run each, before/after, see #485.
-  it('develop-clean: no tracked text file trips rom-provenance', slow(15000), async () => {
+  it('develop-clean: no tracked text file trips rom-provenance', slow(30_000), async () => {
     const files = execFileSync('git', ['ls-files'], { cwd: repoRoot, encoding: 'utf8' })
       .split('\n')
       .filter(f => /\.(ts|tsx|js|mjs|cjs|md|json|css|lua|sh|yml|yaml)$/.test(f))

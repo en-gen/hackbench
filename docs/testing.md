@@ -377,6 +377,28 @@ and refuses a file without the line (#1209). A file that mocks `child_process` i
 exempt, as is a type-only import. The gate reads text, exempts a partial mock,
 and does not see a starter reached through a helper other than those two.
 
+`perTestTimeoutFloor.ts` (#1333) reads the same files with the TypeScript
+compiler API and reports `file:line value` for every timeout under 30,000 that
+is a test's, describe's, hook's or `vi.setConfig`'s own: a `slow(n)` or
+`loadTimeout(n)` argument, a trailing number, `{ timeout }` options (also via a
+spread or a module const), and `testTimeout` or `hookTimeout` in `vi.setConfig`.
+A wrapper call elsewhere, such as a child-process `timeout`, is not read.
+Literals, arithmetic of them and module-scope `const`s resolve; a `let`, a
+shadowed or imported name, or an options variable it cannot follow is reported
+as "cannot read". A value kept on purpose carries a real
+`// timeout-floor: <reason>` comment on the run of lines directly above its `it`,
+`describe`, hook or `vi.setConfig` statement (a blank line ends the run), or
+trailing that statement's last line. Only a call that is itself a statement can
+be kept: `await it(...)` cannot. It keeps only that statement: not a nested test
+inside it, not a const it reads, and not a comment on a wrapped argument
+(Prettier moves those). An empty reason, a block comment, a string, or text
+before `// timeout-floor:` does not count. An offence read through an options
+const is reported at each use site. A computed key in an options object is
+reported as "cannot read", as is an aliased or namespaced wrapper
+(`s.slow(n)`) in timeout position. Not read: registrar aliases (`const t = it`,
+`import { it as t }`), `vi?.setConfig`, test names made by `test.extend`,
+`suite`, and tagged-template `each`.
+
 ## Proving an oracle can fail
 
 A test that cannot go red is worse than no test, because it reports
