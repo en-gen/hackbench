@@ -105,8 +105,63 @@ describe('perTestTimeoutFloor planted sources', () => {
       'one marker for two statements on the next line',
       ['// timeout-floor: why', "it('a', slow(1), () => {}); it('b', slow(2), () => {})"],
     ],
+    [
+      'a marker above a wrapped argument line',
+      ['it(', "  'x',", '  // timeout-floor: why', '  slow(1000),', '  () => {},', ')'],
+    ],
+    [
+      'a marker trailing a wrapped argument line',
+      ['it(', "  'x',", '  slow(1000), // timeout-floor: why', '  () => {},', ')'],
+    ],
+    [
+      'a marker above a wrapped options argument',
+      ['it(', "  'x',", '  // timeout-floor: why', '  { timeout: 1000 },', '  () => {},', ')'],
+    ],
+    [
+      'a marker after other comment text',
+      ['// see below // timeout-floor: why', "it('x', slow(1000), () => {})"],
+    ],
+    [
+      'a marker on the outer call of a nested test',
+      ['// timeout-floor: why', "describe('d', () => it('x', slow(1000), () => {}))"],
+    ],
+    [
+      'a marker above a bare numeric argument',
+      ['it(', "  'x',", '  () => {},', '  // timeout-floor: why', '  1000,', ')'],
+    ],
+    [
+      'a marker on an options const',
+      [
+        '// timeout-floor: why',
+        'const o = { timeout: 1000 }',
+        "it('a', o, () => {})",
+        "it('b', o, () => {})",
+      ],
+    ],
+    [
+      'a marker on a numeric const',
+      ['// timeout-floor: why', 'const T = 1000', "it('a', () => {}, T)"],
+    ],
   ])('does not keep a value by %s', (_n, body) => {
     expect(offences(...body).length).toBeGreaterThan(0)
+  })
+  it('reports an options const once per use site, at the use line', () => {
+    expect(
+      offences('const o = { timeout: 1000 }', "it('a', o, () => {})", "it('b', o, () => {})"),
+    ).toEqual(['p.test.ts:3 1000', 'p.test.ts:4 1000'])
+  })
+  it('refuses a computed key in an options object it cannot read', () => {
+    expect(offences("it('x', { ['timeout']: 1000 }, () => {})")).toEqual([
+      'p.test.ts:2 cannot read',
+    ])
+    expect(offences("vi.setConfig({ ['testTimeout']: 1000 })")).toEqual(['p.test.ts:2 cannot read'])
+  })
+  it('lists offences by file then numeric line', () => {
+    const body = (n: number) => Array(n).fill('').concat("it('x', slow(1), () => {})").join('\n')
+    expect(
+      plant({ 'b.test.ts': `${SPAWN}\n${body(1)}`, 'a.test.ts': `${SPAWN}\n${body(9)}` }),
+    ).toEqual(['a.test.ts:11 1', 'b.test.ts:3 1'])
+    expect(plant({ 'a.test.ts': `${SPAWN}\n${body(7)}\n${body(0)}` })[0]).toBe('a.test.ts:9 1')
   })
   it('names the line of the value on a wrapped call', () => {
     expect(offences("it(\n  'x',\n  () => {},\n  9000,\n)")).toEqual(['p.test.ts:5 9000'])

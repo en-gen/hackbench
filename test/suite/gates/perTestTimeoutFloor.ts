@@ -18,20 +18,16 @@ const REGISTERS = new Set([
 const HOOKS = new Set(['beforeAll', 'beforeEach', 'afterAll', 'afterEach'])
 /** Wrappers whose one argument is the timeout. Read only where they are a test's or config's timeout. */
 const WRAPPERS = new Set(['slow', 'loadTimeout'])
-/** Chain members whose arguments are tables or conditions, never a timeout. */
-const NOT_TIMEOUT_ARGS = new Set(['each', 'for', 'skipIf', 'runIf', 'extend', 'scoped'])
 /** A reason is required: a bare marker would keep any value without anyone saying why. */
 const MARKER = /^\/\/\s*timeout-floor:\s*\S/
 const TIMEOUT_KEY = new Set(['timeout'])
 const CONFIG_KEYS = new Set(['testTimeout', 'hookTimeout'])
 
-/** The test-registering root of `it.only.each(t)('n', fn)`, with the outermost chain member's name. */
-function registrar(call: ts.CallExpression): { root: string; last: string } | undefined {
-  // Only the call's own member counts: `it.each(t)(...)` is the registration, `it.each(t)` is the table.
-  const last = ts.isPropertyAccessExpression(call.expression) ? call.expression.name.text : ''
+/** The test-registering root name of `it.only.each(t)('n', fn)`, or undefined. `it.each(t)` has only table arguments, never read. */
+function registrar(call: ts.CallExpression): string | undefined {
   let e: ts.Expression = call.expression
   while (ts.isCallExpression(e) || ts.isPropertyAccessExpression(e)) e = e.expression
-  return ts.isIdentifier(e) && REGISTERS.has(e.text) ? { root: e.text, last } : undefined
+  return ts.isIdentifier(e) && REGISTERS.has(e.text) ? e.text : undefined
 }
 
 const isWrapperCall = (e: ts.Node): e is ts.CallExpression =>
@@ -105,85 +101,92 @@ export function timeoutFloorOffences(src: string): string[] {
 
   const isMarker = (r: ts.CommentRange) =>
     r.kind === ts.SyntaxKind.SingleLineCommentTrivia && MARKER.test(text.slice(r.pos, r.end))
-  /** A marker comment on the run of comment lines directly above `startPos`; a blank line ends the run. */
-  const markerAbove = (fullStart: number, startPos: number): boolean => {
-    let want = lineOf(startPos)
-    for (const r of [...(ts.getLeadingCommentRanges(text, fullStart) ?? [])].reverse()) {
-      if (lineOf(r.end) < want - 1) return false
+  /**
+   * A marker keeps the registrar or setConfig statement it sits on, and nothing else: a comment on the
+   * run of lines directly above the statement (a blank line ends the run), or trailing its last line.
+   * A call that is not itself a statement (an arrow-body `it`, a nested one) cannot be kept; Prettier
+   * moves comments inside a wrapped call, so a value-level marker would not survive formatting anyway.
+   */
+  const kept = (call: ts.CallExpression): boolean => {
+    const st = call.parent
+    if (!ts.isExpressionStatement(st) || st.expression !== call) return false
+    let want = lineOf(st.getStart(sf))
+    for (const r of [...(ts.getLeadingCommentRanges(text, st.getFullStart()) ?? [])].reverse()) {
+      if (lineOf(r.end) < want - 1) break
       if (isMarker(r)) return true
       want = lineOf(r.pos)
     }
-    return false
-  }
-  /** A marker comment trailing `end` on the same line. */
-  const markerAfter = (end: number): boolean =>
-    (ts.getTrailingCommentRanges(text, end) ?? []).some(isMarker)
-  const statementOf = (n: ts.Node): ts.Node => {
-    let p: ts.Node = n
-    while (p.parent && !ts.isExpressionStatement(p) && !ts.isVariableStatement(p)) p = p.parent
-    return ts.isSourceFile(p) ? n : p
-  }
-  /** Each marker keeps only its own statement or value, never a neighbor's. */
-  const kept = (value: ts.Node): boolean => {
-    const st = statementOf(value)
-    return (
-      markerAbove(value.getFullStart(), value.getStart(sf)) ||
-      markerAfter(value.getEnd()) ||
-      markerAbove(st.getFullStart(), st.getStart(sf)) ||
-      markerAfter(st.getEnd())
-    )
+    return (ts.getTrailingCommentRanges(text, st.getEnd()) ?? []).some(isMarker)
   }
 
+  /** What an expression is read for: the call that owns the timeout, and where an offence is reported. */
+  interface Site {
+    call: ts.CallExpression
+    at: ts.Node
+  }
   const found: { pos: number; text: string }[] = []
-  const check = (value: ts.Expression) => {
-    const v = resolve(value)
-    if ((v !== undefined && v >= TIMEOUT_FLOOR) || kept(value)) return
-    const pos = value.getStart(sf)
+  const report = (site: Site, v: number | undefined) => {
+    if (kept(site.call)) return
+    const pos = site.at.getStart(sf)
     found.push({ pos, text: `${lineOf(pos) + 1} ${v === undefined ? 'cannot read' : v}` })
   }
+  const check = (value: ts.Expression, site: Site) => {
+    const v = resolve(value)
+    if (v === undefined || v < TIMEOUT_FLOOR) report(site, v)
+  }
 
-  /** An options expression: an object literal, a module const holding one, or a wrapper call. */
-  const readOptions = (e: ts.Expression, keys: Set<string>): void => {
-    if (ts.isParenthesizedExpression(e)) return readOptions(e.expression, keys)
+  /**
+   * An options expression: an object literal, a module const holding one, or a wrapper call. Through a
+   * const the offence is reported at the use site (`at`), once per use.
+   */
+  const readOptions = (e: ts.Expression, keys: Set<string>, site: Site): void => {
+    if (ts.isParenthesizedExpression(e)) return readOptions(e.expression, keys, site)
     if (ts.isObjectLiteralExpression(e)) {
       for (const p of e.properties) {
-        if (ts.isPropertyAssignment(p) && keys.has(p.name.getText(sf))) check(p.initializer)
-        else if (ts.isShorthandPropertyAssignment(p) && keys.has(p.name.text)) check(p.name)
-        else if (ts.isSpreadAssignment(p)) readOptions(p.expression, keys)
+        if (ts.isSpreadAssignment(p)) readOptions(p.expression, keys, site)
+        else if (p.name && ts.isComputedPropertyName(p.name)) report(site, undefined)
+        else if (ts.isPropertyAssignment(p) && keys.has(p.name.getText(sf)))
+          check(p.initializer, site)
+        else if (ts.isShorthandPropertyAssignment(p) && keys.has(p.name.text)) check(p.name, site)
       }
       return
     }
-    if (isWrapperCall(e)) return e.arguments.length === 1 ? check(e.arguments[0]) : check(e)
+    if (isWrapperCall(e)) {
+      if (e.arguments.length === 1) check(e.arguments[0], site)
+      else report(site, undefined)
+      return
+    }
     const init = ts.isIdentifier(e) ? constInit(e) : undefined
     if (init && (ts.isObjectLiteralExpression(init) || isWrapperCall(init)))
-      return readOptions(init, keys)
-    check(e)
+      return readOptions(init, keys, site)
+    report(site, undefined)
   }
 
   const visit = (n: ts.Node): void => {
     if (ts.isCallExpression(n)) {
       if (n.expression.getText(sf) === 'vi.setConfig' && n.arguments[0])
-        readOptions(n.arguments[0], CONFIG_KEYS)
+        readOptions(n.arguments[0], CONFIG_KEYS, { call: n, at: n.arguments[0] })
       const reg = registrar(n)
-      if (reg && !NOT_TIMEOUT_ARGS.has(reg.last)) {
+      if (reg) {
         const args = n.arguments
-        const timeoutSlot = HOOKS.has(reg.root) ? 1 : 2
+        const timeoutSlot = HOOKS.has(reg) ? 1 : 2
         const lastArg = args[args.length - 1]
         const bareLast = !ts.isFunctionLike(lastArg) && !ts.isIdentifier(lastArg)
         args.forEach((a, i) => {
           if (i < 1 || ts.isFunctionLike(a) || ts.isStringLiteralLike(a)) return
           if (ts.isTemplateExpression(a)) return
+          const site: Site = { call: n, at: a }
           if (ts.isObjectLiteralExpression(a) || ts.isSpreadElement(a) || isWrapperCall(a))
-            return readOptions(ts.isSpreadElement(a) ? a.expression : a, TIMEOUT_KEY)
+            return readOptions(ts.isSpreadElement(a) ? a.expression : a, TIMEOUT_KEY, site)
           const isLast = i === args.length - 1
           // A lone identifier before the timeout slot is a callback.
           if (ts.isIdentifier(a) && isLast && i < timeoutSlot) return
           if (ts.isIdentifier(a) && !isLast) {
             // `it('x', handler, 5000)`: the identifier is the callback, the number its timeout.
             if (bareLast && i === args.length - 2) return
-            return readOptions(a, TIMEOUT_KEY)
+            return readOptions(a, TIMEOUT_KEY, site)
           }
-          check(a)
+          check(a, site)
         })
       }
     }
@@ -195,11 +198,11 @@ export function timeoutFloorOffences(src: string): string[] {
 
 /** `file:line value` for every under-floor timeout in the process-starting files of `dir`. */
 export function perTestTimeoutOffences(dir: string): string[] {
+  // File order first, then source order within a file: a string sort would put line 10 before 9.
   return processStartingFiles(dir)
-    .flatMap(f =>
-      timeoutFloorOffences(fs.readFileSync(f, 'utf8')).map(
-        o => `${path.relative(dir, f).split(path.sep).join('/')}:${o}`,
-      ),
-    )
+    .map(f => path.relative(dir, f).split(path.sep).join('/'))
     .sort()
+    .flatMap(rel =>
+      timeoutFloorOffences(fs.readFileSync(path.join(dir, rel), 'utf8')).map(o => `${rel}:${o}`),
+    )
 }
