@@ -87,7 +87,7 @@ export class GfxExplorerContribution extends AbstractViewContribution<GfxExplore
           {},
         )
       } else {
-        await this.previews.preview<GfxViewWidget>(GFX_VIEW_ID, apply)
+        await this.previews.preview<GfxViewWidget>(GFX_VIEW_ID, apply, { index })
       }
     })
     // Keyed by LAYER: WidgetManager keys a widget by factory id plus
@@ -107,7 +107,7 @@ export class GfxExplorerContribution extends AbstractViewContribution<GfxExplore
           { layer },
         )
       } else {
-        await this.previews.preview<Map16ViewWidget>(MAP16_VIEW_ID, apply, { layer })
+        await this.previews.preview<Map16ViewWidget>(MAP16_VIEW_ID, apply, { layer }, { layer })
       }
     })
   }

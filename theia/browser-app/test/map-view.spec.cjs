@@ -3881,8 +3881,9 @@ async function loadTree(page) {
   }, mp)
 }
 
-async function clickRow(page, slot, pin = false) {
-  const id = await page.evaluate(async slot => {
+/** Focuses the explorer's row for `slot` and returns its node id. */
+async function focusRow(page, slot) {
+  return page.evaluate(async slot => {
     const w = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-explorer')
     const node = w.model.root.children.find(r => r.id === 'group:unassigned').children.find(n => n.index === slot) // prettier-ignore
     w.focusService.setFocus(undefined)
@@ -3890,15 +3891,29 @@ async function clickRow(page, slot, pin = false) {
     w.updateScrollToRow()
     return node.id
   }, slot)
+}
+const rowOf = (page, id) => page.locator(`[id="hackbench.map-explorer"] .theia-TreeNode[data-node-id="${id}"]`) // prettier-ignore
+
+async function clickRow(page, slot, pin = false) {
+  const id = await focusRow(page, slot)
   const tab = pin ? slot : 'preview'
   const seq = () => page.evaluate(w => getSvc('ApplicationShell').getWidgetById(w)?.startSeq ?? 0, `hackbench.map-view:${tab}`) // prettier-ignore
   const before = await seq() // startSeq moves only on open: sees a second open of the shown map
-  const row = page.locator(`[id="hackbench.map-explorer"] .theia-TreeNode[data-node-id="${id}"]`)
+  const row = rowOf(page, id)
   await row.waitFor()
   await (pin ? row.dblclick() : row.click())
   opened.push(`hackbench.map-view:${tab}`)
   await expect.poll(seq, { timeout: 30000 }).toBeGreaterThan(before)
 }
+
+/** A single click on a row whose map is already open: nothing opens (#1324), so there is no startSeq to wait for. */
+async function clickOpenRow(page, slot) {
+  const row = rowOf(page, await focusRow(page, slot))
+  await row.waitFor()
+  await row.click()
+  await page.waitForTimeout(1500) // a second tab would be opening by now
+}
+const activeTab = page => page.evaluate(() => getSvc('ApplicationShell').activeWidget?.id)
 
 const pressedOf = (page, tab) => Promise.all(PRESSES.map(c => control(page, tab, c).getAttribute('aria-pressed'))) // prettier-ignore
 const all = v => PRESSES.map(() => v)
@@ -3954,7 +3969,7 @@ test('the preview tab carries the layer, sprite and collision toggles to the nex
   expect(await lines()).not.toBe(aLines)
 })
 
-test('refreshing or single-clicking the same map keeps presses; a pinned tab keeps its own on its row', async ({
+test('refreshing or single-clicking the same map keeps presses; a double click on a pinned map keeps its own presses', async ({
   page,
 }) => {
   await loadTree(page)
@@ -4053,16 +4068,77 @@ test('pinning the preview keeps the layer, sprite, grid and collision toggles, d
   await expect.poll(() => shape(0x111), { timeout: 60000 }).toEqual(want)
 })
 
-test('a pin keeps its own presses over the preview of the same map', async ({ page }) => {
+// #1324 replaced #1299's acceptance-4 case, which pressed in a SECOND, preview tab of an open map; a single click on an open map no longer opens one.
+test('a single click on an open map focuses its tab, which keeps its presses, toggles and tiles', async ({
+  page,
+}) => {
   await loadTree(page)
   const want = on => PRESSES.map(c => String(on.includes(c)))
+  await clickRow(page, 0x105, true)
+  const fresh = await shown(page, 0x105, 9)
+  await pressAll(page, 0x105)
+  await control(page, 0x105, 'layer-sprites').click()
+  await expect(control(page, 0x105, 'layer-sprites')).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(() => shown(page, 0x105, 9)).not.toBe(fresh) // the presses move the drawing, so the check below can fail
+  const pressedTiles = await shown(page, 0x105, 9)
+  await clickRow(page, 0x106) // another tab takes focus, so the click below has something to win back
+  await clickOpenRow(page, 0x105)
+  expect(await activeTab(page)).toBe('hackbench.map-view:261')
+  await expect(page.locator(root(0x105))).toHaveCount(1)
+  expect(await pressedOf(page, 0x105)).toEqual(all('true'))
+  await expect(control(page, 0x105, 'layer-sprites')).toHaveAttribute('aria-pressed', 'false')
+  expect(await shown(page, 0x105, 9)).toBe(pressedTiles)
+  expect(await page.evaluate(() => getSvc('ApplicationShell').getWidgetById('hackbench.map-view:preview').shows(0x106))).toBe(true) // prettier-ignore
+  await control(page, 0x105, 'palace-red').click()
+  await clickRow(page, 0x105, true) // a double click on an open map is still one tab
+  await expect(page.locator(root(0x105))).toHaveCount(1)
+  expect(await pressedOf(page, 0x105)).toEqual(want(PRESSES.filter(c => c !== 'palace-red')))
+  await expect(control(page, 0x105, 'layer-sprites')).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('double-click a map, then single-click it: one active tab, no preview', async ({ page }) => {
+  await loadTree(page)
+  await clickRow(page, 0x105, true)
+  await clickOpenRow(page, 0x105)
+  expect(await activeTab(page)).toBe('hackbench.map-view:261')
+  await expect(page.locator(root(0x105))).toHaveCount(1)
+  await expect(page.locator(root('preview'))).toHaveCount(0)
+})
+
+// #1299: a tab already showing a map keeps its own presses and toggles when open() is handed a preview to carry from.
+test('open(options, from) on a tab that already shows a map ignores from', async ({ page }) => {
+  await loadTree(page)
   await clickRow(page, 0x106, true)
   await control(page, 0x106, 'palace-red').click()
-  await clickRow(page, 0x106) // a preview of a map that is already pinned
-  await control(page, 'preview', 'palace-blue').click()
-  await clickRow(page, 0x106, true)
-  expect(await pressedOf(page, 0x106)).toEqual(want(['palace-red']))
-  await expect(page.locator(root('preview'))).toHaveCount(0)
+  const before = await page.evaluate(() => getSvc('ApplicationShell').getWidgetById('hackbench.map-view:262').startSeq) // prettier-ignore
+  await page.evaluate(async () => {
+    const pinned = getSvc('ApplicationShell').getWidgetById('hackbench.map-view:262')
+    const from = await getSvc('WidgetManager').getOrCreateWidget('hackbench.map-view', { probe: 1 })
+    await from.open(pinned.options)
+    from.showSprites = false
+    from.showGrid = false
+    await pinned.open(pinned.options, from)
+    from.dispose()
+  })
+  await expect.poll(() => page.evaluate(() => getSvc('ApplicationShell').getWidgetById('hackbench.map-view:262').startSeq)).toBeGreaterThan(before) // prettier-ignore
+  expect(await pressedOf(page, 0x106)).toEqual(PRESSES.map(c => String(c === 'palace-red')))
+  await expect(control(page, 0x106, 'layer-sprites')).toHaveAttribute('aria-pressed', 'true')
+  await expect(control(page, 0x106, 'grid-toggle')).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('with $105 open, a single click on $106 then on $105 leaves $105 in one active tab and the preview on $106', async ({
+  page,
+}) => {
+  await loadTree(page)
+  await clickRow(page, 0x105, true)
+  await clickRow(page, 0x106)
+  await clickOpenRow(page, 0x105)
+  expect(await activeTab(page)).toBe('hackbench.map-view:261')
+  await expect(page.locator(root(0x105))).toHaveCount(1)
+  await expect(page.locator(root('preview'))).toHaveCount(1)
+  expect(await page.evaluate(() => getSvc('ApplicationShell').getWidgetById('hackbench.map-view:preview').shows(0x106))).toBe(true) // prettier-ignore
+  await clickRow(page, 0x109) // a row with no tab still previews, reusing the one preview tab
+  await expect(page.locator(root('preview'))).toHaveCount(1)
 })
 
 // Presses and one toggle set in a preview of 0x105, so a pin for another row has something to (not) carry.
