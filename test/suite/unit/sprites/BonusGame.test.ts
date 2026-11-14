@@ -163,7 +163,7 @@ describe('placedSlot (no ROM)', () => {
   })
 })
 
-describe('the at-rest re-base exemption (synthetic cart, no ROM)', () => {
+describe('the at-rest drawing without a latch row (synthetic cart, no ROM)', () => {
   // Id 0's INIT adds 8 to X on the synthetic cart, so its post-INIT spot is 8 px right of the placed one.
   const rom = buildSyntheticRom()
   const ptr = 0x8610
@@ -197,10 +197,10 @@ describe('the at-rest re-base exemption (synthetic cart, no ROM)', () => {
       runOnce(rom, 0, { ...SPRITE_SEED, loaded }, { atRest: true, latches: {} }).initLatched,
     ).toBeUndefined()
   })
-  it('a sprite with no row still re-bases, and so does a row that is not absolute', () => {
-    expect(run(1, { 0: initRow(true) }).anchor).toMatchObject({ x: 0x80, rawX: 0x80 })
-    expect(run(0, { 0: initRow(false) }).anchor).toMatchObject({ x: 0x80, rawX: 0x80 })
-    expect(run(0, {}).anchor).toMatchObject({ x: 0x80 })
+  it('a sprite with no row stands where INIT left it (#1231), and so does a row that is not absolute', () => {
+    expect(run(1, { 0: initRow(true) }).anchor).toMatchObject({ x: 0x88, y: 0x7f, rawX: 0x80 })
+    expect(run(0, { 0: initRow(false) }).anchor).toMatchObject({ x: 0x88, rawX: 0x80 })
+    expect(run(0, {}).anchor).toMatchObject({ x: 0x88 })
   })
   it('an absolute row on a loader the slot search cannot read is refused, not drawn at a guessed slot', () => {
     const loaded = new Uint8Array(WRAM)
@@ -291,15 +291,15 @@ describe('the at-rest re-base exemption (synthetic cart, no ROM)', () => {
     expect(m.absolutePlacement).toBeUndefined()
     expect(m.initLatched).toBeUndefined()
   })
-  it('a generic seed (no loader image) takes the old path', () => {
+  it('a generic seed (no loader image) takes the generic path: where INIT left it', () => {
     const m = run(0, { 0: initRow(true) })
     expect(m.absolutePlacement).toBeUndefined()
     expect(m.refusal).toBeUndefined()
-    expect(m.anchor).toMatchObject({ x: 0x80 })
+    expect(m.anchor).toMatchObject({ x: 0x88 })
   })
-  it('an INIT that is not the fingerprinted one re-bases as before (D51)', () => {
+  it('an INIT that is not the fingerprinted one is drawn where it left the sprite (D51)', () => {
     const other = buildSyntheticRom({ initShift: 4 })
-    expect(run(0, { 0: initRow(true) }, other).anchor).toMatchObject({ x: 0x80 })
+    expect(run(0, { 0: initRow(true) }, other).anchor).toMatchObject({ x: 0x84 })
   })
 })
 

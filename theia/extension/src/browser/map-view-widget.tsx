@@ -34,6 +34,10 @@ import { decodeRgba, TILE_PX } from './map16-pixels'
 import {
   spriteDoors,
   spriteAt,
+  storedSquares,
+  storedSquareAt,
+  storedCell,
+  STORED_SQUARE_TIP,
   spriteName,
   hoverPlacementKey,
   doorIdAt,
@@ -249,6 +253,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected spritesDetail: string | undefined
   /** The sprite under the pointer (#981); its name shows in Theia's themed hover, anchored on the sprite. */
   protected hoverSprite: MapSpriteDto | undefined
+  /** The hover is on the sprite's stored square, not its drawing (D154). */
+  protected hoverSquare = false
   /** The clicked sprite (#984): published to the Properties panel, never drawn on the map. */
   protected selectedSprite: MapSpriteDto | undefined
   /** The invisible box over the hovered sprite that the hover is placed against. */
@@ -1298,7 +1304,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     const pad = this.pad
     const [x, y] = [(p.x - r.left) / this.zoom - pad.left, (p.y - r.top) / this.zoom - pad.top]
     this.setLift(this.liftAt(x, y))
-    this.setHoverSprite(this.spriteUnder(x, y))
+    const pick = this.pickAt(x, y)
+    this.setHoverSprite(pick?.sprite, pick?.square)
     if (!this.blocks) return this.setHover(undefined)
     const order = this.layerOrder(l)
     const shown = (q: Indicator['plane']) => order.includes(q) && this.layerShown(q)
@@ -1311,28 +1318,43 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     return g && this.showSprites ? spriteAt(g.sprites, g, x, y) : undefined
   }
 
+  /** The sprites with a dashed stored square showing (D154); none while sprites are toggled off. */
+  protected squares(): MapSpriteDto[] {
+    return this.sprites && this.showSprites ? storedSquares(this.sprites.sprites) : []
+  }
+
+  /** What a click or hover at the map pixel (x, y) lands on: a shown stored square first (D154 3A), else the topmost drawing. */
+  protected pickAt(x: number, y: number): { sprite: MapSpriteDto; square: boolean } | undefined {
+    const sq = storedSquareAt(this.squares(), x, y)
+    if (sq) return { sprite: sq, square: true }
+    const s = this.spriteUnder(x, y)
+    return s && { sprite: s, square: false }
+  }
+
   /**
    * Sets the sprite under the pointer and places Theia's hover over it. The anchor box is the sprite's box
    * plus the pad, because the strip's origin is not the map's origin (#1004).
    */
-  protected setHoverSprite(next: MapSpriteDto | undefined): void {
+  protected setHoverSprite(next: MapSpriteDto | undefined, square = false): void {
     const strip = this.node.querySelector('.hb-map-view-strip')
     const placed = hoverPlacementKey(
       this.zoom,
       strip?.getBoundingClientRect() ?? { left: 0, top: 0 },
     )
-    if (next === this.hoverSprite && this.hoverPlaced === placed) return
+    if (next === this.hoverSprite && this.hoverPlaced === placed && square === this.hoverSquare)
+      return
     this.hoverSprite = next
+    this.hoverSquare = square
     this.hoverPlaced = placed
     // The hover service is shared: only cancel a hover this widget asked for.
     if (this.spriteAnchor) this.hoverService.cancelHover()
     this.spriteAnchor?.remove()
     this.spriteAnchor = undefined
-    const name = next && spriteName(next)
+    const name = next && (square ? STORED_SQUARE_TIP : spriteName(next))
     if (next && name && strip) {
       // Theia's hover is placed against an element, so a fixed box over the sprite stands in for it.
       const r = strip.getBoundingClientRect()
-      const { x0, y0, x1, y1 } = next.box
+      const { x0, y0, x1, y1 } = (square && storedCell(next)) || next.box
       const a = document.createElement('div')
       a.className = 'hb-map-sprite-anchor'
       Object.assign(a.style, { position: 'fixed', pointerEvents: 'none', left: `${r.left + (x0 + this.pad.left) * this.zoom}px`, top: `${r.top + (y0 + this.pad.top) * this.zoom}px`, width: `${(x1 - x0) * this.zoom}px`, height: `${(y1 - y0) * this.zoom}px` }) // prettier-ignore
@@ -1824,7 +1846,7 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
             onClick={e => {
               const strip = e.currentTarget.getBoundingClientRect()
               // Strip pixels to map pixels: the pad before screen 0 (content only) is not map.
-              this.selectSprite(this.spriteUnder((e.clientX - strip.left) / this.zoom - pad.left, (e.clientY - strip.top) / this.zoom - pad.top)) // prettier-ignore
+              this.selectSprite(this.pickAt((e.clientX - strip.left) / this.zoom - pad.left, (e.clientY - strip.top) / this.zoom - pad.top)?.sprite) // prettier-ignore
             }}
           >
             {/* The checkerboard reaches the near canvas edge and stops at the far-end gutter, where the back color
@@ -1917,6 +1939,18 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
                 style={{ left: pad.left * z, top: pad.top * z, width: mapW * z, height: mapH * z }}
               />
             )}
+            {this.squares()
+              .filter(s => s !== this.selectedSprite)
+              .map(s => (
+                <div
+                  key={s.index}
+                  className="hb-map-stored-square"
+                  data-control="stored-square"
+                  data-sprite-index={s.index}
+                  data-sprite-id={s.id}
+                  style={{ left: (pad.left + s.stored!.x) * z, top: (pad.top + s.stored!.y) * z, width: 16 * z, height: 16 * z }} // prettier-ignore
+                />
+              ))}
             {this.selectedSprite?.stored && (
               <div
                 className="hb-map-stored-tile"

@@ -108,7 +108,7 @@ function probe(page, pixels, own) {
   )
 }
 
-/** The boxes of the $4F plant of screen 7 and of every other sprite, from the served reply (placed positions at rest, D134). */
+/** The boxes of the $4F plant of screen 7 and of every other sprite, from the served reply (where INIT leaves them at rest, #1231). */
 async function boxes(page, mp) {
   const reply = await page.evaluate(({ mp, index }) => getSvc('Symbol(ProjectService)').mapSprites(mp, index), { mp, index: SLOT }) // prettier-ignore
   const near = reply.sprites.filter(s => s.box.x1 > SCREEN * 256 && s.box.x0 < (SCREEN + 1) * 256)

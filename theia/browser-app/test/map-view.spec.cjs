@@ -1556,12 +1556,18 @@ test('$4F on $105 is served at its stream position: the INIT move (+8, -1) is no
   expect(reply.sprites.filter(s => s.status === 'quiet').map(s => [s.id, s.reason])).toEqual([
     [0x8e, 'unrevealed'],
   ])
-  // Stream positions (1808, 336), (2224, 320), (4544, 320): measured on vanilla, absolute.
+  // Stream positions (1808, 336), (2224, 320), (4544, 320), kept as `stored`; drawn where InitPiranha leaves them, +8 and -1
+  // (#1231, bank_01.asm:880-889): measured on vanilla, absolute.
   const fours = reply.sprites.filter(s => s.id === 0x4f)
   expect(fours.map(s => [s.x, s.y, s.status])).toEqual([
-    [1808, 336, 'drawn'],
-    [2224, 320, 'drawn'],
-    [4544, 320, 'drawn'],
+    [1816, 335, 'drawn'],
+    [2232, 319, 'drawn'],
+    [4552, 319, 'drawn'],
+  ])
+  expect(fours.map(s => [s.stored.x, s.stored.y])).toEqual([
+    [1808, 336],
+    [2224, 320],
+    [4544, 320],
   ])
 })
 

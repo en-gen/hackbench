@@ -39,6 +39,7 @@ const DELTAS: (readonly [number, number])[] = [[8, 0], [12, 0], [0, 0], [0x180, 
  */
 export const BY_OPTION: { [K in keyof SyntheticOptions]-?: Variant[] } = {
   initShift: one('initShift', { initShift: 0x31 }),
+  initDelta: one('initDelta', { initDelta: [120, 104] }),
   initFarCull: one('initFarCull', { initFarCull: true }),
   mainStepsBack: one('mainStepsBack', { initFarCull: true, mainStepsBack: true }),
   noTileWrite: one('noTileWrite', { noTileWrite: true }),
