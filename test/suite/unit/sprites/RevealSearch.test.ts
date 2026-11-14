@@ -3,6 +3,7 @@
  * so CI needs no ROM. Every verdict here is also shown to change when its input does: a control beside each claim.
  */
 import { describe, expect, it } from 'vitest'
+import { slow } from '../../support/loadTimeout'
 import {
   DISTANCES,
   drew,
@@ -301,19 +302,24 @@ describe('the distances (D142)', () => {
     expect(search(170, 0x10, 0x80).result.status).toBe('visible')
   })
 
-  it('leaves no 32 px window of the low byte unprobed, wherever the window starts', () => {
-    // Id 165 is blank for (Mario - sprite) low byte within $20 above the sprite Y low byte: start the window at every value.
-    const missed: number[] = []
-    for (let low = 0; low < 0x100; low++) {
-      const y = 0x100 | low
-      const marioX = SX + ((low + 0x80) & 0xff)
-      // The camera follows the row, so the entry is never at the $F0 the game keeps for "not drawn".
-      const camera = { x: SX - 128, y: y - 0x40 }
-      const r = search(165, SX, marioX, { sprite: { x: SX, y }, camera }).result
-      if (r.status !== 'hidden') missed.push(low)
-    }
-    expect(missed).toEqual([])
-  })
+  it(
+    'leaves no 32 px window of the low byte unprobed, wherever the window starts',
+    // Alone 2.3 to 3.1 s (7 runs, one machine); 7.3 to 10.0 s under the #485 load (#1332). 60 s keeps about 6x over the loaded worst.
+    slow(60_000),
+    () => {
+      // Id 165 is blank for (Mario - sprite) low byte within $20 above the sprite Y low byte: start the window at every value.
+      const missed: number[] = []
+      for (let low = 0; low < 0x100; low++) {
+        const y = 0x100 | low
+        const marioX = SX + ((low + 0x80) & 0xff)
+        // The camera follows the row, so the entry is never at the $F0 the game keeps for "not drawn".
+        const camera = { x: SX - 128, y: y - 0x40 }
+        const r = search(165, SX, marioX, { sprite: { x: SX, y }, camera }).result
+        if (r.status !== 'hidden') missed.push(low)
+      }
+      expect(missed).toEqual([])
+    },
+  )
 
   it('control: take one step away and some 32 wide window holds no probe', () => {
     const steps = DISTANCES.filter(d => d >= 0 && d < 0x100).map(d => d & 0xff)
