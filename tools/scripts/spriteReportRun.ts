@@ -668,6 +668,9 @@ export function revealRowsOf(
       hidden:
         !!b.m.reveal || b.m.emptyReason === 'unrevealed' || (rest === 'blank' && !!b.m.refusal),
       ...(b.m.reveal ? { condition: b.m.reveal } : {}),
+      ...(b.m.revealAudit?.sameAsRest.length
+        ? { sameAsRest: [...b.m.revealAudit.sameAsRest] }
+        : {}),
       ...(!r.ok ? { marker: b.m.emptyReason === 'unrevealed' ? 'unrevealed' : r.reason } : {}),
     }
   })

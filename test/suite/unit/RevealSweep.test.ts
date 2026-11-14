@@ -54,9 +54,19 @@ describe('revealRowsOf', () => {
     expect(r!.condition).toBeUndefined()
   })
 
-  it('a sprite that drew at rest and hides under a probe is hidden with a condition (the mole)', () => {
+  it('a mole that draws the same picture wherever Mario stands is hidden, not revealed: none-found (#1365)', () => {
     const [m] = rows([152], 0x1000)
-    expect(m).toMatchObject({ rest: 'drew', hidden: true, condition: 'mario-at-sprite' })
+    expect(m).toMatchObject({ rest: 'drew', hidden: true, condition: 'none-found' })
+    expect(m!.sameAsRest).toEqual(['mario-at-sprite', 'mario-left', 'mario-right', 'more-frames', 'p-switch', 'on-off']) // prettier-ignore
+  })
+
+  it('the row lists the conditions skipped for repeating the at-rest picture, in order (ids 156, 178, and the 179 control)', () => {
+    const [a, b, c] = rows([156, 178, 179], 0x1040)
+    expect(a).toMatchObject({ condition: 'none-found', sameAsRest: ['more-frames', 'p-switch', 'on-off'] }) // prettier-ignore
+    expect(b).toMatchObject({ condition: 'none-found', sameAsRest: ['more-frames', 'p-switch', 'on-off'] }) // prettier-ignore
+    // 179 looks different with Mario on it: revealed, nothing skipped, so no sameAsRest on the row.
+    expect(c).toMatchObject({ condition: 'mario-at-sprite' })
+    expect(c).not.toHaveProperty('sameAsRest')
   })
 
   it('keeps the real-start picture of a sprite no condition reveals, as none-found', () => {

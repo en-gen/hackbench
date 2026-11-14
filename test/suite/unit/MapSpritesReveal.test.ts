@@ -3,15 +3,16 @@
  * `drawSprites` / `compositeSpriteScreen` / `spriteName` carry the result to the screen door and the hover. Synthetic
  * cart (syntheticRevealSprites.ts), so CI needs no ROM.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
-import { MARIO_STATE } from '../../../src/rom/sprites/interp/RevealSearch'
+import { findReveal, MARIO_STATE } from '../../../src/rom/sprites/interp/RevealSearch'
 import { runOnce } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed, SPRITE_SEED, type SpriteSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import {
   drawSprites,
   interpDrawer,
   modelResult,
+  revealOptions,
   runWithUploads,
   type SpriteDrawResult,
 } from '../../../theia/extension/src/node/map-sprites'
@@ -27,6 +28,12 @@ import { notDrawnText } from '../../../theia/extension/src/browser/sprite-props'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 import { buildSyntheticRom } from '../support/syntheticSpriteRom'
 import { COLORS } from '../support/mapInputs'
+
+// Passes through to the real search, and records what the drawer called it with (#1365: the options it hands over).
+vi.mock('../../../src/rom/sprites/interp/RevealSearch', async importOriginal => {
+  const real = await importOriginal<typeof import('../../../src/rom/sprites/interp/RevealSearch')>()
+  return { ...real, findReveal: vi.fn(real.findReveal) }
+})
 
 const rom = buildSyntheticRom()
 const model = { isVertical: false, screenCount: 0x20 }
@@ -215,5 +222,46 @@ describe('the picture and its hover', () => {
 
   it('words the new marker reason', () => {
     expect(notDrawnText('unrevealed')).toMatch(/could not tell what reveals it/)
+  })
+})
+
+describe('what the served drawer tells the reveal search (#1365)', () => {
+  it('does not compare a rope with its reruns, and compares every other sprite', () => {
+    expect(revealOptions(true).comparable).toBe(false)
+    expect(revealOptions(false).comparable).toBe(true)
+  })
+
+  it('hands the search its options when it drives it: a sprite that is not a rope is compared, with the slot key', () => {
+    const before = vi.mocked(findReveal).mock.calls.length
+    ok(drawer()(entry(140)))
+    const calls = vi.mocked(findReveal).mock.calls
+    expect(calls.length, 'this call reached the search').toBeGreaterThan(before)
+    expect(calls.at(-1)![3]).toMatchObject({ comparable: true, extraKey: expect.any(Function) })
+  })
+
+  it('does not compare a rope with its reruns: the rope id hands the search comparable: false', () => {
+    // The synthetic cart has no rope handler, so the run may be refused; the search is still called with the rope's options.
+    const before = vi.mocked(findReveal).mock.calls.length
+    drawer()(entry(0x64))
+    const calls = vi.mocked(findReveal).mock.calls
+    expect(calls.length, 'this call reached the search').toBeGreaterThan(before)
+    expect(calls.at(-1)![3]).toMatchObject({ comparable: false })
+  })
+
+  it('adds the graphics slots a pass pointed at to the picture, per pass', () => {
+    const slot = { slot: 1, buffer: 2 }
+    const run = (uploads: object[][]) => ({ uploads }) as unknown as Parameters<NonNullable<ReturnType<typeof revealOptions>['extraKey']>>[0] // prettier-ignore
+    const key = revealOptions(false).extraKey!
+    expect(key(run([[], [slot]]), 1)).not.toBe(key(run([[], []]), 1))
+    // Only the pass the picture is taken from counts.
+    expect(key(run([[slot], []]), 1)).toBe(key(run([[], []]), 1))
+    expect(key(run([]), 0)).toBe('[]')
+  })
+
+  it('serves a mole that looks the same wherever Mario stands as none-found, in the door (id 152)', () => {
+    // Mario on its spot: it draws at rest, hides in the mole's band, and every Mario position draws the same piece.
+    const r = ok(drawer(runWithUploads, 0x1000)(entry(152)))
+    expect(r.reveal).toBe('none-found')
+    expect(r.parts.length).toBeGreaterThan(0)
   })
 })

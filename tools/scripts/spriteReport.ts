@@ -290,7 +290,16 @@ export interface RevealRow {
   condition?: string
   /** The marker's reason code when the served answer is a marker. */
   marker?: string
+  /** Conditions that drew only the at-rest picture again, so were not counted as a reveal (#1365). */
+  sameAsRest?: string[]
 }
+
+/** The conditions that move Mario to the sprite (D142), whose same-as-rest repeats the sweep lists apart (D207). */
+const MARIO_CONDITIONS: ReadonlySet<string> = new Set([
+  'mario-at-sprite',
+  'mario-left',
+  'mario-right',
+])
 
 const isReveal = (r: RevealRow) => !!r.condition && r.condition !== NONE_FOUND
 
@@ -368,6 +377,7 @@ export function sweepSection(
   skipped: readonly string[],
 ): string {
   const none = rows.filter(r => r.condition === NONE_FOUND).length
+  const samePic = rows.filter(r => r.sameAsRest?.some(c => MARIO_CONDITIONS.has(c))).sort((a, b) => a.map.localeCompare(b.map) || a.index - b.index) // prettier-ignore
   return [
     `=== ${label} ===`,
     revealReport(rows),
@@ -375,6 +385,12 @@ export function sweepSection(
     ...tally(rows.filter(isReveal).map(r => r.condition!)),
     '',
     `Hidden, no condition reveals it (kept in the door): ${none}`,
+    '',
+    'Conditions skipped because they drew only the at-rest picture (#1365):',
+    ...tally(rows.flatMap(r => r.sameAsRest ?? [])),
+    '',
+    `Mario-position conditions whose picture equals at rest (not counted, D207): ${samePic.length}`,
+    ...samePic.map(r => `map ${r.map} #${r.index} $${hex2(r.id)} (column ${r.column}, row ${r.row}): ${r.sameAsRest!.filter(c => MARIO_CONDITIONS.has(c)).join(', ')}`), // prettier-ignore
     '',
     'Markers per reason:',
     ...tally(rows.filter(r => r.marker).map(r => reasonClass(r.marker!))),

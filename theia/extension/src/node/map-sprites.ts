@@ -74,6 +74,8 @@ import {
   drawnPass,
   findReveal,
   type RevealCondition,
+  type RevealOptions,
+  netColors,
 } from '../../../../src/rom/sprites/interp/RevealSearch'
 import {
   castleFlames,
@@ -565,6 +567,17 @@ export function runWithUploads(
   return Object.assign(m, { uploads: m.neighbourRun === 'adopted' ? rerun.byPass : alone.byPass })
 }
 
+/**
+ * What `findReveal` is told about how this file draws a run (#1365). The graphics slots a pass pointed at are part of
+ * what the map draws (#980), so they join the picture the same-as-rest check compares. The rope's at-rest run sits in
+ * the slot the loader gives it and its reruns in slot 0, so their pictures differ in length, not in what shows: no
+ * comparison for it (12 vanilla ropes, none hidden).
+ */
+export const revealOptions = (rope: boolean): RevealOptions => ({
+  extraKey: (r, pass) => JSON.stringify((r as RunModel).uploads?.[pass] ?? []),
+  comparable: !rope,
+})
+
 /** The marker's reason code when the search found no condition that draws the sprite (`WHY_NOT_DRAWN`). */
 export const UNREVEALED = 'unrevealed'
 
@@ -589,8 +602,6 @@ const revealText = (c: RevealCondition) => c === 'none-found' ? REVEAL_TEXT[c] :
  */
 const SETTLE_TAIL = 16
 
-/** The colors CGRAM holds after pass `p`: the run's writes are cumulative and the last one to a color wins. */
-const netColors = (m: RunModel, p: number) => new Map(m.passes[p]!.palette.map(w => [w.index, w.bgr555] as const)) // prettier-ignore
 /** True when two net color maps hold the same color at every index. */
 const sameColors = (a: Map<number, number>, b: Map<number, number>) => a.size === b.size && [...a].every(([i, v]) => b.get(i) === v) // prettier-ignore
 
@@ -1005,10 +1016,15 @@ export function interpRunner(
     // Hidden sprites take their picture from the search, whatever the at-rest run drew (a mole drawn from where Mario starts).
     if (reveal) {
       let won = seed(camera, { opening }) // the last whole rerun is the winning condition's seed
-      const rv = findReveal(seed(camera, { opening }), m, (q, probe) => {
-        if (!probe) won = q
-        return run(rom, s.spriteId, q, { stopAtDraw: probe })
-      })
+      const rv = findReveal(
+        seed(camera, { opening }),
+        m,
+        (q, probe) => {
+          if (!probe) won = q
+          return run(rom, s.spriteId, q, { stopAtDraw: probe })
+        },
+        revealOptions(rope),
+      )
       if (rv.status === 'hidden') {
         const mark = scans(rv.model.scansSlots, won) ? NEIGHBOUR_EXTRA_BIT_REASON : undefined
         return { m: { ...rv.model, unverifiedReason: joinReasons(rv.model.unverifiedReason, atRestReason, mark) }, fixed: false } // prettier-ignore
@@ -1016,7 +1032,7 @@ export function interpRunner(
       if (rv.status === 'refused') return { m: { ...m, chosen: undefined, refusal: rv.reason }, fixed: false } // prettier-ignore
       // Drew from the real start, blank under a probe, no condition found: the real-start picture stands, in the door.
       if (rv.status === 'unrevealed' && rv.drewAtRest)
-        return { m: { ...m, chosen: drawnPass(m), reveal: 'none-found' }, fixed: false } // prettier-ignore
+        return { m: { ...m, chosen: drawnPass(m), reveal: 'none-found', revealAudit: { sameAsRest: rv.sameAsRest } }, fixed: false } // prettier-ignore
       // No own tile at rest (so the hidden check was skipped) and none under the six reveal reruns, but the at-rest run drew
       // through a companion: that picture stands, solid and with no reveal claim, as before #1132.
       if (

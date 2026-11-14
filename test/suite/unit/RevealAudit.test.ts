@@ -141,6 +141,30 @@ describe('sweepSection (reveal-sweep)', () => {
     expect(text).toContain('Markers per reason:\nunrevealed: 1')
     expect(text).toContain('Maps not run: 1\nmap 1: no sprite data')
   })
+  it('lists the same-as-rest cases apart, and counts none when no row is flagged (#1365)', () => {
+    expect(text).toContain('(not counted, D207): 0')
+    const flagged = [
+      { ...rows[0]!, hidden: true, condition: 'none-found', sameAsRest: ['mario-at-sprite', 'more-frames'] }, // prettier-ignore
+      { ...rows[0]!, index: 5, hidden: true, condition: 'none-found', sameAsRest: ['p-switch'] }, // prettier-ignore
+    ]
+    const t = sweepSection('ROM', flagged, [])
+    // Only the Mario-position repeats are listed by sprite; every skipped condition is tallied.
+    expect(t).toContain('(not counted, D207): 1\nmap 105 #2 $74 (column 25, row 23): mario-at-sprite') // prettier-ignore
+    expect(t).toContain('at-rest picture (#1365):\nmario-at-sprite: 1\nmore-frames: 1\np-switch: 1') // prettier-ignore
+  })
+  it.each([
+    ['mario-at-sprite', true],
+    ['mario-left', true],
+    ['mario-right', true],
+    ['more-frames', false],
+    ['p-switch', false],
+    ['on-off', false],
+  ])('lists the sprite by name for a skipped %s only when Mario moves: %s', (c, listed) => {
+    const t = sweepSection('ROM', [{ ...rows[0]!, hidden: true, condition: 'none-found', sameAsRest: [c] }], []) // prettier-ignore
+    expect(t).toContain(`(not counted, D207): ${listed ? 1 : 0}`)
+    expect(t).toContain(`at-rest picture (#1365):
+${c}: 1`)
+  })
   it('blanks ids and numbers in a refusal reason so one refusal counts once', () => {
     const a = { ...rows[0]!, marker: 'refused: the sprite became $FF: id $ff is past 201' }
     const b = { ...rows[0]!, index: 9, marker: 'refused: the sprite became $12: id $12 is past 77' }

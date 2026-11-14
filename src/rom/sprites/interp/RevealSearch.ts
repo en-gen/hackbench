@@ -6,7 +6,7 @@
  * it draw. Nothing is keyed on a sprite id: the ROM's own sprite loop runs the handler, and only a drawn frame counts.
  * No shell imports: the caller gives the rerun.
  */
-import type { SpriteModel } from './SpriteRunner'
+import { drawnParts, type SpriteModel, type SpritePart } from './SpriteRunner'
 import { withSeed, type SeedOverride, type SpriteSeed } from './SpriteSeed'
 
 /** What made a hidden sprite draw, in search order (D142). `none-found` is set by the node side, never found here. */
@@ -22,10 +22,19 @@ export type RevealCondition =
 export type RevealResult =
   /** Drew at rest and in every probe. */
   | { status: 'visible' }
-  /** Blank under some probe; `model` is the first condition's run that draws, `chosen` its first own-drawn pass. */
+  /**
+   * Blank under some probe; `model` is the first condition's run that draws, `chosen` its first own-drawn pass.
+   * For a sprite that drew at rest, `model.revealAudit` lists the conditions skipped before it for repeating the
+   * at-rest picture (#1365).
+   */
   | { status: 'hidden'; condition: RevealCondition; model: SpriteModel }
-  /** Hidden, and no condition drew it. `drewAtRest`: the real-start run drew, and that picture stands in the door. */
-  | { status: 'unrevealed'; drewAtRest: boolean }
+  /**
+   * Hidden, and no condition drew it. `drewAtRest`: the real-start run drew, and that picture stands in the door.
+   * `sameAsRest`: the conditions that drew only the at-rest picture again, so were not counted as a reveal (#1365).
+   * `refusal`: for a sprite that drew at rest, the first search rerun the interpreter refused (the at-rest picture
+   * still stands; the reason is kept so a refused rerun is not mistaken for "tried and nothing").
+   */
+  | { status: 'unrevealed'; drewAtRest: boolean; sameAsRest: RevealCondition[]; refusal?: string }
   /** Not searched: the run was refused or the sprite removed itself. */
   | { status: 'skipped'; reason: string }
   /** A search rerun was refused and nothing else drew: the interpreter's own reason, not "no condition found". */
@@ -89,18 +98,80 @@ export const ownPass = (m: SpriteModel): number => m.passes.findIndex(p => p.par
 export const drawnPass = (m: SpriteModel): number | undefined =>
   m.chosen !== undefined && (m.passes[m.chosen]?.parts.length ?? 0) > 0 ? m.chosen : ownPass(m)
 
+/** What `findReveal` may be told about how the caller draws a run. */
+export interface RevealOptions {
+  /**
+   * More of the picture than the pass's own parts, from the caller's data (the node side's per-pass player-buffer slot
+   * uploads, which `SpriteModel` does not hold). Appended to the picture key of the chosen pass.
+   */
+  extraKey?: (m: SpriteModel, pass: number) => string
+  /**
+   * False when the at-rest run and the search reruns are not the same kind of run, so their pictures cannot be
+   * compared: the rope's at-rest run is placed in the slot the loader gives it, the reruns run in slot 0 (map-sprites).
+   * A repeat then counts as a reveal, as before #1365. Default true.
+   */
+  comparable?: boolean
+}
+
+/**
+ * The colors CGRAM holds after pass `p`: the run's writes are cumulative (`PassResult.palette`, in application order)
+ * and the last one to a color wins. What the map view draws with (`runtimeColors`, map-sprites.ts), and so what two
+ * runs are compared by: the history of writes is not, since a run that writes a color every pass has a longer one.
+ */
+export const netColors = (m: SpriteModel, p: number): Map<number, number> =>
+  new Map(m.passes[p]!.palette.map(w => [w.index, w.bgr555] as const))
+
+/** One part as the comparison sees it. */
+const partKey = (q: SpritePart): string =>
+  [q.char, q.dx, q.dy, q.palette, q.priority, +q.flipX, +q.flipY, q.size, +!!q.door].join(',')
+
+/**
+ * A run's picture as a comparable string: what the map view draws from the pass it takes the picture from
+ * (`drawnPass`): every part, companions included (`drawnParts`, the list `interpParts` turns into cells), with the tile,
+ * offset, palette row, priority, flips, size and door tag; the children the pass drew, each with its own parts (the map
+ * serves each neighbor child as a sprite of its own, `modelResult`); then the pass's upload list, the NET colors at the
+ * run's last pass (`netColors`, sorted by index; `runtimeColors` draws with those), then the caller's `extraKey`. Parts
+ * are sorted, so the same pieces written to different OAM slots compare equal: the slot only orders overlapping pieces,
+ * and priority, which does change what shows, is in the key. The raw attribute byte and OAM position are the same data
+ * as the fields above, in game encoding. Colors come from the last pass because a palette-cycling sprite's 256 pass
+ * rerun can end on other colors than the 64 pass at-rest run: that is what the map would draw, so it counts as
+ * different (hack-only; 0 on vanilla by one vanilla sweep, 488 maps, one machine: no `more-frames` reveal).
+ */
+const pictureKey = (m: SpriteModel, extra?: RevealOptions['extraKey']): string => {
+  const p = drawnPass(m)
+  if (p === undefined) return ''
+  const pass = m.passes[p]!
+  const parts = drawnParts(pass).map(partKey).sort().join(';')
+  const kids = (pass.drew?.children ?? [])
+    .map(
+      c =>
+        `${c.index}:${pass.parts
+          .filter(q => c.oam.includes(q.oam))
+          .map(partKey)
+          .sort()
+          .join(';')}`,
+    )
+    .sort()
+    .join('/')
+  const colors = [...netColors(m, m.passes.length - 1)].sort((x, y) => x[0] - y[0]).map(([i, v]) => `${i}:${v}`).join(',') // prettier-ignore
+  return [parts, kids, pass.uploads.join(','), colors, extra?.(m, p) ?? ''].join('|')
+}
+
 /** Whether a run completed and the sprite's own code drew a tile on some pass. */
 export const drew = (m: SpriteModel): boolean => !m.refusal && ownPass(m) >= 0
 
 /**
  * Looks for what makes a hidden sprite draw. `first` is the at-rest run of `seed`; `run` reruns it with a changed
  * seed. `probe` is true for the hidden check, whose rerun may stop at its first drawn pass; the search's reruns run
- * whole. A refused probe does not make the sprite hidden; a refused search rerun that nothing else beats is the answer.
+ * whole. A refused probe does not make the sprite hidden; a refused search rerun that nothing else beats is the answer
+ * for a sprite that never drew, and is carried as `refusal` for one that drew at rest. A sprite that drew at rest gets
+ * all six conditions (D192 question 2, ruled 199B), but a condition whose picture equals the at-rest one is no reveal.
  */
 export function findReveal(
   seed: SpriteSeed,
   first: SpriteModel,
   run: (seed: SpriteSeed, probe: boolean) => SpriteModel,
+  opts: RevealOptions = {},
 ): RevealResult {
   if (first.refusal) return { status: 'skipped', reason: first.refusal }
   if (first.emptyReason?.startsWith('INIT erased'))
@@ -130,15 +201,25 @@ export function findReveal(
     ['p-switch', { pSwitch: P_SWITCH_ON, ram: MARIO_STATE }],
     ['on-off', { onOff, ram: MARIO_STATE }],
   ]
-  // The last three reruns keep the real Mario, so for a sprite that drew there they would repeat that frame.
+  // A sprite that drew at rest gets all six (D192 question 2, walked as Decision 199, ruled 199B). The last three keep
+  // the real Mario, and a Mario-position rerun may draw what the at-rest run drew too (a mole drawn from a start far
+  // from it): a picture equal to the at-rest one is no reveal, so it is recorded and the search goes on (#1365
+  // acceptance 3), for all six. Whether a Mario-position repeat should still count is the owner's call (D207).
   const startedDrawn = drew(first)
+  const restKey =
+    startedDrawn && opts.comparable !== false ? pictureKey(first, opts.extraKey) : undefined
+  const sameAsRest: RevealCondition[] = []
   let refused: string | undefined
-  for (const [condition, o] of startedDrawn ? tries.slice(0, 3) : tries) {
+  for (const [condition, o] of tries) {
     const model = rerun(o)
     if (model.refusal) refused ??= model.refusal
-    else if (drew(model))
-      return { status: 'hidden', condition, model: { ...model, chosen: drawnPass(model), reveal: condition } } // prettier-ignore
+    else if (drew(model)) {
+      if (restKey !== undefined && pictureKey(model, opts.extraKey) === restKey)
+        sameAsRest.push(condition)
+      else
+        return { status: 'hidden', condition, model: { ...model, chosen: drawnPass(model), reveal: condition, ...(startedDrawn ? { revealAudit: { sameAsRest: [...sameAsRest] } } : {}) } } // prettier-ignore
+    }
   }
   if (refused && !startedDrawn) return { status: 'refused', reason: refused }
-  return { status: 'unrevealed', drewAtRest: startedDrawn }
+  return { status: 'unrevealed', drewAtRest: startedDrawn, sameAsRest: [...sameAsRest], ...(refused && startedDrawn ? { refusal: refused } : {}) } // prettier-ignore
 }

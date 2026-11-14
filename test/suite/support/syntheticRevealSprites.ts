@@ -24,6 +24,10 @@
  * 171 draws from frame 200 on                              172 creates a child every pass; draws its own from frame 5
  * 173 draws; on touch becomes $FF (refused)                174 draws, but its INIT erases it (status 0)
  * 175 creates a child every pass; from frame 5 draws its own tile only with Mario exactly $40 px right of it
+ * 176 draws tile $24 only with Mario exactly $40 px right of it (the real start), but tile $32 whenever the P-switch is on
+ * 177 as 176, but the ON/OFF cell is what shows tile $32     178 as 176, but the P-switch shows the SAME tile $24 (#1365)
+ * 179 draws tile $24 only with Mario exactly $40 px right of it, and tile $32 with Mario on its X (a mole that looks different awake)
+ * 180 is 152 (the mole) with a CGRAM write of one color at the top of every pass (a longer run writes more, ends on the same colors)
  */
 const RTS = 0x60
 // Writes a plain-drawer sprite into slot 1 at this sprite's spot (status 8, number 0).
@@ -32,11 +36,11 @@ const FRAME_5 = [0xa5, 0x14, 0xc9, 0x05] // LDA $14 / CMP #5: carry set from fra
 // ORA of Mario's state cells $19, $71, $72, $73, $187A: zero only when all are (MARIO_STATE's cells).
 const STATE = [0xa5, 0x19, 0x05, 0x71, 0x05, 0x72, 0x05, 0x73, 0x0d, 0x7a, 0x18]
 const FACING = [0xbd, 0x7c, 0x15, 0x09, 0x0a] // LDA $157C,X / ORA #$0A: the attribute, flipped as INIT left the facing
-/** Handlers sit 128 bytes apart from here (the longest is under 100); the INIT routines sit past the last (174). */
+/** Handlers sit 128 bytes apart from here (the longest is under 100); the INIT routines sit past the last (180, which ends at 0x1c47f). */
 const FIRST = 0x01b000
 const STRIDE = 0x80
-const INIT_53 = 0x01c400
-const INIT_ERASE = 0x01c480
+const INIT_53 = 0x01c500
+const INIT_ERASE = 0x01c580
 
 /**
  * Tests in order, each a guard (leaving the flags) and the branch that SKIPS the picture; a taken branch lands on the
@@ -75,6 +79,11 @@ const piece = (tile: number, attr: number[] = [0xa9, 0x0a]): number[] => [
 const touch = [0xa5, 0xd1, 0xd5, 0xe4] //  LDA $D1 / CMP $E4,X: equal when Mario's low X is the sprite's
 const diff = [0x38, 0xa5, 0xd1, 0xf5, 0xe4] // SEC / LDA $D1 / SBC $E4,X: Mario minus sprite, low byte
 const becomes = (id: number): number[] => [0xa9, id, 0x95, 0x9e] // LDA #id / STA $9E,X
+
+/** While the cell is nonzero, draw tile $32 and stop; otherwise fall through to whatever follows. */
+const cellGated = (cell: number): number[] => [
+  0xad, cell & 0xff, cell >> 8, BEQ, piece(0x32).length + 1, ...piece(0x32), RTS,
+] // prettier-ignore
 
 export interface RevealRoutines {
   init: Record<number, number>
@@ -204,6 +213,15 @@ export function putRevealSprites(put: (snes: number, bytes: number[]) => void): 
         ),
       ],
     ],
+    // 176/177: LDA cell / BEQ over the alternate picture / its piece / RTS; then 156's test and the at-rest picture.
+    [176, [...cellGated(0x14ad), ...gated([[[...diff, 0xc9, 0x40], BNE]], piece(0x24))]],
+    [177, [...cellGated(0x14af), ...gated([[[...diff, 0xc9, 0x40], BNE]], piece(0x24))]],
+    // 178: LDA $14AD / BNE to the picture / (156's test, skipping it) / the same $24 piece as the real start draws.
+    [178, [0xad, 0xad, 0x14, BNE, 0x09, ...diff, 0xc9, 0x40, BNE, piece(0x24).length, ...piece(0x24), RTS]], // prettier-ignore
+    // 180: LDA #5 / STA $2121 / LDA #$1F / STA $2122 / LDA #0 / STA $2122, then the mole's test and the $24 piece.
+    [180, [0xa9, 0x05, 0x8d, 0x21, 0x21, 0xa9, 0x1f, 0x8d, 0x22, 0x21, 0xa9, 0x00, 0x8d, 0x22, 0x21, ...gated([[[...diff, 0x18, 0x69, 0x60, 0xc9, 0xc0], BCS]], piece(0x24))]], // prettier-ignore
+    // 179: Mario's low X equal to its own (diff 0) draws the $32 piece and stops; else 156's test and the $24 piece.
+    [179, [...diff, 0xc9, 0x00, BNE, piece(0x32).length + 1, ...piece(0x32), RTS, ...gated([[[...diff, 0xc9, 0x40], BNE]], piece(0x24))]], // prettier-ignore
   ]
   const main: Record<number, number> = {}
   for (const [id, bytes] of mains) {

@@ -258,6 +258,14 @@ for (const [index, columns] of [
       expect(at.length, `a mole at column ${col}`).toBeGreaterThan(0)
       for (const m of at) expect(m.status).toBe('drawn')
     }
+    if (index === 0x106) {
+      // #1365: the mole at column 247 draws the same picture wherever Mario stands, so no condition reveals it; the one at
+      // column 235 draws another picture with Mario at it, so it is still revealed.
+      const [row] = [23 * 16]
+      const text = col => moles.find(m => m.x === col * 16 && m.y === row)?.reveal
+      expect(text(247), 'no condition reveals the mole at column 247').toContain('is not always there, and the app could not tell what hides it') // prettier-ignore
+      expect(text(235), 'Mario at the mole at column 235 shows another picture').toContain('appears when Mario gets close to this spot') // prettier-ignore
+    }
     // Wherever it sits and wherever Mario starts, the picture is the same one.
     expect(new Set(moles.map(m => m.rgba)).size, 'one picture for every mole').toBe(1)
     // And every one of them shows the door on screen: full squares on at most half its pixels.
