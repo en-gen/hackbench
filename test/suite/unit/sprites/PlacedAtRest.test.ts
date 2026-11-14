@@ -250,8 +250,8 @@ describe.skipIf(!hasRom(VANILLA))(
     it('even column: every sprite the run moves, by how much', () => {
       expect(sweep(0x80)).toEqual({ ...COMMON, $29: '-8,192', $65: 'never appears', $66: 'never appears', $67: 'never appears', $68: '-320,0', $82: '32,112' }) // prettier-ignore
     })
-    it('odd column: the line-guided ids start ahead of the scroll and draw 15 px right; $29 starts behind it and stays on its tile', () => {
-      expect(sweep(0x90)).toEqual({ ...COMMON, $29: 'never appears', $65: '15,0', $66: '15,0', $67: '15,0', $68: '15,0', $82: '16,112' }) // prettier-ignore
+    it('odd column: the line-guided ids start ahead of the scroll and draw 15 px right; $29, which writes its own X and Y, lands elsewhere than in the even column', () => {
+      expect(sweep(0x90)).toEqual({ ...COMMON, $29: '-24,192', $65: '15,0', $66: '15,0', $67: '15,0', $68: '15,0', $82: '16,112' }) // prettier-ignore
     })
   },
 )

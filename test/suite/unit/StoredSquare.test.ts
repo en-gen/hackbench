@@ -1,13 +1,16 @@
 /**
- * #1176 (D154, Decisions 115-117, "1B 2A 3A"): which sprites get a dashed square on their stored cell, and what a click
- * on one selects. Pure model, synthetic bitmaps, no ROM. Planted defects at the end, each proven red.
+ * #1176 (D154, Decisions 115-117, "1B 2A 3A"): which sprites get a dashed square on their stored cell, what a click on one
+ * selects, and what its hover says. Pure model, synthetic bitmaps, no ROM. Every test runs the production functions only: a
+ * planted defect in them (a cell one tile off, the drawing winning the click, a wrong cover test) turns these red.
  */
 import { describe, expect, it } from 'vitest'
 import {
   spriteAt,
+  spriteHover,
   storedCell,
   storedSquareAt,
   storedSquares,
+  STORED_SQUARE_TIP,
 } from '../../../theia/extension/src/browser/map-view-model'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 
@@ -20,6 +23,7 @@ const dto = (
   [x, y]: [number, number],
   [w, h]: [number, number],
   stored?: { x: number; y: number },
+  extra: Partial<MapSpriteDto> = {},
 ): MapSpriteDto => ({
   // prettier-ignore
   index,
@@ -30,6 +34,7 @@ const dto = (
   rgba: Buffer.from(Array.from({ length: w * h }, () => OPAQUE).flat()).toString('base64'),
   status: 'drawn',
   ...(stored ? { stored } : {}),
+  ...extra,
 })
 
 describe('which sprites show a stored square (D154 1B)', () => {
@@ -41,10 +46,33 @@ describe('which sprites show a stored square (D154 1B)', () => {
   it('a sprite drawn on its own cell shows none, a moved one shows one on its list cell', () => {
     expect(storedSquares([onCell, piranha, far]).map(s => s.index)).toEqual([1, 2])
     expect(storedCell(piranha)).toEqual({ x0: 64, y0: 16, x1: 80, y1: 32 })
+    expect(storedCell(onCell)).toBeUndefined()
   })
 
   it('a moved sprite whose drawing still covers its whole cell shows none ("only when off its square")', () => {
     expect(storedSquares([big])).toEqual([])
+  })
+
+  it('the cover test is exact at every edge: a drawing one pixel short on any side still shows the square', () => {
+    const stored = { x: 64, y: 16 } // cell 64..80 by 16..32
+    const box = (x0: number, y0: number, x1: number, y1: number): MapSpriteDto => ({ ...dto(9, [x0, y0], [x1 - x0, y1 - y0], stored) }) // prettier-ignore
+    expect(storedSquares([box(64, 0, 80, 32)]), 'exactly covering').toEqual([])
+    expect(storedSquares([box(65, 0, 80, 32)]).length, 'left edge one short').toBe(1)
+    expect(storedSquares([box(64, 0, 79, 32)]).length, 'right edge one short').toBe(1)
+    expect(storedSquares([box(64, 17, 80, 40)]).length, 'top edge one short').toBe(1)
+    expect(storedSquares([box(64, 0, 80, 31)]).length, 'bottom edge one short').toBe(1)
+  })
+
+  it('a sprite fixed to Layer 2 gets none, as spriteAt leaves it out of the hit test', () => {
+    const fixed = dto(4, [72, 15], [16, 24], { x: 64, y: 16 }, { fixedTo: 'layer2' }) // prettier-ignore
+    expect(storedSquares([fixed])).toEqual([])
+  })
+
+  it('the squares follow the data: a sprite served again with another stored cell moves its square (AC5)', () => {
+    const before = dto(1, [72, 15], [16, 24], { x: 64, y: 16 })
+    const after = dto(1, [88, 47], [16, 24], { x: 80, y: 48 }) // an edit moved the stored tile; the reply says so
+    expect(storedCell(storedSquares([before])[0]!)).toEqual({ x0: 64, y0: 16, x1: 80, y1: 32 })
+    expect(storedCell(storedSquares([after])[0]!)).toEqual({ x0: 80, y0: 48, x1: 96, y1: 64 })
   })
 })
 
@@ -66,21 +94,29 @@ describe('clicking a shown square (D154 3A)', () => {
     expect(storedSquareAt(squares, 63, 20)).toBeUndefined()
     expect(storedSquareAt(squares, 70, 32)).toBeUndefined()
   })
+
+  it('two squares on one cell: the later one in the list is on top', () => {
+    const a = dto(1, [200, 15], [16, 24], { x: 64, y: 16 })
+    const b = dto(2, [300, 15], [16, 24], { x: 64, y: 16 })
+    expect(storedSquareAt(storedSquares([a, b]), 70, 20)?.index).toBe(2)
+    expect(storedSquareAt(storedSquares([b, a]), 70, 20)?.index).toBe(1)
+  })
 })
 
-describe('planted defects (each must turn the matching assertion red)', () => {
-  const piranha = dto(1, [72, 15], [16, 24], { x: 64, y: 16 })
-  const cover = dto(5, [60, 12], [24, 24])
+describe('the hover on a stored square (D154, #1176 AC8)', () => {
+  const piranha = { ...dto(1, [72, 15], [16, 24], { x: 64, y: 16 }), name: 'Piranha Plant' }
 
-  it('a marker one cell off its stored position is caught by the cell check', () => {
-    const planted = { ...piranha, stored: { x: piranha.stored!.x + 16, y: piranha.stored!.y } }
-    expect(storedCell(planted)).not.toEqual({ x0: 64, y0: 16, x1: 80, y1: 32 })
-    expect(storedSquareAt(storedSquares([planted]), 66, 20)).toBeUndefined()
+  it('says in plain words that it is stored here and drawn elsewhere, anchored on the cell', () => {
+    const h = spriteHover(piranha, true)
+    expect(h.content).toBe(STORED_SQUARE_TIP)
+    expect(h.content).toMatch(/stored here.*drawn elsewhere/i)
+    expect(h.content).not.toMatch(/github|#\d/i)
+    expect(h.box).toEqual({ x0: 64, y0: 16, x1: 80, y1: 32 })
   })
 
-  it('letting the drawing win the click would select the covering sprite, which the square test refuses', () => {
-    const drawingFirst = (x: number, y: number) => spriteAt([piranha, cover], H, x, y) ?? storedSquareAt(storedSquares([piranha, cover]), x, y) // prettier-ignore
-    expect(drawingFirst(66, 20)?.index).toBe(5)
-    expect(drawingFirst(66, 20)?.index).not.toBe(storedSquareAt(storedSquares([piranha, cover]), 66, 20)?.index) // prettier-ignore
+  it("over the drawing it is the sprite's own name, anchored on its box", () => {
+    const h = spriteHover(piranha, false)
+    expect(h.content).toBe('Piranha Plant')
+    expect(h.box).toEqual(piranha.box)
   })
 })

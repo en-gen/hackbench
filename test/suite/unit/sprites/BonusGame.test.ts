@@ -231,6 +231,9 @@ describe('the at-rest drawing without a latch row (synthetic cart, no ROM)', () 
       const m = go(sp)
       expect([m.passes[0]!.parts[0]!.ox, m.passes[0]!.parts[0]!.oy]).toEqual([128, 112])
       expect(m.anchor).toMatchObject({ x: sp.x + 8, y: sp.y })
+      // D158 stays out of the general rule (#1231): no stored tile, and no never-appears run (startsBehind would mark this
+      // cart's unrecognized loader as `spawnUnchecked`).
+      expect([m.shifted, m.initAt, m.neverAppears, m.spawnUnchecked]).toEqual([undefined, undefined, undefined, undefined]) // prettier-ignore
     }
   })
   it('an absolute row keeps its anchor as the origin, even for a sprite that draws before it moves (#1131)', () => {

@@ -22,9 +22,9 @@ What the code does, as built:
 
 1. At rest, every sprite draws where its INIT leaves it (`SpriteRunner.runOnce`, `atRest`). No id list and no per-sprite offset: the move is whatever INIT did. MAIN's own motion in the pass still stays out of the picture (the pass-origin rule of #1131).
 2. The list entry stays the sprite's data (`anchor.rawX`, `rawY`). A sprite drawn off it carries `shifted` and `initAt`, and the DTO's `stored`; hover, selection and every edit keep working from `stored`.
-3. D156's never-appears check (`startsBehind`) applies to every moved sprite: one the loader never shows in play stays on its stored tile, with the note "never appears in play".
+3. D156's never-appears check (`startsBehind`) applies to every moved sprite: one the loader never shows in play stays on its stored tile, with the note "never appears in play". It needs positive evidence: each spawn the loader allows leaves the sprite's parts (or, if it drew nothing, its own position) behind the scroll edge, or erases it. A spawn run that drew nothing while the sprite lived is no evidence (on a vertical map the loader spawns a sprite 288 px below or 48 px above the camera, outside GetDrawInfo's window, so a culled static sprite draws nothing, SMWDisX `bank_02.asm:5217-5238`).
 4. A sprite whose INIT lays out its own sprites at fixed map positions (`absolutePlacement`, D158) is unchanged.
-5. The map draws a thin dashed square on the stored cell only when the drawing does not cover that whole cell; no line to the drawing; selecting still shows the solid R16 highlight. Clicking a shown square selects its sprite and wins over another sprite's drawing on top of it. The tooltip says in plain words that the sprite is stored there and drawn elsewhere.
+5. Built to recommendation, pending D212 (calls 1 and 2): the map draws a thin dashed square on the stored cell only when the drawing does not cover that whole cell; no line to the drawing; selecting still shows the solid R16 highlight. Clicking a shown square selects its sprite and wins over another sprite's drawing on top of it. The tooltip says in plain words that the sprite is stored there and drawn elsewhere.
 
 ## What this replaces
 
@@ -33,6 +33,15 @@ What the code does, as built:
 - D136: its recommendation to keep the brown chained platform's swing on the stored tile. Rejected by the owner's $5F ruling above: InitBrwnChainPlat adds $78 to X and $68 to Y (SMWDisX `bank_01.asm:9705-9718`), and the swing is drawn around that spot.
 - D91, the part that put every at-rest picture on the list position. D156 had already replaced it for line-guided ids; this ends it for the rest. D138 and D139 D still hold for what INIT is run FOR (look, status), and D158 for the bonus-game blocks.
 
+## Pending D212
+
+- Call 1 (#1176 AC6), built to recommendation A1, pending D212: the $00F Playwright check uses an odd-column chainsaw, whose square lands on its stored cell, and asserts the even-column ones show no square, since they never appear and stay on their tile (D156).
+- Call 2 (#1176 AC5), built to recommendation B1, pending D212: the marker is derived from each reply's `stored`, so it follows a sprite whenever a reply moves its stored tile (unit test: `StoredSquare.test.ts`). No edit path moves a sprite today (the Properties panel is read only, #984), so the in-app check waits for it; dragging a placed sprite is #1116 and follows from the same data.
+
+## Known limit
+
+A moved sprite on a ROM whose sprite loader is not the stock one gets `spawnUnchecked` and the unverified line "could not check whether this sprite appears in play", which before #1231 only line-guided sprites could get. Hack maps are unavailable today (D51), so no map shows it yet.
+
 ## Why
 
 - The owner's rule is that the picture is what the game's own code produces, so a rule with exceptions is the "weird" landing he rejected.
@@ -40,7 +49,7 @@ What the code does, as built:
 
 ## Evidence scope
 
-Synthetic cart tests (no ROM bytes): `test/suite/unit/sprites/InitMovesShown.test.ts`, `StoredSquare.test.ts`. Vanilla ROM, one machine: `test/suite/unit/MapSpritesInitMoves.corpus.test.ts` ($105's three $4F at the list entry plus (+8, -1); every $5F on $103 and $0D7 at the list entry plus (+120, +104); the stored position of every sprite on the 512 maps equals its list entry, and how many move and by how much). Not checked by any test: that the $103 chain lines up with the grey block in the owner's screenshot (a look, for the in-app test).
+Synthetic cart tests (no ROM bytes): `test/suite/unit/sprites/InitMovesShown.test.ts`, `StoredSquare.test.ts`. Vanilla ROM, one machine: `test/suite/unit/MapSpritesInitMoves.corpus.test.ts` ($105's three $4F at the list entry plus (+8, -1); every $5F on $103 and $0D7 at the list entry plus (+120, +104); the stored position and the production marker cell of every sprite on the 512 maps equal its list entry; 410 of 3239 move, 371 get a square). Not checked by any test: that the $103 chain lines up with the grey block in the owner's screenshot (a look, for the in-app test).
 
 ## Applies to
 

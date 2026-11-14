@@ -36,9 +36,7 @@ import {
   spriteAt,
   storedSquares,
   storedSquareAt,
-  storedCell,
-  STORED_SQUARE_TIP,
-  spriteName,
+  spriteHover,
   hoverPlacementKey,
   doorIdAt,
   liftIfCovered,
@@ -1350,11 +1348,12 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     if (this.spriteAnchor) this.hoverService.cancelHover()
     this.spriteAnchor?.remove()
     this.spriteAnchor = undefined
-    const name = next && (square ? STORED_SQUARE_TIP : spriteName(next))
+    const hover = next && spriteHover(next, square)
+    const name = hover?.content
     if (next && name && strip) {
       // Theia's hover is placed against an element, so a fixed box over the sprite stands in for it.
       const r = strip.getBoundingClientRect()
-      const { x0, y0, x1, y1 } = (square && storedCell(next)) || next.box
+      const { x0, y0, x1, y1 } = hover!.box
       const a = document.createElement('div')
       a.className = 'hb-map-sprite-anchor'
       Object.assign(a.style, { position: 'fixed', pointerEvents: 'none', left: `${r.left + (x0 + this.pad.left) * this.zoom}px`, top: `${r.top + (y0 + this.pad.top) * this.zoom}px`, width: `${(x1 - x0) * this.zoom}px`, height: `${(y1 - y0) * this.zoom}px` }) // prettier-ignore

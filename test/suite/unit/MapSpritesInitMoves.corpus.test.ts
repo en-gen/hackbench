@@ -8,6 +8,7 @@ import { RomFile } from '../../../src/rom/RomFile'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { mapSprites } from '../../../theia/extension/src/node/map-sprites'
 import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
+import { storedCell, storedSquares } from '../../../theia/extension/src/browser/map-view-model'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 import { VANILLA, hasRom, romPath } from '../support/corpus'
 import { slow } from '../support/loadTimeout'
@@ -63,6 +64,24 @@ describe.skipIf(!hasRom(VANILLA))('INIT moves are drawn on vanilla maps (#1231)'
     },
   )
 
+  // The review's find: on vertical maps the loader spawns a sprite outside GetDrawInfo's window, so an empty spawn run is not
+  // "behind the scroll". These eight (a $6C and a $0E, static) were marked "never appears in play" on that reading.
+  it.each([
+    [0x109, [0, 1, 17, 18]],
+    [0x12a, [1, 4, 6]],
+    [0x134, [1]],
+  ] as const)(
+    'vertical map %i: indexes %j are drawn moved, not marked never appears',
+    (map, idx) => {
+      const got = served(bytes(), map)
+      for (const i of idx) {
+        const s = got.find(q => q.index === i)!
+        expect(s.stored, `#${i} stored`).toBeDefined()
+        expect(s.note, `#${i} note`).toBeUndefined()
+      }
+    },
+  )
+
   // 512 maps, one machine; the table of how many sprites move and by how much is printed for the PR.
   it(
     'all 512 maps: the stored position (stored, else x and y) of every sprite equals its list entry',
@@ -70,6 +89,7 @@ describe.skipIf(!hasRom(VANILLA))('INIT moves are drawn on vanilla maps (#1231)'
     () => {
       const b = bytes()
       let sprites = 0
+      let squaresShown = 0
       const unavailable: number[] = []
       const moved = new Map<string, { n: number; deltas: Set<string> }>()
       for (let map = 0; map < 0x200; map++) {
@@ -82,6 +102,11 @@ describe.skipIf(!hasRom(VANILLA))('INIT moves are drawn on vanilla maps (#1231)'
         }
         const dtos = new Map<number, MapSpriteDto>(got.map(s => [s.index, s]))
         const entries = list(b, map)
+        for (const d of storedSquares(got)) {
+          const e = entries.find(q => q.index === d.index)!
+          expect([storedCell(d)!.x0, storedCell(d)!.y0], `square of #${d.index}`).toEqual([e.x * 16, e.y * 16]) // prettier-ignore
+          squaresShown++
+        }
         for (const e of entries) {
           const d = dtos.get(e.index)
           // A sprite the sweep could not serve at all has no reply to compare; the count below shows none are missing.
@@ -89,6 +114,11 @@ describe.skipIf(!hasRom(VANILLA))('INIT moves are drawn on vanilla maps (#1231)'
           sprites++
           const at = d.stored ?? { x: d.x, y: d.y }
           expect([at.x, at.y], `map $${map.toString(16)} index ${e.index} id $${e.spriteId.toString(16)}`).toEqual([e.x * 16, e.y * 16]) // prettier-ignore
+          // The marker's cell, from the production function, is the list entry's own tile: 16 x 16 at its position.
+          const cell = storedCell(d)
+          if (d.stored) {
+            expect(cell, `map $${map.toString(16)} index ${e.index} marker cell`).toEqual({ x0: e.x * 16, y0: e.y * 16, x1: e.x * 16 + 16, y1: e.y * 16 + 16 }) // prettier-ignore
+          } else expect(cell).toBeUndefined()
           if (d.stored) {
             const k = `$${d.id.toString(16).toUpperCase().padStart(2, '0')}`
             const row = moved.get(k) ?? { n: 0, deltas: new Set<string>() }
@@ -102,7 +132,9 @@ describe.skipIf(!hasRom(VANILLA))('INIT moves are drawn on vanilla maps (#1231)'
         `#1231 sweep: ${unavailable.length} maps with no sprite reply: ${unavailable.map(m => '$' + m.toString(16)).join(' ')}`,
       )
       const total = [...moved.values()].reduce((a, r) => a + r.n, 0)
-      console.log(`#1231 sweep: ${sprites} sprites compared, ${total} drawn off their stored tile`)
+      console.log(
+        `#1231 sweep: ${sprites} sprites compared, ${total} drawn off their stored tile, ${squaresShown} with a dashed square (the drawing does not cover the cell)`,
+      )
       for (const [k, r] of [...moved].sort())
         console.log(`  ${k}: ${r.n} moved by ${[...r.deltas].sort().join(' | ')}`)
       expect(sprites).toBeGreaterThan(1000)

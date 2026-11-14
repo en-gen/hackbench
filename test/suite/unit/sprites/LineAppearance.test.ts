@@ -67,11 +67,21 @@ describe('appears / neverAppears: by the side of the scroll the sprite starts on
       neverAppears(
         [
           { dir: 1, extent: left },
-          { dir: -1, extent: null },
+          { dir: -1, extent: null, erased: true },
         ],
         256,
       ),
     ).toBe(true)
+    // An empty run of a sprite that stayed alive (culled) is no evidence either way.
+    expect(
+      neverAppears(
+        [
+          { dir: 1, extent: left },
+          { dir: -1, extent: null },
+        ],
+        256,
+      ),
+    ).toBe(false)
     expect(
       neverAppears(
         [

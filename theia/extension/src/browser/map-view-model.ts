@@ -115,7 +115,8 @@ export const storedCell = (s: Pick<MapSpriteDto, 'stored'>): Box | undefined =>
 export function storedSquares(sprites: readonly MapSpriteDto[]): MapSpriteDto[] {
   return sprites.filter(s => {
     const c = storedCell(s)
-    if (!c) return false
+    // A sprite fixed to Layer 2 is cut and hit-tested apart from the map's sprites (`spriteAt`), so it gets no square either.
+    if (!c || s.fixedTo) return false
     const { x0, y0, x1, y1 } = s.box
     return !(x0 <= c.x0 && y0 <= c.y0 && x1 >= c.x1 && y1 >= c.y1)
   })
@@ -141,6 +142,19 @@ export function storedSquareAt(
 /** The hover on a stored square, in plain words (D154, #1176). */
 export const STORED_SQUARE_TIP =
   'Stored here in the map data, but drawn elsewhere: this is where the game puts it.'
+
+/**
+ * What the hover shows and the box it is anchored on, for a sprite under the pointer or, with `square`, for its stored square
+ * (D154, #1176): the plain-words tip, anchored on the 16 x 16 cell. Otherwise the sprite's name, anchored on its box.
+ */
+export function spriteHover(
+  s: Pick<MapSpriteDto, 'name' | 'reveal' | 'id' | 'kind' | 'box' | 'stored'> &
+    Partial<Pick<MapSpriteDto, 'status' | 'reason'>>,
+  square: boolean,
+): { content: string | undefined; box: Box } {
+  const cell = square ? storedCell(s) : undefined
+  return { content: square ? STORED_SQUARE_TIP : spriteName(s), box: cell ?? s.box }
+}
 
 /** Where a hover anchor was placed: zoom and the strip's origin on screen, so a layout shift (not only a zoom) re-places it. */
 export const hoverPlacementKey = (zoom: number, rect: { left: number; top: number }): string =>

@@ -1454,7 +1454,7 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
   expect(mole).toMatchObject({ status: 'drawn', screenDoor: true })
   expect(mole.reason, 'no marker reason').toBeUndefined()
   expect(mole.reveal).toContain('appears when Mario gets close to this spot')
-  // D139 D: INIT runs for the picture, so the P-switch ($3E) is drawn at its list position (D134).
+  // D139 D: INIT runs for the picture, so the P-switch ($3E) is drawn at its list position (its INIT does not move it).
   const pswitch = reply.sprites.filter(s => s.id === 0x3e)
   expect(pswitch.map(s => s.status)).toEqual(['drawn'])
   expect(pswitch[0]).toMatchObject({ x: 4512, y: 272 })
@@ -1538,7 +1538,7 @@ test('an interpreter-drawn sprite shows its own pixels where the service placed 
   expect(read.door.holeShown, 'the door: holes show the sprite only where it is black over black').toBe(read.door.holeBlack) // prettier-ignore
 })
 
-test('$4F on $105 is served at its stream position: the INIT move (+8, -1) is not shown at rest (D134)', async ({
+test('$4F on $105 is served where INIT leaves it, its stream position kept as stored: the INIT move (+8, -1) is shown at rest (#1231)', async ({
   page,
 }) => {
   const project = await createProject(page, path.join(tmp, 'MyHack'))

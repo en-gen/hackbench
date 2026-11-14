@@ -1,18 +1,17 @@
 /**
- * The map view draws each sprite at rest (#980): its start-up code (INIT) runs for the picture only (D139 D,
- * D138 A), and the drawing stays at the placed (list) position (D134, D91), so INIT's moves wait for
- * play/simulate. Except the chainsaws and grinders ($65-$68), which are drawn where the game first has them on their
- * line (D156); their list position is the DTO's `stored`, and one that never appears stays on it with a note. Vanilla ROM; skipped, never faked, without it.
+ * The map view draws each sprite at rest (#980) where its start-up code (INIT) leaves it (#1231; this replaced the re-base onto
+ * the placed list position, D134, D91), and keeps the list position as the DTO's `stored`. The chainsaws and grinders
+ * ($65-$68) are drawn where the game first has them on their line (D156); one that never appears stays on its tile with a
+ * note. Vanilla ROM; skipped, never faked, without it.
  *
- * The sprite list is not served over the RPC, so the placed position is read as the list's own grid: a list
+ * The sprite list is not served over the RPC, so the list position (`stored`, else x and y) is read as the list's own grid: a list
  * entry is a map tile (x and y multiples of 16), while the INIT-on anchor is off it (a chainsaw or grinder
  * is moved 15 px right and 320 px left or so by InitLineGuidedSpr, bank_01.asm:11788-11799). The exact
  * list coordinates are pinned below and in test/suite/unit/sprites/PlacedAtRest.test.ts.
  * - Map $00F: every chainsaw ($65) is drawn and on the tile grid.
  * - Map $01A: every grinder ($67) is drawn and on the tile grid (INIT's X move takes them off the screen
  *   the sprite is run on, so the picture is taken again with the camera moved).
- * - Map $106: the P-switch ($3E) draws its picture (INIT's look) at its placed spot.
- * Goes red on develop (INIT-on): the chainsaw and grinder anchors are off the grid.
+ * - Map $106: the P-switch ($3E), which its INIT does not move, draws its picture at its placed spot.
  */
 const { test, expect } = require('@playwright/test')
 const fs = require('fs')

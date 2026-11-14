@@ -63,6 +63,13 @@ describe('at rest, a sprite is drawn where its INIT leaves it (#1231)', () => {
     expect(m.anchor).toMatchObject({ x: 0x200 - 320, y: 0x70, rawX: 0x200, rawY: 0x80 })
   })
 
+  it('a move that leaves X negative stands on the signed spot, not on 0xFFC0 (-128 from x = 0x40)', () => {
+    const m = runOnce(buildSyntheticRom({ initDelta: [-0x80, 0] }), 0, withSeed({ sprite: { x: 0x40, y: 0x80 } }), { atRest: true }) // prettier-ignore
+    expect(m.anchor).toMatchObject({ x: -0x40, y: 0x80, rawX: 0x40 })
+    expect(m.initAt).toEqual({ x: -0x40, y: 0x80 })
+    expect(served(m)).toMatchObject({ anchor: { x: -0x40 }, stored: { x: 0x40, y: 0x80 } })
+  })
+
   it('the not-at-rest run (graders, play) is unchanged: INIT first, its moves kept', () => {
     const m = runOnce(rom, 1, SPRITE_SEED)
     expect(m.anchor).toMatchObject({ x: 0x88, y: 0x7f, rawX: 0x80, rawY: 0x80 })

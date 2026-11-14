@@ -314,13 +314,10 @@ export interface RunOptions {
   /** The sprite loader's digest to hold the map's loader to; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   loader?: LoaderDigest
   /**
-   * `true` is the map view's at-rest picture (#1231): the drawing stands where INIT left the sprite, for every
-   * sprite, so INIT's moves show (a piranha's +8 / -1, the brown chained platform's +120 / +104); the list spot stays
-   * in `anchor.rawX`, `rawY`. MAIN's own motion in the pass stays out (the pass-origin rule, #1131). A line-guided id
-   * is drawn where the game first has it on its line (D156: the pass after the lock, `online + 1`; 320 px left for the
-   * vanilla chainsaws). A moved sprite the loader never shows in play stays on its tile (`neverAppears`, D156). A
-   * sprite that lays out its own blocks (`absolutePlacement`, D158) is as before. The not-at-rest line-walk pick
-   * (third drawn pass) is absent. Default false: INIT first and its moves kept, as the game and the graders do.
+   * `true` is the map view's at-rest picture. The owner's rule (#1231) is that the map shows what the game's own code
+   * produces, so the drawing stands where INIT left the sprite and its stored spot is kept apart in `anchor.rawX`, `rawY`.
+   * MAIN's own few pixels of motion stay out (#1131), and a moved sprite the loader never shows is put back on its tile (D156).
+   * Default false: INIT first and its moves kept, as the game and the graders have it.
    */
   atRest?: boolean
   /** End the run at the first pass that draws a tile: for a caller that only asks whether the sprite draws (RevealSearch.ts probes). */
@@ -1147,10 +1144,24 @@ export function startsBehind(
   const screen = vert ? 224 : 256
   const at = vert ? placed.y : placed.x
   const spawn = (dir: Spawn['dir'], cam: number): Spawn => {
-    const m = runOnce(rom, id, withSeed({ camera: vert ? { y: cam } : { x: cam } }, seed), { ...opts, atRest: false, probe: undefined, neighbourProbe: undefined }) // prettier-ignore
+    // Erased in the run (status 0 after INIT or any pass) is the evidence an empty run needs; a culled sprite stays alive.
+    let erased = false
+    const probe: Probe = (_, w) => {
+      if (w[RAM.status + seed.slot] === 0) erased = true
+    }
+    const m = runOnce(rom, id, withSeed({ camera: vert ? { y: cam } : { x: cam } }, seed), { ...opts, atRest: false, probe, neighbourProbe: undefined }) // prettier-ignore
     const q = m.passes.find(p => drawnParts(p).length)
-    if (!q) return { dir, extent: null }
     const sgn = (v: number) => (v << 16) >> 16
+    // An empty run says nothing about which side of the scroll the sprite is on: the game hides what GetDrawInfo culls (Y $F0),
+    // and on a vertical map the loader spawns a sprite 288 px below or 48 px above the camera, outside that window
+    // (bank_02.asm:5217-5238). So the evidence is the sprite itself: erased in the run, or else where its own position stands
+    // against the camera (a point, no art to measure).
+    if (!q) {
+      const erasedHere = erased || m.emptyReason?.startsWith('INIT erased') === true
+      if (erasedHere || !m.anchor) return { dir, extent: null, erased: erasedHere }
+      const at = sgn(vert ? m.anchor.y : m.anchor.x) - cam
+      return { dir, extent: { lo: at, hi: at } }
+    }
     const edge = (t: SpritePart, far: boolean) => sgn(vert ? q.origin.y : q.origin.x) + (vert ? t.dy : t.dx) - cam + (far ? t.size : 0) // prettier-ignore
     return { dir, extent: { lo: Math.min(...drawnParts(q).map(t => edge(t, false))), hi: Math.max(...drawnParts(q).map(t => edge(t, true))) } } // prettier-ignore
   }
@@ -1165,6 +1176,7 @@ export function startsBehind(
   const w = seed.loaded
   if (seed.opening && w)
     spawns.push(spawn(0, vert ? w[0x1c]! | (w[0x1d]! << 8) : w[0x1a]! | (w[0x1b]! << 8)))
+  if (process.env.DBG_SPAWN) console.log(JSON.stringify(spawns))
   return neverAppears(spawns, screen)
 }
 

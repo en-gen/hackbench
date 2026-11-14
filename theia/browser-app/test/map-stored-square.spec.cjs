@@ -257,3 +257,19 @@ test("a shown square wins the click over another sprite's drawing on top of it (
   )
   await expect(page.locator(`${rootOf(slot)} [data-control="stored-tile"]`)).toHaveCount(1)
 })
+
+test('hovering a shown square says in plain words that the sprite is stored there and drawn elsewhere (D154, #1176 AC8)', async ({
+  page,
+}) => {
+  const map = await openMap(page, SLOT)
+  const s = map.stack.find(q => q.id === 0x4f && q.stored)
+  const sel = `${squares(SLOT)}[data-sprite-index="${s.index}"]`
+  await expect(page.locator(sel)).toHaveCount(1)
+  // Scroll the square into view first, then hover its center.
+  await page.locator(sel).scrollIntoViewIfNeeded()
+  const b = await page.locator(sel).boundingBox()
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+  const tip = page.locator('.hb-map-sprite-hover')
+  await expect(tip).toHaveText(/stored here.*drawn elsewhere/i, { timeout: 10000 })
+  await expect(tip).not.toContainText(/github|#\d/i)
+})
