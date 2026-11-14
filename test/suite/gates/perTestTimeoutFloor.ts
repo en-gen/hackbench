@@ -16,6 +16,8 @@ const REGISTERS = new Set([
   'afterEach',
 ])
 const HOOKS = new Set(['beforeAll', 'beforeEach', 'afterAll', 'afterEach'])
+/** Wrappers whose one argument is the timeout, reported by their own call wherever they sit. */
+const WRAPPERS = new Set(['slow', 'loadTimeout'])
 /** Chain members whose arguments are tables or conditions, never a timeout. */
 const NOT_TIMEOUT_ARGS = new Set(['each', 'for', 'skipIf', 'runIf', 'extend', 'scoped'])
 /** A reason is required: a bare marker would keep any value without anyone saying why. */
@@ -56,8 +58,7 @@ export function timeoutFloorOffences(src: string): string[] {
       return init && !seen.includes(e.text) ? resolve(init, [...seen, e.text]) : undefined
     }
     if (ts.isCallExpression(e) && ts.isIdentifier(e.expression)) {
-      const f = e.expression.text
-      return (f === 'slow' || f === 'loadTimeout') && e.arguments.length === 1
+      return WRAPPERS.has(e.expression.text) && e.arguments.length === 1
         ? resolve(e.arguments[0], seen)
         : undefined
     }
@@ -109,20 +110,22 @@ export function timeoutFloorOffences(src: string): string[] {
   const visit = (n: ts.Node): void => {
     if (ts.isCallExpression(n)) {
       const fn = ts.isIdentifier(n.expression) ? n.expression.text : ''
-      if ((fn === 'slow' || fn === 'loadTimeout') && n.arguments.length === 1 && !inSetConfig(n))
-        check(n.arguments[0], n)
+      if (WRAPPERS.has(fn) && n.arguments.length === 1 && !inSetConfig(n)) check(n.arguments[0], n)
       const reg = registrar(n)
       if (reg && !NOT_TIMEOUT_ARGS.has(reg.last)) {
         n.arguments.forEach((a, i) => {
           if (ts.isObjectLiteralExpression(a)) return optionsTimeout(a, n)
-          const last = i === n.arguments.length - 1
+          const isLast = i === n.arguments.length - 1
           const timeoutSlot = HOOKS.has(reg.root) ? 1 : 2
-          if (!last || i < 1 || ts.isArrowFunction(a) || ts.isFunctionExpression(a)) return
+          if (!isLast || i < 1 || ts.isArrowFunction(a) || ts.isFunctionExpression(a)) return
           if (ts.isStringLiteralLike(a) || ts.isTemplateExpression(a)) return
-          // slow()/loadTimeout() as the argument was reported by its own call above.
-          if (ts.isCallExpression(a) && ts.isIdentifier(a.expression)) {
-            if (['slow', 'loadTimeout'].includes(a.expression.text)) return
-          }
+          // Already reported by its own call above.
+          if (
+            ts.isCallExpression(a) &&
+            ts.isIdentifier(a.expression) &&
+            WRAPPERS.has(a.expression.text)
+          )
+            return
           // An unresolved identifier before the timeout slot is a callback reference, not a value.
           if (ts.isIdentifier(a) && i < timeoutSlot && resolve(a) === undefined) return
           check(a, n)
