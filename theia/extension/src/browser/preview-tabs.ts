@@ -165,6 +165,8 @@ export class PreviewTabs {
     }
     if (!widget.isAttached) this.shell.addWidget(widget, { area: 'main' })
     // Activates only: `pin` counted its focus request when it was asked.
+    // Known gap: an older pin finishing late still activates over a newer
+    // row focus (Refs #1412).
     if (focus) void this.shell.activateWidget(widget.id)
     else if (!behind) void this.shell.revealWidget(widget.id)
   }
