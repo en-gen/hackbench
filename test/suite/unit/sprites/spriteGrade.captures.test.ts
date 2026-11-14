@@ -201,25 +201,26 @@ function gradeAll(
   return { rows, by, inputs, fallbacks: tally.fallbacks, missAtK: tally.missAtK }
 }
 
-/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Re-measured 2026-11-13 for #875 (a map-start sprite counted from the gate frame, develop 0a0dc7ba plus this change, one machine, vanilla ROM, 1955 records): exact 1928, shape 0, close 17, wrong 10, empty 0, fallback 39, missAtK 0 (before: 1925, 0, 17, 13, 0, 42, 3; the three rows fixed are maps 0c3 $49, 130 $76 and 0d0 $6F idx 29, which were the three missAtK records). Re-measured for #839/#1370 after four maps (101, 1d4, 109, 11b) were re-captured with the fixed harness (en-gen/hackbench-validation bc8d1a3): 2026-11-11, one machine, vanilla ROM, 1955 records: exact 1925, shape 0, close 17, wrong 13, empty 0, fallback 42, missAtK 3 (1957 records, exact 1917, close 17, wrong 22, empty 1, fallback 38, missAtK 7 with the old zips; the 9 wrong records on maps 101 and 1d4 were castle-flame cluster tiles the old harness attributed to sprite records; the 2 that left were of the same kind). */
+/** Floors for the 'rom' seed on the hardware timeline (graded pass k, marioStart); measured counts are in the docs. Re-measured 2026-11-13 for #875 (a map-start sprite counted from the gate frame, develop 0a0dc7ba plus this change, before the #1368 map 004 adoption, one machine, vanilla ROM, 1955 records): exact 1928, shape 0, close 17, wrong 10, empty 0, fallback 39, missAtK 0 (before: 1925, 0, 17, 13, 0, 42, 3; the three rows fixed are maps 0c3 $49, 130 $76 and 0d0 $6F idx 29, which were the three missAtK records). Re-measured for #839/#1370 after four maps (101, 1d4, 109, 11b) were re-captured with the fixed harness (en-gen/hackbench-validation bc8d1a3): 2026-11-11, one machine, vanilla ROM, 1955 records: exact 1925, shape 0, close 17, wrong 13, empty 0, fallback 42, missAtK 3 (1957 records, exact 1917, close 17, wrong 22, empty 1, fallback 38, missAtK 7 with the old zips; the 9 wrong records on maps 101 and 1d4 were castle-flame cluster tiles the old harness attributed to sprite records; the 2 that left were of the same kind). With the #1368 map 004 re-capture (bc8d1a3, composite corpus, one run, one machine, vanilla ROM, 2026-11-13): 1955 records, exact 1926, close 17, wrong 12, empty 0, fallback 43, missAtK 3. After both (#875 on the merged #1368 corpus, 2026-11-13, one machine, vanilla ROM, layers_v5, 1955 records): exact 1929, shape 0, close 17, wrong 9, empty 0, fallback 40, missAtK 0. */
 const FLOOR = {
   graded: 1955,
   // Measured on the merge of develop a9de2145 and #842 (offsets from the draw-time position, Layer 3 handler run),
   // one machine, 2026-10-28: exact 1906, shape 0, close 17, wrong 33, empty 1 (the #842 head alone, before
   // the merge: 1865, 0, 17, 75, 0). Shape is not floored: with shape at 0, exact + shape could never fire below the
   // exact floor.
-  exact: 1925, // 1928 measured (1925 before #875, 1917 with the pre-#1370 zips)
+  exact: 1927, // 1929 measured after #875 with the #1368 map 004 re-capture (1926 with it before #875, 1925 before both; the develop side had 1909)
   maxRefused: 0,
   maxShape: 5, // 0 measured
   maxClose: 20, // 17 measured
   maxEmpty: 4, // 0 measured (old slack 4 over 1)
-  maxWrong: 12, // 10 measured (13 before #875, 22 with the pre-#1370 zips)
-  maxMissAtK: 3, // 0 measured (3 before #875)
-  // 39 measured (spawned records without initFrame, or out of range; 42 before #875, 38 before the #1370 re-capture); all-timed would read 0.
-  minFallbacks: 37, // 2 slack under 39 measured
-  maxFallbacks: 41, // 2 headroom over 39 measured
+  maxWrong: 11, // 9 measured after #875 with the #1368 re-capture (12 with it before #875, 13 before both; the develop side had 20)
+  maxMissAtK: 3, // 0 measured (3 before #875; the develop side had 6)
+  // 40 measured after #875 (38 spawned records without initFrame, 2 in play and drawn before the anchor, 004 $B9 among them); 43 with the #1368 re-capture before #875, 42 before both; all-timed would read 0.
+  minFallbacks: 38, // 2 slack under 40 measured (the develop side had 35)
+  maxFallbacks: 42, // 2 headroom over 40 measured (the develop side had 45)
   // 0 measured since #875: the three misses (0c3 $49, 130 $76, 0d0 $6F idx 29) were the grader counting passes from the anchor,
   // not the model; no corpus record misses at k now, so this floor cannot fire and the three rows are pinned by name below.
+  // The develop side's 3 would fail on this branch.
   minMissAtK: 0,
 }
 
@@ -257,7 +258,7 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     expect(by.close ?? 0).toBeLessThanOrEqual(FLOOR.maxClose)
     expect(by.empty ?? 0).toBeLessThanOrEqual(FLOOR.maxEmpty)
     expect(by.wrong ?? 0).toBeLessThanOrEqual(FLOOR.maxWrong)
-    // 42 records carry no initFrame (the spawned ones) and grade the old way.
+    // 40 records grade the old way after #875 (43 before it: the 3 map-start ones drawn before the anchor on the bc8d1a3 re-captures now take the gate-based pass): 38 spawned ones carry no initFrame, 2 are in play and drawn before the anchor (004 $B9 is one).
     expect(fallbacks).toBeGreaterThanOrEqual(FLOOR.minFallbacks)
     expect(fallbacks).toBeLessThanOrEqual(FLOOR.maxFallbacks)
     expect(missAtK).toBeLessThanOrEqual(FLOOR.maxMissAtK)
@@ -296,6 +297,21 @@ describe.skipIf(!hasCaptures() || !hasRom(VANILLA))('sprite grading vs level-loa
     },
     120_000,
   )
+
+  // #1368: the Info Box's own piece. The first 004 capture also held a tile of cluster sprite $03 (CODE_02FBC7,
+  // bank_02.asm:15968, tiles from BooRingTiles; OAM 126, $AA/$AE) as its second piece: cluster index 6 equals its sprite slot 6 and the old recorder keyed by slot (hackbench-validation 48d348c
+  // fixed that, bc8d1a3 used for the re-capture). Against that capture it grades wrong, so this goes red when the old
+  // 004.zip is back. Not in the table above: the re-captured record is drawn before the anchor frame, so it grades the
+  // old way (a fallback), which that table forbids.
+  it('map 004 $B9 at 144,336 grades exact on the re-captured map, one recorded piece', () => {
+    const one = all.filter(
+      a => a.map === '004' && a.rec.id === '$B9' && a.rec.listX === 144 && a.rec.listY === 336,
+    )
+    expect(one).toHaveLength(1)
+    expect(recordedFrames(one[0].rec).map(f => f.length)).toEqual([1])
+    const { rows } = gradeAll(freshRom(), one)
+    expect(rows.map(r => r.verdict)).toEqual(['exact'])
+  }, 120_000)
 
   // #1035: a stationary shell is placed as list id $DA-$DD but recorded as $04-$07 (the loader rebases it,
   // bank_02.asm:5456-5462). Graded under the record id it is a walking Koopa and grades wrong; under the
