@@ -36,7 +36,7 @@ const FRAME_5 = [0xa5, 0x14, 0xc9, 0x05] // LDA $14 / CMP #5: carry set from fra
 // ORA of Mario's state cells $19, $71, $72, $73, $187A: zero only when all are (MARIO_STATE's cells).
 const STATE = [0xa5, 0x19, 0x05, 0x71, 0x05, 0x72, 0x05, 0x73, 0x0d, 0x7a, 0x18]
 const FACING = [0xbd, 0x7c, 0x15, 0x09, 0x0a] // LDA $157C,X / ORA #$0A: the attribute, flipped as INIT left the facing
-/** Handlers sit 128 bytes apart from here (the longest is under 100); the INIT routines sit past the last (174). */
+/** Handlers sit 128 bytes apart from here (the longest is under 100); the INIT routines sit past the last (180, which ends at 0x1c47f). */
 const FIRST = 0x01b000
 const STRIDE = 0x80
 const INIT_53 = 0x01c500

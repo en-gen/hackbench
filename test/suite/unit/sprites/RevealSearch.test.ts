@@ -589,6 +589,22 @@ describe('what counts as the same picture (#1365 acceptance 3)', () => {
     const kids = (index: number) => ({ parts: [{ oam: 1 }, { oam: 2, dx: 16 }], children: [{ index, oam: [2] }] }) // prettier-ignore
     expect(verdict(kids(3), kids(3))).toBe('unrevealed')
     expect(verdict(kids(3), kids(4))).toBe('hidden')
+    // The order the children are listed in, and the order of a child's own pieces, do not make another picture.
+    const two = (children: { index: number; oam: number[] }[]) => ({
+      parts: [{ oam: 1 }, { oam: 2, dx: 16 }, { oam: 3, dx: 32 }],
+      children,
+    })
+    const [c3, c4] = [
+      { index: 3, oam: [1, 2] },
+      { index: 4, oam: [3] },
+    ]
+    expect(verdict(two([c3, c4]), two([c4, c3]))).toBe('unrevealed')
+    expect(verdict(two([c3, c4]), two([{ ...c3, oam: [2, 1] }, c4]))).toBe('unrevealed')
+    const swapped = {
+      parts: [{ oam: 2, dx: 16 }, { oam: 1 }, { oam: 3, dx: 32 }],
+      children: [c3, c4],
+    }
+    expect(verdict(two([c3, c4]), swapped)).toBe('unrevealed')
     // The same pieces and child index, but another of the pieces is the child's: another picture on the map.
     const other = { parts: [{ oam: 1 }, { oam: 2, dx: 16 }], children: [{ index: 3, oam: [1] }] }
     expect(verdict(kids(3), other)).toBe('hidden')

@@ -232,16 +232,19 @@ describe('what the served drawer tells the reveal search (#1365)', () => {
   })
 
   it('hands the search its options when it drives it: a sprite that is not a rope is compared, with the slot key', () => {
+    const before = vi.mocked(findReveal).mock.calls.length
     ok(drawer()(entry(140)))
     const calls = vi.mocked(findReveal).mock.calls
-    expect(calls.length).toBeGreaterThan(0)
+    expect(calls.length, 'this call reached the search').toBeGreaterThan(before)
     expect(calls.at(-1)![3]).toMatchObject({ comparable: true, extraKey: expect.any(Function) })
   })
 
   it('does not compare a rope with its reruns: the rope id hands the search comparable: false', () => {
     // The synthetic cart has no rope handler, so the run may be refused; the search is still called with the rope's options.
+    const before = vi.mocked(findReveal).mock.calls.length
     drawer()(entry(0x64))
     const calls = vi.mocked(findReveal).mock.calls
+    expect(calls.length, 'this call reached the search').toBeGreaterThan(before)
     expect(calls.at(-1)![3]).toMatchObject({ comparable: false })
   })
 

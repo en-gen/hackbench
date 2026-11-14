@@ -135,7 +135,7 @@ const partKey = (q: SpritePart): string =>
  * and priority, which does change what shows, is in the key. The raw attribute byte and OAM position are the same data
  * as the fields above, in game encoding. Colors come from the last pass because a palette-cycling sprite's 256 pass
  * rerun can end on other colors than the 64 pass at-rest run: that is what the map would draw, so it counts as
- * different (hack-only; 0 on vanilla).
+ * different (hack-only; 0 on vanilla by one vanilla sweep, 488 maps, one machine: no `more-frames` reveal).
  */
 const pictureKey = (m: SpriteModel, extra?: RevealOptions['extraKey']): string => {
   const p = drawnPass(m)
