@@ -59,6 +59,14 @@ describe.skipIf(!hasRom(VANILLA))(
 
 describe.skipIf(!hasRom(VANILLA))('$0D7 no longer has art past the top (#1325, #1231)', () => {
   it('$0D7: no sprite art reaches past the top, so the top pad stays 0', slow(60_000), () => {
+    // Tripwire: an empty sprite list also gives reach <= 0, so the map must still hold $5F (id 0x5f), moved by its INIT, drawn
+    // at +120,+104 of its stored tile.
+    const bytes = new Uint8Array(freshRom().buffer)
+    const sp = mapSprites(new L1ModelCache(), bytes, romPath(VANILLA), 0x0d7)
+    if (sp.status !== 'ok') throw new Error(`map $d7: sprites ${sp.status}`)
+    const moved = sp.sprites.filter(s => s.id === 0x5f && s.stored)
+    expect(moved.length).toBeGreaterThan(0)
+    for (const s of moved) expect([s.x - s.stored!.x, s.y - s.stored!.y]).toEqual([120, 104])
     const r = check(0x0d7, 'top')
     // Since INIT's placement is drawn, $5F is at +120,+104 of its tile and nothing is above the map; if this goes
     // positive again the top claim is live on this map and `reach > 0` belongs back in the loop above.

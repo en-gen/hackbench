@@ -1144,7 +1144,7 @@ export function startsBehind(
   const vert = (seed.level.screenMode & 1) === 1
   const screen = vert ? 224 : 256
   const at = vert ? placed.y : placed.x
-  const spawn = (dir: Spawn['dir'], cam: number): Spawn => {
+  const spawn = (dir: Spawn['dir'], cam: number): Spawn | undefined => {
     // Erased in the run (status 0 after INIT or any pass) is the evidence an empty run needs; a culled sprite stays alive. The game
     // erases a sprite its offscreen handler finds out of range (SubOffscreen0Bnk1 and kin, OffScrEraseSprite, bank_01.asm:5975-6043).
     let erased = false
@@ -1152,6 +1152,8 @@ export function startsBehind(
       if (w[RAM.status + seed.slot] === 0) erased = true
     }
     const m = runOnce(rom, id, withSeed({ camera: vert ? { y: cam } : { x: cam } }, seed), { ...opts, atRest: false, probe, neighbourProbe: undefined, stopAtDraw: true }) // prettier-ignore
+    // A refused run (budget, a table past its end) read nothing about the spawn: unchecked, not evidence either way.
+    if (m.refusal) return undefined
     const q = m.passes.find(p => drawnParts(p).length)
     const sgn = (v: number) => (v << 16) >> 16
     // An empty run says nothing about which side of the scroll the sprite is on: the game hides what GetDrawInfo culls (Y $F0),
@@ -1177,10 +1179,14 @@ export function startsBehind(
   if (seed.opening && w)
     allowed.unshift([0, vert ? w[0x1c]! | (w[0x1d]! << 8) : w[0x1a]! | (w[0x1b]! << 8)])
   // Lazy: one spawn that shows the sprite settles it (`neverAppears` needs every spawn hidden), so the rest are not run
-  // (each is a full interpreter run; #1231 made this probe run for every moved sprite). Same verdict as running them all.
+  // (each is a full interpreter run; #1231 made this probe run for every moved sprite). Each run stops at its first drawn
+  // pass, so a sprite that draws on pass 0 is judged from that pass alone, whatever a later pass would do (a neighbour scan
+  // or a refusal after the first draw). That can differ from running every pass: the shorter run is the one the game
+  // shows at the spawn, so the verdict is the more careful one, not the same one (test: StartsBehindLazy.test.ts).
   const spawns: Spawn[] = []
   for (const [dir, cam] of allowed) {
     const s = spawn(dir, cam)
+    if (!s) return undefined
     if (!spawnHidden(s, screen)) return false
     spawns.push(s)
   }

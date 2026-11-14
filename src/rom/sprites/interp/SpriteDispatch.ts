@@ -189,7 +189,16 @@ const PROBE_STEPS = 48
  * in the table's bank, with the call frame popped, X and Y kept, and no register or SRAM write. ExecutePtrLong
  * reads 24-bit entries and lands elsewhere for every index but 0. The table is our own, in WRAM.
  */
+/**
+ * The verdict depends on the ROM bytes the walk reads and on `entry`, nothing else, so it is remembered per ROM contents
+ * (RunCache): every `runOnce` resolves the tables, and a map runs hundreds of them (#1231: the never-appears probe added
+ * more runs per moved sprite, each paying this 256-index walk again).
+ */
+const wordJumpCache = new RunCache<string | null>()
 function notWordTableJump(rom: RomFile, entry: number): string | null {
+  const key = String(entry)
+  const hit = wordJumpCache.lookup(rom, key)
+  if (hit !== undefined) return hit
   let m: ReturnType<typeof smwMachine>
   try {
     m = smwMachine(rom)
@@ -198,6 +207,8 @@ function notWordTableJump(rom: RomFile, entry: number): string | null {
     throw e
   }
   const { bus, cpu } = m
+  wordJumpCache.track(bus, rom)
+  const verdict = (why: string | null): string | null => wordJumpCache.store(rom, key, bus, why)
   for (let k = 0; k < 256; k++) {
     bus.wram[PROBE_TABLE + 2 * k] = probeWord(k) & 0xff
     bus.wram[PROBE_TABLE + 2 * k + 1] = probeWord(k) >> 8
@@ -219,12 +230,13 @@ function notWordTableJump(rom: RomFile, entry: number): string | null {
     const want = probeWord(k)
     const r = runUntil(cpu, PROBE_STEPS, c => c.pb === 0x7e && c.pc === want)
     const why = describe(r, PROBE_STEPS)
-    if (why) return `index ${k}: ${why}`
-    if (cpu.s !== s0) return `index ${k}: the call frame was not popped (S=$${cpu.s.toString(16)})`
-    if (cpu.x !== PROBE_X || cpu.y !== PROBE_Y) return `index ${k}: X or Y was not kept`
+    if (why) return verdict(`index ${k}: ${why}`)
+    if (cpu.s !== s0)
+      return verdict(`index ${k}: the call frame was not popped (S=$${cpu.s.toString(16)})`)
+    if (cpu.x !== PROBE_X || cpu.y !== PROBE_Y) return verdict(`index ${k}: X or Y was not kept`)
   }
-  if (bus.hwWrites.size !== 0) return 'it wrote a hardware register'
-  return sram.writes > 0 ? 'it wrote SRAM' : null
+  if (bus.hwWrites.size !== 0) return verdict('it wrote a hardware register')
+  return verdict(sram.writes > 0 ? 'it wrote SRAM' : null)
 }
 
 /** The dispatch JSLs (HandleSprite, CallSpriteMain) must reach one routine, and it must be the 16-bit ExecutePtr. */

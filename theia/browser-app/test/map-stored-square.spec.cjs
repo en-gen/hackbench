@@ -21,8 +21,9 @@ const ROM = process.env.HB_ROM || romPath(VANILLA)
 test.skip(!fs.existsSync(ROM), `vanilla ROM not present at ${ROM}`)
 
 const SLOT = 0x105
-// Maps found by a sweep of the 512 vanilla replies: four sprites have a shown square that another sprite's drawing covers
-// ($00F #11 and #23, $102 #26, $12C #29). The first that has one is used.
+// Maps tried for a shown square that another sprite's drawing covers. Since #1231 (sweep of the 512 vanilla replies, one
+// machine) only $00F #11 qualifies, with 11 pixels where the square and the covering drawing agree; $102 and $12C stay in
+// the list as harmless fallbacks. The first map that has one is used.
 const COVERED_CANDIDATES = [0x00f, 0x102, 0x12c]
 const GET_SVC = `function getSvc(name) {
   const d = window.theia.container._bindingDictionary
@@ -134,7 +135,8 @@ async function openMap(page, slot = SLOT) {
 
 /** D154 1B: a square shows for a sprite with a stored tile whose drawing does not cover that whole tile. */
 const showsSquare = s => {
-  if (!s.stored) return false
+  // A sprite fixed to Layer 2 gets no square (storedSquares in map-view-model.ts).
+  if (!s.stored || s.fixedTo) return false
   const c = { x0: s.stored.x, y0: s.stored.y, x1: s.stored.x + 16, y1: s.stored.y + 16 }
   return !(s.box.x0 <= c.x0 && s.box.y0 <= c.y0 && s.box.x1 >= c.x1 && s.box.y1 >= c.y1)
 }
