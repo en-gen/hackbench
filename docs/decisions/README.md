@@ -6,6 +6,8 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 
 | File | State | Decides |
 | --- | --- | --- |
+| [2026-11-14-per-test-timeout-floor-raise-all.md](2026-11-14-per-test-timeout-floor-raise-all.md) | Proposed | [PROP] the four per-test timeouts under 30 s in #1333's table (contentGate lines 79, 344; playwrightAppDataGate lines 265, 278) are all raised to `slow(30_000)`, none kept with a `// timeout-floor:` reason (#1333, PR #1410) |
+| [2026-11-14-revealsearch-budget-not-cut.md](2026-11-14-revealsearch-budget-not-cut.md) | Proposed | [PROP] the RevealSearch 32 px window test gets `slow(60_000)` and keeps its full 256-start sweep; cutting the work would need a planted-gap proof (#1332, PR #1410) |
 | [2026-11-13-personal-rom-list.md](2026-11-13-personal-rom-list.md) | Proposed | personal carts are listed in `personal.txt` in the ROM folder (UTF-8, one name per line, # comments, case-insensitive); the left-out count shows in one skipIf case title, not generated cases; a CORPUS cart named there fails loudly (#1289, D200) |
 | [2026-11-11-unreadable-loader-boxes-extra-bits.md](2026-11-11-unreadable-loader-boxes-extra-bits.md) | Proposed | when the sprite loader cannot be read, a sprite with extra bit 2 or 3 is boxed with the reason "loader unreadable", goal tapes included; never vanilla art, never hidden; option B (run it, mark unverified) is the alternative (#1011, PR #1273, D204) |
 | [2026-11-07-art-past-edge-proposed-calls.md](2026-11-07-art-past-edge-proposed-calls.md) | Proposed | the three build calls under the art-past-the-edge ruling: placement is `stored` else the anchor; far-end-gutter art still draws; a sprite with no art on the map keeps its box in the pad (#1325) |
