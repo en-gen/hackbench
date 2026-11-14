@@ -19,10 +19,13 @@
  *
  * THE SERVED PATH IS THE INTERPRETER (#585): `interpDrawer` runs the sprite's
  * own MAIN from the ROM on the 65816 core (src/rom/sprites/interp/)
- * and draws the first pass that puts a tile in OAM, at the PLACED spot. INIT
- * runs for the PICTURE only (D139 D, D138 A: tiles, flips, variants, status);
- * its moves are not shown (D134, D91), so a Piranha Plant's +8 / -1 (InitPiranha,
- * SMWDisX bank_01.asm:880-889) waits for play/simulate. The table engine (`engineDrawer`) stays
+ * and draws the first pass that puts a tile in OAM, where the sprite's own INIT left it (#1231,
+ * docs/decisions/2026-11-14-sprites-draw-where-their-code-puts-them.md, replacing D134's re-base onto the placed spot):
+ * a Piranha Plant's +8 / -1 (InitPiranha, SMWDisX bank_01.asm:880-889) shows, and a brown chained platform's +120 / +104
+ * (InitBrwnChainPlat, bank_01.asm:9705-9718). No id list: the move is what INIT did. The list entry stays the sprite's data
+ * and goes out as `stored` for every sprite drawn off it; the map outlines it with a dashed square (#1176, D154). A moved
+ * sprite the loader never shows in play stays on its stored tile (D156). Sprites that lay out their own blocks
+ * (`absolutePlacement`, D158) are unchanged. The table engine (`engineDrawer`) stays
  * as the comparison oracle of step 3 and goes in step 4. Seeds are generic:
  * the ROM-run level loader's WRAM, Mario at the level's start, the camera
  * placed so the sprite is on screen. The colors the sprite's own code wrote to
@@ -165,15 +168,14 @@ export interface SpriteModel {
 
 /**
  * What a drawer answers for one sprite: the table engine's result, or the
- * interpreter's. `anchor` is where the sprite stands (the placed spot at rest, after INIT
- * when it ran; the parts' dx/dy are relative to it); absent, the stream position is the anchor.
+ * interpreter's. `anchor` is where the sprite stands (where INIT left it, #1231; the parts' dx/dy are relative to it); absent, the stream position is the anchor.
  * `reason` is a refusal in the interpreter's own words.
  */
 export type SpriteDrawResult =
   | (Omit<Extract<EngineResult, { ok: true }>, 'parts'> & {
       parts: DrawPart[]
       anchor?: { x: number; y: number }
-      /** Where the level stores the sprite, when the picture is drawn elsewhere (INIT shifts it before its first frame, R16). */
+      /** Where the level stores the sprite, when the picture is drawn elsewhere (its INIT moves it before its first frame: #1231, R16). */
       stored?: { x: number; y: number }
       /** With `stored`: where the sprite's start-up code left it, before its first step. */
       afterInit?: { x: number; y: number }
@@ -634,6 +636,7 @@ function runtimeColors(m: RunModel): { writes: PaletteWrite[]; why?: string } {
 }
 
 const UNCHECKED_LOADER = "HackBench could not check whether this sprite appears in play (the map's sprite loader is not the stock one)" // prettier-ignore
+const UNCHECKED_REFUSED = 'its first moments on screen could not be worked out, so it is drawn where its start-up code leaves it' // prettier-ignore
 
 /** Reasons a picture is unverified, joined as `unverifiedOf` joins them, each once. */
 export const joinReasons = (...r: (string | undefined)[]): string | undefined =>
@@ -645,8 +648,8 @@ function unverifiedOf(m: RunModel, generic: string | undefined): { unverified?: 
     (m.shifted || m.neverAppears) && m.lineInitReason,
     m.initMoved &&
       m.lineGateReason &&
-      `drawn on its map tile although its start-up code moves it: ${m.lineGateReason}`,
-    m.spawnUnchecked && UNCHECKED_LOADER,
+      `drawn where its start-up code leaves it, not checked against the stock line-guided code: ${m.lineGateReason}`,
+    m.spawnUnchecked && (m.spawnUnchecked === 'loader' ? UNCHECKED_LOADER : UNCHECKED_REFUSED),
     m.noLineReason,
   ].filter(Boolean)
   return why.length ? { unverified: why.join('; ') } : {}
@@ -1457,7 +1460,7 @@ export function framesOf(
   return why ? { frames, reason: why } : { frames }
 }
 
-/** The run behind a sprite's frames: at rest, like the map's picture (D139 D: INIT's look, D134 position), so frame 0 is that bitmap. */
+/** The run behind a sprite's frames: at rest, like the map's picture (#1231: INIT's look and position), so frame 0 is that bitmap. */
 export function frameRun(
   rom: RomFile,
   index: number,

@@ -15,7 +15,7 @@ import { mirror } from '../../addressing'
 import type { RomFile } from '../../RomFile'
 import { spanFingerprint } from '../../SubmapFlagGate'
 import { Refusal, describe, nativeReset, runUntil } from '../../cpu/call'
-import { bytesAt, shapeMatches } from './Guards'
+import { bytesAt, mapperProblem, shapeMatches } from './Guards'
 import { recordWrites, RunCache, smwMachine, watchSram } from './Machine'
 
 export const ENTRY = {
@@ -181,6 +181,13 @@ const PROBE_Y = 0x55
 const PROBE_STEPS = 48
 
 /**
+ * The verdict depends on the ROM bytes the walk reads through the bus and on `entry`, so it is remembered per ROM
+ * contents and entry (RunCache). The header map byte is not a bus read, so `mapperProblem` is checked before the lookup.
+ * Every `runOnce` resolves the tables, and a map runs hundreds of them (#1231: the never-appears probe added
+ * more runs per moved sprite, each paying this 256-index walk again).
+ */
+const wordJumpCache = new RunCache<string | null>()
+/**
  * Per .claude/rules/rom-interpretation.md stock-code exception (added in #1030): a fixed entry, a step budget and a
  * refusal with a reason. The entry chain: HandleSprite (fixed, `ENTRY.handleSprite` or the loop's own JSR operand)
  * -> its JSL operand -> ExecutePtr. Runs the routine at `entry` the way a JSL to
@@ -190,6 +197,11 @@ const PROBE_STEPS = 48
  * reads 24-bit entries and lands elsewhere for every index but 0. The table is our own, in WRAM.
  */
 function notWordTableJump(rom: RomFile, entry: number): string | null {
+  const mapper = mapperProblem(rom)
+  if (mapper) return mapper
+  const key = String(entry)
+  const hit = wordJumpCache.lookup(rom, key)
+  if (hit !== undefined) return hit
   let m: ReturnType<typeof smwMachine>
   try {
     m = smwMachine(rom)
@@ -198,6 +210,8 @@ function notWordTableJump(rom: RomFile, entry: number): string | null {
     throw e
   }
   const { bus, cpu } = m
+  wordJumpCache.track(bus, rom)
+  const verdict = (why: string | null): string | null => wordJumpCache.store(rom, key, bus, why)
   for (let k = 0; k < 256; k++) {
     bus.wram[PROBE_TABLE + 2 * k] = probeWord(k) & 0xff
     bus.wram[PROBE_TABLE + 2 * k + 1] = probeWord(k) >> 8
@@ -219,12 +233,13 @@ function notWordTableJump(rom: RomFile, entry: number): string | null {
     const want = probeWord(k)
     const r = runUntil(cpu, PROBE_STEPS, c => c.pb === 0x7e && c.pc === want)
     const why = describe(r, PROBE_STEPS)
-    if (why) return `index ${k}: ${why}`
-    if (cpu.s !== s0) return `index ${k}: the call frame was not popped (S=$${cpu.s.toString(16)})`
-    if (cpu.x !== PROBE_X || cpu.y !== PROBE_Y) return `index ${k}: X or Y was not kept`
+    if (why) return verdict(`index ${k}: ${why}`)
+    if (cpu.s !== s0)
+      return verdict(`index ${k}: the call frame was not popped (S=$${cpu.s.toString(16)})`)
+    if (cpu.x !== PROBE_X || cpu.y !== PROBE_Y) return verdict(`index ${k}: X or Y was not kept`)
   }
-  if (bus.hwWrites.size !== 0) return 'it wrote a hardware register'
-  return sram.writes > 0 ? 'it wrote SRAM' : null
+  if (bus.hwWrites.size !== 0) return verdict('it wrote a hardware register')
+  return verdict(sram.writes > 0 ? 'it wrote SRAM' : null)
 }
 
 /** The dispatch JSLs (HandleSprite, CallSpriteMain) must reach one routine, and it must be the 16-bit ExecutePtr. */
@@ -258,12 +273,14 @@ const FRAME = [0x7e01fd, 0x7e01fe, 0x7e01ff]
  * into `status`,X and the frame itself. Returns where the inline table starts, the same in every run, or why not.
  */
 const initCache = new RunCache<{ table: number } | { reason: string }>()
-function initTableOf(
+export function initTableOf(
   rom: RomFile,
   entry: number,
   execPtr: number,
   cells: { status: number; runStatus: number; number: number },
 ): { table: number } | { reason: string } {
+  const mapper = mapperProblem(rom)
+  if (mapper) return { reason: mapper }
   const key = [entry, execPtr, cells.status, cells.runStatus, cells.number].join(',')
   const hit = initCache.lookup(rom, key)
   if (hit) return hit

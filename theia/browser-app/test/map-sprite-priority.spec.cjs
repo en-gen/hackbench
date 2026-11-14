@@ -4,8 +4,8 @@
  * Before #795 every sprite pixel sat at one slot, over l1Low, so a Jumping Piranha Plant drew over the
  * pipe it rises from.
  *
- * Since D134 the plant is drawn at its placed spot (8 px left, 1 down of where INIT put it), and a neighbouring
- * sprite's box reaches into the plant's, so only pixels owned by the plant's own box count as 'behind'.
+ * Since #1231 the plant is drawn where INIT put it (the spot the 236 pixels below were measured at), and a neighbouring
+ * sprite's box can still reach into the plant's, so only pixels owned by the plant's own box count as 'behind'.
  * Case (vanilla ROM, one machine, 2026-10-10, INIT-on): map $105, screen 7. 236 opaque sprite pixels there meet
  * an opaque l1Low pixel (with no l1High pixel); they are sprite index 11 (id $4F), which the
  * interpreter's OAM gives priority 1. Found by sweeping all 512 vanilla maps with the node-side
@@ -39,7 +39,7 @@ test.skip(!fs.existsSync(ROM), `vanilla ROM not present at ${ROM}`)
 
 const SLOT = 0x105
 const SCREEN = 7
-const MIN_BEHIND = 200 // measured 231 at rest (the plant's own pixels; 236 with INIT's +8/-1 on); a floor
+const MIN_BEHIND = 200 // measured 236 with INIT's +8/-1 on, which the map shows since #1231 (231 when it was drawn 8 px left, 1 down); a floor
 const MIN_SHOWN = 300 // measured 376
 
 const GET_SVC = `function getSvc(name) {
@@ -91,7 +91,7 @@ function probe(page, pixels, own) {
       if (pixels) return { width, behind: read(pixels.behind), shown: read(pixels.shown) }
       const [sprites, low, high] = [sel.sprites, sel.low, sel.high].map(s => px(document.querySelector(s))) // prettier-ignore
       const all = [...Array(sprites.length / 4).keys()].filter(p => sprites[p * 4 + 3] === 255 && high[p * 4 + 3] === 0) // prettier-ignore
-      // Only the plant's own pixels count as 'behind': at rest (D134) a neighbour's box reaches into the plant's.
+      // Only the plant's own pixels count as 'behind': a neighbour's box can reach into the plant's.
       const inBox = (b, p) => { const [x, y] = [screen * width + (p % width), Math.floor(p / width)]; return x >= b.x0 && x < b.x1 && y >= b.y0 && y < b.y1 } // prettier-ignore
       const mine = p => inBox(own.plant, p) && !own.others.some(b => inBox(b, p))
       const at = { behind: all.filter(p => low[p * 4 + 3] === 255 && mine(p)), shown: all.filter(p => low[p * 4 + 3] === 0) } // prettier-ignore
@@ -108,7 +108,7 @@ function probe(page, pixels, own) {
   )
 }
 
-/** The boxes of the $4F plant of screen 7 and of every other sprite, from the served reply (placed positions at rest, D134). */
+/** The boxes of the $4F plant of screen 7 and of every other sprite, from the served reply (where INIT leaves them at rest, #1231). */
 async function boxes(page, mp) {
   const reply = await page.evaluate(({ mp, index }) => getSvc('Symbol(ProjectService)').mapSprites(mp, index), { mp, index: SLOT }) // prettier-ignore
   const near = reply.sprites.filter(s => s.box.x1 > SCREEN * 256 && s.box.x0 < (SCREEN + 1) * 256)
@@ -248,7 +248,7 @@ test('hovering a hidden sprite draws it opaque, leaving restores the door exactl
   expect(same(hoverOther.behind, before.behind), 'the covered plant is untouched').toBe(behind.length) // prettier-ignore
   expect(same(hoverOther.shown, before.shown), 'the uncovered sprite is untouched').toBe(on.at.shown.length) // prettier-ignore
 
-  // Leave first: at rest (D134) the neighbour's name tooltip, placed above it, reaches over the plant and would take the move.
+  // Leave first: the neighbour's name tooltip, placed above it, can reach over the plant and would take the move.
   await page.mouse.move(2, 2)
   await page.waitForTimeout(500)
   // Hover the plant: its covered pixels turn to the sprite colour, both squares of the door.

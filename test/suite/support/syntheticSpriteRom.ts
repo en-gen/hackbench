@@ -43,8 +43,14 @@ export interface SyntheticOptions {
   grinderCell?: 'At3' | 'Not3'
   /** ADC operand of id 0's INIT shift. */
   initShift?: number
+  /** Id 0's INIT adds this signed 16-bit [dx, dy] to the sprite instead (our own add, carry into the high bytes). */
+  initDelta?: readonly [number, number]
   /** Id 0's INIT also adds 256 to X, and its MAIN draws nothing unless it is within 0-255 px right of the camera (GetDrawInfo's cull). */
   initFarCull?: boolean
+  /** The shared MAIN draws nothing unless the sprite is within 0-255 px below the camera (a vertical map's GetDrawInfo window): outside it the sprite is culled, not erased. */
+  cullVertical?: boolean
+  /** With `initFarCull`: id 0's MAIN erases the sprite (status 0) instead of just not drawing when it is off screen, as the sprites' offscreen handler does (SubOffscreen0Bnk1, bank_01.asm:5975-6043). */
+  eraseFar?: boolean
   /** With `initFarCull`: id 0's MAIN first steps X back by $40, so it draws only after moving partway back. */
   mainStepsBack?: boolean
   /** Replace id 0's MAIN tile STA with NOPs (draws nothing useful). */
@@ -293,6 +299,7 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   mainTable[31] = 0x9300
   mainTable[32] = 0x92a0
   if (o.grinderInitShifts) initTable[31] = initTable[103] = 0x8610
+  if (o.initDelta) initTable[0] = 0xa500
   if (o.grinderInitDelta) initTable[31] = initTable[103] = 0x9700
   if (o.grinderInitDelta && o.grinderAliases)
     for (const id of [98, 100, 101, 102, 104]) initTable[id] = 0x9700
@@ -375,6 +382,15 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // Handlers.
   put(0x018600, [0x60])
   put(0x018610, [0xa9, o.initShift ?? 8, 0x18, 0x75, 0xe4, 0x95, 0xe4, ...(o.initFarCull ? [0xfe, 0xe0, 0x14] : []), 0x60]) // prettier-ignore
+  if (o.initDelta) {
+    const axis = (lo: number, hi: number, d: number) => [0xa9, d & 0xff, 0x18, 0x75, lo, 0x95, lo, 0xa9, (d >> 8) & 0xff, 0x7d, hi & 0xff, hi >> 8, 0x9d, hi & 0xff, hi >> 8] // prettier-ignore
+    put(0x01a500, [
+      ...axis(0xe4, 0x14e0, o.initDelta[0]),
+      ...axis(0xd8, 0x14d4, o.initDelta[1]),
+      0xea,
+      0x60,
+    ])
+  }
   // id 1 INIT: X + 8, Y - 1 with the borrow into the high byte.
   put(0x018620, [0xa9, 0x08, 0x18, 0x75, 0xe4, 0x95, 0xe4, 0xb5, 0xd8, 0xd0, 0x03, 0xde, 0xd4, 0x14, 0xd6, 0xd8, 0x60]) // prettier-ignore
   // One 16x16 piece at the sprite position minus the scroll, in OAM entry 4 * slot.
@@ -386,9 +402,24 @@ export function buildSyntheticRom(o: SyntheticOptions = {}): RomFile {
   // 16-bit X minus the camera; a high byte other than 0 means off screen, as GetDrawInfo culls.
   const back = o.mainStepsBack ? [0xb5, 0xe4, 0x38, 0xe9, 0x40, 0x95, 0xe4] : []
   const cull = o.initFarCull
-    ? [0xb5, 0xe4, 0x38, 0xe5, 0x1a, 0xbd, 0xe0, 0x14, 0xe5, 0x1b, 0xf0, 0x01, 0x60]
+    ? [
+        0xb5,
+        0xe4,
+        0x38,
+        0xe5,
+        0x1a,
+        0xbd,
+        0xe0,
+        0x14,
+        0xe5,
+        0x1b,
+        ...(o.eraseFar ? [0xf0, 0x06, 0xa9, 0x00, 0x9d, 0xc8, 0x14, 0x60] : [0xf0, 0x01, 0x60]),
+      ]
     : []
-  put(0x018640, [...back, ...cull, ...draw([0xa9, 0x24, ...tileSta], [0xa9, 0x0a, 0x99, 0x03, 0x03])]) // prettier-ignore
+  const cullV = o.cullVertical
+    ? [0xb5, 0xd8, 0x38, 0xe5, 0x1c, 0xbd, 0xd4, 0x14, 0xe5, 0x1d, 0xf0, 0x01, 0x60]
+    : []
+  put(0x018640, [...back, ...cull, ...cullV, ...draw([0xa9, 0x24, ...tileSta], [0xa9, 0x0a, 0x99, 0x03, 0x03])]) // prettier-ignore
   // id 2: attribute $4A (X flip) when Mario is left of the sprite, else $0A.
   put(0x018680, draw([0xa9, 0x24, 0x99, 0x02, 0x03], [0xa9, 0x0a, 0x99, 0x03, 0x03, 0xa5, 0xd1, 0xd5, 0xe4, 0xb0, 0x05, 0xa9, 0x4a, 0x99, 0x03, 0x03])) // prettier-ignore
   // id 3: tile = 3 * 5 from the CPU multiplier ($4202/$4203 in, $4216 out).

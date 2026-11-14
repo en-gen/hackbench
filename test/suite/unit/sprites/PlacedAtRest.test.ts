@@ -1,7 +1,7 @@
 /**
- * The at-rest mode (#980): a sprite's INIT runs for its PICTURE only (D139 D, D138 A) and the drawing is
- * re-based onto the placed (list) spot, so INIT's moves are not shown (D134, D91). The synthetic block needs
- * no ROM; the corpus block runs the real chainsaws and grinders.
+ * The at-rest mode (#980): a sprite's INIT runs, and since #1231 the drawing stands where INIT leaves the sprite, for
+ * every sprite, with the list spot kept as `rawX`, `rawY` (this replaced the re-base onto the placed spot, D134, D91).
+ * The synthetic block needs no ROM; the corpus block runs the real chainsaws and grinders.
  */
 import { describe, it, expect } from 'vitest'
 import { runOnce, RAM } from '../../../../src/rom/sprites/interp/SpriteRunner'
@@ -25,10 +25,10 @@ const rom = buildSyntheticRom()
 
 describe('at-rest mode on a synthetic cart', () => {
   // Id 0: INIT adds 8 to X; MAIN draws one piece at the sprite position.
-  it("draws at the placed spot after INIT ran for the picture (D139 D); INIT's +8 is not shown", () => {
+  it("draws where INIT left the sprite (#1231): INIT's +8 is shown, the list spot kept as raw", () => {
     const m = runOnce(rom, 0, SPRITE_SEED, { atRest: true })
     expect(m.refusal).toBeUndefined()
-    expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80, rawX: 0x80, rawY: 0x80 })
+    expect(m.anchor).toMatchObject({ x: 0x88, y: 0x80, rawX: 0x80, rawY: 0x80 })
     expect(m.initFrames).toBe(1)
     expect(m.chosen).toBe(0)
     expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
@@ -46,7 +46,7 @@ describe('at-rest mode on a synthetic cart', () => {
   })
   it('follows the seed: a different placed spot moves the picture with it', () => {
     const m = runOnce(rom, 0, withSeed({ sprite: { x: 0x140, y: 0x90 } }), { atRest: true })
-    expect(m.anchor).toMatchObject({ x: 0x140, y: 0x90 })
+    expect(m.anchor).toMatchObject({ x: 0x148, y: 0x90, rawX: 0x140, rawY: 0x90 })
   })
 })
 
@@ -106,16 +106,18 @@ describe('a line-guided sprite whose INIT shifts it is drawn where INIT left it 
     expect(m.shifted).toBe(true)
     expect(m.chosen).toBe(0)
   })
-  it('the same INIT on an id the rule is not for (31) leaves the picture on the list spot', () => {
+  it('the same INIT on an id that is not line-guided (31) is drawn where INIT left it too, by the general rule (#1231)', () => {
     const m = runOnce(shifting, 31, SPRITE_SEED, opts)
-    expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80 })
-    expect(m.shifted).toBeUndefined()
+    expect(m.snaps).toBeUndefined()
+    expect(m.anchor).toMatchObject({ x: 0x88, y: 0x80, rawX: 0x80 })
+    expect(m.shifted).toBe(true)
   })
-  it('a handler the gate refuses (not the stock calls) keeps the list spot: no shift without a verified first frame', () => {
+  it('a handler the gate refuses (not the stock calls) is drawn by the general rule: where INIT left it, no line walk', () => {
     const altered = buildSyntheticRom({ grinderInitShifts: true, alteredGrinder: true })
     const m = runOnce(altered, 103, SPRITE_SEED, { atRest: true, grinderDispatch: grinderShape(altered) }) // prettier-ignore
-    expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80 })
-    expect(m.shifted).toBeUndefined()
+    expect(m.snaps).toBeUndefined()
+    expect(m.anchor).toMatchObject({ x: 0x88, y: 0x80, rawX: 0x80 })
+    expect(m.shifted).toBe(true)
   })
   it('the DTO carries the stored tile, and the properties note says how far, from the same run', () => {
     const res = modelResult(runOnce(shifting, 103, SPRITE_SEED, opts))
@@ -192,17 +194,17 @@ describe('first frame at rest on synthetic carts: the run decides (R16, findings
     expect(flagged.lineInitReason).toMatch(/not a stock line-guided INIT/)
   })
 
-  it('a gate that refuses a sprite whose INIT moves it leaves it on its tile and says so (CodeRabbit)', () => {
+  it('a gate that refuses a sprite whose INIT moves it draws it where INIT left it, with the stored tile, and says it is unchecked (CodeRabbit)', () => {
     const rom = buildSyntheticRom({ grinderInitShifts: true, alteredGrinder: true })
     const m = runOnce(rom, 103, SPRITE_SEED, { atRest: true, grinderDispatch: grinderShape(rom) })
     expect(m.lineGateReason).toMatch(/out of order/)
-    expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80 }) // the generic rule: the list tile
+    expect(m.anchor).toMatchObject({ x: 0x88, y: 0x80 }) // the general rule: where INIT left it
     expect(m.initMoved).toBe(true)
     const res = modelResult(m) as { unverified?: string; stored?: unknown }
     expect(res.unverified).toMatch(
-      /drawn on its map tile although its start-up code moves it: .*out of order/,
+      /drawn where its start-up code leaves it, not checked against the stock line-guided code: .*out of order/,
     )
-    expect(res.stored).toBeUndefined()
+    expect(res.stored).toEqual({ x: 0x80, y: 0x80 })
     // A refused sprite whose INIT does not move it has nothing to qualify.
     const still = buildSyntheticRom({ alteredGrinder: true })
     const m2 = runOnce(still, 103, SPRITE_SEED, {
@@ -225,40 +227,31 @@ describe('first frame at rest on synthetic carts: the run decides (R16, findings
 })
 
 describe.skipIf(!hasRom(VANILLA))(
-  'which sprites are drawn away from their list position (R16)',
+  'which sprites are drawn away from their list position (R16, #1231)',
   () => {
-    const seed3 = withSeed({ slot: 3, sprite: { x: 0x80, y: 0x80 } }, SPRITE_SEED)
-    it('what moves a picture off its list position is the run: no id decides it (R16)', () => {
+    const sweep = (x: number) => {
       const r = RomFile.load(romPath(VANILLA))
-      const drawn: number[] = []
+      const got = new Map<number, string>()
       for (let id = 0; id <= 0xc8; id++) {
-        const m = runOnce(r, id, seed3, { atRest: true })
-        const off = m.anchor !== undefined && (m.anchor.x !== m.anchor.rawX || m.anchor.y !== m.anchor.rawY) // prettier-ignore
-        expect(m.shifted === true, `id ${id}`).toBe(off)
-        // Only a sprite the line-guided gate admitted can be drawn off its list position at rest.
-        if (off) {
-          expect(m.snaps, `id ${id}`).toBe(true)
-          drawn.push(id)
-        }
+        const m = runOnce(r, id, withSeed({ slot: 3, sprite: { x, y: 0x80 } }, SPRITE_SEED), { atRest: true }) // prettier-ignore
+        if (m.chosen === undefined || !m.anchor) continue
+        const off = m.anchor.x !== m.anchor.rawX || m.anchor.y !== m.anchor.rawY
+        // What moves a picture off its list position is the run: no id decides it, and the model says so by itself.
+        expect(m.shifted === true || m.neverAppears === true, `id ${id}`).toBe(off || m.neverAppears === true) // prettier-ignore
+        if (m.neverAppears) got.set(id, 'never appears')
+        else if (off) got.set(id, `${m.anchor.x - x},${m.anchor.y - 0x80}`)
       }
-      // $65-$67 at this even column start behind the scroll (D156) and stay on their tile. $68 is not erased offscreen
-      // (its tweaker byte processes it there), so a left-scrolling camera meets it: it appears, drawn where INIT left it.
-      expect(drawn).toEqual([0x64, 0x68])
+      return Object.fromEntries([...got].map(([id, d]) => [`$${id.toString(16)}`, d]))
+    }
+    // The same cart, generic slot-3 seed, one machine: the offset each sprite's INIT gives it, found by running it. $65-$67 at the
+    // even column start behind the scroll (D156) and stay on their tile; $68 is not erased offscreen, so it appears 320 px left.
+    // The seed has no loaded level, so INIT reads the generic state (the platforms that drop 384 px read a water or ground cell).
+    const COMMON = { $e: '8,0', $1a: '8,-1', $26: '8,0', $2a: '8,-17', $3c: '0,1', $4b: '8,-1', $4f: '8,-1', $50: '8,-1', $52: '0,-1', $5b: '0,384', $5d: '0,384', $5f: '120,104', $63: '2,0', $64: '2,0', $6c: '-8,0', $a4: '0,384', $ac: '0,-64', $c0: '0,2' } // prettier-ignore
+    it('even column: every sprite the run moves, by how much', () => {
+      expect(sweep(0x80)).toEqual({ ...COMMON, $29: '-8,192', $65: 'never appears', $66: 'never appears', $67: 'never appears', $68: '-320,0', $82: '32,112' }) // prettier-ignore
     })
-
-    it('by how much: 15 px right (odd column) or none (even column, never appears) for $65-$68, 2 px right for the $64 rope, none for $62 and $63', () => {
-      const r = RomFile.load(romPath(VANILLA))
-      for (const x of [0x80, 0x90]) {
-        const dx = (id: number) => {
-          const m = runOnce(r, id, withSeed({ slot: 3, sprite: { x, y: 0x80 } }, SPRITE_SEED), { atRest: true }) // prettier-ignore
-          return [m.anchor!.x - x, m.anchor!.y - 0x80]
-        }
-        for (const id of [0x65, 0x66, 0x67]) expect(dx(id), `id ${id} at ${x}`).toEqual([x & 0x10 ? 15 : 0, 0]) // prettier-ignore
-        expect(dx(0x68), `id 104 at ${x}`).toEqual([x & 0x10 ? 15 : -320, 0])
-        expect(dx(0x64)).toEqual([2, 0])
-        expect(dx(0x62)).toEqual([0, 0])
-        expect(dx(0x63)).toEqual([0, 0])
-      }
+    it('odd column: the line-guided ids start ahead of the scroll and draw 15 px right; $29, which writes its own X and Y, lands elsewhere than in the even column', () => {
+      expect(sweep(0x90)).toEqual({ ...COMMON, $29: '-24,192', $65: '15,0', $66: '15,0', $67: '15,0', $68: '15,0', $82: '16,112' }) // prettier-ignore
     })
   },
 )
@@ -266,17 +259,17 @@ describe.skipIf(!hasRom(VANILLA))(
 describe('a sprite INIT moves off the screen it was run on (camera re-run)', () => {
   // INIT adds 256 px to X and MAIN draws only on screen, as GetDrawInfo does: the first run culls it.
   const far = buildSyntheticRom({ initFarCull: true })
-  it('still draws its tile, at the placed spot, not the marker (D139 D)', () => {
+  it('still draws its tile, where INIT left it, not the marker (D139 D, #1231)', () => {
     const m = runOnce(far, 0, SPRITE_SEED, { atRest: true })
     expect(m.emptyReason).toBeUndefined()
     expect(m.chosen).toBe(0)
-    expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80, rawX: 0x80, rawY: 0x80 })
+    expect(m.anchor).toMatchObject({ x: 0x188, y: 0x80, rawX: 0x80, rawY: 0x80 })
     expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
   })
   it('draws the full picture when MAIN moves it partway back before drawing (a Podoboo)', () => {
     const m = runOnce(buildSyntheticRom({ initFarCull: true, mainStepsBack: true }), 0, SPRITE_SEED, { atRest: true }) // prettier-ignore
     expect(m.chosen).toBe(0)
-    expect(m.anchor).toMatchObject({ x: 0x80, y: 0x80 })
+    expect(m.anchor).toMatchObject({ x: 0x188, y: 0x80, rawX: 0x80 })
     expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
   })
   it('play keeps the cull: INIT-on has no re-run and draws nothing', () => {
@@ -327,27 +320,27 @@ describe('the served paths run at rest', () => {
     if (!('m' in r)) throw new Error('direct answer')
     return r.m
   }
-  // D139 D, D138 A: INIT runs for the picture; the drawing stays on the placed spot (D134, D91).
+  // The drawing stands where INIT left the sprite (#1231); id 0's INIT adds 8 to X.
   const s20 = { ...s, spriteId: 20 } as LevelSprite
-  it("interpRunner draws INIT's picture at the placed spot", () => {
+  it("interpRunner draws INIT's picture where INIT left it", () => {
     const m = ran(interpRunner(rom, 0, shape, undefined, () => base)(s))
     expect(m.initFrames).toBe(1)
-    expect(m.anchor).toMatchObject({ x: 128, y: 128, rawX: 128, rawY: 128 })
+    expect(m.anchor).toMatchObject({ x: 136, y: 128, rawX: 128, rawY: 128 })
     expect(ran(interpRunner(rom, 0, shape, undefined, () => base)(s20)).passes[0]!.palette.length).toBeGreaterThan(0) // prettier-ignore
   })
-  it("the frames of a sprite are run with INIT's picture at the placed spot", () => {
+  it("the frames of a sprite are run with INIT's picture where INIT left it", () => {
     const m = ran(frameRun(rom, 0, shape, base, s))
     expect(m.initFrames).toBe(1)
-    expect(m.anchor).toMatchObject({ x: 128, y: 128 })
+    expect(m.anchor).toMatchObject({ x: 136, y: 128 })
     expect(ran(frameRun(rom, 0, shape, base, s20)).passes[0]!.palette.length).toBeGreaterThan(0)
   })
 })
 
 describe('the D139 picture', () => {
-  it('re-bases a sprite INIT moved (id 0: +8) onto the placed spot, its look kept', () => {
+  it('a sprite INIT moved (id 0: +8) stays where INIT left it, its look kept', () => {
     const m = runOnce(rom, 0, SPRITE_SEED, { atRest: true })
     expect(m.initFrames).toBe(1)
-    expect(m.anchor).toMatchObject({ x: 0x80, rawX: 0x80 })
+    expect(m.anchor).toMatchObject({ x: 0x88, rawX: 0x80 })
     expect(m.passes[0]!.parts[0]).toMatchObject({ dx: 0, dy: 0 })
   })
 })
@@ -358,7 +351,7 @@ describe('at rest, a handler that moves in MAIN (#1131)', () => {
   const moving = (dx: number, dy: number) => withSeed({ ram: { 0x0e: dx, 0x0f: dy } })
   const MOVES = [[4, 0], [0, 4], [3, 5], [7, 2], [0, 0]] as const // prettier-ignore
   for (const [dx, dy] of MOVES) {
-    it(`draws before a move of (${dx}, ${dy}): the picture sits at the placed spot`, () => {
+    it(`draws before a move of (${dx}, ${dy}): the picture sits at the pass's own origin`, () => {
       const m = runOnce(rom, 37, moving(dx, dy), { atRest: true })
       expect(m.refusal).toBeUndefined()
       expect(m.passes[0]!.pos).toEqual({ x: 0x80 + dx, y: 0x80 + dy })
