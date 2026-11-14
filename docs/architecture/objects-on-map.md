@@ -57,30 +57,36 @@ has patch cells on all four sides. Fill on the outline is fine.
    (Proven by `fill resting beside fill`: ground under the interior of a one-row platform stays out.)
 2. A link counts only when its contact covers at least half of the smaller piece (a wall resting on the
    ground touches one cell of it; an interior beside its edge touches them all).
-3. Links are taken best first: the share of the longer piece the contact line covers, then contact cells,
-   then list order.
+3. Links are taken best first: an edge beside fill before an edge beside an edge (so two Objects that touch
+   side by side do not pair up through their walls), then the share of the longer piece the contact line
+   covers, then contact cells, then list order.
 4. A link is refused when both groups already hold an edge tile and some piece of one overlaps some piece of
-   the other (overlapping pieces are one drawn over another: stacked Objects), or when the merged shape has
-   a surrounded edge tile.
+   the other (overlapping pieces are one drawn over another: stacked Objects), or when each part holds the
+   rule on its own and the merged shape does not (two Objects that touch). A part that already fails on its
+   own, a piece that writes an edge tile into its own body, is merged anyway: the group is broken and does
+   not fall apart into fragments. With bodies 2 rows tall the merged walls are never surrounded, so two
+   platforms side by side merge into one Object: the one touching case the rule cannot tell apart.
 
-A cell's tile in a group is the latest group piece's tile. For the rule a visibly owned cell uses its grid tile
-(out of the shape when that is not a definition tile), a covered one the group's tile.
+A cell's tile in a group is the latest group piece's tile, except that a later fill-only piece in no link at
+all (it belongs to no Object) drawn over an edge tile replaces it, so a fill piece over a stray edge tile
+mends the Object. N6: such a piece adds no cells, so identical visible grids give identical Objects.
 
 **Cut-short edges (call 2).** An edge piece that is one straight run, shorter than the group piece beside
 it, is extended to that piece's extent, repeating its end tile, but only through cells another piece draws
 over, stopping at the first that is not: over empty sky the list did not cut anything short. The added cells
 are covered.
 
-**Broken Objects.** The pieces decide what is one Object, and each cell shows the latest group piece's tile.
-When that shape holds an edge tile with shape cells on all four sides, the Object is broken (#1234: a
-disagreeing tile blocks a match): it yields nothing, its pieces are not offered as fragments, and the
-visible-tile scan does not offer their cells back. Two ways a tile comes to disagree, both a stored piece:
-a piece of the Object writes an edge tile into its own body; or a later piece drops only edge tiles into the
-middle of another Object's body (all four sides of each in that Object's shape). In the second case the lone
-tiles then follow the ordinary rule as Objects of their own, and removing that piece brings the whole Object
-back. A later piece of fill tiles over the offending cell mends the first case (it is a definition piece, joins
-the group, and its tile is the latest). [PROP] a whole Object drawn in front (the next platform of a stack) is
-not "only edge tiles" and breaks nothing: on `$103` the right edge of one platform lies wholly inside another's body.
+**Candidates and breaking.** A group is a candidate when it passes the rule, holds an edge tile and shows at
+least one cell (an Object wholly hidden is never offered). A group that fails the rule is broken: it yields
+nothing, and the visible scan does not offer its cells back. A candidate O is also broken (#1234: a
+disagreeing tile blocks a match) by a visible edge tile c when c is in O's shape, all four neighbors of c are
+in O's shape, c's owner piece is not in another candidate that has fill of its own (a whole Object drawn in
+front, such as the next platform of a stack, is not a disagreement), and O is the Object directly behind c:
+among the candidates holding c, the one whose latest piece writing c comes last. A lone tile or an edge-only
+piece is the disagreement and then follows the ordinary rule as an Object of its own; removing that piece
+brings the whole Object back. [PROP] On `$103` the right edge of one platform lies wholly inside another's
+body, which is why a front Object with fill breaks nothing. A two-wide front Object (edges only) does break
+the one behind it.
 
 **Visible path.** Definition tiles no piece group shows, as 4-connected patches that pass the rule.
 
@@ -94,8 +100,9 @@ Object uses the largest owner among its cells.
 - Boundary units are directed clockwise and traced into loops; at a vertex two loops share, the right turn wins.
 - A loop splits into segments where it turns a corner (a mushroom's bottom is three). A unit's slope class is
   its owning cell's; a run changes where direction or class changes. Consecutive runs of one slope class that
-  alternate between two directions, three or more of them, are one `slope` segment, drawn as the staircase; a
-  shorter chain is a corner, so its runs are straight segments (no slope segment turns onto a wall or a floor).
+  alternate between two directions are one `slope` segment, drawn as the staircase, a single slope tile
+  included; it is monotone in x and y and holds only edges of slope cells of that angle. A third direction (a
+  wall, a corner, the loop seam) starts a new segment, so the floor of slope tiles never wraps round.
 - A segment id names where it runs (its first and last point), and cells are sorted first, so ids and the
   Object key (`definition:row:col`, stacked twins told apart by their shape) survive an unrelated edit.
 - A boundary unit owned by a covered cell goes to the covered path (drawn dashed).
@@ -125,6 +132,13 @@ bank_05.asm:33`, `CMP.B #$FF`), which Lunar Magic replaces with a jump to its pe
 it refuses all five hack ROMs and accepts both vanilla ROMs.
 
 ## Limits, stated
+
+- A lone edge tile dropped into the middle of the four-platform stack of `$103` (test `N3`, 142 cells) stays an
+  Object of one cell in 94 cells, and there the Object directly behind it breaks exactly as the rule says
+  (no other platform changes, and none changes its order). In the other 48 cells the tile touches fill of a
+  neighbor's piece through an edge, grouping links it into that platform's edge, and the result differs: 29 leave
+  all four platforms whole, 19 do not (6 of those are the platform plus that one tile, 13 lose a platform). A tile
+  that grouping takes for an edge of a neighbor cannot be told from one.
 
 - Grouping is a heuristic over stored pieces. It gets `$103` screen 0 right (four platforms, each its three
   pieces) and is order independent over 60 seeded shuffles of a synthetic stack, but pieces of one Object that

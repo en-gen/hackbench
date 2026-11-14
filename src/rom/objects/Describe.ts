@@ -60,7 +60,7 @@ export function describeObject(found: FoundObject, slopeOf: SlopeOf): ObjectDto 
 
 /**
  * The DTOs of every found Object. Two Objects of one definition can share a top-left cell (stacked, one
- * covering the other's corner); they are told apart by their shape (the sorted cell list), never by their
+ * covering the other's corner); they are told apart by their shape (the sorted cell list, then the sorted stored pieces), never by their
  * place in the list, so an edit that reorders them does not move a selection to the other one.
  */
 export function describeObjects(found: readonly FoundObject[], slopeOf: SlopeOf): ObjectDto[] {
@@ -75,10 +75,11 @@ export function describeObjects(found: readonly FoundObject[], slopeOf: SlopeOf)
   })
 }
 
-/** The cells of an Object as one comparable string. */
+/** The cells of an Object, then its stored pieces, as one comparable string: two twins differ in at least one. */
 function shapeSignature(f: FoundObject): string {
-  return f.cells
+  const cells = f.cells
     .map(c => c.row * 4096 + c.col)
     .sort((a, b) => a - b)
     .join(',')
+  return `${cells}|${f.pieces.join(',')}`
 }

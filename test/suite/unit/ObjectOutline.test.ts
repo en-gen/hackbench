@@ -87,6 +87,7 @@ describe('describeObject', () => {
         definitionId: 'd',
         name: 'Ground',
         order: 7,
+        pieces: [],
         cells: [...rectCells(2, 3, 1, 3), cell(3, 3)],
       },
       noSlope,
@@ -140,61 +141,95 @@ describe('review round 1: slope chains, stable ids and keys', () => {
   })
 
   it('the Object key does not change when it moves forward in the stored list', () => {
-    const at = (order: number) => describeObject({ definitionId: 'd', name: 'G', order, cells: rectCells(2, 3, 1, 3) }, noSlope).key // prettier-ignore
+    const at = (order: number) => describeObject({ definitionId: 'd', name: 'G', order, cells: rectCells(2, 3, 1, 3), pieces: [] }, noSlope).key // prettier-ignore
     expect(at(4)).toBe(at(9))
   })
 })
 
-describe('review round 2: slope chains are staircases, twin keys do not depend on list order', () => {
+describe('slope segments (issue item 4, round 3 ruling 8)', () => {
+  /** A staircase of `n` slope tiles with a flat tile at its top and fill beneath: the flat side has no wall. */
   const hill = (n: number, rising: boolean): ObjectCell[] => {
     const cs: ObjectCell[] = []
+    const at = (c: number) => (rising ? c : n - c) // columns shift by one when falling, for the flat tile at 0
     for (let c = 0; c < n; c++) {
-      const col = rising ? c : n - 1 - c
-      cs.push(cell(n - 1 - c, col, 9))
-      for (let r = n - c; r <= n; r++) cs.push(cell(r, col, 4))
+      cs.push(cell(n - 1 - c, at(c), 9))
+      for (let r = n - c; r <= n; r++) cs.push(cell(r, at(c), 4))
     }
+    cs.push(cell(0, at(n), 1))
+    for (let r = 1; r <= n; r++) cs.push(cell(r, at(n), 4))
     return cs
   }
   const onlySlope = (t: number) => (t === 9 ? 1 : null)
+  const steps = (pts: number[]) => {
+    const out: [number, number][] = []
+    for (let i = 0; i + 3 < pts.length; i += 2)
+      out.push([pts[i + 2]! - pts[i]!, pts[i + 3]! - pts[i + 1]!])
+    return out
+  }
+  const monotone = (pts: number[]) => {
+    const d = steps(pts)
+    return !(d.some(([x]) => x > 0) && d.some(([x]) => x < 0)) && !(d.some(([, y]) => y > 0) && d.some(([, y]) => y < 0)) // prettier-ignore
+  }
 
-  for (let n = 2; n <= 7; n++)
+  for (let n = 1; n <= 7; n++)
     for (const rising of [true, false])
-      it(`a ${n}-step ${rising ? 'rising' : 'falling'} staircase is one slope segment, and no slope segment turns onto a wall`, () => {
-        const o = buildOutline(hill(n, rising), onlySlope)
-        const slopes = o.segments.filter(s => s.kind === 'slope')
+      it(`a ${n}-tile ${rising ? 'rising' : 'falling'} slope is one slope segment, monotone in x and y`, () => {
+        const slopes = buildOutline(hill(n, rising), onlySlope).segments.filter(
+          s => s.kind === 'slope',
+        )
         expect(slopes).toHaveLength(1)
-        // Alternating two directions, at least three runs, and no one-unit cap or wall on either end.
-        const pts = slopes[0]!.points
-        const dirs: string[] = []
-        for (let i = 0; i + 3 < pts.length; i += 2)
-          dirs.push(`${Math.sign(pts[i + 2]! - pts[i]!)},${Math.sign(pts[i + 3]! - pts[i + 1]!)}`)
-        expect(new Set(dirs).size).toBe(2)
-        expect(dirs.length).toBeGreaterThanOrEqual(3)
-        for (let i = 1; i < dirs.length; i++) expect(dirs[i]).not.toBe(dirs[i - 1])
+        expect(monotone(slopes[0]!.points)).toBe(true)
+        // It holds only boundary of slope cells: its end is the top of the last slope tile, never the flat tile's.
+        const xs = slopes[0]!.points.filter((_, i) => i % 2 === 0)
+        const span = Math.max(...xs) - Math.min(...xs)
+        expect(span).toBe(n * 16)
       })
 
-  it('the round 1 witness: the top tile of the hill and its right wall are not one slope segment', () => {
-    const o = buildOutline(hill(4, true), onlySlope)
-    for (const s of o.segments) {
-      const p = s.points.join()
-      expect(p.includes('48,0,64,0,64,16'), p).toBe(false)
+  it('the round 1 witness: the top of the top slope tile and its right wall are not one segment', () => {
+    const cs: ObjectCell[] = []
+    for (let c = 0; c < 4; c++) {
+      cs.push(cell(3 - c, c, 9))
+      for (let r = 4 - c; r <= 4; r++) cs.push(cell(r, c, 4))
+    }
+    for (const s of buildOutline(cs, onlySlope).segments)
+      expect(s.points.join().includes('48,0,64,0,64,16'), s.points.join()).toBe(false)
+  })
+
+  it('a floor of slope tiles never wraps round its seam: every slope segment is monotone', () => {
+    for (let w = 1; w <= 6; w++) {
+      const floor = Array.from({ length: w }, (_, c) => cell(2, c, 9))
+      for (const s of buildOutline(floor, onlySlope).segments) {
+        expect(monotone(s.points), `${w}: ${s.points.join()}`).toBe(true)
+        expect(s.points.join().includes(`${w * 16},32,0,32,0,16`)).toBe(false)
+      }
     }
   })
 
-  it('a floor of slope tiles has no slope segment at all: each side is one straight run', () => {
-    const floor = Array.from({ length: 4 }, (_, c) => cell(2, c, 9))
-    const o = buildOutline(floor, onlySlope)
-    expect(o.segments.every(s => s.kind === 'straight')).toBe(true)
-    expect(o.segments).toHaveLength(4)
+  it('a slope segment never takes the boundary of a non-slope cell', () => {
+    // Slope tile beside a flat tile: the flat tile's top and sides are straight segments of their own.
+    const cs = [cell(1, 0, 9), cell(1, 1, 1), cell(2, 0, 4), cell(2, 1, 4)]
+    const o = buildOutline(cs, onlySlope)
+    const slope = o.segments.filter(s => s.kind === 'slope')
+    expect(slope.length).toBeGreaterThan(0)
+    for (const s of slope)
+      expect(Math.max(...s.points.filter((_, i) => i % 2 === 0))).toBeLessThanOrEqual(16)
+  })
+
+  it('segment ids do not depend on the order the cells arrive in', () => {
+    const a = buildOutline(hill(4, true), onlySlope)
+    const b = buildOutline([...hill(4, true)].reverse(), onlySlope)
+    expect(b.segments).toEqual(a.segments)
+    expect(b.visiblePath).toBe(a.visiblePath)
   })
 
   it('twin Objects keep their keys when the list order flips', () => {
-    const a = { definitionId: 'd', name: 'G', order: 3, cells: rectCells(2, 2, 2, 3) }
+    const a = { definitionId: 'd', name: 'G', order: 3, cells: rectCells(2, 2, 2, 3), pieces: [3] }
     const b = {
       definitionId: 'd',
       name: 'G',
       order: 5,
       cells: [...rectCells(2, 2, 1, 2), cell(3, 2)],
+      pieces: [5],
     }
     const keysOf = (list: (typeof a)[]) =>
       new Map(describeObjects(list, noSlope).map(d => [d.runs.map(r => r.len).join(), d.key]))

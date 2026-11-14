@@ -122,8 +122,8 @@ const dirOf = (r: Run): string =>
 
 /**
  * Whether a run continues a slope chain: the same angle, and still one monotone staircase, which turns
- * between two directions only. A third direction (down a wall, round a corner) or the same direction
- * twice in a row starts a new segment.
+ * between two directions only (so it never reverses in x or in y). A third direction (down a wall, round a
+ * corner, across the loop seam) starts a new segment. A single run is a chain: a lone slope tile is one segment.
  */
 function chainable(chain: readonly Run[], run: Run): boolean {
   if (run.slope === null || chain[chain.length - 1]!.slope !== run.slope) return false
@@ -166,21 +166,17 @@ export function buildOutline(cells: readonly ObjectCell[], slopeOf: SlopeOf): Ou
       if (last && run.slope !== null && chainable(last, run)) last.push(run)
       else chains.push([run])
     }
-    const first = chains[0]
-    const tail = chains[chains.length - 1]
-    if (chains.length > 1 && first![0]!.slope !== null && chainable(tail!, first![0]!)) {
-      // The chain straddles the loop start: join the last onto the first, if it is still one staircase.
-      const joined = [...tail!, ...first!]
-      if (joined.every((r, i) => i === 0 || chainable(joined.slice(0, i), r))) {
-        chains.pop()
-        first!.unshift(...tail!)
-      }
+    // The loop starts at a corner, not at the start of a staircase: the last chain takes as many of the first
+    // chain's runs as still make it one staircase (the seam between them is not a corner of its own).
+    if (chains.length > 1) {
+      const tail = chains[chains.length - 1]!
+      const first = chains[0]!
+      while (first.length > 0 && tail[0]!.slope !== null && chainable(tail, first[0]!))
+        tail.push(first.shift()!)
+      if (first.length === 0) chains.shift()
     }
-    // A chain of fewer than three runs is a corner, not a staircase: it is split into its runs, each a
-    // straight segment, so no slope segment turns a corner onto a wall or a floor.
-    const staircases = chains.flatMap(c => (c.length >= 3 ? [c] : c.map(r => [r])))
-    staircases.forEach(chain => {
-      const slope = chain.length >= 3 && chain[0]!.slope !== null
+    chains.forEach(chain => {
+      const slope = chain[0]!.slope !== null
       const pts: number[] = []
       const units = chain.flatMap(r => r.units)
       pts.push(px(units[0]!.x0), px(units[0]!.y0))

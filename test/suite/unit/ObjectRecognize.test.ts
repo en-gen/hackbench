@@ -162,8 +162,15 @@ describe('acceptance 3: four stacked platforms', () => {
         const j = Math.floor(rand() * (i + 1))
         ;[order[i], order[j]] = [order[j]!, order[i]!]
       }
-      const found = recognizeObjects(stamp(stackPieces(order), 40, 28), [STACK_DEF])
-      expect(found, order.join()).toHaveLength(4)
+      const m = stamp(stackPieces(order), 40, 28)
+      const found = recognizeObjects(m, [STACK_DEF])
+      // A platform every cell of which a later piece covers has nothing to select: it is not offered (N8).
+      const shown = PLATFORMS.filter(
+        (_, k) =>
+        m.owners.some((row, r) => row.some((o, c) => [0, 1, 2].some(i => o === 1 + order.indexOf(k * 3 + i)) && r >= PLATFORMS[k]!.y && c >= PLATFORMS[k]!.x && c < PLATFORMS[k]!.x + PLATFORMS[k]!.w)), // prettier-ignore
+      )
+      expect(found, order.join()).toHaveLength(shown.length)
+      for (const p of shown) expect(wholeOf(found, p), order.join()).toBeDefined()
     }
   })
 })

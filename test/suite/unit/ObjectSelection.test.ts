@@ -23,7 +23,10 @@ const dto = (
   id = 'd',
   slope: Record<number, number> = {},
 ): ObjectDto =>
-  describeObject({ definitionId: id, name: 'Ground', order, cells: cs }, t => slope[t] ?? null)
+  describeObject(
+    { definitionId: id, name: 'Ground', order, cells: cs, pieces: [] },
+    t => slope[t] ?? null,
+  )
 
 // A 4 x 2 platform: x 48..112, y 80..112 (cells row 5-6, col 3-6).
 const PLATFORM = dto(cells(5, 3, 2, 4))
