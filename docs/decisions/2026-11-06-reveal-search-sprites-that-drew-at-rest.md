@@ -43,17 +43,17 @@ Question 3: Proposed 2026-11-13 (India Team, night shift), queue item D207; not 
 - A sprite that drew at rest and is revealed only by a later condition (more frames, P-switch, ON/OFF) now shows the revealed picture in the door, with that condition's tooltip, instead of its at-rest picture marked `none-found`. 0 on vanilla. [EST: sweep below]
 - The rope is not compared: its at-rest run is placed in the slot the loader gives it and its reruns run in slot 0, so their pictures differ in length and could not be equal. The 12 vanilla ropes are none of them hidden, so the search never reaches them on vanilla. [EST: the sweep listing, `RevealSearch.ts` `comparable`]
 - Vanilla sweep (a smoke test, not coverage evidence), 488 maps, 3,239 placed sprites, one machine, develop 0a0dc7ba against this branch: revealed 65 to 36 (`mario-at-sprite` 65 to 36, the other five conditions 0 and 0), kept in the door 0 to 29, hidden 101 and 101, markers unchanged. The 42 vanilla sprites that drew at rest and are now hidden were all revealed by the first try before; now the 29 moles are not and the 13 $A8 sprites are. Conditions skipped for repeating the at-rest picture: each of the six 29 times (the 29 moles). [EST: `reveal-sweep.ts`, one run each, vanilla ROM]
-- Load cost of map open, the node-side handling of the map view's sprite request (`mapSprites`, the body of the RPC the widget calls on open; fresh `L1ModelCache` for cold, a new copy of the working-copy bytes per warm run), Ryzen 9 5950X, Windows 11, Node 26, 5 cold processes and 25 warm runs per side, medians:
+- Load cost, the node-side `mapSprites` call (the body of the RPC the widget makes for a map's sprites on open) under whatever load the machine had: Ryzen 9 5950X, Windows 11, Node 26, CPU at 91% before and 81% after the runs with about 120 node processes of other teams running, so the absolute times are inflated and only the before/after pairs mean anything. Develop 0a0dc7ba (a throwaway worktree) and the branch were run ALTERNATED (before, after, after, before, ...) in 8 cold processes per side, each with 5 warm calls (new copy of the working-copy bytes, so the reply cache misses, the model cache warm); cold is a fresh `L1ModelCache`. Median (min), ms:
 
-  | Map | Interpreter runs before / after | Cold ms before / after | Warm ms before / after |
+  | Map | Runs before / after | Cold before / after | Warm before / after |
   | --- | --- | --- | --- |
-  | 10 | 337 / 462 | 1789 / 4173 | 1635 / 3700 |
-  | 106 | 247 / 267 | 786 / 1218 | 813 / 1203 |
-  | 10a | 490 / 490 | 1929 / 2006 | 1820 / 1804 |
-  | 117 | 118 / 118 | 470 / 500 | 460 / 469 |
-  | 1ef | 116 / 116 | 547 / 547 | 517 / 490 |
+  | 10 | 337 / 462 | 918 (806) / 2155 (1802) | 1048 (719) / 2640 (2120) |
+  | 106 | 247 / 267 | 615 (553) / 845 (801) | 620 (466) / 847 (716) |
+  | 10a | 490 / 490 | 1353 (1109) / 1357 (1203) | 1375 (1104) / 1360 (1146) |
+  | 117 | 118 / 118 | 352 (306) / 351 (323) | 358 (281) / 364 (230) |
+  | 1ef | 116 / 116 | 384 (348) / 390 (354) | 370 (278) / 370 (274) |
 
-  The time follows the reruns: 25 moles on map 10 and 4 on map 106 take 5 more reruns each (the six conditions where one found it before), the more-frames one running 256 passes. Maps 10a, 117, 1ef run the same reruns and their differences are noise. The map model build is 110 to 170 ms of each total, so the sprite build is nearly all of it. The cost falls on every open of a map not already in the reply cache (a reply is kept per working-copy bytes, 8 maps). [EST: one machine, vanilla ROM, other teams running on it; a hack ROM was not measured]
+  The time follows the reruns: the 25 moles on map 10 and the 4 on map 106 take 5 more reruns each (the six conditions where one found it before), the more-frames one running 256 passes. Maps 10a, 117, 1ef run the same reruns and their differences are noise. The map model build is about 110 to 170 ms of each total, so the sprite build is nearly all of it. The cost falls on every open of a map not already in the reply cache (a reply is kept per working-copy bytes, 8 maps). [EST: one machine under load, vanilla ROM; a hack ROM was not measured. An earlier run on the same machine under other load gave 1789 to 4173 ms cold for map 10, so the size of the gap is roughly 1.1 to 2.4 s, not a fixed number]
 - 3A keeps the 29 vanilla tooltips as they were and avoids those 145 extra reruns (125 on map 10, 20 on 106), since the search stops at the first Mario position; 3B changes the 29 tooltips and pays them; 3C changes them to a milder wording. [EST: the sweep and table above]
 
 ## Evidence scope
