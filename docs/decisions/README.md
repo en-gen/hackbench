@@ -6,6 +6,8 @@ The morning brief after a night shift is `grep -l '^Proposed' docs/decisions/*.m
 
 | File | State | Decides |
 | --- | --- | --- |
+| [2026-11-14-per-test-timeout-floor-raise-all.md](2026-11-14-per-test-timeout-floor-raise-all.md) | Proposed | [PROP] the four per-test timeouts under 30 s in #1333's table (contentGate lines 79, 344; playwrightAppDataGate lines 265, 278) are all raised to `slow(30_000)`, none kept with a `// timeout-floor:` reason (#1333, PR #1410) |
+| [2026-11-14-revealsearch-budget-not-cut.md](2026-11-14-revealsearch-budget-not-cut.md) | Proposed | [PROP] the RevealSearch 32 px window test gets `slow(60_000)` and keeps its full 256-start sweep; cutting the work would need a planted-gap proof (#1332, PR #1410) |
 | [2026-11-13-object-definitions-one-file-each.md](2026-11-13-object-definitions-one-file-each.md) | Proposed | Object definitions are saved one file each, `meta/objects/<id>.json`, beside `groups.json`, so a damaged file takes only itself out (#1236) |
 | [2026-11-13-object-readers-sets-size-cap-id-pattern.md](2026-11-13-object-readers-sets-size-cap-id-pattern.md) | Proposed | readers take edge and fill as sets, skip a file over 64 KiB, and limit ids to lowercase letters, digits and hyphens, 64 at most (#1236) |
 | [2026-11-13-objects-delete-two-click-confirm.md](2026-11-13-objects-delete-two-click-confirm.md) | Proposed | deleting an Object takes two clicks (Delete, then Confirm delete), not a dialog (#1236) |

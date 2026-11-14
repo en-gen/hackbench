@@ -4,11 +4,15 @@
  * LevelStart.synthetic.test.ts. Measured on one machine, the corpus as listed
  * in docs/testing.md.
  */
-import { beforeAll, describe, it, expect } from 'vitest'
+import { beforeAll, describe, it, expect, vi } from 'vitest'
 import { SmwRom } from '../../../src/rom/SmwRom'
 import { readLevelStart } from '../../../src/rom/LevelStart'
 import { deriveOverworldEntrances } from '../../../src/rom/OverworldEntrances'
+import { loadTimeout } from '../support/loadTimeout'
 import { freshRom, hasRom, INVICTUS, MAGIC, VANILLA } from '../support/corpus'
+
+// "every horizontal entry map" took 3.6, 4.0 and 4.4 s alone, one machine; the 5 s default fails under 3-slot load (#771).
+vi.setConfig({ testTimeout: loadTimeout(30_000), hookTimeout: loadTimeout(30_000) })
 
 describe.skipIf(!hasRom(VANILLA))('readLevelStart on the vanilla ROM', () => {
   // describe.skipIf still runs this body to collect tests, so the ROM loads in beforeAll.

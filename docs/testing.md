@@ -40,7 +40,7 @@ read:
   same text rules.
 - **`rom-provenance` (#812).** A comment claiming nearby data was copied from
   the game (`vanilla $<address>`, `copied|taken|lifted|dumped from`, `ROM
-  bytes`, ...) over a numeric array literal of 2+ elements. A claim is the
+bytes`, ...) over a numeric array literal of 2+ elements. A claim is the
   signal because 4 copied bytes cannot be told from invented ones; write
   "invented values" instead, or add a pragma.
 - **`rom-window` (#1053).** A non-`.md` text file a commit adds holding a run
@@ -377,6 +377,28 @@ and refuses a file without the line (#1209). A file that mocks `child_process` i
 exempt, as is a type-only import. The gate reads text, exempts a partial mock,
 and does not see a starter reached through a helper other than those two.
 
+`perTestTimeoutFloor.ts` (#1333) reads the same files with the TypeScript
+compiler API and reports `file:line value` for every timeout under 30,000 that
+is a test's, describe's, hook's or `vi.setConfig`'s own: a `slow(n)` or
+`loadTimeout(n)` argument, a trailing number, `{ timeout }` options (also via a
+spread or a module const), and `testTimeout` or `hookTimeout` in `vi.setConfig`.
+A wrapper call elsewhere, such as a child-process `timeout`, is not read.
+Literals, arithmetic of them and module-scope `const`s resolve; a `let`, a
+shadowed or imported name, or an options variable it cannot follow is reported
+as "cannot read". A value kept on purpose carries a real
+`// timeout-floor: <reason>` comment on the run of lines directly above its `it`,
+`describe`, hook or `vi.setConfig` statement (a blank line ends the run), or
+trailing that statement's last line. Only a call that is itself a statement can
+be kept: `await it(...)` cannot. It keeps only that statement: not a nested test
+inside it, not a const it reads, and not a comment on a wrapped argument
+(Prettier moves those). An empty reason, a block comment, a string, or text
+before `// timeout-floor:` does not count. An offence read through an options
+const is reported at each use site. A computed key in an options object is
+reported as "cannot read", as is an aliased or namespaced wrapper
+(`s.slow(n)`) in timeout position. Not read: registrar aliases (`const t = it`,
+`import { it as t }`), `vi?.setConfig`, test names made by `test.extend`,
+`suite`, and tagged-template `each`.
+
 ## Proving an oracle can fail
 
 A test that cannot go red is worse than no test, because it reports
@@ -569,10 +591,13 @@ The sprite grader has two tiers against these captures. Tier 1
 (`spriteGrade.ts`) grades OAM shape relative to the sprite. Tier 2
 (`spritePosition.ts`, `SpritePosition.test.ts`, #830) grades where the
 pieces sit on the map: the capture's drawing at `drawnFrame` (the first frame
-with every tile complete, not the first OAM write) against the model's pass
-`drawnFrame - firstRealFrame`, counted from the model's pass 0 (the first
-MAIN after INIT, as the capture's `firstRealFrame` is), so `chosen` is not
-added; the lag is 1 to 116 frames over the 1955 graded records. Both sides
+with every tile complete, not the first OAM write) against the model's pass:
+for a map-start sprite (INIT at or before the capture's `gateFrame`, see
+"Map-start sprites in the sprite grader" below) `max(0, drawnFrame -
+gateFrame)`, the same function Tier 1 uses (`mapStartPass` in
+`gradeTimeline.ts`, #875); for any other sprite `drawnFrame -
+firstRealFrame`, counted from the model's pass 0 (the first MAIN after INIT,
+as the capture's `firstRealFrame` is). `chosen` is not added. Both sides
 are placed with the capture camera; the model is seeded with the camera at
 `drawnFrame`. Positions are compared in map coordinates. Graded captures never
 set X bit 8; the 9-bit X is synthetic-only coverage. It reports exact, off,
@@ -582,11 +607,79 @@ sides drew only parked pieces, at matching positions: agreement), late (the
 model had not drawn yet at the target pass, the capture had), lagged (target
 pass past the pass count, drew or not) and refused, per sprite and per id
 (`SPRITE_POSITION_OUT=<file>` dumps the records), and holds a bound per verdict
-with 1% headroom (vanilla, one machine, 2026-11-11 after the #1370 re-capture: 1424 exact, 431
-off, 1 missing, 18 parked, 1 late, 80 lagged, 0 refused of 1955; 2026-10-17 on the #842 head: 1396, 461, 1, 18, 1, 80, 0 of 1957; 1366, 469 and 23 before #842). All 80
-lagged records are captures whose first draw came 31 to 89 frames after the
-first MAIN (likely the level fade-in, not traced); it is not re-aligned to the
-first draw.
+with 1% headroom (vanilla, one machine, 2026-11-13 for #875: 1495 exact, 404 off, 2 missing, 19
+parked, 1 late, 34 lagged, 0 refused of 1955; 2026-11-11 after the #1370 re-capture: 1424 exact, 431
+off, 1 missing, 18 parked, 1 late, 80 lagged, 0 refused; 2026-10-17 on the #842 head: 1396, 461, 1, 18, 1, 80, 0 of 1957; 1366, 469 and 23 before #842). It is not
+re-aligned to the first draw. Before #875 every sprite used
+`drawnFrame - firstRealFrame`, which counted GM13's frames as passes for
+map-start sprites (the 80 `lagged` records, first draw 31 to 89 frames after
+the first MAIN); 34 are still `lagged`, 23 of them on reload maps (below).
+
+#### Map-start sprites in the sprite grader
+
+A map-start sprite is one whose INIT ran in GM12, the loader's own frame: its
+capture `initFrame` is at or before the capture's `gateFrame`. (The glossary's
+"level" is a composed set of maps; the game modes below are the game's own
+names.) Both tiers count its passes from the gate, `max(0, drawnFrame -
+gateFrame)` (`mapStartPass`, `gradedPass` and `timelineFor` in
+`test/suite/support/gradeTimeline.ts`, #875; `gateFrame` is required, a capture
+whose summary has none, or a value of 0 or less, is refused with the map named).
+Any other sprite is graded as before: Tier 1 at `drawnFrame - max(anchorFrame,
+initFrame + 1)`, Tier 2 at `drawnFrame - firstRealFrame`.
+
+**Scope: maps without an entrance reload** (`capture_summary.json`
+`reloadDuringWait` false; 116 of 161 maps in `layers_v5`). On a reload map
+`gateFrame` is the entrance room's first GM14 frame, not the real map's, so its
+map-start sprites have `initFrame > gateFrame` and keep the anchor rule; that
+gap (and the 24 spawned-in-play records whose first draw is before the anchor,
+all on reload maps) is #1397. Before #875 Tier 2 counted every sprite from
+`firstRealFrame`, which counted GM13's frames as passes (80 `lagged`
+records); 34 remain `lagged`, 23 of them on reload maps, so the fix does not
+account for all 80.
+
+Why, from the code (SMWDisX plus `en-gen/hackbench-validation`
+`capture/mesen/headless_capture.lua` at commit 48d348c; one reading, checked
+by a second agent):
+
+- GM12 runs the loader's INIT and then one MAIN: `GM12PrepLevel` calls
+  `CODE_05809E` (bank_00.asm:4860), which reaches the loader's sprite loop
+  (bank_05.asm:72, bank_02.asm:5172), then the non-IRQ path runs `CODE_009860`
+  (bank_00.asm:4866-4873), whose body calls `CODE_01808C` (2826). That MAIN is
+  pass 0. With `IRQNMICommand` negative GM12 skips the loader's call
+  (bank_00.asm:4862-4864, bank_02.asm:5171) but still reaches `CODE_009860`; a
+  sprite in that case would INIT there, have its first MAIN at G + 1 and be
+  graded one pass late. Latent: no corpus record reaches it.
+- GM13 is `GMTransitionMosaic` (bank_00.asm:4075-4103) and runs no sprite code:
+  the callers of `CODE_01808C` are exactly bank_00.asm:2826, 2922 (boss rooms),
+  4534 (GM14) and bank_02.asm:5172 (the loader). So no INIT is stamped between
+  GM12 and the gate.
+- `SpriteLock` is cleared by the level setup for entrance types 0 and 5 only
+  (bank_00.asm:4996, `CODE_00A6CC`); the pipe entrances take `CODE_00A716`. The
+  capture holds `$9D` only at the four snapshots at and after the anchor
+  (all 0), never between the gate and the anchor.
+- The harness stamps frames by WRAM writes to $0200-$049F, not PPU OAM
+  (lua:1285-1293), as `frame + 1` (1768) in `onFrame` on `endFrame` (2128);
+  `drawnFrame` at 1417 and 1421, `firstRealFrame` at 1317. `gateFrame` is
+  `levelGateFrame`, set (1884) the first time `onFrame` reads GameMode $14
+  (the test at 1866); the summary writes `levelGateFrame or 0` (1147). That is
+  the endFrame of the game frame whose `INC GameMode` (bank_00.asm:4094) left
+  GM13, so the gate is the LAST GM13 frame and the first GM14 MAIN is stamped
+  gate + 1. A draw stamped D is pass D - gate.
+- Direct support for D - gate with no GM14 lag frame: for every one of the 128
+  map-start records drawn after the gate on `layers_v5` (131 map-start
+  records pass the grader's filter, id <= $C8 and a recorded frame with tiles),
+  `effFrame` at D minus (D - gate) is 16, and `trueFrame` minus (D - gate) is
+  169; GM12's `CODE_00A5F9` (bank_00.asm:4891-4899) advances `EffFrame` to a
+  multiple of 8 and GM14 increments it once per frame (bank_00.asm:7904).
+  Vanilla, one machine, on those maps only.
+
+Assumptions not verified: Mesen fires `endFrame` before the NMI handler; no
+GM14 lag frame lies between the gate and D (the effFrame constant above is
+the evidence that none does on these 128 records). Result on `layers_v5`
+(vanilla, one machine, 1955 records): Tier 1 exact 1925 to 1928, wrong 13 to
+10, missAtK 3 to 0, fallback 42 to 39; maps 0C3 ($49), 130 ($76) and 0D0 ($6F
+idx 29) go from wrong to exact. Of the 131 map-start records, 91 have the
+anchor on the gate, where the anchor rule already gave the same pass.
 
 A map's result comes from its Foreground, Background and Effects checks;
 Sprites are informational and never decide it. Exit codes:
@@ -967,12 +1060,12 @@ real worktree holding a modified file, an untracked file and ignored files
 slot. Git 2.54.0.windows.1, Windows 11 (Git Bash), one machine, 2026-11-03. Nothing
 here ran in a real checkout.
 
-| Command | `.overwatch/` | `.worktrees/<task>` (clean and dirty alike) |
-| --- | --- | --- |
-| `git clean -nx` | not listed (no `-d`) | not listed |
-| `git clean -ndx` | "Would remove .overwatch/" | "Would skip repository" for each |
-| `git clean -fdx` | **deleted**, sessions, handoffs and lock slots with it | skipped, untouched |
-| `git clean -ffdx` | deleted | **deleted whole**, uncommitted and ignored files included; branches survive, `git worktree list` then shows each as prunable |
+| Command           | `.overwatch/`                                          | `.worktrees/<task>` (clean and dirty alike)                                                                                  |
+| ----------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `git clean -nx`   | not listed (no `-d`)                                   | not listed                                                                                                                   |
+| `git clean -ndx`  | "Would remove .overwatch/"                             | "Would skip repository" for each                                                                                             |
+| `git clean -fdx`  | **deleted**, sessions, handoffs and lock slots with it | skipped, untouched                                                                                                           |
+| `git clean -ffdx` | deleted                                                | **deleted whole**, uncommitted and ignored files included; branches survive, `git worktree list` then shows each as prunable |
 
 A `.hackbench-state` junction to `.overwatch` (the layout after `cutover-state`)
 behaves the same: `-ndx` lists it, `-fdx` removes the link and the folder, and no

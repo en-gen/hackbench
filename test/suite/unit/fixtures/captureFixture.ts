@@ -91,7 +91,7 @@ export function captureFiles(
     CGWSEL_2130: { byte: null, wramColorAddition: 2 },
   } // prettier-ignore
   return {
-    'capture_summary.json': j({ identityGate: 'pass', anchorFrame: 100, samples: [{ offset: 0 }, { offset: 8 }] }), // prettier-ignore
+    'capture_summary.json': j({ identityGate: 'pass', anchorFrame: 100, gateFrame: 80, samples: [{ offset: 0 }, { offset: 8 }] }), // prettier-ignore
     'vram.bin': Buffer.from(f.vram),
     'frame_0000_cgram.bin': Buffer.alloc(512),
     'map16_grid.bin': Buffer.from(f.grid),

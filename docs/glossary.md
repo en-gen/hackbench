@@ -143,6 +143,10 @@ alternating squares of its own grid it is solid, on the others dim (D52, `hidden
 drawn through that tile in it; a sprite that draws nothing at rest and is found by the reveal search (D142) is drawn in it
 whole, every pixel, with a hover that says what shows it ([reveal-search.md](rom/reveal-search.md)). Hovering lifts it to solid (#879).
 
+**Map-start sprite.** A sprite whose INIT ran in GM12, the loader's own frame, before the map is shown: in a capture its
+`initFrame` is at or before `gateFrame`. The sprite grader counts its passes from the gate frame; a sprite spawned later
+is "spawned in play" ([testing.md](testing.md), "Map-start sprites in the sprite grader").
+
 ## The connection words
 
 **Object.** What the user defines in the Objects activity, and what the map
