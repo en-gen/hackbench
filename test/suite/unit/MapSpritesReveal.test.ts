@@ -3,9 +3,9 @@
  * `drawSprites` / `compositeSpriteScreen` / `spriteName` carry the result to the screen door and the hover. Synthetic
  * cart (syntheticRevealSprites.ts), so CI needs no ROM.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { LevelSprite } from '../../../src/rom/LevelParser'
-import { MARIO_STATE } from '../../../src/rom/sprites/interp/RevealSearch'
+import { findReveal, MARIO_STATE } from '../../../src/rom/sprites/interp/RevealSearch'
 import { runOnce } from '../../../src/rom/sprites/interp/SpriteRunner'
 import { withSeed, SPRITE_SEED, type SpriteSeed } from '../../../src/rom/sprites/interp/SpriteSeed'
 import {
@@ -28,6 +28,12 @@ import { notDrawnText } from '../../../theia/extension/src/browser/sprite-props'
 import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
 import { buildSyntheticRom } from '../support/syntheticSpriteRom'
 import { COLORS } from '../support/mapInputs'
+
+// Passes through to the real search, and records what the drawer called it with (#1365: the options it hands over).
+vi.mock('../../../src/rom/sprites/interp/RevealSearch', async importOriginal => {
+  const real = await importOriginal<typeof import('../../../src/rom/sprites/interp/RevealSearch')>()
+  return { ...real, findReveal: vi.fn(real.findReveal) }
+})
 
 const rom = buildSyntheticRom()
 const model = { isVertical: false, screenCount: 0x20 }
@@ -223,6 +229,13 @@ describe('what the served drawer tells the reveal search (#1365)', () => {
   it('does not compare a rope with its reruns, and compares every other sprite', () => {
     expect(revealOptions(true).comparable).toBe(false)
     expect(revealOptions(false).comparable).toBe(true)
+  })
+
+  it('hands the search its options when it drives it: a sprite that is not a rope is compared, with the slot key', () => {
+    ok(drawer()(entry(140)))
+    const calls = vi.mocked(findReveal).mock.calls
+    expect(calls.length).toBeGreaterThan(0)
+    expect(calls.at(-1)![3]).toMatchObject({ comparable: true, extraKey: expect.any(Function) })
   })
 
   it('adds the graphics slots a pass pointed at to the picture, per pass', () => {

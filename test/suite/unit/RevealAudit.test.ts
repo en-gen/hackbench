@@ -152,6 +152,19 @@ describe('sweepSection (reveal-sweep)', () => {
     expect(t).toContain('(not counted, D207): 1\nmap 105 #2 $74 (column 25, row 23): mario-at-sprite') // prettier-ignore
     expect(t).toContain('at-rest picture (#1365):\nmario-at-sprite: 1\nmore-frames: 1\np-switch: 1') // prettier-ignore
   })
+  it.each([
+    ['mario-at-sprite', true],
+    ['mario-left', true],
+    ['mario-right', true],
+    ['more-frames', false],
+    ['p-switch', false],
+    ['on-off', false],
+  ])('lists the sprite by name for a skipped %s only when Mario moves: %s', (c, listed) => {
+    const t = sweepSection('ROM', [{ ...rows[0]!, hidden: true, condition: 'none-found', sameAsRest: [c] }], []) // prettier-ignore
+    expect(t).toContain(`(not counted, D207): ${listed ? 1 : 0}`)
+    expect(t).toContain(`at-rest picture (#1365):
+${c}: 1`)
+  })
   it('blanks ids and numbers in a refusal reason so one refusal counts once', () => {
     const a = { ...rows[0]!, marker: 'refused: the sprite became $FF: id $ff is past 201' }
     const b = { ...rows[0]!, index: 9, marker: 'refused: the sprite became $12: id $12 is past 77' }

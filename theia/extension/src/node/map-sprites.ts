@@ -75,6 +75,7 @@ import {
   findReveal,
   type RevealCondition,
   type RevealOptions,
+  netColors,
 } from '../../../../src/rom/sprites/interp/RevealSearch'
 import {
   castleFlames,
@@ -601,8 +602,6 @@ const revealText = (c: RevealCondition) => c === 'none-found' ? REVEAL_TEXT[c] :
  */
 const SETTLE_TAIL = 16
 
-/** The colors CGRAM holds after pass `p`: the run's writes are cumulative and the last one to a color wins. */
-const netColors = (m: RunModel, p: number) => new Map(m.passes[p]!.palette.map(w => [w.index, w.bgr555] as const)) // prettier-ignore
 /** True when two net color maps hold the same color at every index. */
 const sameColors = (a: Map<number, number>, b: Map<number, number>) => a.size === b.size && [...a].every(([i, v]) => b.get(i) === v) // prettier-ignore
 

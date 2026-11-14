@@ -499,12 +499,17 @@ describe('what counts as the same picture (#1365 acceptance 3)', () => {
     palette?: { index: number; bgr555: number }[]
     /** A leading pass that draws something else, so the picked pass is not pass 0. */
     lead?: Part[]
+    /** CGRAM writes of a last pass after the drawn one (cumulative: they include `palette`), that draws nothing. */
+    tail?: { index: number; bgr555: number }[]
+    /** Neighbor children the drawn pass drew (`PassResult.drew`), each with the OAM entries written for it. */
+    children?: { index: number; oam: number[] }[]
   }
   /** A hand-built run: one drawn pass (after `lead` passes that draw something else), `chosen` on it. */
   const look = (o: Look = {}): SpriteModel => {
     const pass = (parts: Part[], x: Look = {}) => ({ parts: parts.map(part), companions: (x.companions ?? []).map(part), uploads: x.uploads ?? [], palette: x.palette ?? [] }) // prettier-ignore
-    const passes = [...(o.lead ? [pass(o.lead)] : []), pass(o.parts ?? [{}], o)]
-    return { passes, chosen: passes.length - 1 } as unknown as SpriteModel
+    const drawn = { ...pass(o.parts ?? [{}], o), ...(o.children ? { drew: { children: o.children, shift: { x: 0, y: 0 } } } : {}) } // prettier-ignore
+    const passes = [...(o.lead ? [pass(o.lead)] : []), drawn, ...(o.tail ? [pass([], { palette: o.tail })] : [])] // prettier-ignore
+    return { passes, chosen: o.lead ? 1 : 0 } as unknown as SpriteModel
   }
   /** What the search makes of a rerun that looks like `b` against a start that looked like `a`. */
   const verdict = (a: Look, b: Look, extra: Parameters<typeof findReveal>[3] = {}) => {
@@ -557,8 +562,51 @@ describe('what counts as the same picture (#1365 acceptance 3)', () => {
     expect(verdict({ lead: [{ char: 0x40 }], parts: [{}] }, { lead: [{ char: 0x42 }], parts: [{}] })).toBe('unrevealed') // prettier-ignore
   })
 
+  const w = (index: number, bgr555: number) => ({ index, bgr555 })
+
+  it('compares the net colors the map draws, not the history of writes: a different count or order is the same picture', () => {
+    // Index 1 is written twice in one run and once in the other, 2 and 1 in another order: both end on 1 = 9, 2 = 7.
+    const a = { palette: [w(1, 5), w(2, 7), w(1, 9)] }
+    const b = { palette: [w(2, 7), w(1, 9)] }
+    expect(verdict(a, b)).toBe('unrevealed')
+    expect(verdict(a, { palette: [w(1, 9), w(1, 9), w(2, 7), w(2, 7), w(1, 9)] })).toBe(
+      'unrevealed',
+    )
+    // Control: the same writes ending on another color are another picture.
+    expect(verdict(a, { palette: [w(2, 7), w(1, 8)] })).toBe('hidden')
+  })
+
+  it('compares the colors at the last pass: a change after the drawn pass is another picture', () => {
+    const [x, y] = [
+      { palette: [w(1, 5)], tail: [w(1, 5)] },
+      { palette: [w(1, 5)], tail: [w(1, 5), w(1, 6)] },
+    ]
+    expect(verdict(x, y)).toBe('hidden')
+    expect(verdict(x, { palette: [w(1, 5)], tail: [w(1, 5)] })).toBe('unrevealed')
+  })
+
+  it('the children a pass drew are part of the picture, as the map shows each as its own sprite', () => {
+    const kids = (index: number) => ({ parts: [{ oam: 1 }, { oam: 2, dx: 16 }], children: [{ index, oam: [2] }] }) // prettier-ignore
+    expect(verdict(kids(3), kids(3))).toBe('unrevealed')
+    expect(verdict(kids(3), kids(4))).toBe('hidden')
+    expect(verdict(kids(3), { parts: [{ oam: 1 }, { oam: 2, dx: 16 }] })).toBe('hidden')
+  })
+
   it('a rerun that is not comparable with the start (the rope) counts as a reveal, as before', () => {
     expect(verdict({}, {}, { comparable: false })).toBe('hidden')
+  })
+})
+
+describe('a sprite that writes the same color every frame (the reviewer witness, id 180)', () => {
+  it('is no more-frames reveal: 256 passes write more than 64 but end on the same colors', () => {
+    const r = search(180, SX, SX).result
+    expect(r.status).toBe('unrevealed')
+    expect(r.status === 'unrevealed' && r.sameAsRest).toEqual(['mario-at-sprite', 'mario-left', 'mario-right', 'more-frames', 'p-switch', 'on-off']) // prettier-ignore
+  })
+  it('control: the run really writes a color every pass, so the 256 pass history is longer', () => {
+    const [a, b] = [64, 256].map(n => runOnce(rom, 180, seedAt(SX, SX, { mainPasses: n }), { atRest: true })) // prettier-ignore
+    expect(b.passes.at(-1)!.palette.length).toBeGreaterThan(a.passes.at(-1)!.palette.length)
+    expect(new Set(b.passes.at(-1)!.palette.map(x => x.bgr555))).toEqual(new Set(a.passes.at(-1)!.palette.map(x => x.bgr555))) // prettier-ignore
   })
 })
 

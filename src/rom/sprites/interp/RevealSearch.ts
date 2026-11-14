@@ -6,7 +6,7 @@
  * it draw. Nothing is keyed on a sprite id: the ROM's own sprite loop runs the handler, and only a drawn frame counts.
  * No shell imports: the caller gives the rerun.
  */
-import { drawnParts, type SpriteModel } from './SpriteRunner'
+import { drawnParts, type SpriteModel, type SpritePart } from './SpriteRunner'
 import { withSeed, type SeedOverride, type SpriteSeed } from './SpriteSeed'
 
 /** What made a hidden sprite draw, in search order (D142). `none-found` is set by the node side, never found here. */
@@ -114,27 +114,47 @@ export interface RevealOptions {
 }
 
 /**
+ * The colors CGRAM holds after pass `p`: the run's writes are cumulative (`PassResult.palette`, in application order)
+ * and the last one to a color wins. What the map view draws with (`runtimeColors`, map-sprites.ts), and so what two
+ * runs are compared by: the history of writes is not, since a run that writes a color every pass has a longer one.
+ */
+export const netColors = (m: SpriteModel, p: number): Map<number, number> =>
+  new Map(m.passes[p]!.palette.map(w => [w.index, w.bgr555] as const))
+
+/** One part as the comparison sees it. */
+const partKey = (q: SpritePart): string =>
+  [q.char, q.dx, q.dy, q.palette, q.priority, +q.flipX, +q.flipY, q.size, +!!q.door].join(',')
+
+/**
  * A run's picture as a comparable string: what the map view draws from the pass it takes the picture from
  * (`drawnPass`): every part, companions included (`drawnParts`, the list `interpParts` turns into cells), with the tile,
- * offset, palette row, priority, flips, size and door tag; then the pass's palette and graphics upload lists and the
- * run's net CGRAM colors at its last pass (`runtimeColors` draws with those), then the caller's `extraKey`. Parts are
- * sorted, so the same pieces written to different OAM slots compare equal: the slot only orders overlapping pieces,
+ * offset, palette row, priority, flips, size and door tag; the children the pass drew, each with its own parts (the map
+ * serves each neighbor child as a sprite of its own, `modelResult`); then the pass's upload list, the NET colors at the
+ * run's last pass (`netColors`, sorted by index; `runtimeColors` draws with those), then the caller's `extraKey`. Parts
+ * are sorted, so the same pieces written to different OAM slots compare equal: the slot only orders overlapping pieces,
  * and priority, which does change what shows, is in the key. The raw attribute byte and OAM position are the same data
- * as the fields above, in game encoding.
+ * as the fields above, in game encoding. Colors come from the last pass because a palette-cycling sprite's 256 pass
+ * rerun can end on other colors than the 64 pass at-rest run: that is what the map would draw, so it counts as
+ * different (hack-only; 0 on vanilla).
  */
 const pictureKey = (m: SpriteModel, extra?: RevealOptions['extraKey']): string => {
   const p = drawnPass(m)
   if (p === undefined) return ''
   const pass = m.passes[p]!
-  const parts = drawnParts(pass)
-    .map(q =>
-      [q.char, q.dx, q.dy, q.palette, q.priority, +q.flipX, +q.flipY, q.size, +!!q.door].join(','),
-    ) // prettier-ignore
+  const parts = drawnParts(pass).map(partKey).sort().join(';')
+  const kids = (pass.drew?.children ?? [])
+    .map(
+      c =>
+        `${c.index}:${pass.parts
+          .filter(q => c.oam.includes(q.oam))
+          .map(partKey)
+          .sort()
+          .join(';')}`,
+    )
     .sort()
-    .join(';')
-  const last = m.passes[m.passes.length - 1]!
-  const colors = last.palette.map(w => `${w.index}:${w.bgr555}`).join(',')
-  return [parts, pass.uploads.join(','), colors, extra?.(m, p) ?? ''].join('|')
+    .join('/')
+  const colors = [...netColors(m, m.passes.length - 1)].sort((x, y) => x[0] - y[0]).map(([i, v]) => `${i}:${v}`).join(',') // prettier-ignore
+  return [parts, kids, pass.uploads.join(','), colors, extra?.(m, p) ?? ''].join('|')
 }
 
 /** Whether a run completed and the sprite's own code drew a tile on some pass. */
