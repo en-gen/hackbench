@@ -377,6 +377,14 @@ and refuses a file without the line (#1209). A file that mocks `child_process` i
 exempt, as is a type-only import. The gate reads text, exempts a partial mock,
 and does not see a starter reached through a helper other than those two.
 
+`perTestTimeoutFloor.ts` (#1333) reads the same files with the TypeScript
+compiler API and reports `file:line value` for every `slow(n)`, `loadTimeout(n)`
+(outside the `vi.setConfig` line), trailing numeric timeout or `{ timeout: n }`
+under 30,000; an unresolvable value is reported as "cannot read". Literals,
+arithmetic of literals and module-scope consts resolve. A value kept on purpose
+carries `// timeout-floor: <reason>` on its line or the line before; an empty
+reason does not count.
+
 ## Proving an oracle can fail
 
 A test that cannot go red is worse than no test, because it reports
