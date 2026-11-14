@@ -88,3 +88,152 @@ describe.skipIf(!theiaInstalled)(
     })
   },
 )
+
+describe.skipIf(!theiaInstalled)(
+  'PreviewTabs.preview focuses a row that already has a tab (#1324)',
+  () => {
+    const setup = async (open: object | undefined) => {
+      const { PreviewTabs } = await import('../../../theia/extension/src/browser/preview-tabs')
+      const previewWidget = {
+        id: 'x',
+        isDisposed: false,
+        isAttached: false,
+        title: { className: '' },
+      }
+      const tabs = new PreviewTabs() as any
+      const shell = { addWidget: vi.fn(), activateWidget: vi.fn(), revealWidget: vi.fn() }
+      const getOrCreateWidget = vi.fn(async () => previewWidget)
+      const tryGetWidget = vi.fn(() => open)
+      Object.assign(tabs, { shell, context: {}, widgets: { getOrCreateWidget, tryGetWidget } })
+      return { tabs, shell, getOrCreateWidget, tryGetWidget, previewWidget }
+    }
+    const row = { index: 7 }
+
+    it('activates the open tab, asks for it by the row key, and opens no preview', async () => {
+      const tab = { id: 'v:7', isDisposed: false, isAttached: true }
+      const s = await setup(tab)
+      const apply = vi.fn(async () => {})
+      expect(await s.tabs.preview('v', apply, row)).toBe(tab)
+      expect(s.tryGetWidget).toHaveBeenCalledWith('v', row)
+      expect(s.shell.activateWidget).toHaveBeenCalledWith('v:7')
+      expect(s.getOrCreateWidget).not.toHaveBeenCalled()
+      expect(apply).not.toHaveBeenCalled()
+      expect(s.shell.addWidget).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ['no tab', undefined],
+      ['a tab that was never attached', { id: 'v:7', isDisposed: false, isAttached: false }],
+      ['a disposed tab', { id: 'v:7', isDisposed: true, isAttached: true }],
+    ])('still previews the row with %s', async (_, open) => {
+      const s = await setup(open)
+      const apply = vi.fn(async () => {})
+      expect(await s.tabs.preview('v', apply, row)).toBe(s.previewWidget)
+      expect(apply).toHaveBeenCalledWith(s.previewWidget)
+      expect(s.shell.addWidget).toHaveBeenCalledTimes(1)
+      expect(s.shell.activateWidget).not.toHaveBeenCalled()
+    })
+  },
+)
+
+/**
+ * CodeRabbit on #1366: preview B of row Y is still inside `apply` (Map16's is
+ * a JSON-RPC sheet load) when the user picks tab A. B must still land - the
+ * row was asked for - but revealing it would cover the tab picked after it.
+ */
+describe.skipIf(!theiaInstalled)(
+  'PreviewTabs.preview does not reveal over a tab focused while it loaded (#1324)',
+  () => {
+    const setup = async () => {
+      const { PreviewTabs } = await import('../../../theia/extension/src/browser/preview-tabs')
+      const b = { id: 'b', isDisposed: false, isAttached: false, title: { className: '' } }
+      const a = { id: 'a', isDisposed: false, isAttached: true, title: { className: '' } }
+      const tabs = new PreviewTabs() as any
+      const calls: string[] = []
+      const shell = {
+        widgets: [] as unknown[],
+        addWidget: vi.fn((w: { id: string }) => calls.push(`add ${w.id}`)),
+        activateWidget: vi.fn((id: string) => calls.push(`activate ${id}`)),
+        revealWidget: vi.fn((id: string) => calls.push(`reveal ${id}`)),
+      }
+      const rows = new Map<number, object>([[1, a]])
+      const tryGetWidget = vi.fn((_: string, row: { index: number }) => rows.get(row.index))
+      const getOrCreateWidget = vi.fn(async () => b)
+      Object.assign(tabs, { shell, context: {}, widgets: { getOrCreateWidget, tryGetWidget } })
+      let release!: () => void
+      const held = vi.fn(() => new Promise<void>(r => (release = r)))
+      return { tabs, shell, calls, a, b, held, release: () => release(), getOrCreateWidget }
+    }
+
+    it('attaches B but leaves the focused tab A current', async () => {
+      const s = await setup()
+      const loadingB = s.tabs.preview('v', s.held, { index: 2 })
+      await vi.waitFor(() => expect(s.held).toHaveBeenCalled())
+      expect(await s.tabs.preview('v', vi.fn(), { index: 1 })).toBe(s.a)
+      s.release()
+      expect(await loadingB).toBe(s.b)
+      expect(s.calls).toEqual(['activate a', 'add v:preview'])
+      expect(s.shell.revealWidget).not.toHaveBeenCalled()
+    })
+
+    it('attaches B but leaves a tab pinned while it loaded current', async () => {
+      const s = await setup()
+      const loadingB = s.tabs.preview('v', s.held, { index: 2 })
+      await vi.waitFor(() => expect(s.held).toHaveBeenCalled())
+      const pinned = { id: 'p', isDisposed: false, isAttached: false, title: { className: '' } }
+      s.getOrCreateWidget.mockImplementationOnce(async () => pinned)
+      await s.tabs.pin(
+        'w',
+        {},
+        async () => {},
+        () => false,
+        {},
+      )
+      s.release()
+      await loadingB
+      expect(s.calls).toEqual(['add p', 'activate p', 'add v:preview'])
+    })
+
+    /** A pin requested BEFORE the preview is the older request, whichever
+     * finishes first; CodeRabbit on #1366 (preview-tabs.ts:165). */
+    const pinThenPreview = async () => {
+      const s = await setup()
+      const pinned = { id: 'p', isDisposed: false, isAttached: false, title: { className: '' } }
+      s.getOrCreateWidget.mockImplementationOnce(async () => pinned)
+      let releasePin!: () => void
+      const pinApply = vi.fn(() => new Promise<void>(r => (releasePin = r)))
+      const pinning = s.tabs.pin('w', {}, pinApply, () => false, {})
+      await vi.waitFor(() => expect(pinApply).toHaveBeenCalled())
+      const loadingB = s.tabs.preview('v', s.held, { index: 2 })
+      await vi.waitFor(() => expect(s.held).toHaveBeenCalled())
+      return { ...s, pinning, loadingB, releasePin: () => releasePin() }
+    }
+
+    it('reveals a preview requested after a pin that finishes first', async () => {
+      const s = await pinThenPreview()
+      s.releasePin()
+      await s.pinning
+      s.release()
+      await s.loadingB
+      expect(s.calls).toEqual(['add p', 'activate p', 'add v:preview', 'reveal v:preview'])
+    })
+
+    it('reveals a preview requested after a pin, then the pin activates its tab', async () => {
+      const s = await pinThenPreview()
+      s.release()
+      await s.loadingB
+      s.releasePin()
+      await s.pinning
+      expect(s.calls).toEqual(['add v:preview', 'reveal v:preview', 'add p', 'activate p'])
+    })
+
+    it('reveals a preview when no tab was focused while it loaded', async () => {
+      const s = await setup()
+      const loadingB = s.tabs.preview('v', s.held, { index: 2 })
+      await vi.waitFor(() => expect(s.held).toHaveBeenCalled())
+      s.release()
+      await loadingB
+      expect(s.calls).toEqual(['add v:preview', 'reveal v:preview'])
+    })
+  },
+)

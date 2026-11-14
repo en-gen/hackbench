@@ -1,0 +1,84 @@
+/**
+ * The climbing net door ($54) on the vanilla ROM (#1002): the game draws nothing for it at rest (SMWDisX bank_01.asm:8056-8057
+ * returns before the 9-tile flip unless a punch-armed timer runs), so the map view shows the quiet marker at each placed spot
+ * and nothing else, and stands clear of the castle flames of $101. ROM-gated; the synthetic case is in
+ * TimerGatedSprite.test.ts. Placements measured 2026-11-13 on the vanilla ROM.
+ */
+import { readFileSync } from 'fs'
+import { describe, it, expect } from 'vitest'
+import type { MapSpriteDto } from '../../../theia/extension/src/common/project-protocol'
+import { mapSprites } from '../../../theia/extension/src/node/map-sprites'
+import { L1ModelCache } from '../../../theia/extension/src/node/map-screen'
+import { VANILLA, hasRom, romPath } from '../support/corpus'
+import { boxGap, opaque } from '../support/spritePixels'
+import { slow } from '../support/loadTimeout'
+
+const NET_DOOR = 0x54
+const FLAME = 0xe6
+/** Where the vanilla ROM places $54: map, then (x, y) in pixels. */
+const PLACED: Record<number, [number, number][]> = {
+  0x101: [[1280, 272], [1536, 304], [1696, 304]], // prettier-ignore
+  0x1d3: [[176, 272], [352, 272], [512, 272]], // prettier-ignore
+}
+
+describe.skipIf(!hasRom(VANILLA))('climbing net door on the vanilla ROM', () => {
+  const bytes = new Uint8Array(hasRom(VANILLA) ? readFileSync(romPath(VANILLA)) : 0)
+  const cache = new Map<number, MapSpriteDto[]>()
+  // Each map is served once: the cases below all read the same two.
+  const get = (map: number) => {
+    if (!cache.has(map)) {
+      const r = mapSprites(new L1ModelCache(), bytes, romPath(VANILLA), map)
+      if (r.status !== 'ok') throw new Error(JSON.stringify(r))
+      cache.set(map, r.sprites)
+    }
+    return cache.get(map)!
+  }
+
+  it.each(['101', '1d3'])(
+    'map $%s: the doors are exactly the placed ones, each the quiet marker at its spot',
+    slow(60_000),
+    hex => {
+      const map = parseInt(hex, 16)
+      const doors = get(map).filter(s => s.id === NET_DOOR)
+      expect(doors.map(d => [d.x, d.y])).toEqual(PLACED[map])
+      for (const d of doors) {
+        expect(d).toMatchObject({
+          status: 'quiet',
+          reason: 'unrevealed',
+          name: 'Climbing Net Door',
+        })
+        expect(d.box).toEqual({ x0: d.x, y0: d.y, x1: d.x + 16, y1: d.y + 16 })
+      }
+    },
+  )
+
+  it(
+    'all six draw nothing but the one ring: the same pixels, interior clear',
+    slow(120_000),
+    () => {
+      const doors = [0x101, 0x1d3].flatMap(m => get(m).filter(s => s.id === NET_DOOR))
+      expect(doors.length).toBe(6)
+      expect(new Set(doors.map(d => d.rgba)).size).toBe(1)
+      const px = Array.from(opaque({ ...doors[0]!, box: { x0: 0, y0: 0, x1: 16, y1: 16 } }))
+      // The ring and dot only: the interior between them and the corners stay clear.
+      expect(px).toContain('7,1')
+      expect(px).toContain('7,7')
+      for (const clear of ['0,0', '15,15', '4,4', '11,4', '4,11']) expect(px).not.toContain(clear)
+      expect(px.length).toBeLessThan(120) // a filled 16 x 16 box is 256
+    },
+  )
+
+  it(
+    'every door on $101 stands clear of every castle flame box: gaps 16, 48 and 48 px',
+    slow(60_000),
+    () => {
+      const sprites = get(0x101)
+      const flames = sprites.filter(s => s.id === FLAME)
+      // 32 drawn at y 240-256 and 2 boxed at y 0-16, measured on the vanilla ROM, one machine, 2026-11-13.
+      expect(flames.filter(f => f.status === 'drawn').length).toBe(32)
+      expect(flames.length).toBe(34)
+      const gaps = sprites.filter(s => s.id === NET_DOOR).map(d => Math.min(...flames.map(f => boxGap(d.box, f.box)))) // prettier-ignore
+      expect(gaps).toEqual([16, 48, 48])
+    },
+  )
+})

@@ -236,20 +236,20 @@ function loadAll(): { map: string; rec: Rec; gateFrame: number }[] {
   return out
 }
 
-/** Re-measured 2026-11-13 for #875 (map-start sprites counted from the gate frame, maps without an entrance reload), one machine, vanilla ROM: exact 1495, off 404, missing 2, parked 19, late 1, lagged 34, refused 0 of 1955 (1424/431/1/18/1/80/0 before). Re-measured 2026-11-11 after the #1370 re-capture of maps 101, 1d4, 109, 11b, one machine, vanilla ROM: exact 1424, off 431, missing 1, parked 18, late 1, lagged 80, refused 0 of 1955. Measured 2026-10-17 on the #842 head, one machine, vanilla ROM: exact 1396, off 461, missing 1, parked 18, late 1, lagged 80, refused 0 of 1957 (2026-10-10, before #842: 1366/469/23); bounds have headroom. Pairing: mapStartPass for a map-start sprite, else drawnFrame - firstRealFrame. maxMissing 2 and maxParked 19 sit at the measured counts on purpose: at these small counts 1% headroom rounds to 0, and a bound above the measured count would let a new missing or parked record in unseen. */
-const FLOOR = { graded: 1955, exact: 1493, maxOff: 406, maxLagged: 36, maxMissing: 2, maxParked: 19, maxLate: 2, maxRefused: 1 } // prettier-ignore
-/** The ten ids with the most exact records: exact count measured, minus 1. */
+/** Re-measured 2026-11-14 for #1386 (captures layers_v5-1386-staging-696f897, harness en-gen/hackbench-validation 696f897, one machine, vanilla ROM): exact 1635, off 396, missing 1, parked 19, late 1, lagged 36, refused 0 of 2088 (1495/404/2/19/1/34/0 of 1955 before; the 133 recovered zero-frame records are most of the extra exact). Re-measured 2026-11-13 for #875 (map-start sprites counted from the gate frame, maps without an entrance reload), one machine, vanilla ROM: exact 1495, off 404, missing 2, parked 19, late 1, lagged 34, refused 0 of 1955 (1424/431/1/18/1/80/0 before). Re-measured 2026-11-11 after the #1370 re-capture of maps 101, 1d4, 109, 11b, one machine, vanilla ROM: exact 1424, off 431, missing 1, parked 18, late 1, lagged 80, refused 0 of 1955. Measured 2026-10-17 on the #842 head, one machine, vanilla ROM: exact 1396, off 461, missing 1, parked 18, late 1, lagged 80, refused 0 of 1957 (2026-10-10, before #842: 1366/469/23); bounds have headroom. Pairing: mapStartPass for a map-start sprite, else drawnFrame - firstRealFrame. maxMissing 2 and maxParked 19 sit at the measured counts on purpose: at these small counts 1% headroom rounds to 0, and a bound above the measured count would let a new missing or parked record in unseen. */
+const FLOOR = { graded: 2088, exact: 1633, maxOff: 398, maxLagged: 38, maxMissing: 1, maxParked: 19, maxLate: 2, maxRefused: 1 } // prettier-ignore
+/** The ten ids with the most exact records: exact count measured, minus 1. Re-measured on the #1386 re-capture: $13 (39 exact) replaces $72 (36) in the top ten; the other counts rose with the recovered records. */
 const ID_FLOOR: Record<string, number> = {
-  $C2: 82,
+  $C2: 88,
   $73: 50,
-  $11: 48,
+  $11: 52,
   $4F: 46,
-  $33: 45,
-  $6F: 43,
-  $7B: 42,
+  $33: 50,
+  $6F: 45,
+  $7B: 48,
   $3D: 38,
-  $09: 36,
-  $72: 34,
+  $09: 40,
+  $13: 38,
 }
 
 type Counts = Record<RecordVerdict, number>
