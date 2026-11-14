@@ -185,6 +185,9 @@ function AfterCommit({ run }: { run: () => void }): null {
 /** Capitalizes a palace key for its switch's label. */
 const palaceName = (p: Palace) => p[0]!.toUpperCase() + p.slice(1)
 
+/** The plain-word tooltip and accessible name of the inert Add screen outline. */
+const ADD_SCREEN_HINT = 'Add screen is not available yet'
+
 @injectable()
 export class MapViewWidget extends ReactWidget implements ProjectBound {
   @inject(ProjectService) protected readonly projects!: ProjectService
@@ -255,6 +258,8 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
   protected selectedSprite: MapSpriteDto | undefined
   /** The invisible box over the hovered sprite that the hover is placed against. */
   protected spriteAnchor: HTMLElement | undefined
+  /** True while this widget's Add screen hint is the shared hover service's current hover. */
+  protected addScreenHintShown = false
   /** Where the anchor was placed (`hoverPlacementKey`): a different zoom or strip origin moves the sprite, so the hover is asked for again. */
   protected hoverPlaced = ''
   /** Bumped when `sprites` is replaced, so a canvas painted from the old ones is repainted. */
@@ -1345,6 +1350,21 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
     }
   }
 
+  /**
+   * The Add screen outline's tooltip (#1296). A native `title` is not a page element and was never seen in the app, so it
+   * goes through Theia's HoverService like the sprite names do: a real, visible `.theia-hover` in the browser and Electron.
+   */
+  protected showAddScreenHint(target: HTMLElement): void {
+    this.addScreenHintShown = true
+    this.hoverService.requestHover({ content: ADD_SCREEN_HINT, target, position: 'top' })
+  }
+
+  protected hideAddScreenHint(): void {
+    // The hover service is shared: only cancel a hover this widget asked for.
+    if (this.addScreenHintShown) this.hoverService.cancelHover()
+    this.addScreenHintShown = false
+  }
+
   /** Click selection (#984): the sprite goes to the Properties panel until another click, a map change, hide or close. */
   protected selectSprite(next: MapSpriteDto | undefined): void {
     const redraw = !!(this.selectedSprite?.stored || next?.stored)
@@ -1929,8 +1949,10 @@ export class MapViewWidget extends ReactWidget implements ProjectBound {
               <div
                 className="hb-map-add-screen"
                 data-control="add-screen"
-                title="Add screen is not available yet"
+                aria-label={ADD_SCREEN_HINT}
                 style={{ left: addScreen.x0 * z, top: addScreen.y0 * z, width: (addScreen.x1 - addScreen.x0) * z, height: (addScreen.y1 - addScreen.y0) * z }} // prettier-ignore
+                onMouseEnter={e => this.showAddScreenHint(e.currentTarget)}
+                onMouseLeave={() => this.hideAddScreenHint()}
                 onClick={e => e.stopPropagation()}
                 onDoubleClick={e => e.stopPropagation()}
                 onContextMenu={e => e.stopPropagation()}

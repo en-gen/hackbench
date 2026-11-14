@@ -290,7 +290,7 @@ the pad the widget:
   (`hb-inset`, its outer side on the edge) so all 5 px stay inside the strip;
 - fills the last gutter screen (`addScreenRect`) with a dashed "Add screen" outline
   (`data-control="add-screen"`), inert until adding screens exists (#26, #950): default
-  cursor, no hover style, a plain-word tooltip, and it swallows clicks so nothing
+  cursor, no hover style, a plain-word tooltip through Theia's HoverService (a visible `.theia-hover`, not a native `title`), and it swallows clicks so nothing
   under it selects. Proposed calls:
   [2026-11-13-map-end-line-and-add-screen.md](../decisions/2026-11-13-map-end-line-and-add-screen.md).
 
