@@ -506,13 +506,19 @@ for (const theme of ['light', 'dark']) {
           contrast(amber, edge),
           `amber vs its dark edge ${rowInfo(line, m)}`,
         ).toBeGreaterThanOrEqual(3)
-        // The Add screen outline: its left border at the box's middle height, with 4 px of gutter before it.
+        // The Add screen outline: its left border has 4 px of gutter before it. The border is DASHED (1.5 px, a dash
+        // period of several px), so one cross-section can land in a gap and show only the halo (seen: a row of
+        // [0,0,0] flanked by 22s on the black back). Sample 16 consecutive rows from the box's middle (more than a
+        // full period) and take the brightest read: a gap in one row cannot fail it, an outline that is not drawn
+        // at all still does.
         const b = m.addBox
-        const o = await pixels(page, b.left - 4, b.top + b.height / 2, 9, false)
-        const reads = Math.max(...o.slice(3, 8).map(p => contrast(p, o[0])))
+        const y0 = Math.floor(b.top + b.height / 2)
+        const rows = []
+        for (let k = 0; k < 16; k++) rows.push(await pixels(page, b.left - 4, y0 + k, 9, false))
+        const reads = Math.max(...rows.flatMap(o => o.slice(3, 8).map(p => contrast(p, o[0]))))
         expect(
           reads,
-          `outline vs back ${back} in the ${theme} theme: ${JSON.stringify(o)}`,
+          `outline vs back ${back} in the ${theme} theme: box ${JSON.stringify(b)}, x from ${Math.floor(b.left - 4)}, rows ${y0}..${y0 + 15}: ${JSON.stringify(rows)}`,
         ).toBeGreaterThanOrEqual(3)
         await closeMap(page)
       }
