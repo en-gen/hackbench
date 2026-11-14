@@ -24,6 +24,7 @@
  * 171 draws from frame 200 on                              172 creates a child every pass; draws its own from frame 5
  * 173 draws; on touch becomes $FF (refused)                174 draws, but its INIT erases it (status 0)
  * 175 creates a child every pass; from frame 5 draws its own tile only with Mario exactly $40 px right of it
+ * 176 draws only while its own timer ($1540,X) is nonzero; nothing here ever arms it (a punch-armed door, #1002)
  */
 const RTS = 0x60
 // Writes a plain-drawer sprite into slot 1 at this sprite's spot (status 8, number 0).
@@ -32,11 +33,11 @@ const FRAME_5 = [0xa5, 0x14, 0xc9, 0x05] // LDA $14 / CMP #5: carry set from fra
 // ORA of Mario's state cells $19, $71, $72, $73, $187A: zero only when all are (MARIO_STATE's cells).
 const STATE = [0xa5, 0x19, 0x05, 0x71, 0x05, 0x72, 0x05, 0x73, 0x0d, 0x7a, 0x18]
 const FACING = [0xbd, 0x7c, 0x15, 0x09, 0x0a] // LDA $157C,X / ORA #$0A: the attribute, flipped as INIT left the facing
-/** Handlers sit 128 bytes apart from here (the longest is under 100); the INIT routines sit past the last (174). */
+/** Handlers sit 128 bytes apart from here (the longest is under 100); the INIT routines sit past the last (176). */
 const FIRST = 0x01b000
 const STRIDE = 0x80
-const INIT_53 = 0x01c400
-const INIT_ERASE = 0x01c480
+const INIT_53 = 0x01c500
+const INIT_ERASE = 0x01c580
 
 /**
  * Tests in order, each a guard (leaving the flags) and the branch that SKIPS the picture; a taken branch lands on the
@@ -204,6 +205,8 @@ export function putRevealSprites(put: (snes: number, bytes: number[]) => void): 
         ),
       ],
     ],
+    // LDA $1540,X: the sprite's own timer. Zero at rest and under every search condition, so it never draws.
+    [176, gated([[[0xbd, 0x40, 0x15], BEQ]], piece(0x24))],
   ]
   const main: Record<number, number> = {}
   for (const [id, bytes] of mains) {
