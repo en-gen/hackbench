@@ -385,16 +385,19 @@ spread or a module const), and `testTimeout` or `hookTimeout` in `vi.setConfig`.
 A wrapper call elsewhere, such as a child-process `timeout`, is not read.
 Literals, arithmetic of them and module-scope `const`s resolve; a `let`, a
 shadowed or imported name, or an options variable it cannot follow is reported
-as "cannot read". A value kept on purpose carries a real `// timeout-floor: <reason>` comment on
-the run of lines directly above its `it`, `describe`, hook or `vi.setConfig`
-statement, or trailing that statement's last line. It keeps only that statement:
-not a nested test inside it, not a const it reads, and not a comment on a wrapped
-argument (Prettier moves those). An empty reason, a block comment, a string, or
-text before `// timeout-floor:` does not count. An offence read through an options
+as "cannot read". A value kept on purpose carries a real
+`// timeout-floor: <reason>` comment on the run of lines directly above its `it`,
+`describe`, hook or `vi.setConfig` statement (a blank line ends the run), or
+trailing that statement's last line. Only a call that is itself a statement can
+be kept: `await it(...)` cannot. It keeps only that statement: not a nested test
+inside it, not a const it reads, and not a comment on a wrapped argument
+(Prettier moves those). An empty reason, a block comment, a string, or text
+before `// timeout-floor:` does not count. An offence read through an options
 const is reported at each use site. A computed key in an options object is
-reported as "cannot read". Not read: aliased or namespaced wrappers, registrar
-aliases (`const t = it`, `import { it as t }`), `vi?.setConfig`, test names made
-by `test.extend`, `suite`, and tagged-template `each`.
+reported as "cannot read", as is an aliased or namespaced wrapper
+(`s.slow(n)`) in timeout position. Not read: registrar aliases (`const t = it`,
+`import { it as t }`), `vi?.setConfig`, test names made by `test.extend`,
+`suite`, and tagged-template `each`.
 
 ## Proving an oracle can fail
 

@@ -38,7 +38,7 @@ describe('perTestTimeoutFloor planted sources', () => {
     ['concurrent', "it.concurrent('x', () => {}, 6000)", '6000'],
     ['an options object', "it('x', { timeout: 8000 }, () => {})", '8000'],
     ['arithmetic', "it('x', () => {}, 10 * 1000)", '10000'],
-    ['one under the floor', "it('x', () => {}, 29_999)", '29999'],
+    ['a value one below the floor', "it('x', () => {}, 29_999)", '29999'],
     ['15 s', "it('x', () => {}, 15_000)", '15000'],
     ['25 s', "it('x', () => {}, 25_000)", '25000'],
     ['a shorthand timeout', "const timeout = 2000; it('x', { timeout }, () => {})", '2000'],
@@ -76,6 +76,14 @@ describe('perTestTimeoutFloor planted sources', () => {
     ).toEqual(['p.test.ts:3 cannot read'])
     expect(offences('const T = 40000', "const f = (T: number) => it('x', () => {}, T)")).toEqual([
       'p.test.ts:3 cannot read',
+    ])
+  })
+  it('refuses a wrapper called with two arguments', () => {
+    expect(offences("it('x', slow(1000, 2), () => {})")).toEqual(['p.test.ts:2 cannot read'])
+  })
+  it('reads a named callback with a timeout as the callback and the number', () => {
+    expect(offences('function handler() {}', "it('x', handler, 5000)")).toEqual([
+      'p.test.ts:3 5000',
     ])
   })
   it('refuses an unreadable hook timeout', () => {
