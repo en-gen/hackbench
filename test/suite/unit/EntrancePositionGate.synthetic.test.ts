@@ -18,7 +18,11 @@ import {
 } from '../../../src/rom/SubmapFlagGate'
 import { WILD } from '../../../src/rom/BytePattern'
 import { readMapEntrances } from '../../../src/rom/ReadMapEntrances'
-import { buildL3Verdict } from '../../../src/rom/model/L3Model'
+import {
+  buildL3Verdict,
+  EXIT_GRAPH_UNAVAILABLE,
+  GRAPH_UNAVAILABLE,
+} from '../../../src/rom/model/L3Model'
 import { buildMapPayload, buildMapWithGraph } from '../../../src/rom/model/MapBuilder'
 import { buildGraph } from '../../../src/rom/model/rehydrate'
 import { parseLevelHeader } from '../../../src/rom/LevelParser'
@@ -81,6 +85,25 @@ describe('the layer 3 camera is unverified when the entrance-position code is no
     const v = verdict(rom, stockOf(rom))
     expect(v.l3).not.toBeNull()
     expect(v.l3?.camYReasons).toBeUndefined()
+  })
+
+  // A vertical map's band is screen-locked (#806): its place does not use the entrance camera, so an
+  // unstock level-start code has nothing to be unverified about.
+  it('a vertical $81 map on tileset 1 draws with no unverified note, though the gate is tripped', () => {
+    const h1 = parseLevelHeader(Uint8Array.from([0, 0, 0, 0, 1])) // tileset 1
+    const [hl1, vl1] = [false, true].map(isVertical => ({ header: h1, isVertical, colors: [] }) as never) // prettier-ignore
+    const rom = withStockCode(withLayer3(modeTablesRom([STANDARD, ...Array(31).fill(STANDARD)]), { level: MAP, tileset: 1, setting: 2, settingsByte: 0x81, word: 2, row: 30 })) // prettier-ignore
+    const spans = stockOf(rom)
+    flipAt(rom, SPANS[0]!.addr)
+    const run = (l: never) => buildL3Verdict(rom, MAP, l, { ok: true, mode: 1 }, () => [[]] as never, { ok: true }, undefined, ONLY_SECONDARY, spans) // prettier-ignore
+    expect(run(hl1!).l3?.camYReasons).toBeTruthy() // control: a horizontal map reports it
+    const v = run(vl1!)
+    expect(v.l3).not.toBeNull()
+    expect(v.l3?.camYReasons).toBeUndefined()
+    // Nor does an unbuilt exit graph (#910): which entrance starts the map cannot move a screen-locked band.
+    const noGraph = (l: never) => buildL3Verdict(rom, MAP, l, { ok: true, mode: 1 }, () => [[]] as never, { ok: true }, undefined, GRAPH_UNAVAILABLE) // prettier-ignore
+    expect(noGraph(hl1!).l3?.camYReasons).toContain(EXIT_GRAPH_UNAVAILABLE) // control
+    expect(noGraph(vl1!).l3?.camYReasons).toBeUndefined()
   })
 
   // Every byte of every checked range, not a sample: a flip at any offset must name its own range.
