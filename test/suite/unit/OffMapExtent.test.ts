@@ -4,6 +4,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
+  addScreenRect,
+  farEdge,
   fadeMask,
   cellRect,
   centerScroll,
@@ -513,4 +515,90 @@ describe('what grows the canvas: placement, never art (#1325)', () => {
       expect(padOf(m, [])).toEqual(p)
     }
   })
+})
+
+describe('the end line and the Add screen rect (#1296)', () => {
+  const [W, H] = [512, 432]
+  const content: Rect[] = [{ x0: 600, y0: 40, x1: 616, y1: 56 }] // a cell 104 px past the far edge
+
+  it('puts the end line on the screen count times the screen size, never on content or the canvas end', () => {
+    for (const vertical of [false, true]) {
+      const [mw, mh] = vertical ? [256, 864] : [W, H]
+      const pad = offMapPad(
+        mw,
+        mh,
+        vertical ? [{ x0: 0, y0: 900, x1: 16, y1: 916 }] : content,
+        vertical,
+        2,
+      )
+      const e = farEdge(mw, mh, pad, vertical)
+      if (vertical) {
+        expect(e.y0).toBe(mh + pad.top)
+        expect(e.y1).toBe(e.y0)
+        expect(e.y0).toBeLessThan(mh + pad.top + pad.bottom)
+      } else {
+        expect(e.x0).toBe(mw + pad.left)
+        expect(e.x1).toBe(e.x0)
+        expect(e.x0).toBeLessThan(mw + pad.left + pad.right)
+      }
+    }
+  })
+
+  it('does not move when content lies past the end', () => {
+    const bare = farEdge(W, H, offMapPad(W, H, [], false, 2), false)
+    const past = farEdge(W, H, offMapPad(W, H, content, false, 2), false)
+    expect(past).toEqual(bare)
+  })
+
+  it('fills the last gutter screen of the strip, after any content band', () => {
+    const pad = offMapPad(W, H, content, false, 2)
+    const r = addScreenRect(W, H, pad, false, 2)!
+    expect(r.x1 - r.x0).toBe(GUTTER_PX)
+    expect(r.x1).toBe(W + pad.left + pad.right)
+    expect(r.x0).toBe(W + 112) // the band: 616 - 512 = 104 px, rounded up to 112
+    expect([r.y0, r.y1]).toEqual([pad.top, pad.top + H])
+    const v = addScreenRect(256, 864, offMapPad(256, 864, [], true, 2), true, 2)!
+    expect([v.y0, v.y1]).toEqual([864, 864 + GUTTER_PX])
+  })
+
+  it('has no Add screen rect at the 32-screen ceiling, and the end line is still the map edge', () => {
+    const pad = offMapPad(W * 16, H, [], false, MAX_SCREENS)
+    expect(addScreenRect(W * 16, H, pad, false, MAX_SCREENS)).toBeNull()
+    expect(farEdge(W * 16, H, pad, false).x0).toBe(W * 16)
+  })
+
+  // A band BEFORE position 0 (a cell at tile (-2, 5) and one at (3, -1)) shifts the map right and down by
+  // 32 and 16 px, so every expected number below carries those leads as literals, never read from `pad`.
+  it.each([false, true])(
+    'shifts the end line and the Add screen rect by the near bands, every screen count (vertical %s)',
+    vertical => {
+      for (const bands of [[], [cellRect(-2, 5), cellRect(3, -1)]]) {
+        for (const far of [0, 112]) {
+          for (let n = 1; n <= MAX_SCREENS; n++) {
+            const [mw, mh] = vertical ? [512, 256 * n] : [256 * n, 432]
+            const [lx, ly] = bands.length ? [32, 16] : [0, 0]
+            const rects = [...bands]
+            if (far)
+              rects.push(vertical ? cellRect(1, (mh + 96) / 16) : cellRect((mw + 96) / 16, 1))
+            const pad = offMapPad(mw, mh, rects, vertical, n)
+            const e = farEdge(mw, mh, pad, vertical)
+            const want = vertical
+              ? { x0: lx, y0: ly + mh, x1: lx + mw, y1: ly + mh }
+              : { x0: lx + mw, y0: ly, x1: lx + mw, y1: ly + mh }
+            const tag = JSON.stringify({ vertical, n, near: bands.length, far })
+            expect(e, tag).toEqual(want)
+            const a = addScreenRect(mw, mh, pad, vertical, n)
+            if (n >= MAX_SCREENS) {
+              expect(a, tag).toBeNull()
+              continue
+            }
+            const wantAdd = vertical
+              ? { x0: lx, y0: ly + mh + far, x1: lx + mw, y1: ly + mh + far + GUTTER_PX }
+              : { x0: lx + mw + far, y0: ly, x1: lx + mw + far + GUTTER_PX, y1: ly + mh }
+            expect(a, tag).toEqual(wantAdd)
+          }
+        }
+      }
+    },
+  )
 })

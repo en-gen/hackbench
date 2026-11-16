@@ -1,0 +1,33 @@
+Proposed 2026-11-13 (#1296)
+
+# The map's end line and the "Add screen" outline (#1296)
+
+## Question
+
+D194 (owner, option D) chose a thick amber end line with a dark edge plus a dashed "Add screen" outline, and that the line must not shift for a sprite past the end. Which details do we build where the ruling is silent? [PROP]
+
+## Options considered
+
+1. Draw the line at the content's end or the canvas end: moves with a sprite band, refused by D194.
+2. Fix it to the map's far edge (screen count x screen size), centered, constant in screen px. [PROP]
+
+## Ruling
+
+Proposed, not ruled:
+
+- The amber line `#ffc23d` is a `--theia-hackbench-mapEndLine` variable with that literal fallback (no ColorContribution in this repo; the Add screen outline and label use the theme foreground with an editor-background halo so they read on light and dark themes), so it differs from the selection and warning and error colors in the light and dark themes (measured by `map-end-line.spec.cjs`); the 5 px dark edge (black, opacity 0.75) carries it on light back colors. [PROP]
+- Width is constant in screen pixels at every zoom; position follows the edge exactly. [PROP]
+- The "Add screen" outline fills the gutter where the layout puts it, after any off-map content band, not directly after the line. [PROP]
+- Its tooltip reads "Add screen is not available yet". [PROP]
+- On a 32-screen map (no gutter) the line is drawn inset, its outer side on the map edge, so all 5 px sit inside the strip rather than overflowing it. [PROP]
+- The end line stacks above the grid canvas (z-index 1001 over 1000), so the grid's 5 px screen-boundary line on the far edge does not dim it: it marks where the map ends and reads the same with the grid on or off. Proceeding on Overwatch's OK, 2026-11-13. [PROP]
+- The Add screen outline's contrast check is proven able to fail in the dark theme (plant: dashes transparent turns case 4 red). In the light theme the same plant stays green, because the outline's editor-background halo (near-white) still reads at least 3:1 against a black back. The halo is part of the design, so the light-theme check passes on the halo alone. Evidence: `map-end-line.spec.cjs` case 4, fe685c82, Chromium headless shell 1254, one machine. [PROP]
+
+## Why
+
+- The line marks the map's data end, so it follows `farEdge`, never `offMapPad`'s far side. [EST: D194 and the #1325 ruling, `2026-11-07-art-past-map-edge-grows-no-canvas.md`]
+- Nothing is clickable yet, so the outline must not look or act like a button. [EST: #1296 acceptance 5]
+
+## Applies to
+
+`farEdge` and `addScreenRect` in `theia/extension/src/browser/off-map-extent.ts`; `renderStrip` in `map-view-widget.tsx`; `.hb-map-end-line` and `.hb-map-add-screen` in `style/index.css`; replaces the 1 px `map-edge` outline of `2026-10-19-map-view-gutter-details.md`.
