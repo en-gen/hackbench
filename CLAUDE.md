@@ -124,9 +124,9 @@ exception (`project-server.ts` was one until #421 step 3).
 
 ### The Theia shell (`theia/`)
 
-`extension/package.json` declares six frontend and backend pairs: hackbench
+`extension/package.json` declares seven frontend and backend pairs: hackbench
 (shell, projects), palette, music (audio: BGM and SFX), gfx, map16,
-emulator. `common/` holds the service
+emulator, objects (saved Object definitions). `common/` holds the service
 interface and `SERVICE_PATH` for each, so a protocol change breaks the compile
 rather than the runtime. `node/` is the only side allowed to touch the ROM.
 `browser/` never reads a file; it asks over JSON-RPC.

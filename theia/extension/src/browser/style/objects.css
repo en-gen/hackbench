@@ -1,0 +1,123 @@
+/*
+ * Objects activity styling. Theme variables only, like map16.css: no fixed
+ * colors, so the view follows the active theme. The sheet bitmap is ROM pixel
+ * data and the tag tints are theme chart colors drawn over it.
+ */
+.hb-objects-view {
+  height: 100%;
+  overflow: auto;
+  color: var(--theia-foreground);
+}
+
+.hb-objects-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8em;
+  padding: 0.6em 0.8em;
+}
+
+.hb-objects-body h4 {
+  flex: 1;
+  margin: 0;
+  font-weight: 600;
+}
+
+.hb-objects-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5em;
+}
+
+.hb-objects-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+}
+
+.hb-objects-empty {
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-objects-error {
+  color: var(--theia-errorForeground);
+}
+
+.hb-objects-message {
+  color: var(--theia-descriptionForeground);
+}
+
+.hb-objects-definitions ul,
+.hb-objects-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hb-objects-definitions li {
+  padding: 0.2em 0.4em;
+  cursor: pointer;
+}
+
+.hb-objects-definitions li:hover {
+  background: var(--theia-list-hoverBackground);
+}
+
+.hb-objects-definitions li.hb-objects-selected {
+  background: var(--theia-list-activeSelectionBackground);
+  color: var(--theia-list-activeSelectionForeground);
+}
+
+.hb-objects-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+}
+
+.hb-objects-sheet {
+  position: relative;
+  flex: none;
+}
+
+.hb-objects-sheet canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+
+.hb-objects-grid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-auto-rows: 16px;
+}
+
+.hb-objects-tile {
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.hb-objects-tile:hover {
+  outline: 1px solid var(--theia-focusBorder);
+  outline-offset: -1px;
+}
+
+.hb-objects-edge {
+  background: color-mix(in srgb, var(--theia-charts-blue) 45%, transparent);
+  box-shadow: inset 0 0 0 1px var(--theia-charts-blue);
+}
+
+.hb-objects-fill {
+  background: color-mix(in srgb, var(--theia-charts-green) 45%, transparent);
+  box-shadow: inset 0 0 0 1px var(--theia-charts-green);
+}
+
+.hb-objects-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.1em 0;
+}
+
+.hb-objects-thumb {
+  image-rendering: pixelated;
+}
