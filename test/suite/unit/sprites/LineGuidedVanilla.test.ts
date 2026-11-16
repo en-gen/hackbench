@@ -148,13 +148,13 @@ describe.skipIf(!hasRom(VANILLA))('every vanilla line-guided placement (#792)', 
   })
 
   it('at rest (D156), compared with the generic rule (gate off): origin and the chainsaw offset, apart from the shift. $67 is in the table but was already gated on develop', () => {
-    // The picture's top-left with the gate on, minus with it off, minus what INIT moved: the origin change, plus $65's constant 2 px Y (likely the chainsaw's EffFrame bit 1, bank_03.asm:7651-7653, 7665-7667; read, not traced).
+    // The picture's top-left with the gate on, minus with it off (which stands where INIT left it, #1231), minus how far the two anchors differ: the origin change, plus $65's constant 2 px Y (likely the chainsaw's EffFrame bit 1, bank_03.asm:7651-7653, 7665-7667; read, not traced).
     const tally = Object.fromEntries(
       IDS.map(id => {
         const c: Record<string, number> = {}
         for (const r of of(id)) {
           const [on, off] = [topLeft(r.rest), topLeft(r.restOff)]
-          const key = [on[0] - off[0] - (r.rest.anchor!.x - r.x), on[1] - off[1] - (r.rest.anchor!.y - r.y)].join(',') // prettier-ignore
+          const key = [on[0] - off[0] - (r.rest.anchor!.x - r.restOff.anchor!.x), on[1] - off[1] - (r.rest.anchor!.y - r.restOff.anchor!.y)].join(',') // prettier-ignore
           c[key] = (c[key] ?? 0) + 1
         }
         return [id, c]
