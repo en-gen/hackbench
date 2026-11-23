@@ -8,9 +8,10 @@
  * plane lists (`ScreenPlanes`), the effective CGADSUB and the layer 2 role. The
  * rest are refusals carrying their reason, never a guess. Camera-locked layer 3
  * ($81-$BF) is world-locked and draws from the entrance camera (#563,
- * docs/rom/layer3-world-locked.md, mode 0E's $018 too, #805); $00 off Castle1 and Underground1 and
- * vertical maps still refuse. The main/sub designations only mean BG1/BG2/BG3 in
- * BG mode 1, so an unverified mode keeps the old stacking and no math.
+ * docs/rom/layer3-world-locked.md, mode 0E's $018 too, #805); $00 off Castle1 and Underground1
+ * still refuses. A vertical map draws only the screen-locked Y $C0 case (#806).
+ * The main/sub designations only mean BG1/BG2/BG3 in BG mode 1, so an unverified
+ * mode keeps the old stacking and no math.
  */
 import type { RomFile } from '../RomFile'
 import type { RgbaColor } from '../GraphicsDecoder'
@@ -59,9 +60,12 @@ export interface L3Inputs {
   colors: RgbaColor[]
   /** Layer3XPos drawn at camera X 0: 0 unless a smash sprite drives it (the smasher's first landing, #997). Absent: 0. */
   xPx?: number
-  /** Layer3YPos at load, and Layer1YPos at load: a tile row R sits at level Y R*8 - yPx + camYPx. */
+  /** Layer3YPos at load, and Layer1YPos at load: a tile row R sits at level Y R*8 - yPx + camYPx;
+   * a vertical map omits camYPx (screen-locked: bank_05.asm:5569-5572 is never reached). */
   yPx: number
   camYPx: number
+  /** A vertical map: screens stack downward, 32 tiles wide and 16 tall, and X is not paged. */
+  isVertical?: boolean
   /**
    * Set for a settings byte $81-$BF off Castle1 and Underground1 (CODE_00A01F, bank_00.asm:4174): Layer 3
    * is world-locked, so tilemap column 0 sits at map X `camXPx`, the camera when the level loaded, and
@@ -154,8 +158,6 @@ export function buildL3Verdict(
   })
   if (readLayer3Setting(rom, index) === 0) return none('This map has no layer 3')
   if (refusal) return none(refusal)
-  // Y at load is not read for vertical maps: a sublevel's entry never reads F600 (bank_05.asm:7116-7162).
-  if (l1.isVertical) return none('Layer 3 not drawn yet: vertical maps')
   if (!gate.ok) return none(HOOKED_L3_CODE)
   const tileset = l1.header.objectTileset
   const load = loadL3Tilemap(rom, index, tileset, l1.header.timeLimit)
@@ -174,6 +176,12 @@ export function buildL3Verdict(
     // A lone BG3 on the main screen (mode 0E, $018) is not a reason to refuse: the plane lists and the
     // color math carry it like any other mode (docs/rom/layer3-world-locked.md, Map $018; #805).
     if (!kept) return refuse()
+    // A vertical map is refused for being vertical: the world-locked trace (#563) is horizontal only, and
+    // #806 traced only the screen-locked $C0 case. #805 verified a lone BG3 on horizontal maps only, so a
+    // vertical one keeps the camera-locked reason it had before.
+    if (l1.isVertical) {
+      return (layout.main & 0x03) === 0 ? refuse() : refuse('Layer 3 not drawn yet: vertical maps')
+    }
     const start = readMarioStartPos(rom, index)
     if (!start) return refuse()
     if (!cameraGate(rom).ok) return refuse(CAMERA_HOOKED)
@@ -181,6 +189,11 @@ export function buildL3Verdict(
     // leaves it alone on this path; CODE_05C48D keeps the copy each frame (bank_05.asm:5569-5570).
     yPx = readInitialLayer1YPos(rom, index, false, via)
     worldLocked = { camXPx: entranceCameraX(start.x) }
+  }
+  // Vertical maps draw only the traced $81-$BF Y $C0 case (CODE_009FFA, bank_00.asm:4175-4182; the
+  // derivation is in docs/rom/level-rendering.md). Tides, $80 and camera-locked Y stay refused.
+  if (l1.isVertical && !(yPx === 0xc0 && load.settingsByte < 0xc0)) {
+    return none('Layer 3 not drawn yet: vertical map with an untraced layer 3 type')
   }
   // A $80 byte's Y is $D0 (CODE_00A007, bank_00.asm:4184-4195) until a loaded Layer 3 Smash sprite writes X and Y
   // from its own place (#807). `smash` is the sprite's first landing, worked out by SmashLanding.ts (#997); it is
@@ -201,13 +214,15 @@ export function buildL3Verdict(
   // The GFX loader (CODE_00A993) is a third piece of layer 3 code: hooked, or any file failing to load, leaves no chars.
   const sheets = chars(rom)
   if (!sheets || sheets.length === 0) return none(HOOKED_L3_CODE)
-  const startGate = entrancePositionGate(rom, startSpans)
-  const reasons = [
-    startGate,
-    landingNote,
-    entrances === GRAPH_UNAVAILABLE ? EXIT_GRAPH_UNAVAILABLE : null,
-    worldLocked && via && !via.overworld && (via.primary || via.secondary.length > 0) ? SCREEN_EXIT_CAMERA : null, // prettier-ignore
-  ].filter((r): r is string => !!r)
+  // A vertical map's band is screen-locked and ignores camYPx, so there is nothing to be unverified.
+  const reasons = l1.isVertical
+    ? []
+    : [
+        entrancePositionGate(rom, startSpans),
+        landingNote,
+        entrances === GRAPH_UNAVAILABLE ? EXIT_GRAPH_UNAVAILABLE : null,
+        worldLocked && via && !via.overworld && (via.primary || via.secondary.length > 0) ? SCREEN_EXIT_CAMERA : null, // prettier-ignore
+      ].filter((r): r is string => !!r)
   return {
     ...known,
     // The world-locked path skips the TRB that clears BG3 (CODE_00A01F), so BG3 stays in the math.
@@ -221,6 +236,7 @@ export function buildL3Verdict(
       yPx: pos.y,
       ...(worldLocked && { worldLocked }),
       camYPx: readInitialLayer1YPos(rom, index, false, via),
+      isVertical: l1.isVertical || undefined,
       camYReasons: reasons.length ? reasons : undefined,
       // $00 is Layer3TideSetting 0: no tide (it is camera-locked or Castle1/Underground1's half-speed scroll).
       tide: load.settingsByte !== 0 && load.settingsByte < 0x80,
