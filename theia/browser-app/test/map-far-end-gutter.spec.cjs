@@ -106,10 +106,11 @@ async function openSynthetic(
       { timeout: 30000 },
     )
     .toBe(true) // prettier-ignore
-  // Only the back area is left to see: a white panel, no checkerboard, screens, sprites, edge line or grid.
+  // Only the back area is left to see: a white panel, no checkerboard, screens, sprites, edge, end line, Add screen outline or grid.
   await page.addStyleTag({
     content: `${root} .hb-map-view-scroller { background: #fff !important }
       ${root} .hb-checkerboard, ${root} .hb-map-view-screen, ${root} [data-control="map-edge"],
+      ${root} [data-control="add-screen"], ${root} [data-control="map-end-line"],
       ${root} .hb-map-view-strip canvas { visibility: hidden !important }`,
   })
   const grid = page.locator(`${root} [data-control="grid-toggle"]`)
