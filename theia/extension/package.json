@@ -55,6 +55,10 @@
     {
       "frontend": "lib/theia/extension/src/browser/map16-frontend-module",
       "backend": "lib/theia/extension/src/node/map16-backend-module"
+    },
+    {
+      "frontend": "lib/theia/extension/src/browser/objects-frontend-module",
+      "backend": "lib/theia/extension/src/node/objects-backend-module"
     }
   ],
   "keywords": [
