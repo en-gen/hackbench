@@ -103,6 +103,59 @@ export function spriteAt(
   return undefined
 }
 
+/** The tile a stored-square marker outlines: the sprite's list position, 16 x 16 (#1176, D154). */
+export const storedCell = (s: Pick<MapSpriteDto, 'stored'>): Box | undefined =>
+  s.stored && { x0: s.stored.x, y0: s.stored.y, x1: s.stored.x + 16, y1: s.stored.y + 16 }
+
+/**
+ * The sprites that get a dashed square on their stored cell (#1176, Decisions 115-117, "1B 2A 3A"): the ones the map draws
+ * away from the tile it stores them on (`stored`, set by the interpreter for any sprite whose INIT moves it, #1231), and
+ * only when the drawing does not cover that whole cell. A sprite drawn on its own cell has no `stored` and shows none.
+ */
+export function storedSquares(sprites: readonly MapSpriteDto[]): MapSpriteDto[] {
+  return sprites.filter(s => {
+    const c = storedCell(s)
+    // A sprite fixed to Layer 2 is cut and hit-tested apart from the map's sprites (`spriteAt`), so it gets no square either.
+    if (!c || s.fixedTo) return false
+    const { x0, y0, x1, y1 } = s.box
+    return !(x0 <= c.x0 && y0 <= c.y0 && x1 >= c.x1 && y1 >= c.y1)
+  })
+}
+
+/**
+ * The sprite whose shown square holds the map pixel (x, y), the topmost (later in the list) first. Checked before
+ * `spriteAt`, so a click on a square selects its own sprite even where another sprite's drawing covers it (D154 3A).
+ */
+export function storedSquareAt(
+  squares: readonly MapSpriteDto[],
+  x: number,
+  y: number,
+): MapSpriteDto | undefined {
+  const [px, py] = [Math.floor(x), Math.floor(y)]
+  for (let n = squares.length - 1; n >= 0; n--) {
+    const c = storedCell(squares[n]!)!
+    if (px >= c.x0 && px < c.x1 && py >= c.y0 && py < c.y1) return squares[n]
+  }
+  return undefined
+}
+
+/** The hover on a stored square, in plain words (D154, #1176). */
+export const STORED_SQUARE_TIP =
+  'Stored here in the map data, but drawn elsewhere: this is where the game puts it.'
+
+/**
+ * What the hover shows and the box it is anchored on, for a sprite under the pointer or, with `square`, for its stored square
+ * (D154, #1176): the plain-words tip, anchored on the 16 x 16 cell. Otherwise the sprite's name, anchored on its box.
+ */
+export function spriteHover(
+  s: Pick<MapSpriteDto, 'name' | 'reveal' | 'id' | 'kind' | 'box' | 'stored'> &
+    Partial<Pick<MapSpriteDto, 'status' | 'reason'>>,
+  square: boolean,
+): { content: string | undefined; box: Box } {
+  const cell = square ? storedCell(s) : undefined
+  return { content: square ? STORED_SQUARE_TIP : spriteName(s), box: cell ?? s.box }
+}
+
 /** Where a hover anchor was placed: zoom and the strip's origin on screen, so a layout shift (not only a zoom) re-places it. */
 export const hoverPlacementKey = (zoom: number, rect: { left: number; top: number }): string =>
   `${zoom}:${Math.round(rect.left)}:${Math.round(rect.top)}`

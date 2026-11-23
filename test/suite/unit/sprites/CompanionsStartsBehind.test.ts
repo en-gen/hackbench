@@ -17,7 +17,7 @@ const X = 0x1090
 const FAR = -0x2000
 
 /** startsBehind for `id` placed at X with the loader window `left` (scrolling left/up) and `right` (right/down). */
-function behind(id: number, left: number, right: number): boolean | undefined {
+function behind(id: number, left: number, right: number): ReturnType<typeof startsBehind> {
   const rom = buildSyntheticRom()
   const [l, r] = [word(left), word(right)]
   rom.writeAt(TABLES, [l[0]!, 0, r[0]!, l[2]!, 0, r[2]!])

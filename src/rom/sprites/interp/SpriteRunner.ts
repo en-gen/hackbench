@@ -17,6 +17,7 @@ import {
   type LoaderDigest,
   loaderWindow,
   neverAppears,
+  spawnHidden,
   onLinePass,
 } from './LineAppearance'
 import {
@@ -130,7 +131,7 @@ export interface SpritePart {
   priority: number
   flipX: boolean
   flipY: boolean
-  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position when INIT's moves are kept, and the position at the end of the pass at rest (`PassResult.pos`; the picture is then drawn on the placed spot, `SpriteModel.anchor`), or where the pass began when the sprite drew there and then moved (#1131), except for a line-guided id on a vanilla-shaped handler. */
+  /** Pixels from the pass's draw origin (`PassResult.origin`): the post-INIT position when INIT's moves are kept, and the position at the end of the pass at rest (`PassResult.pos`; the picture is then drawn where INIT left the sprite, `SpriteModel.anchor`), or where the pass began when the sprite drew there and then moved (#1131), except for a line-guided id on a vanilla-shaped handler. */
   dx: number
   dy: number
   /** Raw attribute byte, for graders that compare it whole. */
@@ -206,7 +207,7 @@ export interface SpriteModel {
   seedSource?: 'rom-level-load' | 'generic'
   /** The run began from the loader image with this sprite's INIT latch put back (InitLatches.ts). */
   initLatched?: boolean
-  /** The sprite's INIT places its own sprites at fixed map positions: drawn there, not re-based onto the placed spot (InitLatches.ts). */
+  /** The sprite's INIT places its own sprites at fixed map positions: drawn where INIT put them, whatever the list spot (InitLatches.ts). */
   absolutePlacement?: boolean
   /** Plain words for why an absolute-placement picture is not the traced one (InitLatches.ts `tracedSetting`); the view marks the sprite unverified. */
   unverifiedReason?: string
@@ -231,16 +232,16 @@ export interface SpriteModel {
   lineStepReason?: string
   /** Why a $65-$68 sprite's INIT is not the stock InitLineGuidedSpr: its shift is unverified, though the interpreter ran it. */
   lineInitReason?: string
-  /** True when the at-rest picture is drawn where INIT left the sprite, not at its list position (`anchor` vs `rawX`, `rawY`). */
+  /** True when the at-rest picture is drawn where the sprite's own code left it, not at its list position (`anchor` vs `rawX`, `rawY`): any sprite since #1231, not only line-guided ones. */
   shifted?: boolean
-  /** At rest, for a line-guided sprite the gate refused: its INIT moves it, but the picture stays on its tile (see `lineGateReason`). */
+  /** At rest, for a line-guided sprite the gate refused: its INIT moves it and the general rule draws it there, not checked against the stock line-guided code (see `lineGateReason`). */
   initMoved?: boolean
   /** The rope's length was not worked out from the loader (#1230): a plain-words line for the Properties panel and the map's note. */
   lengthNote?: string
-  /** At rest, an admitted line-guided sprite that starts behind the scroll in every spawn the loader allows (D156): it stays on its stored tile. */
+  /** At rest, a moved sprite that starts behind the scroll in every spawn the loader allows (D156, every moved sprite since #1231): it stays on its stored tile. */
   neverAppears?: boolean
-  /** Set for an INIT-moved line-guided sprite when the map's sprite loader is not the stock one: whether it appears was not checked. */
-  spawnUnchecked?: boolean
+  /** At rest, a moved sprite whose never-appears check (`startsBehind`) gave no verdict: 'loader' when the map's sprite loader is not the stock one, 'refused' when a spawn run it needed was refused. */
+  spawnUnchecked?: Unchecked
   /** At rest, how the sprite reached the line drawn: by its first steps, or after falling first. */
   onLine?: 'step' | 'fell'
   /** At rest, a line-guided sprite the run never put on its line: drawn where it first drew, and unverified. */
@@ -314,12 +315,10 @@ export interface RunOptions {
   /** The sprite loader's digest to hold the map's loader to; a test hook, so a synthetic cart brings its own (default: vanilla's). */
   loader?: LoaderDigest
   /**
-   * `true` is the map view's at-rest picture. D139 D, D138 A: INIT runs for the look only (tiles, flips,
-   * variants, status). D134, D91: the drawing is re-based onto the placed spot, so INIT's moves are not shown.
-   * The exception is a line-guided id: D156 draws it where the game first has it on its line (the pass after the
-   * lock, `online + 1`), so that move is shown (320 px left for the vanilla chainsaws). The not-at-rest
-   * line-walk pick (third drawn pass) is absent. Default false: INIT first and its moves kept, as the game and
-   * the graders do.
+   * `true` is the map view's at-rest picture. The owner's rule (#1231) is that the map shows what the game's own code
+   * produces, so the drawing stands where INIT left the sprite and its stored spot is kept apart in `anchor.rawX`, `rawY`.
+   * MAIN's own few pixels of motion stay out (#1131), and a moved sprite the loader never shows is put back on its tile (D156).
+   * Default false: INIT first and its moves kept, as the game and the graders have it.
    */
   atRest?: boolean
   /** End the run at the first pass that draws a tile: for a caller that only asks whether the sprite draws (RevealSearch.ts probes). */
@@ -969,23 +968,20 @@ function runCore(
     const placed = { x: m.seed.sprite.x, y: m.seed.sprite.y }
     // INIT can move a sprite off the screen the run was centred on (the grinders' -$140, the Podoboo's drop),
     // and GetDrawInfo then culls it. The camera only picks which screen the picture is taken on: centre it on the
-    // post-INIT spot; the drawing is re-based onto the placed spot below (D139 D, D134).
+    // post-INIT spot, which is also where the picture stands (#1231).
     if (model.absolutePlacement) {
       // The camera comes from the grid itself, never from the placed spot: the game draws these blocks with 8-bit OAM
       // coordinates (SMWDisX bank_01.asm:12866-12869, 12934-12940), so a camera that moved with the list entry wrapped or
       // culled blocks. The slot's post-INIT spot is the block the INIT wrote there: fixed for a given memory setting (the slot differs by setting), so the screen is fixed too.
       m.recentre(anchor.x - 128 - m.seed.camera.x, anchor.y - 112 - m.seed.camera.y)
     } else if (atRest) m.recentre(anchor.x - placed.x, anchor.y - placed.y)
-    // D158 / Decision 124 (A; B, the D137-A reading that it follows the placed spot and a drag, was rejected): a sprite whose
-    // INIT lays out its own sprites at fixed map positions (absolutePlacement) is drawn where the INIT put them, so the
-    // D134 / D139-D re-base onto the placed spot is skipped for it and for no other sprite.
-    model.anchor = {
-      ...(atRest && !model.absolutePlacement ? placed : anchor),
-      rawX: placed.x,
-      rawY: placed.y,
-    }
+    // D158 / Decision 124 (A): a sprite whose INIT lays out its own sprites at fixed map positions (absolutePlacement) is
+    // drawn where the INIT put them (as every sprite is now); its list spot stays in `rawX`, `rawY`.
+    // #1231 (Decision 2026-11-14, replacing D134's re-base): at rest the drawing stands where INIT left the sprite, for every
+    // sprite; the stored spot (`rawX`, `rawY`) stays its data. A sprite the loader never shows in play goes back to its tile below.
+    model.anchor = { ...anchor, rawX: placed.x, rawY: placed.y }
     if (snaps) model.snaps = true
-    // A gate-refused line-guided sprite stays on its tile at rest; if its INIT moves it, the picture says so (rom-interpretation: warn).
+    // A gate-refused line-guided sprite is drawn by the general rule (where INIT left it, #1231); if INIT moves it, the picture says it was not checked against the stock code (rom-interpretation: warn).
     else if (atRest && gate && (anchor.x !== placed.x || anchor.y !== placed.y))
       model.initMoved = true
     model.oamBase = w[RAM.oamIndex + m.seed.slot]
@@ -1082,34 +1078,38 @@ function runCore(
       else if (num === 0x67) model.chosen = 1
       else model.lineStepReason = 'the third pass drew nothing or the second did not move the sprite: kept the first drawn pass' // prettier-ignore
     }
-    // At rest the picture is the placed spot (D91), except for an admitted line-guided sprite whose own INIT moved it
-    // before its first frame (InitLineGuidedSpr, bank_01.asm:11788-11811; InitLineRope's two steps): the game draws it
-    // where INIT left it, so the picture stands on the chosen pass's own origin, which the parts are measured from
-    // (owner ruling R16 / D85 B). Interpreted, not a constant: the move is whatever INIT did.
+    // At rest the picture stands where INIT left the sprite (#1231), for every sprite: the move is whatever INIT did,
+    // interpreted, never a constant or an id list. An admitted line-guided sprite stands on the chosen pass's own origin,
+    // which the parts are measured from (owner ruling R16 / D85 B): its INIT, or a step before its first draw, moved it.
     if (snaps && !atRest && model.chosen !== undefined)
       model.anchor = { ...model.anchor!, ...model.passes[model.chosen]!.origin }
-    else if (atRest && snaps && model.chosen !== undefined) {
+    else if (atRest && !model.absolutePlacement && model.chosen !== undefined) {
       // The game's first drawn frame is at the chosen pass's origin, whoever moved the sprite there: start-up code,
-      // or a step before the first pass that draws. A sprite left of the map's edge is a negative X in 16 bits.
+      // or (a line-guided sprite) a step before the first pass that draws. A sprite left of the map's edge is a negative X in 16 bits.
       const signed = (v: number) => (v & 0x8000 ? v - 0x10000 : v)
       const o = model.passes[model.chosen]!.origin
-      const at = { x: signed(o.x), y: signed(o.y) }
+      const at = snaps
+        ? { x: signed(o.x), y: signed(o.y) }
+        : { x: signed(anchor.x), y: signed(anchor.y) }
+      const onTile = { ...model.anchor!, x: placed.x, y: placed.y }
       // A sprite INIT leaves on its tile spawns where the loader puts it, ahead of the scroll; one INIT moves may start
-      // behind it in every spawn, and then the game never shows it (D156): it stays on its stored tile.
+      // behind it in every spawn, and then the game never shows it (D156, every moved sprite since #1231): it stays on its stored tile.
       const moved = signed(anchor.x) !== signed(placed.x) || signed(anchor.y) !== signed(placed.y)
       const behind = first >= 0 && moved ? startsBehind(rom, id, m.seed, opts, placed) : false
-      if (behind === undefined) model.spawnUnchecked = true
-      if (behind) {
+      if (typeof behind === 'string') model.spawnUnchecked = behind
+      if (behind === true) {
         model.neverAppears = true
         model.chosen = first
+        model.anchor = onTile
       } else if (at.x !== signed(placed.x) || at.y !== signed(placed.y)) {
         model.anchor = { ...model.anchor!, ...at }
         model.initAt = { x: signed(anchor.x), y: signed(anchor.y) }
         model.shifted = true
-      }
-      // A sprite whose INIT moved it is trusted only when its INIT is a stock line-guided one; one moved only by its
-      // first step has no INIT move to check.
+      } else model.anchor = onTile
+      // A line-guided sprite whose INIT moved it is trusted only when its INIT is a stock line-guided one; one moved only by
+      // its first step has no INIT move to check.
       if (
+        snaps &&
         (model.shifted || model.neverAppears) &&
         inits?.ok &&
         moved &&
@@ -1126,11 +1126,15 @@ function runCore(
   return model
 }
 
+/** Why the never-appears check gave no verdict: the loader's window could not be read, or a spawn run it needed was refused. */
+export type Unchecked = 'loader' | 'refused'
+
 /**
  * Whether no spawn the loader allows shows the sprite (D156): it spawns at the right or left edge (offsets read from the
  * ROM, `loaderWindow`) or, if the map's loader placed it, at the map-load camera. Each is run from that camera with
  * the sprite where the loader puts it, and the side of the scroll it starts on decides (`neverAppears`).
- * Exported for the companion tests, which run it on a non-line-guided synthetic id.
+ * Exported for the companion tests, which run it on a non-line-guided synthetic id. Gives no verdict (`Unchecked`) when
+ * the window cannot be read, or when a spawn run was refused and no other spawn showed the sprite.
  */
 export function startsBehind(
   rom: RomFile,
@@ -1138,32 +1142,62 @@ export function startsBehind(
   seed: SpriteSeed,
   opts: RunOptions,
   placed: { x: number; y: number },
-): boolean | undefined {
+): boolean | Unchecked {
   const win = loaderWindow(rom, opts.loader)
-  if (!win) return undefined
+  if (!win) return 'loader'
   const vert = (seed.level.screenMode & 1) === 1
   const screen = vert ? 224 : 256
   const at = vert ? placed.y : placed.x
-  const spawn = (dir: Spawn['dir'], cam: number): Spawn => {
-    const m = runOnce(rom, id, withSeed({ camera: vert ? { y: cam } : { x: cam } }, seed), { ...opts, atRest: false, probe: undefined, neighbourProbe: undefined }) // prettier-ignore
+  const spawn = (dir: Spawn['dir'], cam: number): Spawn | undefined => {
+    // Erased in the run (status 0 after INIT or any pass) is the evidence an empty run needs; a culled sprite stays alive. The game
+    // erases a sprite its offscreen handler finds out of range (SubOffscreen0Bnk1 and kin, OffScrEraseSprite, bank_01.asm:5975-6043).
+    let erased = false
+    const probe: Probe = (_, w) => {
+      if (w[RAM.status + seed.slot] === 0) erased = true
+    }
+    const m = runOnce(rom, id, withSeed({ camera: vert ? { y: cam } : { x: cam } }, seed), { ...opts, atRest: false, probe, neighbourProbe: undefined, stopAtDraw: true }) // prettier-ignore
+    // A refused run (budget, a table past its end) read nothing about the spawn: unchecked, not evidence either way.
+    if (m.refusal) return undefined
     const q = m.passes.find(p => drawnParts(p).length)
-    if (!q) return { dir, extent: null }
     const sgn = (v: number) => (v << 16) >> 16
+    // An empty run says nothing about which side of the scroll the sprite is on: the game hides what GetDrawInfo culls (Y $F0),
+    // (GetDrawInfoBnk1, bank_01.asm:4748-4769), and on a vertical map the loader spawns a sprite 288 px below or 48 px above
+    // the camera, outside that window (bank_02.asm:5217-5238). So the evidence is the sprite itself: erased in the run, or else where its own position stands
+    // against the camera (a point, no art to measure).
+    if (!q) {
+      const erasedHere = erased || m.emptyReason?.startsWith('INIT erased') === true
+      if (erasedHere || !m.anchor) return { dir, extent: null, erased: erasedHere }
+      const at = sgn(vert ? m.anchor.y : m.anchor.x) - cam
+      return { dir, extent: { lo: at, hi: at } }
+    }
     const edge = (t: SpritePart, far: boolean) => sgn(vert ? q.origin.y : q.origin.x) + (vert ? t.dy : t.dx) - cam + (far ? t.size : 0) // prettier-ignore
     return { dir, extent: { lo: Math.min(...drawnParts(q).map(t => edge(t, false))), hi: Math.max(...drawnParts(q).map(t => edge(t, true))) } } // prettier-ignore
   }
-  const spawns = (
-    [
-      [1, at - win.right],
-      [-1, at - win.left],
-    ] as const
-  )
-    .filter(([, cam]) => cam >= 0 && cam <= seed.level.screens * 256 - screen)
-    .map(([dir, cam]) => spawn(dir, cam))
   const w = seed.loaded
+  const cams: [Spawn['dir'], number][] = [
+    [1, at - win.right],
+    [-1, at - win.left],
+  ]
+  const allowed = cams.filter(([, cam]) => cam >= 0 && cam <= seed.level.screens * 256 - screen)
+  // The map-load spawn goes first: a sprite inside the opening window shows there, which ends the probe after one run.
   if (seed.opening && w)
-    spawns.push(spawn(0, vert ? w[0x1c]! | (w[0x1d]! << 8) : w[0x1a]! | (w[0x1b]! << 8)))
-  return neverAppears(spawns, screen)
+    allowed.unshift([0, vert ? w[0x1c]! | (w[0x1d]! << 8) : w[0x1a]! | (w[0x1b]! << 8)])
+  // Lazy: one spawn that shows the sprite settles it (`neverAppears` needs every spawn hidden), so the rest are not run
+  // (each is a full interpreter run; #1231 made this probe run for every moved sprite). Each run stops at its first drawn
+  // pass, so a sprite that draws on pass 0 is judged from that pass alone, whatever a later pass would do (a neighbour scan
+  // or a refusal after the first draw). That can differ from running every pass: the shorter run is the one the game
+  // shows at the spawn, so the verdict is the more careful one, not the same one (test: StartsBehindLazy.test.ts).
+  // A refused run is no evidence, but a later spawn that shows the sprite still settles it: keep going, and answer
+  // 'refused' only when none did.
+  const spawns: Spawn[] = []
+  let refused = false
+  for (const [dir, cam] of allowed) {
+    const s = spawn(dir, cam)
+    if (!s) refused = true
+    else if (!spawnHidden(s, screen)) return false
+    else spawns.push(s)
+  }
+  return refused ? 'refused' : neverAppears(spawns, screen)
 }
 
 /** One string per run of what it draws (companions included), so two runs that draw the same pieces compare equal. */

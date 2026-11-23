@@ -877,15 +877,16 @@ describe.skipIf(!hasRom(VANILLA))('interpreter vs table engine on vanilla maps',
     },
   )
 
-  it('$4F on $105 is served at its stream position: the INIT move (+8, -1) is not shown at rest (D134)', () => {
+  it('$4F on $105 is drawn where its INIT leaves it: the list position plus (+8, -1), with the stored tile kept (#1231)', () => {
     const b = bytes()
     const r = mapSprites(new L1ModelCache(), b, romPath(VANILLA), 0x105)
     if (r.status !== 'ok') throw new Error(JSON.stringify(r))
     const rom = new SmwRom(RomFile.fromBytes('x.sfc', Buffer.from(b)))
     const raw = parseLevelSprites(rom.rom.readUpTo(rom.getLevelSpritePointer(0x105)!, 0x200)!, false).filter(s => s.spriteId === 0x4f) // prettier-ignore
     const served = r.sprites.filter(s => s.id === 0x4f)
-    expect(served.map(s => [s.x, s.y])).toEqual([[1808, 336], [2224, 320], [4544, 320]]) // prettier-ignore
-    expect(served.map(s => [s.x, s.y])).toEqual(raw.map(s => [s.x * 16, s.y * 16]))
+    const list = raw.map(s => [s.x * 16, s.y * 16])
+    expect(served.map(s => [s.x, s.y])).toEqual(list.map(([x, y]) => [x! + 8, y! - 1]))
+    expect(served.map(s => [s.stored!.x, s.stored!.y])).toEqual(list)
     expect(served.every(s => s.status === 'drawn')).toBe(true)
   })
 

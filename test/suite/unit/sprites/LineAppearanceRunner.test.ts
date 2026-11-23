@@ -189,7 +189,7 @@ describe('a loader that cannot be read fails closed', () => {
   it('draws the sprite on its line, as for a stock loader, but says it could not check', () => {
     const open = run({ rom: { grinderInitShifts: true, grinderLocksOnPass: 2 } }).m
     const shut = run({ rom: { grinderInitShifts: true, grinderLocksOnPass: 2 }, tamper: true }).m
-    expect(shut.spawnUnchecked).toBe(true)
+    expect(shut.spawnUnchecked).toBe('loader')
     expect(open.spawnUnchecked).toBeUndefined()
     expect([shut.anchor!.x, shut.shifted, shut.neverAppears]).toEqual([
       open.anchor!.x,
@@ -197,6 +197,13 @@ describe('a loader that cannot be read fails closed', () => {
       undefined,
     ])
     expect(modelResult(shut)).toMatchObject({ ok: true, unverified: expect.stringMatching(/could not check whether this sprite appears in play/) }) // prettier-ignore
+  })
+  it('a spawn run that was refused says so in its own words, not the loader reason', () => {
+    const { m } = run({ rom: { grinderInitShifts: true, grinderLocksOnPass: 2 }, tamper: true })
+    const refused = modelResult({ ...m, spawnUnchecked: 'refused' })
+    expect(refused).toMatchObject({ ok: true, unverified: expect.stringMatching(/first moments on screen could not be worked out/) }) // prettier-ignore
+    expect((refused as { unverified: string }).unverified).not.toMatch(/not the stock one/)
+    expect(modelResult(m)).toMatchObject({ unverified: expect.stringMatching(/not the stock one/) })
   })
   it('a sprite INIT does not move has nothing to check', () => {
     expect(run({ rom: { grinderLocksOnPass: 2 }, tamper: true }).m.spawnUnchecked).toBeUndefined()
